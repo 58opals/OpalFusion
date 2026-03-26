@@ -1,6 +1,6 @@
-# OpalFusion
+# Opal Fusion
 
-OpalFusion is the BCH CashFusion protocol and runtime package in the Opal stack. It sits below `OpalBase` and above `OpalCrypto` so CashFusion-specific coordinator connectivity, covert transport, round state handling, commitments, blind-signature flow, and blame handling can live in one focused package.
+Opal Fusion is the BCH CashFusion protocol and runtime package in the Opal stack. It sits below `OpalBase` and above `OpalCrypto` so CashFusion-specific coordinator connectivity, covert transport, round state handling, commitments, blind-signature flow, and blame handling can live in one focused package.
 
 ## Scope
 
