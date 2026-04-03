@@ -33,6 +33,23 @@ struct OpalFusionContractValidator {
         #expect(state.round == round)
     }
 
+    @Test("Round state remains constructible with an additive completion status")
+    func validateRoundStateCompletionStatusConstruction() {
+        let round = OpalFusion.Round.State(
+            identifier: .init(rawValue: "round-002"),
+            phase: .completed,
+            participantCount: 8,
+            completionStatus: .success,
+            isTerminal: true
+        )
+
+        #expect(round.identifier == .init(rawValue: "round-002"))
+        #expect(round.phase == .completed)
+        #expect(round.participantCount == 8)
+        #expect(round.completionStatus == .success)
+        #expect(round.isTerminal == true)
+    }
+
     @Test("Host protocol adapters satisfy the public host integration seams")
     func validateHostProtocolAdapters() async throws {
         let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "round-001")
