@@ -20,6 +20,10 @@ let package = Package(
     targets: [
         .target(
             name: "OpalFusion"
+        ),
+        .testTarget(
+            name: "OpalFusionTests",
+            dependencies: ["OpalFusion"]
         )
     ]
 )
