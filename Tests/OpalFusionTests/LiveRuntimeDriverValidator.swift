@@ -431,6 +431,57 @@ struct LiveRuntimeDriverValidator {
         await coordinator.stop()
     }
 
+    @Test("Signing transaction assembler signs the matching input instead of assuming input zero")
+    func validateSigningAssemblerMatchesOutpoint() async throws {
+        let scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let assembler = SigningTransactionAssembler(
+            participantInput: scenario.reservation.inputs[0],
+            participantInputPrivateKey: scenario.participantInputPrivateKey
+        )
+
+        let unsignedTransaction = OpalFusion.Execution.BCHTransaction(
+            version: 1,
+            inputs: [
+                .init(
+                    previousTransactionHashLittleEndian: [UInt8](repeating: 0xEE, count: 32),
+                    previousOutputIndex: 0,
+                    unlockingScript: [],
+                    sequence: .max
+                ),
+                .init(
+                    previousTransactionHashLittleEndian: Array(
+                        scenario.reservation.inputs[0].outpointTransactionHash.reversed()
+                    ),
+                    previousOutputIndex: scenario.reservation.inputs[0].outpointIndex,
+                    unlockingScript: [],
+                    sequence: .max
+                ),
+            ],
+            outputs: [
+                .init(
+                    amountSatoshis: scenario.reservation.outputs[0].amountSatoshis,
+                    lockingScript: scenario.reservation.outputs[0].lockingScript
+                )
+            ],
+            lockTime: 0
+        )
+        let proposal = OpalFusion.Host.TransactionFinalizationProposal(
+            serializedUnsignedTransaction: try unsignedTransaction.serialized()
+        )
+
+        let finalizedTransaction = try await assembler.finalizeTransaction(
+            for: scenario.round.identifier!,
+            proposal: proposal
+        )
+        let parsedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
+            finalizedTransaction.serializedTransaction
+        )
+
+        #expect(parsedTransaction.inputs[0].unlockingScript.isEmpty)
+        #expect(parsedTransaction.inputs[1].unlockingScript.isEmpty == false)
+        #expect(parsedTransaction.inputs[1].unlockingScript[0] == 0x41)
+    }
+
     @Test("Live runtime driver clears covert state on restart while keeping primary continuity")
     func validateRestartPath() async throws {
         let coordinator = try await LoopbackPrimaryCoordinator.start()

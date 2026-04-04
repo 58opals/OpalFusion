@@ -9,6 +9,7 @@ enum LiveRuntimeTestSupportError: Swift.Error, Equatable {
     case timedOut(String)
     case missingConnection
     case inboundStreamClosed
+    case signingInputNotFound
 }
 
 func withTimeout<T: Sendable>(
@@ -336,13 +337,38 @@ struct RecordedHostEvent: Sendable, Equatable {
     let event: OpalFusion.Host.Event
 }
 
+struct TimedRecordedHostEvent: Sendable {
+    let roundIdentifier: OpalFusion.Round.Identifier?
+    let event: OpalFusion.Host.Event
+    let recordedAt: Date
+}
+
+struct TimedRoundRequestRecord: Sendable {
+    let roundIdentifier: OpalFusion.Round.Identifier
+    let recordedAt: Date
+}
+
+struct TimedTransactionProposalRecord: Sendable {
+    let roundIdentifier: OpalFusion.Round.Identifier
+    let proposal: OpalFusion.Host.TransactionFinalizationProposal
+    let recordedAt: Date
+}
+
 actor RecordedHostEventSink {
     private var events: [RecordedHostEvent] = []
+    private var timedEvents: [TimedRecordedHostEvent] = []
 
     func record(
         roundIdentifier: OpalFusion.Round.Identifier?,
         event: OpalFusion.Host.Event
     ) {
+        timedEvents.append(
+            .init(
+                roundIdentifier: roundIdentifier,
+                event: event,
+                recordedAt: Date()
+            )
+        )
         events.append(
             .init(
                 roundIdentifier: roundIdentifier,
@@ -353,6 +379,10 @@ actor RecordedHostEventSink {
 
     func snapshot() -> [RecordedHostEvent] {
         events
+    }
+
+    func timedSnapshot() -> [TimedRecordedHostEvent] {
+        timedEvents
     }
 }
 
@@ -382,6 +412,7 @@ actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider 
     private let participantOutputs: [OpalFusion.Host.ParticipantOutput]
     private let delay: Duration
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
+    private var requestRecords: [TimedRoundRequestRecord] = []
 
     init(
         participantInputs: [OpalFusion.Host.ParticipantInput],
@@ -398,6 +429,12 @@ actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider 
         for roundIdentifier: OpalFusion.Round.Identifier
     ) async throws -> [OpalFusion.Host.ParticipantInput] {
         requestedRoundIdentifiers.append(roundIdentifier)
+        requestRecords.append(
+            .init(
+                roundIdentifier: roundIdentifier,
+                recordedAt: Date()
+            )
+        )
 
         if delay > .zero {
             try await Task.sleep(for: delay)
@@ -410,6 +447,12 @@ actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider 
         for roundIdentifier: OpalFusion.Round.Identifier
     ) async throws -> OpalFusion.Host.ParticipantReservation {
         requestedRoundIdentifiers.append(roundIdentifier)
+        requestRecords.append(
+            .init(
+                roundIdentifier: roundIdentifier,
+                recordedAt: Date()
+            )
+        )
 
         if delay > .zero {
             try await Task.sleep(for: delay)
@@ -424,6 +467,10 @@ actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider 
     func requestedRounds() -> [OpalFusion.Round.Identifier] {
         requestedRoundIdentifiers
     }
+
+    func timedRequestRecords() -> [TimedRoundRequestRecord] {
+        requestRecords
+    }
 }
 
 actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
@@ -431,6 +478,7 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     private let delay: Duration
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
     private var proposals: [OpalFusion.Host.TransactionFinalizationProposal] = []
+    private var proposalRecords: [TimedTransactionProposalRecord] = []
 
     init(
         finalizedTransaction: OpalFusion.Host.FinalizedTransaction,
@@ -448,6 +496,13 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     ) async throws -> OpalFusion.Host.FinalizedTransaction {
         requestedRoundIdentifiers.append(roundIdentifier)
         proposals.append(proposal)
+        proposalRecords.append(
+            .init(
+                roundIdentifier: roundIdentifier,
+                proposal: proposal,
+                recordedAt: Date()
+            )
+        )
 
         if delay > .zero {
             try await Task.sleep(for: delay)
@@ -463,6 +518,10 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     func recordedProposals() -> [OpalFusion.Host.TransactionFinalizationProposal] {
         proposals
     }
+
+    func timedProposalRecords() -> [TimedTransactionProposalRecord] {
+        proposalRecords
+    }
 }
 
 actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
@@ -471,6 +530,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     private let delay: Duration
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
     private var proposals: [OpalFusion.Host.TransactionFinalizationProposal] = []
+    private var proposalRecords: [TimedTransactionProposalRecord] = []
     private var signatures: [[UInt8]] = []
 
     init(
@@ -492,6 +552,13 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     ) async throws -> OpalFusion.Host.FinalizedTransaction {
         requestedRoundIdentifiers.append(roundIdentifier)
         proposals.append(proposal)
+        proposalRecords.append(
+            .init(
+                roundIdentifier: roundIdentifier,
+                proposal: proposal,
+                recordedAt: Date()
+            )
+        )
 
         if delay > .zero {
             try await Task.sleep(for: delay)
@@ -510,6 +577,10 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         proposals
     }
 
+    func timedProposalRecords() -> [TimedTransactionProposalRecord] {
+        proposalRecords
+    }
+
     func recordedSignatures() -> [[UInt8]] {
         signatures
     }
@@ -524,8 +595,17 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         var transaction = try OpalFusion.Execution.BCHTransaction.parse(
             proposal.serializedUnsignedTransaction
         )
+        let previousTransactionHashLittleEndian = Array(
+            participantInput.outpointTransactionHash.reversed()
+        )
+        guard let inputIndex = transaction.inputs.firstIndex(where: { input in
+            input.previousTransactionHashLittleEndian == previousTransactionHashLittleEndian &&
+                input.previousOutputIndex == participantInput.outpointIndex
+        }) else {
+            throw LiveRuntimeTestSupportError.signingInputNotFound
+        }
         let sighash = try transaction.signatureHash(
-            forInputAt: 0,
+            forInputAt: inputIndex,
             lockingScript: participantInput.lockingScript,
             amountSatoshis: participantInput.amountSatoshis
         )
@@ -545,7 +625,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         unlockingScript.append(0x21)
         unlockingScript.append(contentsOf: participantInputPublicKey)
 
-        transaction = transaction.settingUnlockingScript(unlockingScript, at: 0)
+        transaction = transaction.settingUnlockingScript(unlockingScript, at: inputIndex)
         return (
             .init(serializedTransaction: try transaction.serialized()),
             signature

@@ -32,7 +32,7 @@ This README stays intentionally brief and points back to the canonical spec inst
 
 ## Current Maturity
 
-Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, and `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material. Public activation remains intentionally conservative: live runtime/session driving is still internal-only, a public client session API is not exposed yet, and broader live Electron Cash coordinator validation is still being proven.
+Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material, plus a gated real Electron Cash `4.4.3` interoperability smoke validator for local coordinator-backed proofing. Public activation remains intentionally conservative: live runtime/session driving is still internal-only, a public client session API is not exposed yet, and broader coordinator validation is still treated as an internal proofing path rather than a public product surface.
 
 ## Current Public Surface
 
