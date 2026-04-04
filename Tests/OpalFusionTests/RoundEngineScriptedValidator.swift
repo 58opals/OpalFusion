@@ -72,13 +72,13 @@ struct RoundEngineScriptedValidator {
         )
         #expect(
             startRoundEffects == [
-                .requestHostInputs(roundIdentifier: roundIdentifier),
+                .requestParticipantReservation(roundIdentifier: roundIdentifier),
                 .emitHostEvent(
                     roundIdentifier: roundIdentifier,
                     event: .init(
                         kind: .status,
                         phase: .registeringInputs,
-                        summary: "StartRound received; collecting reserved inputs"
+                        summary: "StartRound received; collecting reserved inputs and outputs"
                     )
                 )
             ]
@@ -91,7 +91,7 @@ struct RoundEngineScriptedValidator {
         )
 
         let commitEffects = engine.apply(
-            input: .hostInputsLoaded([Self.participantInput]),
+            input: .participantReservationLoaded(Self.participantReservation),
             now: Self.instant(1_031)
         )
         #expect(
@@ -404,7 +404,7 @@ struct RoundEngineScriptedValidator {
         var timeoutEngine = Self.makeEngine()
         Self.driveThroughStartRound(engine: &timeoutEngine)
         _ = timeoutEngine.apply(
-            input: .hostInputsLoaded([Self.participantInput]),
+            input: .participantReservationLoaded(Self.participantReservation),
             now: Self.instant(1_031)
         )
         let timeoutEffects = timeoutEngine.apply(
@@ -496,7 +496,22 @@ private extension RoundEngineScriptedValidator {
             outpointTransactionHash: [0x10, 0x11],
             outpointIndex: 0,
             amountSatoshis: 50_000,
-            lockingScript: [0x51]
+            lockingScript: [0x51],
+            publicKey: [0x02, 0x10, 0x11]
+        )
+    }
+
+    static var participantOutput: OpalFusion.Host.ParticipantOutput {
+        .init(
+            lockingScript: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
+            amountSatoshis: 49_000
+        )
+    }
+
+    static var participantReservation: OpalFusion.Host.ParticipantReservation {
+        .init(
+            inputs: [participantInput],
+            outputs: [participantOutput]
         )
     }
 
@@ -671,7 +686,7 @@ private extension RoundEngineScriptedValidator {
     ) {
         driveThroughStartRound(engine: &engine)
         _ = engine.apply(
-            input: .hostInputsLoaded([participantInput]),
+            input: .participantReservationLoaded(participantReservation),
             now: instant(1_031)
         )
         _ = engine.apply(

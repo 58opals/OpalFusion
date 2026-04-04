@@ -29,7 +29,7 @@ extension OpalFusion.Runtime {
             configuration: OpalFusion.Client.Configuration,
             genesisHash: [UInt8]? = nil,
             joinPools: OpalFusion.ProtocolModel.JoinPools,
-            workflow: OpalFusion.Execution.WorkflowContext,
+            workflow: OpalFusion.Execution.WorkflowContext? = nil,
             participantInputProvider: any OpalFusion.Host.ParticipantInputProvider,
             transactionAssembler: any OpalFusion.Host.TransactionAssembler,
             eventObserver: (any OpalFusion.Host.EventObserver)? = nil,
@@ -209,15 +209,15 @@ extension OpalFusion.Runtime {
                         )
                     }
                 }
-            case let .requestHostInputs(roundIdentifier):
+            case let .requestParticipantReservation(roundIdentifier):
                 Task {
                     do {
-                        let inputs = try await self.participantInputProvider.reservedInputs(
+                        let reservation = try await self.participantInputProvider.participantReservation(
                             for: roundIdentifier
                         )
-                        await self.handle(.hostInputsLoaded(inputs))
+                        await self.handle(.participantReservationLoaded(reservation))
                     } catch {
-                        await self.handle(.hostInputsRejected)
+                        await self.handle(.participantReservationRejected)
                     }
                 }
             case let .requestTransactionFinalization(roundIdentifier, proposal):

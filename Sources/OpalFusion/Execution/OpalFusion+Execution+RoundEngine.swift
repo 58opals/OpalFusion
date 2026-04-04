@@ -11,8 +11,8 @@ extension OpalFusion.Execution {
             case protocolRejected(summary: String)
             case primaryMessage(OpalFusion.ProtocolModel.ServerMessage)
             case covertResponse(OpalFusion.ProtocolModel.CovertResponse)
-            case hostInputsLoaded([OpalFusion.Host.ParticipantInput])
-            case hostInputsRejected
+            case participantReservationLoaded(OpalFusion.Host.ParticipantReservation)
+            case participantReservationRejected
             case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
             case transactionFinalizationRejected
             case clockAdvanced
@@ -22,7 +22,7 @@ extension OpalFusion.Execution {
             case sendPrimary(OpalFusion.ProtocolModel.ClientMessage)
             case prepareCovert(OpalFusion.Runtime.CovertEndpointContext)
             case submitCovert(OpalFusion.ProtocolModel.CovertMessage)
-            case requestHostInputs(roundIdentifier: OpalFusion.Round.Identifier)
+            case requestParticipantReservation(roundIdentifier: OpalFusion.Round.Identifier)
             case requestTransactionFinalization(
                 roundIdentifier: OpalFusion.Round.Identifier,
                 proposal: OpalFusion.Host.TransactionFinalizationProposal
@@ -117,13 +117,13 @@ extension OpalFusion.Execution {
                 return handlePrimaryMessage(message, now: now)
             case let .covertResponse(response):
                 return handleCovertResponse(response)
-            case let .hostInputsLoaded(inputs):
-                return handleHostInputsLoaded(inputs)
-            case .hostInputsRejected:
+            case let .participantReservationLoaded(reservation):
+                return handleParticipantReservationLoaded(reservation)
+            case .participantReservationRejected:
                 return failRound(
                     completionStatus: .hostRejected,
                     clientError: .hostRejected,
-                    summary: "Host rejected reserved inputs"
+                    summary: "Host rejected participant reservation"
                 )
             case let .finalizedTransactionLoaded(transaction):
                 return handleFinalizedTransactionLoaded(transaction, now: now)
@@ -259,6 +259,12 @@ extension OpalFusion.Execution {
                         session.latestTierStatus = update
                         return []
                     case let .fusionBegin(fusionBegin):
+                        guard let serverHello = session.latestServerHello else {
+                            return failBeforeRound(
+                                error: .protocolIncompatible,
+                                summary: "FusionBegin arrived before a valid ServerHello was recorded"
+                            )
+                        }
                         guard isServerTimeAcceptable(fusionBegin.serverTimeUnixSeconds, now: now) else {
                             return failBeforeRound(
                                 error: .protocolIncompatible,
@@ -268,6 +274,7 @@ extension OpalFusion.Execution {
 
                         round = .init(
                             fusionBegin: fusionBegin,
+                            serverHello: serverHello,
                             deadlines: .fromFusionBegin(
                                 fusionBegin,
                                 timing: session.baseline.roundTiming
@@ -326,12 +333,12 @@ extension OpalFusion.Execution {
                 self.round = round
 
                 return [
-                    .requestHostInputs(roundIdentifier: round.identifier!),
+                    .requestParticipantReservation(roundIdentifier: round.identifier!),
                     hostEvent(
                         roundIdentifier: round.identifier,
                         kind: .status,
                         phase: .registeringInputs,
-                        summary: "StartRound received; collecting reserved inputs"
+                        summary: "StartRound received; collecting reserved inputs and outputs"
                     )
                 ]
             case let .blindSignatureResponses(responses):
@@ -404,7 +411,12 @@ extension OpalFusion.Execution {
                     ]
                 }
 
-                let proposal = workflow.buildTransactionFinalizationProposal(round)
+                let proposal: OpalFusion.Host.TransactionFinalizationProposal
+                do {
+                    proposal = try workflow.buildTransactionFinalizationProposal(&round)
+                } catch {
+                    return failForWorkflowFailure(error)
+                }
                 round.substate = .awaitingHostFinalization
                 self.round = round
 
@@ -447,7 +459,12 @@ extension OpalFusion.Execution {
                     ]
                 }
 
-                let myProofsList = workflow.buildMyProofsList(round)
+                let myProofsList: OpalFusion.ProtocolModel.MyProofsList
+                do {
+                    myProofsList = try workflow.buildMyProofsList(&round)
+                } catch {
+                    return failForWorkflowFailure(error)
+                }
                 round.myProofsList = myProofsList
                 round.substate = .awaitingTheirProofs
                 self.round = round
@@ -471,7 +488,12 @@ extension OpalFusion.Execution {
                 }
 
                 round.theirProofsList = theirProofsList
-                let blames = workflow.buildBlames(round)
+                let blames: OpalFusion.ProtocolModel.Blames
+                do {
+                    blames = try workflow.buildBlames(&round)
+                } catch {
+                    return failForWorkflowFailure(error)
+                }
                 round.blames = blames
                 round.substate = .submittingBlames
                 self.round = round
@@ -547,19 +569,24 @@ extension OpalFusion.Execution {
             }
         }
 
-        private mutating func handleHostInputsLoaded(
-            _ inputs: [OpalFusion.Host.ParticipantInput]
+        private mutating func handleParticipantReservationLoaded(
+            _ reservation: OpalFusion.Host.ParticipantReservation
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
             guard var round, round.substate == .collectingInputs else {
                 return failRound(
                     completionStatus: .protocolIncompatible,
                     clientError: .protocolIncompatible,
-                    summary: "Host inputs arrived out of order"
+                    summary: "Participant reservation arrived out of order"
                 )
             }
 
-            round.participantInputs = inputs
-            let commit = workflow.buildPlayerCommit(round)
+            round.participantReservation = reservation
+            let commit: OpalFusion.ProtocolModel.PlayerCommit
+            do {
+                commit = try workflow.buildPlayerCommit(&round)
+            } catch {
+                return failForWorkflowFailure(error)
+            }
             round.playerCommit = commit
             round.substate = .awaitingBlindSignatures
             self.round = round
@@ -634,7 +661,12 @@ extension OpalFusion.Execution {
                 )
             }
 
-            let messages = workflow.buildCovertComponentMessages(round)
+            let messages: [OpalFusion.ProtocolModel.CovertMessage]
+            do {
+                messages = try workflow.buildCovertComponentMessages(&round)
+            } catch {
+                return failForWorkflowFailure(error)
+            }
             round.substate = .submittingCovertComponents
             self.round = round
 
@@ -669,7 +701,12 @@ extension OpalFusion.Execution {
                 )
             }
 
-            let messages = workflow.buildCovertSignatureMessages(round)
+            let messages: [OpalFusion.ProtocolModel.CovertMessage]
+            do {
+                messages = try workflow.buildCovertSignatureMessages(&round)
+            } catch {
+                return failForWorkflowFailure(error)
+            }
             round.substate = .submittingSignatures
             self.round = round
 
@@ -752,6 +789,24 @@ extension OpalFusion.Execution {
             return failBeforeRound(
                 error: .coordinatorRejected,
                 summary: summary
+            )
+        }
+
+        private mutating func failForWorkflowFailure(
+            _ error: Swift.Error
+        ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            if let workflowFailure = error as? OpalFusion.Execution.WorkflowFailure {
+                return failRound(
+                    completionStatus: workflowFailure.completionStatus,
+                    clientError: workflowFailure.clientError,
+                    summary: workflowFailure.summary
+                )
+            }
+
+            return failRound(
+                completionStatus: .hostRejected,
+                clientError: .notImplemented,
+                summary: "Execution materialization failed: \(String(describing: error))"
             )
         }
 

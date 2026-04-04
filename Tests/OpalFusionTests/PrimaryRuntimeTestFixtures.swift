@@ -76,7 +76,18 @@ enum PrimaryRuntimeTestFixtures {
         outpointTransactionHash: [0x10, 0x11],
         outpointIndex: 0,
         amountSatoshis: 50_000,
-        lockingScript: [0x51]
+        lockingScript: [0x51],
+        publicKey: [0x02, 0x10, 0x11]
+    )
+
+    static let participantOutput = OpalFusion.Host.ParticipantOutput(
+        lockingScript: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
+        amountSatoshis: 49_000
+    )
+
+    static let participantReservation = OpalFusion.Host.ParticipantReservation(
+        inputs: [participantInput],
+        outputs: [participantOutput]
     )
 
     static let initialCommitment = OpalFusion.Commitment.InitialCommitment(
@@ -386,7 +397,7 @@ enum PrimaryRuntimeTestFixtures {
     ) throws {
         try driveThroughStartRound(session: &session)
         _ = session.apply(
-            input: .hostInputsLoaded([participantInput]),
+            input: .participantReservationLoaded(participantReservation),
             now: instant(1_031)
         )
         _ = session.apply(

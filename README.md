@@ -32,13 +32,14 @@ This README stays intentionally brief and points back to the canonical spec inst
 
 ## Current Maturity
 
-Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, and internal primary/covert runtime foundations in place. The package still does not implement live coordinator interoperability, real socket or HTTP/TLS/Tor transport, or `OpalCrypto`-backed execution yet.
+Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, and `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material. Public activation remains intentionally conservative: live runtime/session driving is still internal-only, a public client session API is not exposed yet, and broader live Electron Cash coordinator validation is still being proven.
 
 ## Current Public Surface
 
 - `OpalFusion.Client.Configuration`, `OpalFusion.Client.State`, and `OpalFusion.Client.Error`
 - `OpalFusion.Round.Identifier`, `OpalFusion.Round.Phase`, and `OpalFusion.Round.State`
 - `OpalFusion.Transport.CovertChannelConfiguration` and `OpalFusion.Transport.TorSocks5Configuration`
+- `OpalFusion.Host.ParticipantInput`, `OpalFusion.Host.ParticipantOutput`, and `OpalFusion.Host.ParticipantReservation`
 - `OpalFusion.Host.ParticipantInputProvider`, `OpalFusion.Host.TransactionAssembler`, and `OpalFusion.Host.EventObserver`
 - reserved namespaces for `OpalFusion.Commitment`, `OpalFusion.BlindSignature`, and `OpalFusion.Blame`
 
@@ -83,4 +84,4 @@ let state = OpalFusion.Client.State(
 )
 ```
 
-This shows the current configuration and state-model surface. It does not start a live CashFusion session yet.
+This shows the current configuration and state-model surface. Live runtime/session driving remains internal, so there is still no public API to start a CashFusion session directly from the package.

@@ -3,6 +3,7 @@
 @testable import OpalFusion
 import Darwin
 import Foundation
+import OpalCrypto
 
 enum LiveRuntimeTestSupportError: Swift.Error, Equatable {
     case timedOut(String)
@@ -378,14 +379,17 @@ final class ScriptedNowProvider: @unchecked Sendable {
 
 actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider {
     private let participantInputs: [OpalFusion.Host.ParticipantInput]
+    private let participantOutputs: [OpalFusion.Host.ParticipantOutput]
     private let delay: Duration
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
 
     init(
         participantInputs: [OpalFusion.Host.ParticipantInput],
+        participantOutputs: [OpalFusion.Host.ParticipantOutput] = [],
         delay: Duration = .zero
     ) {
         self.participantInputs = participantInputs
+        self.participantOutputs = participantOutputs
         self.delay = delay
         self.requestedRoundIdentifiers = []
     }
@@ -400,6 +404,21 @@ actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider 
         }
 
         return participantInputs
+    }
+
+    func participantReservation(
+        for roundIdentifier: OpalFusion.Round.Identifier
+    ) async throws -> OpalFusion.Host.ParticipantReservation {
+        requestedRoundIdentifiers.append(roundIdentifier)
+
+        if delay > .zero {
+            try await Task.sleep(for: delay)
+        }
+
+        return .init(
+            inputs: participantInputs,
+            outputs: participantOutputs
+        )
     }
 
     func requestedRounds() -> [OpalFusion.Round.Identifier] {
@@ -443,6 +462,94 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
 
     func recordedProposals() -> [OpalFusion.Host.TransactionFinalizationProposal] {
         proposals
+    }
+}
+
+actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
+    private let participantInput: OpalFusion.Host.ParticipantInput
+    private let participantInputPrivateKey: [UInt8]
+    private let delay: Duration
+    private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
+    private var proposals: [OpalFusion.Host.TransactionFinalizationProposal] = []
+    private var signatures: [[UInt8]] = []
+
+    init(
+        participantInput: OpalFusion.Host.ParticipantInput,
+        participantInputPrivateKey: [UInt8],
+        delay: Duration = .zero
+    ) {
+        self.participantInput = participantInput
+        self.participantInputPrivateKey = participantInputPrivateKey
+        self.delay = delay
+        self.requestedRoundIdentifiers = []
+        self.proposals = []
+        self.signatures = []
+    }
+
+    func finalizeTransaction(
+        for roundIdentifier: OpalFusion.Round.Identifier,
+        proposal: OpalFusion.Host.TransactionFinalizationProposal
+    ) async throws -> OpalFusion.Host.FinalizedTransaction {
+        requestedRoundIdentifiers.append(roundIdentifier)
+        proposals.append(proposal)
+
+        if delay > .zero {
+            try await Task.sleep(for: delay)
+        }
+
+        let signingResult = try finalizedTransaction(for: proposal)
+        signatures.append(signingResult.signature)
+        return signingResult.transaction
+    }
+
+    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+        requestedRoundIdentifiers
+    }
+
+    func recordedProposals() -> [OpalFusion.Host.TransactionFinalizationProposal] {
+        proposals
+    }
+
+    func recordedSignatures() -> [[UInt8]] {
+        signatures
+    }
+
+    private func finalizedTransaction(
+        for proposal: OpalFusion.Host.TransactionFinalizationProposal
+    ) throws -> (transaction: OpalFusion.Host.FinalizedTransaction, signature: [UInt8]) {
+        guard let participantInputPublicKey = participantInput.publicKey else {
+            throw LiveRuntimeTestSupportError.inboundStreamClosed
+        }
+
+        var transaction = try OpalFusion.Execution.BCHTransaction.parse(
+            proposal.serializedUnsignedTransaction
+        )
+        let sighash = try transaction.signatureHash(
+            forInputAt: 0,
+            lockingScript: participantInput.lockingScript,
+            amountSatoshis: participantInput.amountSatoshis
+        )
+        let signature = try Array(
+            OpalCrypto.Signature.sign(
+                message: Data(sighash),
+                privateKey: Data(participantInputPrivateKey),
+                format: .schnorr,
+                nonce: .bip340Deterministic
+            )
+        )
+
+        var unlockingScript = [UInt8]()
+        unlockingScript.append(0x41)
+        unlockingScript.append(contentsOf: signature)
+        unlockingScript.append(0x41)
+        unlockingScript.append(0x21)
+        unlockingScript.append(contentsOf: participantInputPublicKey)
+
+        transaction = transaction.settingUnlockingScript(unlockingScript, at: 0)
+        return (
+            .init(serializedTransaction: try transaction.serialized()),
+            signature
+        )
     }
 }
 

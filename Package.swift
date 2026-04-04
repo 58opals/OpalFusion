@@ -19,6 +19,10 @@ let package = Package(
     ],
     dependencies: [
         .package(
+            url: "https://github.com/58opals/OpalCrypto.git",
+            branch: "develop"
+        ),
+        .package(
             url: "https://github.com/apple/swift-protobuf.git",
             exact: "1.36.1"
         )
@@ -27,6 +31,7 @@ let package = Package(
         .target(
             name: "OpalFusion",
             dependencies: [
+                .product(name: "OpalCrypto", package: "OpalCrypto"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf")
             ]
         ),

@@ -112,13 +112,15 @@ struct PrimaryRuntimeSessionValidator {
 
         #expect(
             requestEffects == [
-                .requestHostInputs(roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier),
+                .requestParticipantReservation(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier
+                ),
                 .emitHostEvent(
                     roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
                     event: .init(
                         kind: .status,
                         phase: .registeringInputs,
-                        summary: "StartRound received; collecting reserved inputs"
+                        summary: "StartRound received; collecting reserved inputs and outputs"
                     )
                 )
             ]
@@ -131,7 +133,9 @@ struct PrimaryRuntimeSessionValidator {
         )
 
         let commitEffects = session.apply(
-            input: .hostInputsLoaded([PrimaryRuntimeTestFixtures.participantInput]),
+            input: .participantReservationLoaded(
+                PrimaryRuntimeTestFixtures.participantReservation
+            ),
             now: PrimaryRuntimeTestFixtures.instant(1_031)
         )
         #expect(commitEffects.count == 2)
@@ -215,13 +219,15 @@ struct PrimaryRuntimeSessionValidator {
         )
         #expect(
             startRoundEffects == [
-                .requestHostInputs(roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier),
+                .requestParticipantReservation(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier
+                ),
                 .emitHostEvent(
                     roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
                     event: .init(
                         kind: .status,
                         phase: .registeringInputs,
-                        summary: "StartRound received; collecting reserved inputs"
+                        summary: "StartRound received; collecting reserved inputs and outputs"
                     )
                 )
             ]
@@ -335,7 +341,7 @@ struct PrimaryRuntimeSessionValidator {
         try PrimaryRuntimeTestFixtures.driveThroughStartRound(session: &session)
 
         let effects = session.apply(
-            input: .hostInputsRejected,
+            input: .participantReservationRejected,
             now: PrimaryRuntimeTestFixtures.instant(1_031)
         )
 
@@ -346,7 +352,7 @@ struct PrimaryRuntimeSessionValidator {
                     event: .init(
                         kind: .failure,
                         phase: .completed,
-                        summary: "Host rejected reserved inputs",
+                        summary: "Host rejected participant reservation",
                         isTerminal: true
                     )
                 )
@@ -355,6 +361,77 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.clientState.round?.phase == .completed)
         #expect(session.clientState.round?.completionStatus == .hostRejected)
         #expect(session.lastError == .hostRejected)
+    }
+
+    @Test("Primary runtime maps unsupported execution materialization to not implemented")
+    func validateUnsupportedExecutionMaterializationProjection() throws {
+        let unsupportedSummary = "OpalCrypto-backed execution materialization is not wired yet"
+        let workflow = OpalFusion.Execution.WorkflowContext(
+            buildPlayerCommit: { _ in
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(unsupportedSummary)
+            },
+            buildCovertComponentMessages: { _ in
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(unsupportedSummary)
+            },
+            buildTransactionFinalizationProposal: { _ in
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(unsupportedSummary)
+            },
+            buildCovertSignatureMessages: { _ in
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(unsupportedSummary)
+            },
+            buildMyProofsList: { _ in
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(unsupportedSummary)
+            },
+            buildBlames: { _ in
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(unsupportedSummary)
+            }
+        )
+        var session = OpalFusion.Runtime.PrimaryRuntimeSession(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: workflow,
+            baseline: PrimaryRuntimeTestFixtures.baseline
+        )
+        try PrimaryRuntimeTestFixtures.driveThroughWarmup(session: &session)
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .startRound(PrimaryRuntimeTestFixtures.startRound)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_030)
+        )
+
+        let effects = session.apply(
+            input: .participantReservationLoaded(
+                PrimaryRuntimeTestFixtures.participantReservation
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_031)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: unsupportedSummary,
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(session.lastError == .notImplemented)
+        #expect(
+            session.clientState.round == .init(
+                identifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                phase: .completed,
+                completionStatus: .hostRejected,
+                isTerminal: true
+            )
+        )
     }
 
     @Test("Primary runtime maps malformed primary payloads to protocol incompatibility")

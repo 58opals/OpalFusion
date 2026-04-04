@@ -1,5 +1,7 @@
 // OpalFusion+Execution+Context.swift
 
+import OpalCrypto
+
 extension OpalFusion.Execution {
     enum ConnectionSubstate: String, Sendable, Equatable {
         case disconnected
@@ -120,11 +122,12 @@ extension OpalFusion.Execution {
         }
     }
 
-    struct RoundContext: Sendable, Equatable {
+    struct RoundContext: Sendable {
         let fusionBegin: OpalFusion.ProtocolModel.FusionBegin
+        let serverHello: OpalFusion.ProtocolModel.ServerHello
         var startRound: OpalFusion.ProtocolModel.StartRound?
         var identifier: OpalFusion.Round.Identifier?
-        var participantInputs: [OpalFusion.Host.ParticipantInput]
+        var participantReservation: OpalFusion.Host.ParticipantReservation?
         var playerCommit: OpalFusion.ProtocolModel.PlayerCommit?
         var blindSignatureResponses: OpalFusion.ProtocolModel.BlindSignatureResponses?
         var allCommitments: OpalFusion.ProtocolModel.AllCommitments?
@@ -137,15 +140,18 @@ extension OpalFusion.Execution {
         var substate: OpalFusion.Execution.RoundSubstate
         var deadlines: OpalFusion.Execution.Deadlines
         var completionStatus: OpalFusion.Round.CompletionStatus?
+        var executionMaterial: OpalFusion.Execution.ExecutionMaterial
 
         init(
             fusionBegin: OpalFusion.ProtocolModel.FusionBegin,
+            serverHello: OpalFusion.ProtocolModel.ServerHello,
             deadlines: OpalFusion.Execution.Deadlines
         ) {
             self.fusionBegin = fusionBegin
+            self.serverHello = serverHello
             self.startRound = nil
             self.identifier = nil
-            self.participantInputs = []
+            self.participantReservation = nil
             self.playerCommit = nil
             self.blindSignatureResponses = nil
             self.allCommitments = nil
@@ -158,6 +164,69 @@ extension OpalFusion.Execution {
             self.substate = .warmup
             self.deadlines = deadlines
             self.completionStatus = nil
+            self.executionMaterial = .init()
         }
+    }
+
+    struct ExecutionMaterial: Sendable {
+        var playerCommitMaterial: OpalFusion.Execution.PlayerCommitMaterial?
+        var finalizedBlindSignatures: [[UInt8]]
+        var sharedRoundMaterial: OpalFusion.Execution.SharedRoundMaterial?
+
+        init() {
+            self.playerCommitMaterial = nil
+            self.finalizedBlindSignatures = []
+            self.sharedRoundMaterial = nil
+        }
+    }
+
+    struct PlayerCommitMaterial: Sendable {
+        let componentsByCommitmentOrder: [OpalFusion.Execution.LocalComponentMaterial]
+        let blindSignatureRequests: [OpalCrypto.BlindSignature.Request]
+        let pedersenTotalNonce: [UInt8]
+        let excessFeeSatoshis: UInt64
+        let randomNumber: [UInt8]
+    }
+
+    struct LocalComponentMaterial: Sendable {
+        let originalSlot: Int
+        let payload: OpalFusion.Commitment.ComponentPayload
+        let serializedComponent: [UInt8]
+        let serializedInitialCommitment: [UInt8]
+        let initialCommitment: OpalFusion.Commitment.InitialCommitment
+        let proofMaterial: OpalFusion.Execution.UnassignedProofMaterial
+        let communicationPrivateKey: [UInt8]
+        let contributionSatoshis: Int64
+    }
+
+    struct UnassignedProofMaterial: Sendable {
+        let salt: [UInt8]
+        let pedersenNonce: [UInt8]
+    }
+
+    struct SharedRoundMaterial: Sendable {
+        let allCommitmentBytes: [[UInt8]]
+        let allComponentBytes: [[UInt8]]
+        let sessionHash: [UInt8]
+        let decodedComponents: [OpalFusion.Execution.DecodedComponent]
+        let myCommitmentIndices: [Int]
+        let myComponentIndices: [Int]
+        let transactionTemplate: OpalFusion.Execution.BCHTransaction
+        let transactionInputComponentIndices: [Int]
+        let localInputReferences: [OpalFusion.Execution.LocalInputReference]
+    }
+
+    struct DecodedComponent: Sendable {
+        let serializedComponent: [UInt8]
+        let saltCommitment: [UInt8]
+        let payload: OpalFusion.Commitment.ComponentPayload
+    }
+
+    struct LocalInputReference: Sendable {
+        let transactionInputIndex: Int
+        let componentIndex: Int
+        let reservationInputIndex: Int
+        let originalSlot: Int
+        let participantInput: OpalFusion.Host.ParticipantInput
     }
 }

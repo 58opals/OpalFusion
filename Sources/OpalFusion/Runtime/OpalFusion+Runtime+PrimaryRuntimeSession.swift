@@ -12,8 +12,8 @@ extension OpalFusion.Runtime {
             case covertPreparationFailed(summary: String)
             case receivedCovertResponseBytes([UInt8])
             case covertRequestFailed(summary: String)
-            case hostInputsLoaded([OpalFusion.Host.ParticipantInput])
-            case hostInputsRejected
+            case participantReservationLoaded(OpalFusion.Host.ParticipantReservation)
+            case participantReservationRejected
             case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
             case transactionFinalizationRejected
             case clockAdvanced
@@ -23,7 +23,7 @@ extension OpalFusion.Runtime {
             case writePrimaryBytes([UInt8])
             case prepareCovertEndpoint(plan: OpalFusion.Runtime.CovertPreparationPlan)
             case performCovertRequest(request: OpalFusion.Runtime.CovertRequest)
-            case requestHostInputs(roundIdentifier: OpalFusion.Round.Identifier)
+            case requestParticipantReservation(roundIdentifier: OpalFusion.Round.Identifier)
             case requestTransactionFinalization(
                 roundIdentifier: OpalFusion.Round.Identifier,
                 proposal: OpalFusion.Host.TransactionFinalizationProposal
@@ -45,9 +45,10 @@ extension OpalFusion.Runtime {
             configuration: OpalFusion.Client.Configuration,
             genesisHash: [UInt8]? = nil,
             joinPools: OpalFusion.ProtocolModel.JoinPools,
-            workflow: OpalFusion.Execution.WorkflowContext,
+            workflow: OpalFusion.Execution.WorkflowContext? = nil,
             baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443
         ) {
+            let resolvedWorkflow = workflow ?? .production(baseline: baseline)
             self.frameDecoder = .init(configuration: baseline.framing)
             self.frameEncoder = .init(configuration: baseline.framing)
             self.messageEncoder = .init()
@@ -57,7 +58,7 @@ extension OpalFusion.Runtime {
                 configuration: configuration,
                 genesisHash: genesisHash,
                 joinPools: joinPools,
-                workflow: workflow,
+                workflow: resolvedWorkflow,
                 baseline: baseline
             )
         }
@@ -126,14 +127,14 @@ extension OpalFusion.Runtime {
                     ),
                     now: now
                 )
-            case let .hostInputsLoaded(inputs):
+            case let .participantReservationLoaded(reservation):
                 return translate(
-                    engine.apply(input: .hostInputsLoaded(inputs), now: now),
+                    engine.apply(input: .participantReservationLoaded(reservation), now: now),
                     now: now
                 )
-            case .hostInputsRejected:
+            case .participantReservationRejected:
                 return translate(
-                    engine.apply(input: .hostInputsRejected, now: now),
+                    engine.apply(input: .participantReservationRejected, now: now),
                     now: now
                 )
             case let .finalizedTransactionLoaded(transaction):
@@ -225,8 +226,10 @@ extension OpalFusion.Runtime {
                             now: now
                         )
                     )
-                case let .requestHostInputs(roundIdentifier):
-                    runtimeEffects.append(.requestHostInputs(roundIdentifier: roundIdentifier))
+                case let .requestParticipantReservation(roundIdentifier):
+                    runtimeEffects.append(
+                        .requestParticipantReservation(roundIdentifier: roundIdentifier)
+                    )
                 case let .requestTransactionFinalization(roundIdentifier, proposal):
                     runtimeEffects.append(
                         .requestTransactionFinalization(
