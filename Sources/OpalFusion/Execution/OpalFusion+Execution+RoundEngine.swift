@@ -3,8 +3,10 @@
 extension OpalFusion.Execution {
     struct RoundEngine: Sendable {
         enum Input: Sendable, Equatable {
+            case configurationRejected(summary: String)
             case primaryConnected
             case primaryDisconnected
+            case primaryTransportFailed(summary: String)
             case covertTransportFailed(summary: String)
             case protocolRejected(summary: String)
             case primaryMessage(OpalFusion.ProtocolModel.ServerMessage)
@@ -64,10 +66,29 @@ extension OpalFusion.Execution {
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
             switch input {
+            case let .configurationRejected(summary):
+                session.isConnected = false
+                return failBeforeRound(
+                    error: .invalidConfiguration,
+                    summary: summary
+                )
             case .primaryConnected:
                 return handlePrimaryConnected()
             case .primaryDisconnected:
                 return handlePrimaryDisconnected()
+            case let .primaryTransportFailed(summary):
+                session.isConnected = false
+                if round?.identifier != nil {
+                    return failRound(
+                        completionStatus: .transportFailed,
+                        clientError: .transportUnavailable,
+                        summary: summary
+                    )
+                }
+                return failBeforeRound(
+                    error: .transportUnavailable,
+                    summary: summary
+                )
             case let .covertTransportFailed(summary):
                 if round?.identifier != nil {
                     return failRound(

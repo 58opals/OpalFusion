@@ -1,5 +1,7 @@
 // OpalFusion+Execution+Instant.swift
 
+import Foundation
+
 extension OpalFusion.Execution {
     struct Instant: Sendable, Equatable, Comparable {
         let millisecondsSinceUnixEpoch: Int64
@@ -14,6 +16,12 @@ extension OpalFusion.Execution {
 
         var unixSeconds: Int64 {
             millisecondsSinceUnixEpoch / 1_000
+        }
+
+        static func now() -> Self {
+            .init(
+                millisecondsSinceUnixEpoch: Int64((Date().timeIntervalSince1970 * 1_000).rounded())
+            )
         }
 
         func advanced(by duration: Duration) -> Self {

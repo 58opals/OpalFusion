@@ -3,8 +3,10 @@
 extension OpalFusion.Runtime {
     struct PrimaryRuntimeSession: Sendable {
         enum Input: Sendable, Equatable {
+            case invalidConfiguration(summary: String)
             case connected
             case disconnected
+            case primaryTransportFailed(summary: String)
             case receivedPrimaryBytes([UInt8])
             case covertPrepared
             case covertPreparationFailed(summary: String)
@@ -73,6 +75,11 @@ extension OpalFusion.Runtime {
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] {
             switch input {
+            case let .invalidConfiguration(summary):
+                return translate(
+                    engine.apply(input: .configurationRejected(summary: summary), now: now),
+                    now: now
+                )
             case .connected:
                 return translate(
                     engine.apply(input: .primaryConnected, now: now),
@@ -81,6 +88,11 @@ extension OpalFusion.Runtime {
             case .disconnected:
                 return translate(
                     engine.apply(input: .primaryDisconnected, now: now),
+                    now: now
+                )
+            case let .primaryTransportFailed(summary):
+                return translate(
+                    engine.apply(input: .primaryTransportFailed(summary: summary), now: now),
                     now: now
                 )
             case let .receivedPrimaryBytes(bytes):
