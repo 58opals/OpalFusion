@@ -17,9 +17,18 @@ let package = Package(
             targets: ["OpalFusion"]
         )
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/apple/swift-protobuf.git",
+            exact: "1.36.1"
+        )
+    ],
     targets: [
         .target(
-            name: "OpalFusion"
+            name: "OpalFusion",
+            dependencies: [
+                .product(name: "SwiftProtobuf", package: "swift-protobuf")
+            ]
         ),
         .testTarget(
             name: "OpalFusionTests",

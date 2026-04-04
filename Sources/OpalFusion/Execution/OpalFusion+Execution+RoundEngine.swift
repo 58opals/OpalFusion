@@ -5,6 +5,7 @@ extension OpalFusion.Execution {
         enum Input: Sendable, Equatable {
             case primaryConnected
             case primaryDisconnected
+            case protocolRejected(summary: String)
             case primaryMessage(OpalFusion.ProtocolModel.ServerMessage)
             case covertResponse(OpalFusion.ProtocolModel.CovertResponse)
             case hostInputsLoaded([OpalFusion.Host.ParticipantInput])
@@ -65,6 +66,18 @@ extension OpalFusion.Execution {
                 return handlePrimaryConnected()
             case .primaryDisconnected:
                 return handlePrimaryDisconnected()
+            case let .protocolRejected(summary):
+                if round?.identifier != nil {
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: summary
+                    )
+                }
+                return failBeforeRound(
+                    error: .protocolIncompatible,
+                    summary: summary
+                )
             case let .primaryMessage(message):
                 return handlePrimaryMessage(message, now: now)
             case let .covertResponse(response):
