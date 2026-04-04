@@ -32,7 +32,7 @@ This README stays intentionally brief and points back to the canonical spec inst
 
 ## Current Maturity
 
-Opal Fusion is currently a boundary-first scaffold. The package defines the public namespace and the main host, transport, client, and round-state seams, but full coordinator interoperability, live round orchestration, typed protocol modeling, and `OpalCrypto`-backed execution are not implemented yet.
+Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, and coarse public client/round/host seams in place. The package still does not implement live coordinator interoperability, protobuf codecs, runtime transport adapters, or `OpalCrypto`-backed execution yet.
 
 ## Current Public Surface
 

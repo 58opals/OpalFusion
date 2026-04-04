@@ -1,0 +1,673 @@
+// RoundEngineScriptedValidator.swift
+
+@testable import OpalFusion
+import Testing
+
+struct RoundEngineScriptedValidator {
+    @Test("Scripted round engine drives a happy-path round to success")
+    func validateHappyPathRoundEngine() {
+        var engine = Self.makeEngine()
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+
+        let connectEffects = engine.apply(
+            input: .primaryConnected,
+            now: Self.instant(995)
+        )
+        #expect(engine.clientState.isConnected == true)
+        #expect(
+            connectEffects == [
+                .sendPrimary(.clientHello(Self.clientHello)),
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .status,
+                        phase: .connecting,
+                        summary: "Primary channel connected; sending ClientHello"
+                    )
+                )
+            ]
+        )
+
+        let helloEffects = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        #expect(
+            helloEffects == [
+                .sendPrimary(.joinPools(Self.joinPools)),
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .status,
+                        phase: .connecting,
+                        summary: "ServerHello received; joining eligible pools"
+                    )
+                )
+            ]
+        )
+
+        let warmupEffects = engine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+        #expect(engine.round?.substate == .warmup)
+        #expect(engine.clientState.round == nil)
+        #expect(
+            warmupEffects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .status,
+                        phase: .connecting,
+                        summary: "Fusion warmup started"
+                    )
+                )
+            ]
+        )
+
+        let startRoundEffects = engine.apply(
+            input: .primaryMessage(.startRound(Self.startRound)),
+            now: Self.instant(1_030)
+        )
+        #expect(
+            startRoundEffects == [
+                .requestHostInputs(roundIdentifier: roundIdentifier),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .registeringInputs,
+                        summary: "StartRound received; collecting reserved inputs"
+                    )
+                )
+            ]
+        )
+        #expect(
+            engine.clientState.round == .init(
+                identifier: roundIdentifier,
+                phase: .registeringInputs
+            )
+        )
+
+        let commitEffects = engine.apply(
+            input: .hostInputsLoaded([Self.participantInput]),
+            now: Self.instant(1_031)
+        )
+        #expect(
+            commitEffects == [
+                .sendPrimary(.playerCommit(Self.playerCommit)),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .awaitingBlindSignatures,
+                        summary: "Submitting player commitments and blind requests"
+                    )
+                )
+            ]
+        )
+        #expect(engine.clientState.round?.phase == .awaitingBlindSignatures)
+
+        let blindEffects = engine.apply(
+            input: .primaryMessage(.blindSignatureResponses(Self.blindSignatureResponses)),
+            now: Self.instant(1_032)
+        )
+        #expect(
+            blindEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .awaitingCommitments,
+                        summary: "Blind signature responses received"
+                    )
+                )
+            ]
+        )
+
+        let commitmentEffects = engine.apply(
+            input: .primaryMessage(.allCommitments(Self.allCommitments)),
+            now: Self.instant(1_034)
+        )
+        #expect(
+            commitmentEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .awaitingCommitments,
+                        summary: "All commitments received; waiting for covert submit window"
+                    )
+                )
+            ]
+        )
+        #expect(engine.clientState.round?.phase == .awaitingCommitments)
+
+        let covertEffects = engine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_035)
+        )
+        #expect(
+            covertEffects == [
+                .submitCovert(Self.covertComponentMessage),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .awaitingCommitments,
+                        summary: "Submitting covert components"
+                    )
+                )
+            ]
+        )
+
+        let sharedEffects = engine.apply(
+            input: .primaryMessage(.shareCovertComponents(Self.sharedComponents)),
+            now: Self.instant(1_040)
+        )
+        #expect(
+            sharedEffects == [
+                .requestTransactionFinalization(
+                    roundIdentifier: roundIdentifier,
+                    proposal: Self.transactionProposal
+                ),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .assemblingTransaction,
+                        summary: "Shared components received; requesting transaction finalization"
+                    )
+                )
+            ]
+        )
+
+        let finalizedEffects = engine.apply(
+            input: .finalizedTransactionLoaded(Self.finalizedTransaction),
+            now: Self.instant(1_042)
+        )
+        #expect(
+            finalizedEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .assemblingTransaction,
+                        summary: "Transaction finalized; waiting for signature window"
+                    )
+                )
+            ]
+        )
+        #expect(engine.clientState.round?.phase == .assemblingTransaction)
+
+        let signatureEffects = engine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_050)
+        )
+        #expect(
+            signatureEffects == [
+                .submitCovert(Self.signatureMessage),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .assemblingTransaction,
+                        summary: "Submitting covert transaction signatures"
+                    )
+                )
+            ]
+        )
+
+        let resultEffects = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_055)
+        )
+        #expect(
+            resultEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .completed,
+                        phase: .completed,
+                        summary: "Round completed successfully",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(
+            engine.clientState.round == .init(
+                identifier: roundIdentifier,
+                phase: .completed,
+                participantCount: 1,
+                completionStatus: .success,
+                isTerminal: true
+            )
+        )
+    }
+
+    @Test("Scripted round engine supports blame handling and restart continuation")
+    func validateBlameAndRestartFlow() {
+        var engine = Self.makeEngine()
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+
+        Self.driveToSharedComponents(engine: &engine)
+
+        let finalizedEffects = engine.apply(
+            input: .finalizedTransactionLoaded(Self.finalizedTransaction),
+            now: Self.instant(1_050)
+        )
+        #expect(
+            finalizedEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .assemblingTransaction,
+                        summary: "Transaction finalized; waiting for signature window"
+                    )
+                ),
+                .submitCovert(Self.signatureMessage),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .assemblingTransaction,
+                        summary: "Submitting covert transaction signatures"
+                    )
+                )
+            ]
+        )
+
+        let failureEffects = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.failureResult)),
+            now: Self.instant(1_055)
+        )
+        #expect(
+            failureEffects == [
+                .sendPrimary(.myProofsList(Self.myProofsList)),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .warning,
+                        phase: .blame,
+                        summary: "Round result requires blame handling"
+                    )
+                )
+            ]
+        )
+        #expect(engine.clientState.round?.phase == .blame)
+        #expect(engine.clientState.round?.completionStatus == nil)
+
+        let blameEffects = engine.apply(
+            input: .primaryMessage(.theirProofsList(Self.theirProofsList)),
+            now: Self.instant(1_056)
+        )
+        #expect(
+            blameEffects == [
+                .sendPrimary(.blames(Self.blames)),
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .warning,
+                        phase: .blame,
+                        summary: "Submitting blame proofs and awaiting restart"
+                    )
+                )
+            ]
+        )
+        #expect(engine.round?.substate == .awaitingRestart)
+
+        let restartEffects = engine.apply(
+            input: .primaryMessage(.restartRound(.init())),
+            now: Self.instant(1_060)
+        )
+        #expect(
+            restartEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .connecting,
+                        summary: "Restarting round after blame handling"
+                    )
+                )
+            ]
+        )
+        #expect(engine.round == nil)
+        #expect(engine.clientState.round == nil)
+        #expect(engine.clientState.isConnected == true)
+        #expect(engine.session.restartCount == 1)
+        #expect(engine.session.latestServerHello == Self.serverHello)
+    }
+
+    @Test("Round engine owns timing semantics and validates server clock skew")
+    func validateTimingOwnership() {
+        var happyEngine = Self.makeEngine()
+        Self.driveThroughStartRound(engine: &happyEngine)
+
+        guard let deadlines = happyEngine.round?.deadlines else {
+            Issue.record("Expected round deadlines after StartRound")
+            return
+        }
+
+        #expect(deadlines.fusionBeginAt == Self.instant(1_000))
+        #expect(deadlines.warmupTarget == Self.instant(1_030))
+        #expect(deadlines.warmupDeadline == Self.instant(1_033))
+        #expect(deadlines.roundStartAt == Self.instant(1_030))
+        #expect(deadlines.commitmentsDeadline == Self.instant(1_033))
+        #expect(deadlines.covertComponentsStart == Self.instant(1_035))
+        #expect(deadlines.covertComponentsDeadline == Self.instant(1_045))
+        #expect(deadlines.signaturesStart == Self.instant(1_050))
+        #expect(deadlines.signaturesDeadline == Self.instant(1_060))
+        #expect(deadlines.conclusionTimeout == Self.instant(1_065))
+        #expect(deadlines.closeStart == Self.instant(1_075))
+        #expect(deadlines.blameCloseStart == Self.instant(1_110))
+        #expect(deadlines.blameVerifyDeadline == Self.instant(1_115))
+
+        var skewedEngine = Self.makeEngine()
+        _ = skewedEngine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = skewedEngine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        let skewEffects = skewedEngine.apply(
+            input: .primaryMessage(
+                .fusionBegin(
+                    .init(
+                        tier: 10_000,
+                        covertDomain: "covert.example.org",
+                        covertPort: 7_447,
+                        covertSsl: true,
+                        serverTimeUnixSeconds: 1_010
+                    )
+                )
+            ),
+            now: Self.instant(1_000)
+        )
+        #expect(skewedEngine.session.lastError == .protocolIncompatible)
+        #expect(skewedEngine.round == nil)
+        #expect(
+            skewEffects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "FusionBegin server time exceeded the allowed clock skew"
+                    )
+                )
+            ]
+        )
+
+        var timeoutEngine = Self.makeEngine()
+        Self.driveThroughStartRound(engine: &timeoutEngine)
+        _ = timeoutEngine.apply(
+            input: .hostInputsLoaded([Self.participantInput]),
+            now: Self.instant(1_031)
+        )
+        let timeoutEffects = timeoutEngine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_046)
+        )
+        #expect(timeoutEngine.clientState.round?.phase == .completed)
+        #expect(timeoutEngine.clientState.round?.completionStatus == .transportFailed)
+        #expect(
+            timeoutEffects == [
+                .emitHostEvent(
+                    roundIdentifier: OpalFusion.Round.Identifier(rawValue: "aabb"),
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Round expired before covert component submission completed",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+}
+
+private extension RoundEngineScriptedValidator {
+    static var configuration: OpalFusion.Client.Configuration {
+        .init(
+            coordinatorHost: "fusion.example.org",
+            coordinatorPort: 8_787,
+            covertChannel: .init(
+                entryPath: "/fusion",
+                maxPayloadBytes: 32_768,
+                requestTimeoutMilliseconds: 15_000
+            )
+        )
+    }
+
+    static var joinPools: OpalFusion.ProtocolModel.JoinPools {
+        .init(
+            tiers: [10_000],
+            tags: [
+                .init(
+                    identifier: [0x01, 0x02, 0x03],
+                    limit: 1,
+                    noIp: true
+                )
+            ]
+        )
+    }
+
+    static var clientHello: OpalFusion.ProtocolModel.ClientHello {
+        .init(
+            versionBytes: OpalFusion.Transport.BaselineConfiguration.electronCash443.protocolIdentity.versionBytes,
+            genesisHash: [0xAA, 0xBB, 0xCC]
+        )
+    }
+
+    static var serverHello: OpalFusion.ProtocolModel.ServerHello {
+        .init(
+            tiers: [10_000],
+            numberOfComponents: 4,
+            componentFeeRateSatoshisPerKb: 1_000,
+            minimumExcessFeeSatoshis: 200,
+            maximumExcessFeeSatoshis: 500,
+            donationAddress: "bitcoincash:qexample"
+        )
+    }
+
+    static var fusionBegin: OpalFusion.ProtocolModel.FusionBegin {
+        .init(
+            tier: 10_000,
+            covertDomain: "covert.example.org",
+            covertPort: 7_447,
+            covertSsl: true,
+            serverTimeUnixSeconds: 1_000
+        )
+    }
+
+    static var startRound: OpalFusion.ProtocolModel.StartRound {
+        .init(
+            roundPublicKey: [0xAA, 0xBB],
+            blindNoncePoints: [[0x01, 0x02]],
+            serverTimeUnixSeconds: 1_030
+        )
+    }
+
+    static var participantInput: OpalFusion.Host.ParticipantInput {
+        .init(
+            outpointTransactionHash: [0x10, 0x11],
+            outpointIndex: 0,
+            amountSatoshis: 50_000,
+            lockingScript: [0x51]
+        )
+    }
+
+    static var initialCommitment: OpalFusion.Commitment.InitialCommitment {
+        .init(
+            saltedComponentHash: [0x21],
+            amountCommitment: [0x22],
+            communicationPublicKey: [0x23]
+        )
+    }
+
+    static var playerCommit: OpalFusion.ProtocolModel.PlayerCommit {
+        .init(
+            initialCommitments: [initialCommitment],
+            excessFeeSatoshis: 250,
+            pedersenTotalNonce: [0x24],
+            randomNumberCommitment: [0x25],
+            blindSignatureRequests: [.init(scalar: [0x26])]
+        )
+    }
+
+    static var blindSignatureResponses: OpalFusion.ProtocolModel.BlindSignatureResponses {
+        .init(
+            responses: [.init(scalar: [0x27])]
+        )
+    }
+
+    static var allCommitments: OpalFusion.ProtocolModel.AllCommitments {
+        .init(
+            initialCommitments: [initialCommitment]
+        )
+    }
+
+    static var covertComponentMessage: OpalFusion.ProtocolModel.CovertMessage {
+        .component(
+            .init(
+                roundPublicKey: [0xAA, 0xBB],
+                signature: [0x30],
+                serializedComponent: [0x31]
+            )
+        )
+    }
+
+    static var sharedComponents: OpalFusion.ProtocolModel.ShareCovertComponents {
+        .init(
+            serializedComponents: [[0x40]],
+            skipSignatures: false,
+            sessionHash: [0x41]
+        )
+    }
+
+    static var transactionProposal: OpalFusion.Host.TransactionFinalizationProposal {
+        .init(
+            serializedUnsignedTransaction: [0x50],
+            sessionHash: [0x41],
+            expectedInputCount: 1,
+            expectedOutputCount: 2,
+            participantCount: 1
+        )
+    }
+
+    static var finalizedTransaction: OpalFusion.Host.FinalizedTransaction {
+        .init(serializedTransaction: [0x60])
+    }
+
+    static var signatureMessage: OpalFusion.ProtocolModel.CovertMessage {
+        .transactionSignature(
+            .init(
+                roundPublicKey: [0xAA, 0xBB],
+                inputIndex: 0,
+                transactionSignature: [0x61]
+            )
+        )
+    }
+
+    static var successResult: OpalFusion.ProtocolModel.FusionResult {
+        .init(
+            isSuccess: true,
+            transactionSignatures: [[0x70]],
+            badComponentIndices: []
+        )
+    }
+
+    static var failureResult: OpalFusion.ProtocolModel.FusionResult {
+        .init(
+            isSuccess: false,
+            transactionSignatures: [],
+            badComponentIndices: [0]
+        )
+    }
+
+    static var myProofsList: OpalFusion.ProtocolModel.MyProofsList {
+        .init(
+            encryptedProofs: [[0x80]],
+            randomNumber: [0x81]
+        )
+    }
+
+    static var theirProofsList: OpalFusion.ProtocolModel.TheirProofsList {
+        .init(
+            proofs: [
+                .init(
+                    encryptedProof: [0x82],
+                    sourceCommitmentIndex: 0,
+                    destinationKeyIndex: 0
+                )
+            ]
+        )
+    }
+
+    static var blames: OpalFusion.ProtocolModel.Blames {
+        .init(
+            blames: [
+                .init(
+                    proofIndex: 0,
+                    decrypter: .sessionKey([0x83]),
+                    requiresBlockchainLookup: false,
+                    reason: "invalid component"
+                )
+            ]
+        )
+    }
+
+    static func makeEngine() -> OpalFusion.Execution.RoundEngine {
+        .init(
+            configuration: configuration,
+            genesisHash: [0xAA, 0xBB, 0xCC],
+            joinPools: joinPools,
+            workflow: .init(
+                buildPlayerCommit: { _ in playerCommit },
+                buildCovertComponentMessages: { _ in [covertComponentMessage] },
+                buildTransactionFinalizationProposal: { _ in transactionProposal },
+                buildCovertSignatureMessages: { _ in [signatureMessage] },
+                buildMyProofsList: { _ in myProofsList },
+                buildBlames: { _ in blames }
+            )
+        )
+    }
+
+    static func instant(_ unixSeconds: UInt64) -> OpalFusion.Execution.Instant {
+        .init(unixSeconds: unixSeconds)
+    }
+
+    static func driveThroughStartRound(
+        engine: inout OpalFusion.Execution.RoundEngine
+    ) {
+        _ = engine.apply(input: .primaryConnected, now: instant(995))
+        _ = engine.apply(input: .primaryMessage(.serverHello(serverHello)), now: instant(996))
+        _ = engine.apply(input: .primaryMessage(.fusionBegin(fusionBegin)), now: instant(1_000))
+        _ = engine.apply(input: .primaryMessage(.startRound(startRound)), now: instant(1_030))
+    }
+
+    static func driveToSharedComponents(
+        engine: inout OpalFusion.Execution.RoundEngine
+    ) {
+        driveThroughStartRound(engine: &engine)
+        _ = engine.apply(
+            input: .hostInputsLoaded([participantInput]),
+            now: instant(1_031)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.blindSignatureResponses(blindSignatureResponses)),
+            now: instant(1_032)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.allCommitments(allCommitments)),
+            now: instant(1_034)
+        )
+        _ = engine.apply(input: .clockAdvanced, now: instant(1_035))
+        _ = engine.apply(
+            input: .primaryMessage(.shareCovertComponents(sharedComponents)),
+            now: instant(1_040)
+        )
+    }
+}
