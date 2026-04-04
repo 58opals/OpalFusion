@@ -55,6 +55,47 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.clientState.round == nil)
     }
 
+    @Test("Primary runtime triggers covert preparation during FusionBegin warmup")
+    func validateWarmupPreparation() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        _ = session.apply(input: .connected, now: PrimaryRuntimeTestFixtures.instant(995))
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(996)
+        )
+
+        let effects = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+
+        #expect(
+            effects == [
+                .prepareCovertEndpoint(
+                    plan: PrimaryRuntimeTestFixtures.expectedPreparationPlan(startedAt: 1_000)
+                ),
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .status,
+                        phase: .connecting,
+                        summary: "Fusion warmup started"
+                    )
+                )
+            ]
+        )
+        #expect(session.covertSession.substate == .preparing)
+        #expect(session.covertSession.endpointContext == PrimaryRuntimeTestFixtures.covertEndpointContext)
+    }
+
     @Test("Primary runtime drives framed StartRound input collection and PlayerCommit submission")
     func validateStartRoundAndCommitFlow() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()
@@ -193,19 +234,26 @@ struct PrimaryRuntimeSessionValidator {
         )
     }
 
-    @Test("Primary runtime surfaces deferred covert messages without executing them")
-    func validateDeferredCovertSubmission() throws {
+    @Test("Primary runtime turns covert submission into a scripted covert request")
+    func validateCovertSubmissionRequest() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()
         try PrimaryRuntimeTestFixtures.driveToAwaitingCovertSubmission(session: &session)
+        PrimaryRuntimeTestFixtures.markCovertPrepared(session: &session)
 
         let effects = session.apply(
             input: .clockAdvanced,
             now: PrimaryRuntimeTestFixtures.instant(1_035)
         )
 
+        let request = try PrimaryRuntimeTestFixtures.extractCovertRequest(from: effects[0])
         #expect(
             effects == [
-                .deferCovertMessage(PrimaryRuntimeTestFixtures.covertComponentMessage),
+                .performCovertRequest(
+                    request: try PrimaryRuntimeTestFixtures.expectedRequest(
+                        for: PrimaryRuntimeTestFixtures.covertComponentMessage,
+                        startedAt: 1_035
+                    )
+                ),
                 .emitHostEvent(
                     roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
                     event: .init(
@@ -216,7 +264,69 @@ struct PrimaryRuntimeSessionValidator {
                 )
             ]
         )
-        #expect(session.deferredCovertMessages == [PrimaryRuntimeTestFixtures.covertComponentMessage])
+        #expect(
+            try PrimaryRuntimeTestFixtures.extractCovertMessage(from: request)
+                == PrimaryRuntimeTestFixtures.covertComponentMessage
+        )
+        #expect(session.covertSession.outstandingRequest == request)
+    }
+
+    @Test("Primary runtime advances after scripted covert acknowledgements")
+    func validateCovertAcknowledgementAdvancement() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveToAwaitingCovertSubmission(session: &session)
+        PrimaryRuntimeTestFixtures.markCovertPrepared(session: &session)
+        _ = session.apply(
+            input: .clockAdvanced,
+            now: PrimaryRuntimeTestFixtures.instant(1_035)
+        )
+
+        let effects = session.apply(
+            input: .receivedCovertResponseBytes(
+                try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                    PrimaryRuntimeTestFixtures.acknowledgement
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_036)
+        )
+
+        #expect(effects.isEmpty)
+        #expect(session.engine.round?.substate == .awaitingSharedComponents)
+        #expect(session.covertSession.outstandingRequest == nil)
+    }
+
+    @Test("Primary runtime clears covert state on restart while keeping the primary session alive")
+    func validateRestartClearsCovertState() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveToAwaitingRestart(session: &session)
+
+        let restartEffects = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .restartRound(.init())
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_060)
+        )
+
+        #expect(
+            restartEffects == [
+                .emitHostEvent(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                    event: .init(
+                        kind: .status,
+                        phase: .connecting,
+                        summary: "Restarting round after blame handling"
+                    )
+                )
+            ]
+        )
+        #expect(session.clientState.isConnected)
+        #expect(session.clientState.round == nil)
+        #expect(session.covertSession.substate == .idle)
+        #expect(session.covertSession.endpointContext == nil)
+        #expect(session.covertSession.queuedMessages.isEmpty)
+        #expect(session.covertSession.outstandingRequest == nil)
     }
 
     @Test("Primary runtime maps host rejection to the existing coarse public failure surface")
@@ -274,5 +384,67 @@ struct PrimaryRuntimeSessionValidator {
         #expect(event.isTerminal == false)
         #expect(session.lastError == .protocolIncompatible)
         #expect(session.clientState.round == nil)
+    }
+
+    @Test("Primary runtime maps malformed covert response bytes to protocol incompatibility")
+    func validateMalformedCovertResponseProjection() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveToAwaitingCovertSubmission(session: &session)
+        PrimaryRuntimeTestFixtures.markCovertPrepared(session: &session)
+        _ = session.apply(
+            input: .clockAdvanced,
+            now: PrimaryRuntimeTestFixtures.instant(1_035)
+        )
+
+        let effects = session.apply(
+            input: .receivedCovertResponseBytes([0x08]),
+            now: PrimaryRuntimeTestFixtures.instant(1_036)
+        )
+
+        #expect(effects.count == 1)
+        guard case let .emitHostEvent(roundIdentifier, event) = effects[0] else {
+            Issue.record("Expected host event after malformed covert response rejection")
+            return
+        }
+        #expect(roundIdentifier == PrimaryRuntimeTestFixtures.roundIdentifier)
+        #expect(event.kind == .failure)
+        #expect(event.phase == .completed)
+        #expect(event.summary.hasPrefix("Covert response decode failed:"))
+        #expect(event.isTerminal)
+        #expect(session.lastError == .protocolIncompatible)
+        #expect(session.clientState.round?.completionStatus == .protocolIncompatible)
+    }
+
+    @Test("Primary runtime maps covert request failures to transport failure")
+    func validateCovertRequestFailureProjection() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveToAwaitingCovertSubmission(session: &session)
+        PrimaryRuntimeTestFixtures.markCovertPrepared(session: &session)
+        _ = session.apply(
+            input: .clockAdvanced,
+            now: PrimaryRuntimeTestFixtures.instant(1_035)
+        )
+
+        let effects = session.apply(
+            input: .covertRequestFailed(summary: "Covert request failed"),
+            now: PrimaryRuntimeTestFixtures.instant(1_036)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Covert request failed",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(session.lastError == .transportUnavailable)
+        #expect(session.clientState.round?.completionStatus == .transportFailed)
+        #expect(session.covertSession.substate == .idle)
     }
 }

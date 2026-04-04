@@ -5,6 +5,7 @@ extension OpalFusion.Execution {
         enum Input: Sendable, Equatable {
             case primaryConnected
             case primaryDisconnected
+            case covertTransportFailed(summary: String)
             case protocolRejected(summary: String)
             case primaryMessage(OpalFusion.ProtocolModel.ServerMessage)
             case covertResponse(OpalFusion.ProtocolModel.CovertResponse)
@@ -17,6 +18,7 @@ extension OpalFusion.Execution {
 
         enum Effect: Sendable, Equatable {
             case sendPrimary(OpalFusion.ProtocolModel.ClientMessage)
+            case prepareCovert(OpalFusion.Runtime.CovertEndpointContext)
             case submitCovert(OpalFusion.ProtocolModel.CovertMessage)
             case requestHostInputs(roundIdentifier: OpalFusion.Round.Identifier)
             case requestTransactionFinalization(
@@ -66,6 +68,18 @@ extension OpalFusion.Execution {
                 return handlePrimaryConnected()
             case .primaryDisconnected:
                 return handlePrimaryDisconnected()
+            case let .covertTransportFailed(summary):
+                if round?.identifier != nil {
+                    return failRound(
+                        completionStatus: .transportFailed,
+                        clientError: .transportUnavailable,
+                        summary: summary
+                    )
+                }
+                return failBeforeRound(
+                    error: .transportUnavailable,
+                    summary: summary
+                )
             case let .protocolRejected(summary):
                 if round?.identifier != nil {
                     return failRound(
@@ -241,6 +255,7 @@ extension OpalFusion.Execution {
                         session.connectionSubstate = .inRound
 
                         return [
+                            .prepareCovert(makeCovertEndpointContext(from: fusionBegin)),
                             hostEvent(
                                 roundIdentifier: nil,
                                 kind: .status,
@@ -800,6 +815,25 @@ extension OpalFusion.Execution {
                 partialResult.append(hexDigits[Int(byte & 0x0F)])
             }
             return .init(rawValue: hex)
+        }
+
+        private func makeCovertEndpointContext(
+            from fusionBegin: OpalFusion.ProtocolModel.FusionBegin
+        ) -> OpalFusion.Runtime.CovertEndpointContext {
+            .init(
+                roundIdentifier: nil,
+                host: fusionBegin.covertDomain,
+                port: fusionBegin.covertPort,
+                requiresTLS: fusionBegin.covertSsl,
+                entryPath: session.configuration.covertChannel.entryPath,
+                maxPayloadBytes: session.configuration.covertChannel.maxPayloadBytes,
+                requestTimeoutMilliseconds: session.configuration.covertChannel.requestTimeoutMilliseconds,
+                connectTimeout: session.baseline.covertTiming.connectTimeout,
+                connectWindow: session.baseline.covertTiming.connectWindow,
+                submitTimeout: session.baseline.covertTiming.submitTimeout,
+                submitWindow: session.baseline.covertTiming.submitWindow,
+                spareConnectionCount: session.baseline.covertTiming.spareConnectionCount
+            )
         }
     }
 }

@@ -6,6 +6,10 @@ extension OpalFusion.Runtime {
             case connected
             case disconnected
             case receivedPrimaryBytes([UInt8])
+            case covertPrepared
+            case covertPreparationFailed(summary: String)
+            case receivedCovertResponseBytes([UInt8])
+            case covertRequestFailed(summary: String)
             case hostInputsLoaded([OpalFusion.Host.ParticipantInput])
             case hostInputsRejected
             case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
@@ -15,6 +19,8 @@ extension OpalFusion.Runtime {
 
         enum Effect: Sendable, Equatable {
             case writePrimaryBytes([UInt8])
+            case prepareCovertEndpoint(plan: OpalFusion.Runtime.CovertPreparationPlan)
+            case performCovertRequest(request: OpalFusion.Runtime.CovertRequest)
             case requestHostInputs(roundIdentifier: OpalFusion.Round.Identifier)
             case requestTransactionFinalization(
                 roundIdentifier: OpalFusion.Round.Identifier,
@@ -24,15 +30,14 @@ extension OpalFusion.Runtime {
                 roundIdentifier: OpalFusion.Round.Identifier?,
                 event: OpalFusion.Host.Event
             )
-            case deferCovertMessage(OpalFusion.ProtocolModel.CovertMessage)
         }
 
         private(set) var frameDecoder: OpalFusion.Wire.PrimaryFrameDecoder
         private let frameEncoder: OpalFusion.Wire.PrimaryFrameEncoder
         private let messageEncoder: OpalFusion.Wire.PrimaryMessageEncoder
         private let messageDecoder: OpalFusion.Wire.PrimaryMessageDecoder
+        private(set) var covertSession: OpalFusion.Runtime.CovertRuntimeSession
         private(set) var engine: OpalFusion.Execution.RoundEngine
-        private(set) var deferredCovertMessages: [OpalFusion.ProtocolModel.CovertMessage]
 
         init(
             configuration: OpalFusion.Client.Configuration,
@@ -45,6 +50,7 @@ extension OpalFusion.Runtime {
             self.frameEncoder = .init(configuration: baseline.framing)
             self.messageEncoder = .init()
             self.messageDecoder = .init()
+            self.covertSession = .init()
             self.engine = .init(
                 configuration: configuration,
                 genesisHash: genesisHash,
@@ -52,7 +58,6 @@ extension OpalFusion.Runtime {
                 workflow: workflow,
                 baseline: baseline
             )
-            self.deferredCovertMessages = []
         }
 
         var clientState: OpalFusion.Client.State {
@@ -80,6 +85,35 @@ extension OpalFusion.Runtime {
                 )
             case let .receivedPrimaryBytes(bytes):
                 return handleReceivedPrimaryBytes(bytes, now: now)
+            case .covertPrepared:
+                return handleCovertRuntimeEffects(
+                    covertSession.apply(input: .covertPrepared, now: now),
+                    now: now
+                )
+            case let .covertPreparationFailed(summary):
+                return handleCovertRuntimeEffects(
+                    covertSession.apply(
+                        input: .covertPreparationFailed(summary: summary),
+                        now: now
+                    ),
+                    now: now
+                )
+            case let .receivedCovertResponseBytes(bytes):
+                return handleCovertRuntimeEffects(
+                    covertSession.apply(
+                        input: .covertResponseBytesReceived(bytes),
+                        now: now
+                    ),
+                    now: now
+                )
+            case let .covertRequestFailed(summary):
+                return handleCovertRuntimeEffects(
+                    covertSession.apply(
+                        input: .covertRequestFailed(summary: summary),
+                        now: now
+                    ),
+                    now: now
+                )
             case let .hostInputsLoaded(inputs):
                 return translate(
                     engine.apply(input: .hostInputsLoaded(inputs), now: now),
@@ -101,10 +135,15 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case .clockAdvanced:
-                return translate(
-                    engine.apply(input: .clockAdvanced, now: now),
+                var runtimeEffects = handleCovertRuntimeEffects(
+                    covertSession.apply(input: .clockAdvanced, now: now),
                     now: now
                 )
+                runtimeEffects.append(contentsOf: translate(
+                    engine.apply(input: .clockAdvanced, now: now),
+                    now: now
+                ))
+                return runtimeEffects
             }
         }
 
@@ -154,9 +193,26 @@ extension OpalFusion.Runtime {
                             now: now
                         )
                     }
+                case let .prepareCovert(endpointContext):
+                    runtimeEffects.append(
+                        contentsOf: handleCovertRuntimeEffects(
+                            covertSession.apply(
+                                input: .prepare(endpointContext: endpointContext),
+                                now: now
+                            ),
+                            now: now
+                        )
+                    )
                 case let .submitCovert(message):
-                    deferredCovertMessages.append(message)
-                    runtimeEffects.append(.deferCovertMessage(message))
+                    runtimeEffects.append(
+                        contentsOf: handleCovertRuntimeEffects(
+                            covertSession.apply(
+                                input: .enqueue(message: message),
+                                now: now
+                            ),
+                            now: now
+                        )
+                    )
                 case let .requestHostInputs(roundIdentifier):
                     runtimeEffects.append(.requestHostInputs(roundIdentifier: roundIdentifier))
                 case let .requestTransactionFinalization(roundIdentifier, proposal):
@@ -171,6 +227,55 @@ extension OpalFusion.Runtime {
                         .emitHostEvent(
                             roundIdentifier: roundIdentifier,
                             event: event
+                        )
+                    )
+                }
+            }
+
+            if engine.session.connectionSubstate != .inRound {
+                _ = covertSession.apply(input: .reset, now: now)
+            }
+
+            return runtimeEffects
+        }
+
+        private mutating func handleCovertRuntimeEffects(
+            _ covertEffects: [OpalFusion.Runtime.CovertRuntimeSession.Effect],
+            now: OpalFusion.Execution.Instant
+        ) -> [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] {
+            var runtimeEffects: [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] = []
+
+            for effect in covertEffects {
+                switch effect {
+                case let .prepareCovertEndpoint(plan):
+                    runtimeEffects.append(.prepareCovertEndpoint(plan: plan))
+                case let .performCovertRequest(request):
+                    runtimeEffects.append(.performCovertRequest(request: request))
+                case let .deliverCovertResponse(response):
+                    runtimeEffects.append(
+                        contentsOf: translate(
+                            engine.apply(input: .covertResponse(response), now: now),
+                            now: now
+                        )
+                    )
+                case let .emitProtocolFailure(summary):
+                    runtimeEffects.append(
+                        contentsOf: translate(
+                            engine.apply(
+                                input: .protocolRejected(summary: summary),
+                                now: now
+                            ),
+                            now: now
+                        )
+                    )
+                case let .emitTransportFailure(summary):
+                    runtimeEffects.append(
+                        contentsOf: translate(
+                            engine.apply(
+                                input: .covertTransportFailed(summary: summary),
+                                now: now
+                            ),
+                            now: now
                         )
                     )
                 }

@@ -32,7 +32,7 @@ This README stays intentionally brief and points back to the canonical spec inst
 
 ## Current Maturity
 
-Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, and internal primary-channel framing/protobuf/runtime foundations in place. The package still does not implement live coordinator interoperability, real socket transport, covert runtime execution, or `OpalCrypto`-backed execution yet.
+Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, and internal primary/covert runtime foundations in place. The package still does not implement live coordinator interoperability, real socket or HTTP/TLS/Tor transport, or `OpalCrypto`-backed execution yet.
 
 ## Current Public Surface
 

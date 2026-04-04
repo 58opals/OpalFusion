@@ -54,6 +54,7 @@ struct RoundEngineScriptedValidator {
         #expect(engine.clientState.round == nil)
         #expect(
             warmupEffects == [
+                .prepareCovert(Self.covertEndpointContext),
                 .emitHostEvent(
                     roundIdentifier: nil,
                     event: .init(
@@ -536,6 +537,23 @@ private extension RoundEngineScriptedValidator {
                 signature: [0x30],
                 serializedComponent: [0x31]
             )
+        )
+    }
+
+    static var covertEndpointContext: OpalFusion.Runtime.CovertEndpointContext {
+        .init(
+            roundIdentifier: nil,
+            host: fusionBegin.covertDomain,
+            port: fusionBegin.covertPort,
+            requiresTLS: fusionBegin.covertSsl,
+            entryPath: configuration.covertChannel.entryPath,
+            maxPayloadBytes: configuration.covertChannel.maxPayloadBytes,
+            requestTimeoutMilliseconds: configuration.covertChannel.requestTimeoutMilliseconds,
+            connectTimeout: OpalFusion.Transport.BaselineConfiguration.electronCash443.covertTiming.connectTimeout,
+            connectWindow: OpalFusion.Transport.BaselineConfiguration.electronCash443.covertTiming.connectWindow,
+            submitTimeout: OpalFusion.Transport.BaselineConfiguration.electronCash443.covertTiming.submitTimeout,
+            submitWindow: OpalFusion.Transport.BaselineConfiguration.electronCash443.covertTiming.submitWindow,
+            spareConnectionCount: OpalFusion.Transport.BaselineConfiguration.electronCash443.covertTiming.spareConnectionCount
         )
     }
 

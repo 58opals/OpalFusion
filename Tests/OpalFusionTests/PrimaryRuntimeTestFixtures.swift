@@ -5,6 +5,7 @@
 enum PrimaryRuntimeTestFixtureError: Swift.Error, Equatable {
     case expectedSinglePayload(Int)
     case expectedWriteEffect
+    case expectedCovertRequestEffect
 }
 
 enum PrimaryRuntimeTestFixtures {
@@ -108,6 +109,8 @@ enum PrimaryRuntimeTestFixtures {
         )
     )
 
+    static let pingMessage = OpalFusion.ProtocolModel.CovertMessage.ping(.init())
+
     static let sharedComponents = OpalFusion.ProtocolModel.ShareCovertComponents(
         serializedComponents: [[0x40], [0x42]],
         skipSignatures: false,
@@ -176,6 +179,16 @@ enum PrimaryRuntimeTestFixtures {
         message: "Coordinator rejected"
     )
 
+    static let covertServerFailure = OpalFusion.ProtocolModel.ServerFailure(
+        message: "Covert transport failed"
+    )
+
+    static let acknowledgement = OpalFusion.ProtocolModel.CovertResponse.acknowledgement(.init())
+
+    static let covertFailureResponse = OpalFusion.ProtocolModel.CovertResponse.serverFailure(
+        covertServerFailure
+    )
+
     static let clientMessages: [OpalFusion.ProtocolModel.ClientMessage] = [
         .clientHello(clientHello),
         .joinPools(joinPools),
@@ -207,6 +220,32 @@ enum PrimaryRuntimeTestFixtures {
         buildBlames: { _ in blames }
     )
 
+    static let covertMessages: [OpalFusion.ProtocolModel.CovertMessage] = [
+        covertComponentMessage,
+        signatureMessage,
+        pingMessage
+    ]
+
+    static let covertResponses: [OpalFusion.ProtocolModel.CovertResponse] = [
+        acknowledgement,
+        covertFailureResponse
+    ]
+
+    static let covertEndpointContext = OpalFusion.Runtime.CovertEndpointContext(
+        roundIdentifier: nil,
+        host: fusionBegin.covertDomain,
+        port: fusionBegin.covertPort,
+        requiresTLS: fusionBegin.covertSsl,
+        entryPath: configuration.covertChannel.entryPath,
+        maxPayloadBytes: configuration.covertChannel.maxPayloadBytes,
+        requestTimeoutMilliseconds: configuration.covertChannel.requestTimeoutMilliseconds,
+        connectTimeout: baseline.covertTiming.connectTimeout,
+        connectWindow: baseline.covertTiming.connectWindow,
+        submitTimeout: baseline.covertTiming.submitTimeout,
+        submitWindow: baseline.covertTiming.submitWindow,
+        spareConnectionCount: baseline.covertTiming.spareConnectionCount
+    )
+
     static func makeSession() -> OpalFusion.Runtime.PrimaryRuntimeSession {
         .init(
             configuration: configuration,
@@ -215,6 +254,10 @@ enum PrimaryRuntimeTestFixtures {
             workflow: workflow,
             baseline: baseline
         )
+    }
+
+    static func makeCovertSession() -> OpalFusion.Runtime.CovertRuntimeSession {
+        .init()
     }
 
     static func instant(_ unixSeconds: UInt64) -> OpalFusion.Execution.Instant {
@@ -232,6 +275,18 @@ enum PrimaryRuntimeTestFixtures {
     ) throws -> [UInt8] {
         try OpalFusion.Wire.PrimaryFrameEncoder(configuration: baseline.framing)
             .encode(payload: encodeServerPayload(message))
+    }
+
+    static func encodeCovertMessagePayload(
+        _ message: OpalFusion.ProtocolModel.CovertMessage
+    ) throws -> [UInt8] {
+        try OpalFusion.Wire.CovertMessageEncoder().encode(message)
+    }
+
+    static func encodeCovertResponsePayload(
+        _ response: OpalFusion.ProtocolModel.CovertResponse
+    ) throws -> [UInt8] {
+        try OpalFusion.Wire.CovertMessageEncoder().encode(response)
     }
 
     static func decodeClientMessage(
@@ -252,6 +307,45 @@ enum PrimaryRuntimeTestFixtures {
             throw PrimaryRuntimeTestFixtureError.expectedWriteEffect
         }
         return try decodeClientMessage(from: bytes)
+    }
+
+    static func extractCovertMessage(
+        from request: OpalFusion.Runtime.CovertRequest
+    ) throws -> OpalFusion.ProtocolModel.CovertMessage {
+        try OpalFusion.Wire.CovertMessageDecoder().decodeMessage(request.payload)
+    }
+
+    static func extractCovertRequest(
+        from effect: OpalFusion.Runtime.PrimaryRuntimeSession.Effect
+    ) throws -> OpalFusion.Runtime.CovertRequest {
+        guard case let .performCovertRequest(request) = effect else {
+            throw PrimaryRuntimeTestFixtureError.expectedCovertRequestEffect
+        }
+        return request
+    }
+
+    static func expectedPreparationPlan(
+        startedAt unixSeconds: UInt64
+    ) -> OpalFusion.Runtime.CovertPreparationPlan {
+        let startedAt = instant(unixSeconds)
+        return .init(
+            endpoint: covertEndpointContext,
+            startedAt: startedAt,
+            deadline: startedAt.advanced(by: baseline.covertTiming.connectWindow)
+        )
+    }
+
+    static func expectedRequest(
+        for message: OpalFusion.ProtocolModel.CovertMessage,
+        startedAt unixSeconds: UInt64
+    ) throws -> OpalFusion.Runtime.CovertRequest {
+        let startedAt = instant(unixSeconds)
+        return .init(
+            endpoint: covertEndpointContext,
+            payload: try encodeCovertMessagePayload(message),
+            startedAt: startedAt,
+            deadline: startedAt.advanced(by: baseline.covertTiming.submitTimeout)
+        )
     }
 
     static func driveThroughStartRound(
@@ -278,6 +372,15 @@ enum PrimaryRuntimeTestFixtures {
         )
     }
 
+    static func markCovertPrepared(
+        session: inout OpalFusion.Runtime.PrimaryRuntimeSession
+    ) {
+        _ = session.apply(
+            input: .covertPrepared,
+            now: instant(1_001)
+        )
+    }
+
     static func driveToAwaitingCovertSubmission(
         session: inout OpalFusion.Runtime.PrimaryRuntimeSession
     ) throws {
@@ -295,6 +398,67 @@ enum PrimaryRuntimeTestFixtures {
         _ = session.apply(
             input: .receivedPrimaryBytes(try encodeServerFrame(.allCommitments(allCommitments))),
             now: instant(1_034)
+        )
+    }
+
+    static func driveToAwaitingSharedComponents(
+        session: inout OpalFusion.Runtime.PrimaryRuntimeSession
+    ) throws {
+        try driveToAwaitingCovertSubmission(session: &session)
+        markCovertPrepared(session: &session)
+        _ = session.apply(
+            input: .clockAdvanced,
+            now: instant(1_035)
+        )
+        _ = session.apply(
+            input: .receivedCovertResponseBytes(
+                try encodeCovertResponsePayload(acknowledgement)
+            ),
+            now: instant(1_036)
+        )
+    }
+
+    static func driveToAwaitingResult(
+        session: inout OpalFusion.Runtime.PrimaryRuntimeSession
+    ) throws {
+        try driveToAwaitingSharedComponents(session: &session)
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try encodeServerFrame(.shareCovertComponents(sharedComponents))
+            ),
+            now: instant(1_040)
+        )
+        _ = session.apply(
+            input: .finalizedTransactionLoaded(finalizedTransaction),
+            now: instant(1_042)
+        )
+        _ = session.apply(
+            input: .clockAdvanced,
+            now: instant(1_050)
+        )
+        _ = session.apply(
+            input: .receivedCovertResponseBytes(
+                try encodeCovertResponsePayload(acknowledgement)
+            ),
+            now: instant(1_051)
+        )
+    }
+
+    static func driveToAwaitingRestart(
+        session: inout OpalFusion.Runtime.PrimaryRuntimeSession
+    ) throws {
+        try driveToAwaitingResult(session: &session)
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try encodeServerFrame(.fusionResult(failureResult))
+            ),
+            now: instant(1_055)
+        )
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try encodeServerFrame(.theirProofsList(theirProofsList))
+            ),
+            now: instant(1_056)
         )
     }
 }
