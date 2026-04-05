@@ -337,6 +337,17 @@ struct RecordedHostEvent: Sendable, Equatable {
     let event: OpalFusion.Host.Event
 }
 
+struct RecordedRoundEvent: Sendable, Equatable {
+    let roundIdentifier: OpalFusion.Round.Identifier
+    let event: OpalFusion.Host.Event
+}
+
+struct TimedRecordedRoundEvent: Sendable {
+    let roundIdentifier: OpalFusion.Round.Identifier
+    let event: OpalFusion.Host.Event
+    let recordedAt: Date
+}
+
 struct TimedRecordedHostEvent: Sendable {
     let roundIdentifier: OpalFusion.Round.Identifier?
     let event: OpalFusion.Host.Event
@@ -383,6 +394,50 @@ actor RecordedHostEventSink {
 
     func timedSnapshot() -> [TimedRecordedHostEvent] {
         timedEvents
+    }
+}
+
+actor RecordedRoundEventObserver: OpalFusion.Host.EventObserver {
+    private var events: [RecordedRoundEvent] = []
+    private var timedEvents: [TimedRecordedRoundEvent] = []
+
+    func receive(
+        _ event: OpalFusion.Host.Event,
+        for roundIdentifier: OpalFusion.Round.Identifier
+    ) async {
+        timedEvents.append(
+            .init(
+                roundIdentifier: roundIdentifier,
+                event: event,
+                recordedAt: Date()
+            )
+        )
+        events.append(
+            .init(
+                roundIdentifier: roundIdentifier,
+                event: event
+            )
+        )
+    }
+
+    func snapshot() -> [RecordedRoundEvent] {
+        events
+    }
+
+    func timedSnapshot() -> [TimedRecordedRoundEvent] {
+        timedEvents
+    }
+}
+
+actor RecordedClientStateObserver: OpalFusion.Client.StateObserver {
+    private var snapshots: [OpalFusion.Client.Session.Snapshot] = []
+
+    func receive(_ snapshot: OpalFusion.Client.Session.Snapshot) async {
+        snapshots.append(snapshot)
+    }
+
+    func snapshot() -> [OpalFusion.Client.Session.Snapshot] {
+        snapshots
     }
 }
 

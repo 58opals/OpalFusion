@@ -32,11 +32,11 @@ This README stays intentionally brief and points back to the canonical spec inst
 
 ## Current Maturity
 
-Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material, plus a gated real Electron Cash `4.4.3` interoperability smoke validator for local coordinator-backed proofing. Public activation remains intentionally conservative: live runtime/session driving is still internal-only, a public client session API is not exposed yet, and broader coordinator validation is still treated as an internal proofing path rather than a public product surface.
+Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material, plus a gated real Electron Cash `4.4.3` interoperability smoke validator for local coordinator-backed proofing. A conservative public activation layer is now available through `OpalFusion.Client.Session`, while the runtime, transport, framing, protobuf, and execution internals remain intentionally hidden.
 
 ## Current Public Surface
 
-- `OpalFusion.Client.Configuration`, `OpalFusion.Client.State`, and `OpalFusion.Client.Error`
+- `OpalFusion.Client.Configuration`, `OpalFusion.Client.State`, `OpalFusion.Client.Error`, `OpalFusion.Client.Session`, and `OpalFusion.Client.StateObserver`
 - `OpalFusion.Round.Identifier`, `OpalFusion.Round.Phase`, and `OpalFusion.Round.State`
 - `OpalFusion.Transport.CovertChannelConfiguration` and `OpalFusion.Transport.TorSocks5Configuration`
 - `OpalFusion.Host.ParticipantInput`, `OpalFusion.Host.ParticipantOutput`, and `OpalFusion.Host.ParticipantReservation`
@@ -56,7 +56,7 @@ Build the package:
 swift build
 ```
 
-The current scaffold is usable as a boundary package and type surface:
+The package now exposes a conservative public session wrapper over the internal runtime:
 
 ```swift
 import OpalFusion
@@ -73,15 +73,21 @@ let configuration = OpalFusion.Client.Configuration(
     covertChannel: covertChannel
 )
 
-let round = OpalFusion.Round.State(
-    identifier: .init(rawValue: "round-001"),
-    phase: .connecting
+let joinPools = OpalFusion.ProtocolModel.JoinPools(
+    tiers: [10_000],
+    tags: []
 )
 
-let state = OpalFusion.Client.State(
-    isConnected: false,
-    round: round
+let session = OpalFusion.Client.Session(
+    configuration: configuration,
+    joinPools: joinPools,
+    participantInputProvider: participantInputProvider,
+    transactionAssembler: transactionAssembler,
+    stateObserver: stateObserver
 )
+
+await session.start()
+let snapshot = await session.snapshot()
 ```
 
-This shows the current configuration and state-model surface. Live runtime/session driving remains internal, so there is still no public API to start a CashFusion session directly from the package.
+This keeps the public surface small while leaving the runtime, transport, framing, protobuf, and execution machinery internal.

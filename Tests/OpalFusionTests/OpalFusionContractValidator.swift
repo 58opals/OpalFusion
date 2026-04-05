@@ -5,7 +5,7 @@ import Testing
 
 struct OpalFusionContractValidator {
     @Test("Public scaffold types remain constructible from the documented example")
-    func validatePublicScaffoldConstruction() {
+    func validatePublicScaffoldConstruction() async {
         let covertChannel = OpalFusion.Transport.CovertChannelConfiguration(
             entryPath: "/fusion",
             maxPayloadBytes: 32_768,
@@ -24,6 +24,17 @@ struct OpalFusionContractValidator {
             isConnected: false,
             round: round
         )
+        let session = OpalFusion.Client.Session(
+            configuration: configuration,
+            joinPools: .init(tiers: [10_000], tags: []),
+            participantInputProvider: HostParticipantInputProviderAdapter(
+                participantInputs: []
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: .init(serializedTransaction: [])
+            )
+        )
+        let snapshot = await session.snapshot()
 
         #expect(configuration.coordinatorHost == "fusion.example.org")
         #expect(configuration.coordinatorPort == 8787)
@@ -31,6 +42,7 @@ struct OpalFusionContractValidator {
         #expect(configuration.torSocks5 == nil)
         #expect(state.isConnected == false)
         #expect(state.round == round)
+        #expect(snapshot == .init())
     }
 
     @Test("Round state remains constructible with an additive completion status")
@@ -163,6 +175,39 @@ struct OpalFusionContractValidator {
 
         #expect(reservation.inputs == [participantInput])
         #expect(reservation.outputs.isEmpty)
+    }
+
+    @Test("Client session snapshot preserves state and coarse error visibility")
+    func validateClientSessionSnapshotConstruction() {
+        let state = OpalFusion.Client.State(
+            isConnected: true,
+            round: .init(
+                identifier: .init(rawValue: "round-003"),
+                phase: .completed,
+                completionStatus: .success,
+                isTerminal: true
+            )
+        )
+        let snapshot = OpalFusion.Client.Session.Snapshot(
+            state: state,
+            lastError: .transportUnavailable
+        )
+
+        #expect(snapshot.state == state)
+        #expect(snapshot.lastError == .transportUnavailable)
+    }
+
+    @Test("Client state observer satisfies the public session observation seam")
+    func validateClientStateObserverAdapter() async {
+        let observer: any OpalFusion.Client.StateObserver = ClientStateObserverAdapter()
+        let snapshot = OpalFusion.Client.Session.Snapshot(
+            state: .init(isConnected: true),
+            lastError: nil
+        )
+
+        await observer.receive(snapshot)
+        #expect(snapshot.state.isConnected)
+        #expect(snapshot.lastError == nil)
     }
 }
 

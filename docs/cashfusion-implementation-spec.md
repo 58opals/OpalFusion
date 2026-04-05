@@ -192,16 +192,20 @@ This section maps the current public scaffold to the required behavior.
 
 Responsibilities:
 
-- Own coordinator configuration and high-level client state.
+- Own coordinator configuration, high-level client state, and the conservative public session activation wrapper.
 - Track whether the primary connection is established.
 - Surface the current round snapshot when a round exists.
 - Report high-level error categories that distinguish configuration, transport, host, protocol, and blame outcomes.
+- Provide session-scoped snapshot observation without exposing internal runtime or transport controls.
 
 Current scaffold alignment:
 
 - `Configuration` already models coordinator host, coordinator port, covert channel configuration, and optional Tor SOCKS5 configuration.
 - `State` already models connection state plus an optional round snapshot.
-- `Error` is currently too coarse for full interoperability and should expand later without changing this documentation phase.
+- `Error` remains intentionally coarse and still maps configuration, transport, host, protocol, and round-completion outcomes into a stable public surface.
+- `Session` is the conservative public activation wrapper over the internal live runtime.
+- `Session.Snapshot` exposes the current coarse `State` plus the last surfaced `Error`.
+- `StateObserver` is the public async seam for session-wide state transitions, including pre-round connection failures and terminal outcomes.
 
 ### `OpalFusion.Round`
 
@@ -245,16 +249,16 @@ Current scaffold alignment:
 
 Responsibilities:
 
-- Provide the transaction outputs the host is willing to reserve for the round.
+- Provide the participant inputs and outputs the host is willing to reserve for the round.
 - Finalize the transaction implied by the server-shared components so OpalFusion can validate the result and derive the required signatures.
 - Observe coarse round events.
 
 Current scaffold alignment:
 
-- `ParticipantInputProvider` supplies reserved participant inputs for a round.
+- `ParticipantInputProvider` supplies a round-scoped `ParticipantReservation`.
 - `TransactionAssembler` finalizes a transaction from a round-scoped proposal.
 - `EventObserver` receives round-scoped events.
-- `ParticipantInput`, `TransactionFinalizationProposal`, `FinalizedTransaction`, and `Event` provide the current host-facing value surface.
+- `ParticipantInput`, `ParticipantOutput`, `ParticipantReservation`, `TransactionFinalizationProposal`, `FinalizedTransaction`, and `Event` provide the current host-facing value surface.
 
 OpalFusion-specific choice:
 

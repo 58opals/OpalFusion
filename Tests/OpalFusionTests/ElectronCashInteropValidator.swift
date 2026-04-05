@@ -22,7 +22,8 @@ struct ElectronCashInteropValidator {
             participantInput: interopConfiguration.participantReservation.inputs[0],
             participantInputPrivateKey: interopConfiguration.participantInputPrivateKey
         )
-        let eventSink = RecordedHostEventSink()
+        let eventObserver = RecordedRoundEventObserver()
+        let stateObserver = RecordedClientStateObserver()
         let primaryTransport = RecordingPrimaryTransport(
             base: OpalFusion.Runtime.LivePrimaryTransport(
                 host: interopConfiguration.clientConfiguration.coordinatorHost,
@@ -34,36 +35,32 @@ struct ElectronCashInteropValidator {
                 torSocks5: interopConfiguration.clientConfiguration.torSocks5
             )
         )
-        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+        let session = OpalFusion.Client.Session(
             configuration: interopConfiguration.clientConfiguration,
             genesisHash: interopConfiguration.genesisHash,
             joinPools: interopConfiguration.joinPools,
             participantInputProvider: participantInputProvider,
             transactionAssembler: transactionAssembler,
-            hostEventSink: { roundIdentifier, event in
-                await eventSink.record(
-                    roundIdentifier: roundIdentifier,
-                    event: event
-                )
-            },
-            primaryTransport: primaryTransport,
-            covertTransport: covertTransport
+            eventObserver: eventObserver,
+            stateObserver: stateObserver,
+            primaryTransportFactory: { primaryTransport },
+            covertTransportFactory: { covertTransport }
         )
 
-        await driver.start()
+        await session.start()
         defer {
             Task {
-                await driver.stop()
+                await session.stop()
             }
         }
 
         let snapshot = try await withTimeout(.seconds(600)) {
             while true {
-                let snapshot = await driver.snapshot()
-                if snapshot.clientState.round?.isTerminal == true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.round?.isTerminal == true {
                     return snapshot
                 }
-                if snapshot.lastError != nil, snapshot.clientState.round == nil {
+                if snapshot.lastError != nil, snapshot.state.round == nil {
                     return snapshot
                 }
                 try await Task.sleep(for: .milliseconds(250))
@@ -71,9 +68,9 @@ struct ElectronCashInteropValidator {
         }
 
         #expect(snapshot.lastError == nil)
-        #expect(snapshot.clientState.isConnected == true)
-        #expect(snapshot.clientState.round?.phase == .completed)
-        #expect(snapshot.clientState.round?.completionStatus == .success)
+        #expect(snapshot.state.isConnected == true)
+        #expect(snapshot.state.round?.phase == .completed)
+        #expect(snapshot.state.round?.completionStatus == .success)
 
         let clientMessageKinds = await primaryTransport.recordedClientMessages().map(Self.clientKind)
         #expect(
@@ -115,14 +112,22 @@ struct ElectronCashInteropValidator {
         #expect(requestedRounds.isEmpty == false)
         #expect(finalizedRounds.isEmpty == false)
 
-        let eventSummaries = await eventSink.snapshot().map(\.event.summary)
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(
+            observedSnapshots.contains { $0.state.isConnected && $0.state.round == nil }
+        )
+        #expect(observedSnapshots.contains { $0.state.round?.completionStatus == .success })
+
+        let requestRecords = await participantInputProvider.timedRequestRecords()
+        let proposalRecords = await transactionAssembler.timedProposalRecords()
+        let observedEvents = await eventObserver.snapshot()
+        let timedEvents = await eventObserver.timedSnapshot()
+        #expect(requestRecords.isEmpty == false)
+        #expect(proposalRecords.isEmpty == false)
         #expect(
             Self.containsSubsequence(
-                eventSummaries,
+                observedEvents.map(\.event.summary),
                 subsequence: [
-                    "Primary channel connected; sending ClientHello",
-                    "ServerHello received; joining eligible pools",
-                    "Fusion warmup started",
                     "StartRound received; collecting reserved inputs and outputs",
                     "Submitting player commitments and blind requests",
                     "Blind signature responses received",
@@ -134,17 +139,12 @@ struct ElectronCashInteropValidator {
                 ]
             )
         )
-
-        let requestRecords = await participantInputProvider.timedRequestRecords()
-        let proposalRecords = await transactionAssembler.timedProposalRecords()
-        let timedEvents = await eventSink.timedSnapshot()
-        #expect(requestRecords.isEmpty == false)
-        #expect(proposalRecords.isEmpty == false)
         guard
             let firstReservationRequest = requestRecords.first?.recordedAt,
             let firstProposal = proposalRecords.first?.recordedAt,
-            let successEvent = timedEvents.first(where: { $0.event.summary == "Round completed successfully" })?
-            .recordedAt
+            let successEvent = timedEvents.first(where: {
+                $0.event.summary == "Round completed successfully"
+            })?.recordedAt
         else {
             Issue.record("Expected timed reservation, proposal, and success-event records")
             return

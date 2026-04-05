@@ -7,6 +7,9 @@ extension OpalFusion.Runtime {
             let lastError: OpalFusion.Client.Error?
         }
 
+        typealias SnapshotSink = @Sendable (
+            OpalFusion.Runtime.LiveRuntimeDriver.Snapshot
+        ) async -> Void
         typealias HostEventSink = @Sendable (
             OpalFusion.Round.Identifier?,
             OpalFusion.Host.Event
@@ -17,6 +20,7 @@ extension OpalFusion.Runtime {
         private let transactionAssembler: any OpalFusion.Host.TransactionAssembler
         private let eventObserver: (any OpalFusion.Host.EventObserver)?
         private let hostEventSink: HostEventSink
+        private let snapshotSink: SnapshotSink
         private let primaryTransport: any OpalFusion.Runtime.PrimaryTransporting
         private let covertTransport: any OpalFusion.Runtime.CovertTransporting
         private let nowProvider: @Sendable () -> OpalFusion.Execution.Instant
@@ -24,6 +28,7 @@ extension OpalFusion.Runtime {
         private var primaryReadTask: Task<Void, Never>?
         private var clockTask: Task<Void, Never>?
         private var isRunning: Bool
+        private var lastEmittedSnapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot?
 
         init(
             configuration: OpalFusion.Client.Configuration,
@@ -34,6 +39,7 @@ extension OpalFusion.Runtime {
             transactionAssembler: any OpalFusion.Host.TransactionAssembler,
             eventObserver: (any OpalFusion.Host.EventObserver)? = nil,
             hostEventSink: @escaping HostEventSink = { _, _ in },
+            snapshotSink: @escaping SnapshotSink = { _ in },
             baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443,
             nowProvider: @escaping @Sendable () -> OpalFusion.Execution.Instant = {
                 .now()
@@ -53,6 +59,7 @@ extension OpalFusion.Runtime {
             self.transactionAssembler = transactionAssembler
             self.eventObserver = eventObserver
             self.hostEventSink = hostEventSink
+            self.snapshotSink = snapshotSink
             self.primaryTransport = primaryTransport ?? OpalFusion.Runtime.LivePrimaryTransport(
                 host: configuration.coordinatorHost,
                 port: configuration.coordinatorPort
@@ -65,6 +72,7 @@ extension OpalFusion.Runtime {
             self.primaryReadTask = nil
             self.clockTask = nil
             self.isRunning = false
+            self.lastEmittedSnapshot = nil
         }
 
         func start() async {
@@ -167,6 +175,8 @@ extension OpalFusion.Runtime {
                 runtimeSession.engine.session.connectionSubstate == .disconnected {
                 await tearDownTransports()
             }
+
+            await emitSnapshotIfNeeded()
         }
 
         private func process(
@@ -253,6 +263,16 @@ extension OpalFusion.Runtime {
             clockTask = nil
             await primaryTransport.close()
             await covertTransport.reset()
+        }
+
+        private func emitSnapshotIfNeeded() async {
+            let snapshot = snapshot()
+            guard snapshot != lastEmittedSnapshot else {
+                return
+            }
+
+            lastEmittedSnapshot = snapshot
+            await snapshotSink(snapshot)
         }
     }
 }
