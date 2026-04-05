@@ -32,7 +32,7 @@ This README stays intentionally brief and points back to the canonical spec inst
 
 ## Current Maturity
 
-Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material, plus a gated real Electron Cash `4.4.3` interoperability smoke validator for local coordinator-backed proofing. A conservative public activation layer is now available through `OpalFusion.Client.Session`, while the runtime, transport, framing, protobuf, and execution internals remain intentionally hidden.
+Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material, plus a gated real Electron Cash `4.4.3` interoperability smoke validator for local coordinator-backed proofing. A conservative public activation layer is now available through `OpalFusion.Client.Session`, while the runtime, transport, framing, protobuf, and execution internals remain intentionally hidden. The current pilot-supported live path is intentionally limited to compressed-key standard P2PKH participant inputs and matching Schnorr P2PKH unlocking scripts for local finalized inputs.
 
 ## Current Public Surface
 
@@ -89,5 +89,17 @@ let session = OpalFusion.Client.Session(
 await session.start()
 let snapshot = await session.snapshot()
 ```
+
+Current live-path expectations:
+
+- Each reserved input must include the compressed public key that matches its standard P2PKH locking script.
+- The host-finalized transaction must preserve a standard Schnorr P2PKH unlocking script for each local input.
+- Broader BCH script-type support is intentionally deferred; unsupported forms currently surface through the coarse `.notImplemented` client error.
+
+Real Electron Cash proofing:
+
+- The gated smoke now uses a session-level success rule: intermediate blame or restart rounds are acceptable as long as one round in the session completes successfully before timeout.
+- Export the required `OPALFUSION_EC_*` variables for your funded test reservation, then run `./scripts/run-electron-cash-interop-smoke.sh`.
+- Run `./scripts/run-electron-cash-interop-smoke.sh 3` for the current pilot-confidence target of three consecutive successful session-level proofs.
 
 This keeps the public surface small while leaving the runtime, transport, framing, protobuf, and execution machinery internal.

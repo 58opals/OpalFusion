@@ -13,7 +13,7 @@ extension OpalFusion.Execution {
             case let .invalidParticipantReservation(summary):
                 summary
             case let .missingParticipantInputPublicKey(index):
-                "Reserved input at index \(index) is missing the required public key"
+                "Reserved input at index \(index) is missing the compressed public key required for standard P2PKH support"
             case let .invalidTransactionTemplate(summary):
                 summary
             case let .protocolValidationFailed(summary):

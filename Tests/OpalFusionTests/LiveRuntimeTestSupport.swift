@@ -43,6 +43,8 @@ actor LoopbackPrimaryCoordinator {
     private let messageEncoder: OpalFusion.Wire.PrimaryMessageEncoder
     private let messageDecoder: OpalFusion.Wire.PrimaryMessageDecoder
     private var clientMessages: [OpalFusion.ProtocolModel.ClientMessage]
+    private var clientMessageHistory: [OpalFusion.ProtocolModel.ClientMessage]
+    private var serverMessageHistory: [OpalFusion.ProtocolModel.ServerMessage]
     private var messageWaiters: [CheckedContinuation<OpalFusion.ProtocolModel.ClientMessage, Error>]
     private var inboundError: Error?
 
@@ -107,6 +109,8 @@ actor LoopbackPrimaryCoordinator {
             messageEncoder: .init(),
             messageDecoder: .init(),
             clientMessages: [],
+            clientMessageHistory: [],
+            serverMessageHistory: [],
             messageWaiters: [],
             inboundError: nil
         )
@@ -123,6 +127,8 @@ actor LoopbackPrimaryCoordinator {
         messageEncoder: OpalFusion.Wire.PrimaryMessageEncoder,
         messageDecoder: OpalFusion.Wire.PrimaryMessageDecoder,
         clientMessages: [OpalFusion.ProtocolModel.ClientMessage],
+        clientMessageHistory: [OpalFusion.ProtocolModel.ClientMessage],
+        serverMessageHistory: [OpalFusion.ProtocolModel.ServerMessage],
         messageWaiters: [CheckedContinuation<OpalFusion.ProtocolModel.ClientMessage, Error>],
         inboundError: Error?
     ) {
@@ -135,6 +141,8 @@ actor LoopbackPrimaryCoordinator {
         self.messageEncoder = messageEncoder
         self.messageDecoder = messageDecoder
         self.clientMessages = clientMessages
+        self.clientMessageHistory = clientMessageHistory
+        self.serverMessageHistory = serverMessageHistory
         self.messageWaiters = messageWaiters
         self.inboundError = inboundError
     }
@@ -170,6 +178,7 @@ actor LoopbackPrimaryCoordinator {
     }
 
     func send(_ message: OpalFusion.ProtocolModel.ServerMessage) async throws {
+        serverMessageHistory.append(message)
         let payload = try messageEncoder.encode(message)
         let framedBytes = try frameEncoder.encode(payload: payload)
         try await send(bytes: framedBytes)
@@ -251,6 +260,7 @@ actor LoopbackPrimaryCoordinator {
             let payloads = try frameDecoder.append(bytes)
             for payload in payloads {
                 let message = try messageDecoder.decodeClient(payload)
+                clientMessageHistory.append(message)
                 if messageWaiters.isEmpty == false {
                     let waiter = messageWaiters.removeFirst()
                     waiter.resume(returning: message)
@@ -330,6 +340,14 @@ actor LoopbackPrimaryCoordinator {
             waiter.resume(throwing: error)
         }
     }
+
+    func recordedClientMessages() -> [OpalFusion.ProtocolModel.ClientMessage] {
+        clientMessageHistory
+    }
+
+    func recordedServerMessages() -> [OpalFusion.ProtocolModel.ServerMessage] {
+        serverMessageHistory
+    }
 }
 
 struct RecordedHostEvent: Sendable, Equatable {
@@ -362,6 +380,11 @@ struct TimedRoundRequestRecord: Sendable {
 struct TimedTransactionProposalRecord: Sendable {
     let roundIdentifier: OpalFusion.Round.Identifier
     let proposal: OpalFusion.Host.TransactionFinalizationProposal
+    let recordedAt: Date
+}
+
+struct TimedClientSessionSnapshot: Sendable {
+    let snapshot: OpalFusion.Client.Session.Snapshot
     let recordedAt: Date
 }
 
@@ -431,13 +454,24 @@ actor RecordedRoundEventObserver: OpalFusion.Host.EventObserver {
 
 actor RecordedClientStateObserver: OpalFusion.Client.StateObserver {
     private var snapshots: [OpalFusion.Client.Session.Snapshot] = []
+    private var timedSnapshots: [TimedClientSessionSnapshot] = []
 
     func receive(_ snapshot: OpalFusion.Client.Session.Snapshot) async {
+        timedSnapshots.append(
+            .init(
+                snapshot: snapshot,
+                recordedAt: Date()
+            )
+        )
         snapshots.append(snapshot)
     }
 
     func snapshot() -> [OpalFusion.Client.Session.Snapshot] {
         snapshots
+    }
+
+    func timedSnapshot() -> [TimedClientSessionSnapshot] {
+        timedSnapshots
     }
 }
 
@@ -582,6 +616,7 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
 actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     private let participantInput: OpalFusion.Host.ParticipantInput
     private let participantInputPrivateKey: [UInt8]
+    private let unlockingScriptBuilder: (([UInt8], [UInt8]) -> [UInt8])?
     private let delay: Duration
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
     private var proposals: [OpalFusion.Host.TransactionFinalizationProposal] = []
@@ -591,10 +626,12 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     init(
         participantInput: OpalFusion.Host.ParticipantInput,
         participantInputPrivateKey: [UInt8],
+        unlockingScriptBuilder: (([UInt8], [UInt8]) -> [UInt8])? = nil,
         delay: Duration = .zero
     ) {
         self.participantInput = participantInput
         self.participantInputPrivateKey = participantInputPrivateKey
+        self.unlockingScriptBuilder = unlockingScriptBuilder
         self.delay = delay
         self.requestedRoundIdentifiers = []
         self.proposals = []
@@ -673,12 +710,10 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
             )
         )
 
-        var unlockingScript = [UInt8]()
-        unlockingScript.append(0x41)
-        unlockingScript.append(contentsOf: signature)
-        unlockingScript.append(0x41)
-        unlockingScript.append(0x21)
-        unlockingScript.append(contentsOf: participantInputPublicKey)
+        let unlockingScript = unlockingScriptBuilder?(
+            signature,
+            participantInputPublicKey
+        ) ?? ([0x41] + signature + [0x41] + [0x21] + participantInputPublicKey)
 
         transaction = transaction.settingUnlockingScript(unlockingScript, at: inputIndex)
         return (

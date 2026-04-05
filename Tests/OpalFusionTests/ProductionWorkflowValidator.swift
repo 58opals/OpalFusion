@@ -100,6 +100,54 @@ struct ProductionWorkflowValidator {
                 )
             )
         }
+
+        do {
+            var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+            scenario.round.participantReservation = .init(
+                inputs: [
+                    .init(
+                        outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+                        outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+                        amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
+                        lockingScript: scenario.reservation.inputs[0].lockingScript,
+                        publicKey: [UInt8](repeating: 0x04, count: 65)
+                    )
+                ],
+                outputs: scenario.reservation.outputs
+            )
+            _ = try scenario.workflow.buildPlayerCommit(round: &scenario.round)
+            Issue.record("Expected malformed public-key reservation to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .invalidParticipantReservation(
+                    "Participant input at index 0 must provide the compressed public key required for standard P2PKH support"
+                )
+            )
+        }
+
+        do {
+            var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+            scenario.round.participantReservation = .init(
+                inputs: [
+                    .init(
+                        outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+                        outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+                        amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
+                        lockingScript: [0x51],
+                        publicKey: scenario.reservation.inputs[0].publicKey
+                    )
+                ],
+                outputs: scenario.reservation.outputs
+            )
+            _ = try scenario.workflow.buildPlayerCommit(round: &scenario.round)
+            Issue.record("Expected non-P2PKH reservation to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .unsupportedExecution(
+                    OpalFusion.Execution.ProtocolPrimitives.supportedParticipantInputSummary
+                )
+            )
+        }
     }
 
     @Test("Production workflow derives the unsigned template and extracts local signatures")
@@ -171,6 +219,25 @@ struct ProductionWorkflowValidator {
             #expect(
                 error == .invalidTransactionTemplate(
                     "Finalized transaction outputs did not match the unsigned template"
+                )
+            )
+        }
+
+        do {
+            var unsupportedRound = scenario.round
+            let unsupportedSigningResult = try scenario.makeSignedFinalizedTransaction(
+                proposal: proposal,
+                unlockingScriptBuilder: { signature, publicKey in
+                    [0x4C, 0x40] + signature + [0x21] + publicKey
+                }
+            )
+            unsupportedRound.finalizedTransaction = unsupportedSigningResult.transaction
+            _ = try scenario.workflow.buildCovertSignatureMessages(round: &unsupportedRound)
+            Issue.record("Expected unsupported unlocking script to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .unsupportedExecution(
+                    OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
                 )
             )
         }
@@ -313,12 +380,14 @@ struct ProductionWorkflowScenario {
     }
 
     func makeSignedFinalizedTransaction(
-        proposal: OpalFusion.Host.TransactionFinalizationProposal
+        proposal: OpalFusion.Host.TransactionFinalizationProposal,
+        unlockingScriptBuilder: (([UInt8], [UInt8]) -> [UInt8])? = nil
     ) throws -> SigningTransactionFixture {
         try ProductionWorkflowTestFixtures.makeSignedFinalizedTransaction(
             proposal: proposal,
             participantInput: reservation.inputs[0],
-            participantInputPrivateKey: participantInputPrivateKey
+            participantInputPrivateKey: participantInputPrivateKey,
+            unlockingScriptBuilder: unlockingScriptBuilder
         )
     }
 }
@@ -555,7 +624,8 @@ enum ProductionWorkflowTestFixtures {
     static func makeSignedFinalizedTransaction(
         proposal: OpalFusion.Host.TransactionFinalizationProposal,
         participantInput: OpalFusion.Host.ParticipantInput,
-        participantInputPrivateKey: [UInt8]
+        participantInputPrivateKey: [UInt8],
+        unlockingScriptBuilder: (([UInt8], [UInt8]) -> [UInt8])? = nil
     ) throws -> SigningTransactionFixture {
         guard let participantInputPublicKey = participantInput.publicKey else {
             throw ProductionWorkflowTestError.missingParticipantInputPublicKey
@@ -578,18 +648,26 @@ enum ProductionWorkflowTestFixtures {
             )
         )
 
-        var unlockingScript = [UInt8]()
-        unlockingScript.append(0x41)
-        unlockingScript.append(contentsOf: signature)
-        unlockingScript.append(0x41)
-        unlockingScript.append(0x21)
-        unlockingScript.append(contentsOf: participantInputPublicKey)
+        let unlockingScript = unlockingScriptBuilder?(
+            signature,
+            participantInputPublicKey
+        ) ?? standardP2PKHUnlockingScript(
+            signature: signature,
+            publicKey: participantInputPublicKey
+        )
 
         transaction = transaction.settingUnlockingScript(unlockingScript, at: 0)
         return .init(
             transaction: .init(serializedTransaction: try transaction.serialized()),
             signature: signature
         )
+    }
+
+    static func standardP2PKHUnlockingScript(
+        signature: [UInt8],
+        publicKey: [UInt8]
+    ) -> [UInt8] {
+        [0x41] + signature + [0x41] + [0x21] + publicKey
     }
 
     static func p2pkhLockingScript(publicKey: [UInt8]) -> [UInt8] {

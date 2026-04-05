@@ -206,6 +206,7 @@ Current scaffold alignment:
 - `Session` is the conservative public activation wrapper over the internal live runtime.
 - `Session.Snapshot` exposes the current coarse `State` plus the last surfaced `Error`.
 - `StateObserver` is the public async seam for session-wide state transitions, including pre-round connection failures and terminal outcomes.
+- The current real Electron Cash proof target is session-level eventual success rather than first-round success, so a blame/restart attempt may be followed by a later successful round inside one session.
 
 ### `OpalFusion.Round`
 
@@ -263,6 +264,7 @@ Current scaffold alignment:
 OpalFusion-specific choice:
 
 - The host boundary remains the place where wallet-owned signing material is applied; OpalFusion must not absorb product-wallet policy or UI concerns.
+- The currently supported live input/signing path is intentionally narrow: each reserved local input must be a compressed-key standard P2PKH input, and the finalized transaction must preserve a standard Schnorr P2PKH unlocking script for each local input.
 
 ### `OpalFusion.Commitment`
 
@@ -300,6 +302,8 @@ Responsibilities:
 - Surface host rejection distinctly from coordinator rejection.
 - Keep reusable Bitcoin Cash cryptography outside this package when it belongs in `OpalCrypto`.
 - Avoid dependency cycles into downstream app-facing packages.
+- Fail unsupported local input/signing forms deterministically and early, rather than letting them surface late in the round after deeper execution work has already proceeded.
+- Keep the current real-interoperable pilot path intentionally narrow and prove it at the session level: intermediate blame/restart rounds are acceptable, but a coordinator-backed proof run should only pass when one round in the session completes successfully.
 
 ### Error Categories to Preserve
 

@@ -434,6 +434,58 @@ struct PrimaryRuntimeSessionValidator {
         )
     }
 
+    @Test("Primary runtime fails unsupported finalized transactions when the host transaction is loaded")
+    func validateUnsupportedFinalizedTransactionFailsEarly() throws {
+        let unsupportedSummary = OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
+        let workflow = OpalFusion.Execution.WorkflowContext(
+            buildPlayerCommit: { _ in PrimaryRuntimeTestFixtures.playerCommit },
+            buildCovertComponentMessages: { _ in [PrimaryRuntimeTestFixtures.covertComponentMessage] },
+            buildTransactionFinalizationProposal: { _ in PrimaryRuntimeTestFixtures.transactionProposal },
+            buildCovertSignatureMessages: { _ in
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(unsupportedSummary)
+            },
+            buildMyProofsList: { _ in PrimaryRuntimeTestFixtures.myProofsList },
+            buildBlames: { _ in PrimaryRuntimeTestFixtures.blames }
+        )
+        var session = OpalFusion.Runtime.PrimaryRuntimeSession(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: workflow,
+            baseline: PrimaryRuntimeTestFixtures.baseline
+        )
+        try PrimaryRuntimeTestFixtures.driveToAwaitingSharedComponents(session: &session)
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_040)
+        )
+
+        let effects = session.apply(
+            input: .finalizedTransactionLoaded(PrimaryRuntimeTestFixtures.finalizedTransaction),
+            now: PrimaryRuntimeTestFixtures.instant(1_042)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: unsupportedSummary,
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(session.lastError == .notImplemented)
+        #expect(session.clientState.round?.completionStatus == .hostRejected)
+    }
+
     @Test("Primary runtime maps malformed primary payloads to protocol incompatibility")
     func validateMalformedPayloadProjection() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()

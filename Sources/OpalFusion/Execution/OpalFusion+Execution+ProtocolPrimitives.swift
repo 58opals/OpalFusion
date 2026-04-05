@@ -9,6 +9,10 @@ extension OpalFusion.Execution {
         static let pedersenAlternateBasePoint = Data([0x02]) + Data(
             "CashFusion gives us fungibility.".utf8
         )
+        static let supportedParticipantInputSummary =
+            "Only standard compressed-key P2PKH participant inputs are supported"
+        static let supportedUnlockingScriptSummary =
+            "Only standard compressed-key Schnorr P2PKH unlocking scripts are supported"
 
         static func randomBytes(count: Int) throws -> [UInt8] {
             var bytes = [UInt8](repeating: 0x00, count: count)
@@ -105,6 +109,12 @@ extension OpalFusion.Execution {
             )
         }
 
+        static func isCompressedSecp256k1PublicKey(
+            _ publicKey: [UInt8]
+        ) -> Bool {
+            publicKey.count == 33 && (publicKey.first == 0x02 || publicKey.first == 0x03)
+        }
+
         static func isStandardP2PKHLockingScript(
             _ lockingScript: [UInt8],
             publicKey: [UInt8]
@@ -122,6 +132,31 @@ extension OpalFusion.Execution {
 
             let publicKeyHash = hash160(publicKey)
             return Array(lockingScript[3..<23]) == publicKeyHash
+        }
+
+        static func validateSupportedParticipantInput(
+            _ input: OpalFusion.Host.ParticipantInput,
+            inputIndex: Int
+        ) throws -> [UInt8] {
+            guard let publicKey = input.publicKey else {
+                throw OpalFusion.Execution.WorkflowFailure.missingParticipantInputPublicKey(
+                    index: inputIndex
+                )
+            }
+            guard isCompressedSecp256k1PublicKey(publicKey) else {
+                throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
+                    "Participant input at index \(inputIndex) must provide the compressed public key required for standard P2PKH support"
+                )
+            }
+            guard isStandardP2PKHLockingScript(
+                input.lockingScript,
+                publicKey: publicKey
+            ) else {
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(
+                    supportedParticipantInputSummary
+                )
+            }
+            return publicKey
         }
 
         static func makeSessionHashLockingScript(

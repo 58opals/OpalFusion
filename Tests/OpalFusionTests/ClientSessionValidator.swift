@@ -420,6 +420,522 @@ struct ClientSessionValidator {
         await session.stop()
         await coordinator.stop()
     }
+
+    @Test("Public client session reaches eventual success after a blame restart in one session")
+    func validateEventualSessionSuccessAfterRestart() async throws {
+        let coordinator = try await LoopbackPrimaryCoordinator.start()
+        let scriptedCovertTransport = ScriptedCovertTransport()
+        let recordingCovertTransport = RecordingCovertTransport(base: scriptedCovertTransport)
+        let stateObserver = RecordedClientStateObserver()
+        let eventObserver = RecordedRoundEventObserver()
+        let participantInputProvider = DelayedParticipantInputProvider(
+            participantInputs: [PrimaryRuntimeTestFixtures.participantInput],
+            participantOutputs: [PrimaryRuntimeTestFixtures.participantOutput],
+            delay: .milliseconds(10)
+        )
+        let transactionAssembler = DelayedTransactionAssembler(
+            finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction,
+            delay: .milliseconds(10)
+        )
+        let nowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let firstStartRound = PrimaryRuntimeTestFixtures.startRound
+        let secondStartRound = OpalFusion.ProtocolModel.StartRound(
+            roundPublicKey: [0xCC, 0xDD],
+            blindNoncePoints: PrimaryRuntimeTestFixtures.startRound.blindNoncePoints,
+            serverTimeUnixSeconds: 1_090
+        )
+        let secondFusionBegin = OpalFusion.ProtocolModel.FusionBegin(
+            tier: PrimaryRuntimeTestFixtures.fusionBegin.tier,
+            covertDomain: PrimaryRuntimeTestFixtures.fusionBegin.covertDomain,
+            covertPort: PrimaryRuntimeTestFixtures.fusionBegin.covertPort,
+            covertSsl: PrimaryRuntimeTestFixtures.fusionBegin.covertSsl,
+            serverTimeUnixSeconds: 1_060
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: "127.0.0.1",
+                coordinatorPort: await coordinator.port,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantInputProvider: participantInputProvider,
+            transactionAssembler: transactionAssembler,
+            eventObserver: eventObserver,
+            stateObserver: stateObserver,
+            workflow: makeRoundAwareScriptedWorkflow(),
+            nowProvider: { nowProvider.now() },
+            clockTickInterval: .milliseconds(10),
+            covertTransportFactory: { recordingCovertTransport }
+        )
+
+        await session.start()
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
+        )
+
+        nowProvider.set(unixSeconds: 996)
+        try await coordinator.send(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
+        )
+
+        nowProvider.set(unixSeconds: 1_000)
+        try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
+        try await withTimeout(.seconds(1)) {
+            while await recordingCovertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_030)
+        try await coordinator.send(.startRound(firstStartRound))
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 1_032)
+        try await coordinator.send(
+            .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
+        )
+        nowProvider.set(unixSeconds: 1_034)
+        try await coordinator.send(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
+
+        await scriptedCovertTransport.enqueueResponse(
+            try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                PrimaryRuntimeTestFixtures.acknowledgement
+            )
+        )
+        nowProvider.set(unixSeconds: 1_035)
+        try await withTimeout(.seconds(1)) {
+            while await recordingCovertTransport.recordedRequests().count < 1 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_040)
+        try await coordinator.send(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
+
+        await scriptedCovertTransport.enqueueResponse(
+            try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                PrimaryRuntimeTestFixtures.acknowledgement
+            )
+        )
+        nowProvider.set(unixSeconds: 1_050)
+        try await withTimeout(.seconds(1)) {
+            while await recordingCovertTransport.recordedRequests().count < 2 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_055)
+        try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.failureResult))
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .myProofsList(PrimaryRuntimeTestFixtures.myProofsList)
+        )
+
+        nowProvider.set(unixSeconds: 1_056)
+        try await coordinator.send(.theirProofsList(PrimaryRuntimeTestFixtures.theirProofsList))
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .blames(PrimaryRuntimeTestFixtures.blames)
+        )
+
+        nowProvider.set(unixSeconds: 1_060)
+        try await coordinator.send(.restartRound(.init()))
+
+        try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.isConnected && snapshot.state.round == nil {
+                    return
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_060)
+        try await coordinator.send(.fusionBegin(secondFusionBegin))
+        try await withTimeout(.seconds(1)) {
+            while await recordingCovertTransport.recordedPreparationPlans().count < 2 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_090)
+        try await coordinator.send(.startRound(secondStartRound))
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 1_092)
+        try await coordinator.send(
+            .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
+        )
+        nowProvider.set(unixSeconds: 1_094)
+        try await coordinator.send(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
+
+        await scriptedCovertTransport.enqueueResponse(
+            try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                PrimaryRuntimeTestFixtures.acknowledgement
+            )
+        )
+        nowProvider.set(unixSeconds: 1_095)
+        try await withTimeout(.seconds(1)) {
+            while await recordingCovertTransport.recordedRequests().count < 3 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_100)
+        try await coordinator.send(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
+
+        await scriptedCovertTransport.enqueueResponse(
+            try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                PrimaryRuntimeTestFixtures.acknowledgement
+            )
+        )
+        nowProvider.set(unixSeconds: 1_110)
+        try await withTimeout(.seconds(1)) {
+            while await recordingCovertTransport.recordedRequests().count < 4 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_115)
+        try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
+
+        let snapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.round?.completionStatus == .success {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(snapshot.lastError == nil)
+        #expect(snapshot.state.isConnected)
+        #expect(snapshot.state.round?.phase == .completed)
+        #expect(snapshot.state.round?.completionStatus == .success)
+
+        let firstRoundIdentifier = SessionTranscriptSupport.makeRoundIdentifier(
+            from: firstStartRound.roundPublicKey
+        )
+        let secondRoundIdentifier = SessionTranscriptSupport.makeRoundIdentifier(
+            from: secondStartRound.roundPublicKey
+        )
+        let transcript = SessionTranscript(
+            clientMessageKinds: await coordinator.recordedClientMessages().map(
+                SessionTranscriptSupport.clientKind
+            ),
+            serverMessageKinds: await coordinator.recordedServerMessages().map(
+                SessionTranscriptSupport.serverKind
+            ),
+            covertMessageKinds: await recordingCovertTransport.recordedRequestMessages().map(
+                SessionTranscriptSupport.covertKind
+            ),
+            roundEvents: await eventObserver.timedSnapshot(),
+            stateSnapshots: await stateObserver.timedSnapshot(),
+            reservationRequests: await participantInputProvider.timedRequestRecords(),
+            transactionProposals: await transactionAssembler.timedProposalRecords()
+        )
+
+        #expect(transcript.reservationRequests.map(\.roundIdentifier) == [firstRoundIdentifier, secondRoundIdentifier])
+        #expect(transcript.transactionProposals.map(\.roundIdentifier) == [firstRoundIdentifier, secondRoundIdentifier])
+        #expect(
+            transcript.roundOutcomes.contains {
+                $0.roundIdentifier == firstRoundIdentifier && $0.outcome == .blameRequired
+            }
+        )
+        #expect(
+            transcript.roundOutcomes.contains {
+                $0.roundIdentifier == firstRoundIdentifier && $0.outcome == .restarted
+            }
+        )
+        #expect(
+            transcript.roundOutcomes.contains {
+                $0.roundIdentifier == secondRoundIdentifier && $0.outcome == .success
+            }
+        )
+        #expect(
+            SessionTranscriptSupport.containsSubsequence(
+                transcript.roundEvents.map(\.event.summary),
+                subsequence: [
+                    "Round result requires blame handling",
+                    "Submitting blame proofs and awaiting restart",
+                    "Restarting round after blame handling",
+                    "Round completed successfully",
+                ]
+            )
+        )
+        #expect(
+            transcript.stateSnapshots.contains {
+                $0.snapshot.state.isConnected && $0.snapshot.state.round == nil
+            }
+        )
+        #expect(
+            transcript.stateSnapshots.contains {
+                $0.snapshot.state.round?.completionStatus == .success
+            }
+        )
+
+        await session.stop()
+        await coordinator.stop()
+    }
+
+    @Test("Public client session surfaces unsupported participant reservations early")
+    func validateUnsupportedReservationProjection() async throws {
+        let scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let coordinator = try await LoopbackPrimaryCoordinator.start()
+        let covertTransport = ScriptedCovertTransport()
+        let stateObserver = RecordedClientStateObserver()
+        let eventObserver = RecordedRoundEventObserver()
+        let unsupportedInput = OpalFusion.Host.ParticipantInput(
+            outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+            outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+            amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
+            lockingScript: [0x51],
+            publicKey: scenario.reservation.inputs[0].publicKey
+        )
+        let participantInputProvider = DelayedParticipantInputProvider(
+            participantInputs: [unsupportedInput],
+            participantOutputs: scenario.reservation.outputs,
+            delay: .milliseconds(10)
+        )
+        let transactionAssembler = DelayedTransactionAssembler(
+            finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction,
+            delay: .milliseconds(10)
+        )
+        let nowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let session = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: "127.0.0.1",
+                coordinatorPort: await coordinator.port,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantInputProvider: participantInputProvider,
+            transactionAssembler: transactionAssembler,
+            eventObserver: eventObserver,
+            stateObserver: stateObserver,
+            nowProvider: { nowProvider.now() },
+            clockTickInterval: .milliseconds(10),
+            covertTransportFactory: { covertTransport }
+        )
+
+        await session.start()
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 996)
+        try await coordinator.send(.serverHello(scenario.serverHello))
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 1_000)
+        try await coordinator.send(.fusionBegin(scenario.fusionBegin))
+        try await withTimeout(.seconds(1)) {
+            while await covertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_030)
+        try await coordinator.send(.startRound(scenario.startRound))
+
+        let snapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.lastError == .notImplemented {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(snapshot.state.round?.phase == .completed)
+        #expect(snapshot.state.round?.completionStatus == .hostRejected)
+        #expect(await transactionAssembler.requestedRounds().isEmpty)
+
+        let observedEvents = await eventObserver.snapshot()
+        #expect(
+            observedEvents.contains {
+                $0.event.summary == OpalFusion.Execution.ProtocolPrimitives.supportedParticipantInputSummary
+            }
+        )
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(
+            observedSnapshots.contains {
+                $0.lastError == .notImplemented &&
+                    $0.state.round?.completionStatus == .hostRejected
+            }
+        )
+
+        await session.stop()
+        let stoppedSnapshot = await session.snapshot()
+        #expect(stoppedSnapshot.lastError == .notImplemented)
+        #expect(stoppedSnapshot.state.isConnected == false)
+        #expect(stoppedSnapshot.state.round == snapshot.state.round)
+
+        await coordinator.stop()
+    }
+
+    @Test("Public client session fails unsupported finalized transactions before signature submission")
+    func validateUnsupportedFinalizedTransactionProjection() async throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let coordinator = try await LoopbackPrimaryCoordinator.start()
+        let covertTransport = ScriptedCovertTransport()
+        let stateObserver = RecordedClientStateObserver()
+        let eventObserver = RecordedRoundEventObserver()
+        let participantInputProvider = DelayedParticipantInputProvider(
+            participantInputs: scenario.reservation.inputs,
+            participantOutputs: scenario.reservation.outputs,
+            delay: .milliseconds(10)
+        )
+        let transactionAssembler = SigningTransactionAssembler(
+            participantInput: scenario.reservation.inputs[0],
+            participantInputPrivateKey: scenario.participantInputPrivateKey,
+            unlockingScriptBuilder: { signature, publicKey in
+                [0x4C, 0x40] + signature + [0x21] + publicKey
+            },
+            delay: .milliseconds(10)
+        )
+        let nowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let session = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: "127.0.0.1",
+                coordinatorPort: await coordinator.port,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantInputProvider: participantInputProvider,
+            transactionAssembler: transactionAssembler,
+            eventObserver: eventObserver,
+            stateObserver: stateObserver,
+            nowProvider: { nowProvider.now() },
+            clockTickInterval: .milliseconds(10),
+            covertTransportFactory: { covertTransport }
+        )
+
+        await session.start()
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 996)
+        try await coordinator.send(.serverHello(scenario.serverHello))
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 1_000)
+        try await coordinator.send(.fusionBegin(scenario.fusionBegin))
+        try await withTimeout(.seconds(1)) {
+            while await covertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_030)
+        try await coordinator.send(.startRound(scenario.startRound))
+        let playerCommitMessage = try await coordinator.nextClientMessage()
+        guard case let .playerCommit(playerCommit) = playerCommitMessage else {
+            Issue.record("Expected a production PlayerCommit before finalized-transaction failure coverage")
+            await session.stop()
+            await coordinator.stop()
+            return
+        }
+
+        let blindResponses = try scenario.buildBlindSignatureResponses(for: playerCommit)
+        nowProvider.set(unixSeconds: 1_032)
+        try await coordinator.send(.blindSignatureResponses(blindResponses))
+
+        nowProvider.set(unixSeconds: 1_034)
+        try await coordinator.send(
+            .allCommitments(.init(initialCommitments: playerCommit.initialCommitments))
+        )
+
+        for _ in 0..<playerCommit.initialCommitments.count {
+            await covertTransport.enqueueResponse(
+                try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                    PrimaryRuntimeTestFixtures.acknowledgement
+                )
+            )
+        }
+        nowProvider.set(unixSeconds: 1_035)
+        let componentRequests = try await withTimeout(.seconds(1)) {
+            while true {
+                let requests = await covertTransport.recordedRequests()
+                if requests.count == playerCommit.initialCommitments.count {
+                    return requests
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        let sharedSerializedComponents = try componentRequests.map { request in
+            guard case let .component(componentMessage) = try PrimaryRuntimeTestFixtures
+                .extractCovertMessage(from: request) else {
+                throw LiveRuntimeTestSupportError.inboundStreamClosed
+            }
+            return componentMessage.serializedComponent
+        }
+
+        nowProvider.set(unixSeconds: 1_040)
+        try await coordinator.send(
+            .shareCovertComponents(
+                .init(
+                    serializedComponents: sharedSerializedComponents,
+                    skipSignatures: false,
+                    sessionHash: nil
+                )
+            )
+        )
+
+        try await withTimeout(.seconds(1)) {
+            while await transactionAssembler.recordedProposals().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        let snapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.lastError == .notImplemented {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(snapshot.state.round?.phase == .completed)
+        #expect(snapshot.state.round?.completionStatus == .hostRejected)
+        #expect(await transactionAssembler.requestedRounds() == [scenario.round.identifier!])
+        #expect(
+            await covertTransport.recordedRequests().count
+                == playerCommit.initialCommitments.count
+        )
+
+        let observedEvents = await eventObserver.snapshot()
+        #expect(
+            observedEvents.contains {
+                $0.event.summary == OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
+            }
+        )
+        #expect(
+            observedEvents.contains {
+                $0.event.summary == "Shared components received; requesting transaction finalization"
+            }
+        )
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(
+            observedSnapshots.contains {
+                $0.lastError == .notImplemented &&
+                    $0.state.round?.completionStatus == .hostRejected
+            }
+        )
+
+        await session.stop()
+        await coordinator.stop()
+    }
 }
 
 private final class SessionTransportFactoryRecorder: @unchecked Sendable {
@@ -453,4 +969,45 @@ private final class SessionTransportFactoryRecorder: @unchecked Sendable {
             primaryTransports.count
         }
     }
+}
+
+private func makeRoundAwareScriptedWorkflow() -> OpalFusion.Execution.WorkflowContext {
+    .init(
+        buildPlayerCommit: { _ in
+            PrimaryRuntimeTestFixtures.playerCommit
+        },
+        buildCovertComponentMessages: { round in
+            let roundPublicKey = round.startRound?.roundPublicKey ?? []
+            return [
+                .component(
+                    .init(
+                        roundPublicKey: roundPublicKey,
+                        signature: [0x30],
+                        serializedComponent: [0x31]
+                    )
+                )
+            ]
+        },
+        buildTransactionFinalizationProposal: { _ in
+            PrimaryRuntimeTestFixtures.transactionProposal
+        },
+        buildCovertSignatureMessages: { round in
+            let roundPublicKey = round.startRound?.roundPublicKey ?? []
+            return [
+                .transactionSignature(
+                    .init(
+                        roundPublicKey: roundPublicKey,
+                        inputIndex: 0,
+                        transactionSignature: [0x61]
+                    )
+                )
+            ]
+        },
+        buildMyProofsList: { _ in
+            PrimaryRuntimeTestFixtures.myProofsList
+        },
+        buildBlames: { _ in
+            PrimaryRuntimeTestFixtures.blames
+        }
+    )
 }

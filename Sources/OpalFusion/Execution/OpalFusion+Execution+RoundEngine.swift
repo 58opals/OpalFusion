@@ -202,6 +202,10 @@ extension OpalFusion.Execution {
         private mutating func handlePrimaryDisconnected() -> [OpalFusion.Execution.RoundEngine.Effect] {
             session.isConnected = false
 
+            if session.connectionSubstate == .failed {
+                return []
+            }
+
             if round?.identifier != nil {
                 return failRound(
                     completionStatus: .transportFailed,
@@ -615,6 +619,11 @@ extension OpalFusion.Execution {
             }
 
             round.finalizedTransaction = transaction
+            do {
+                _ = try workflow.buildCovertSignatureMessages(&round)
+            } catch {
+                return failForWorkflowFailure(error)
+            }
             round.substate = .awaitingSignatureWindow
             self.round = round
 

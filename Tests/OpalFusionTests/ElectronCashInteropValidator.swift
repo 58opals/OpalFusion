@@ -6,7 +6,7 @@ import Testing
 
 struct ElectronCashInteropValidator {
     @Test(
-        "Real Electron Cash 4.4.3 coordinator smoke reaches terminal success",
+        "Real Electron Cash 4.4.3 coordinator smoke reaches eventual session success",
         .enabled(
             if: ProcessInfo.processInfo.environment["OPALFUSION_EC_INTEROP"] == "1",
             "Set OPALFUSION_EC_INTEROP=1 and the required OPALFUSION_EC_* variables to run the real Electron Cash interop smoke."
@@ -57,7 +57,10 @@ struct ElectronCashInteropValidator {
         let snapshot = try await withTimeout(.seconds(600)) {
             while true {
                 let snapshot = await session.snapshot()
-                if snapshot.state.round?.isTerminal == true {
+                if snapshot.state.round?.completionStatus == .success {
+                    return snapshot
+                }
+                if snapshot.state.round?.completionStatus != nil {
                     return snapshot
                 }
                 if snapshot.lastError != nil, snapshot.state.round == nil {
@@ -72,18 +75,32 @@ struct ElectronCashInteropValidator {
         #expect(snapshot.state.round?.phase == .completed)
         #expect(snapshot.state.round?.completionStatus == .success)
 
-        let clientMessageKinds = await primaryTransport.recordedClientMessages().map(Self.clientKind)
+        let transcript = SessionTranscript(
+            clientMessageKinds: await primaryTransport.recordedClientMessages().map(
+                SessionTranscriptSupport.clientKind
+            ),
+            serverMessageKinds: await primaryTransport.recordedServerMessages().map(
+                SessionTranscriptSupport.serverKind
+            ),
+            covertMessageKinds: await covertTransport.recordedRequestMessages().map(
+                SessionTranscriptSupport.covertKind
+            ),
+            roundEvents: await eventObserver.timedSnapshot(),
+            stateSnapshots: await stateObserver.timedSnapshot(),
+            reservationRequests: await participantInputProvider.timedRequestRecords(),
+            transactionProposals: await transactionAssembler.timedProposalRecords()
+        )
+
         #expect(
-            Self.containsSubsequence(
-                clientMessageKinds,
+            SessionTranscriptSupport.containsSubsequence(
+                transcript.clientMessageKinds,
                 subsequence: ["clientHello", "joinPools", "playerCommit"]
             )
         )
 
-        let serverMessageKinds = await primaryTransport.recordedServerMessages().map(Self.serverKind)
         #expect(
-            Self.containsSubsequence(
-                serverMessageKinds,
+            SessionTranscriptSupport.containsSubsequence(
+                transcript.serverMessageKinds,
                 subsequence: [
                     "fusionBegin",
                     "startRound",
@@ -94,12 +111,18 @@ struct ElectronCashInteropValidator {
             )
         )
 
-        let covertMessageKinds = await covertTransport.recordedRequestMessages().map(Self.covertKind)
         #expect(
-            Self.containsSubsequence(
-                covertMessageKinds,
+            SessionTranscriptSupport.containsSubsequence(
+                transcript.covertMessageKinds,
                 subsequence: ["component", "transactionSignature"]
             )
+        )
+        #expect(transcript.roundOutcomes.contains { $0.outcome == .success })
+        let outcomesBeforeSuccess = transcript.roundOutcomes.prefix { $0.outcome != .success }
+        #expect(
+            outcomesBeforeSuccess.allSatisfy { outcome in
+                outcome.outcome == .blameRequired || outcome.outcome == .restarted
+            }
         )
 
         #expect(await primaryTransport.recordedOutboundDecodeFailures().isEmpty)
@@ -107,26 +130,24 @@ struct ElectronCashInteropValidator {
         #expect(await covertTransport.recordedRequestDecodeFailures().isEmpty)
         #expect(await covertTransport.recordedResponseDecodeFailures().isEmpty)
 
-        let requestedRounds = await participantInputProvider.requestedRounds()
-        let finalizedRounds = await transactionAssembler.requestedRounds()
-        #expect(requestedRounds.isEmpty == false)
-        #expect(finalizedRounds.isEmpty == false)
+        #expect(transcript.reservationRequests.isEmpty == false)
+        #expect(transcript.transactionProposals.isEmpty == false)
 
-        let observedSnapshots = await stateObserver.snapshot()
         #expect(
-            observedSnapshots.contains { $0.state.isConnected && $0.state.round == nil }
+            transcript.stateSnapshots.contains {
+                $0.snapshot.state.isConnected && $0.snapshot.state.round == nil
+            }
         )
-        #expect(observedSnapshots.contains { $0.state.round?.completionStatus == .success })
-
-        let requestRecords = await participantInputProvider.timedRequestRecords()
-        let proposalRecords = await transactionAssembler.timedProposalRecords()
-        let observedEvents = await eventObserver.snapshot()
-        let timedEvents = await eventObserver.timedSnapshot()
-        #expect(requestRecords.isEmpty == false)
-        #expect(proposalRecords.isEmpty == false)
         #expect(
-            Self.containsSubsequence(
-                observedEvents.map(\.event.summary),
+            transcript.stateSnapshots.contains {
+                $0.snapshot.state.round?.completionStatus == .success
+            }
+        )
+
+        let observedEventSummaries = transcript.roundEvents.map(\.event.summary)
+        #expect(
+            SessionTranscriptSupport.containsSubsequence(
+                observedEventSummaries,
                 subsequence: [
                     "StartRound received; collecting reserved inputs and outputs",
                     "Submitting player commitments and blind requests",
@@ -140,9 +161,9 @@ struct ElectronCashInteropValidator {
             )
         )
         guard
-            let firstReservationRequest = requestRecords.first?.recordedAt,
-            let firstProposal = proposalRecords.first?.recordedAt,
-            let successEvent = timedEvents.first(where: {
+            let firstReservationRequest = transcript.reservationRequests.first?.recordedAt,
+            let firstProposal = transcript.transactionProposals.first?.recordedAt,
+            let successEvent = transcript.roundEvents.first(where: {
                 $0.event.summary == "Round completed successfully"
             })?.recordedAt
         else {
@@ -151,83 +172,5 @@ struct ElectronCashInteropValidator {
         }
         #expect(firstReservationRequest <= firstProposal)
         #expect(firstProposal <= successEvent)
-    }
-
-    private static func clientKind(
-        _ message: OpalFusion.ProtocolModel.ClientMessage
-    ) -> String {
-        switch message {
-        case .clientHello:
-            "clientHello"
-        case .joinPools:
-            "joinPools"
-        case .playerCommit:
-            "playerCommit"
-        case .myProofsList:
-            "myProofsList"
-        case .blames:
-            "blames"
-        }
-    }
-
-    private static func serverKind(
-        _ message: OpalFusion.ProtocolModel.ServerMessage
-    ) -> String {
-        switch message {
-        case .serverHello:
-            "serverHello"
-        case .tierStatusUpdate:
-            "tierStatusUpdate"
-        case .fusionBegin:
-            "fusionBegin"
-        case .startRound:
-            "startRound"
-        case .blindSignatureResponses:
-            "blindSignatureResponses"
-        case .allCommitments:
-            "allCommitments"
-        case .shareCovertComponents:
-            "shareCovertComponents"
-        case let .fusionResult(result):
-            result.isSuccess ? "fusionResult.success" : "fusionResult.failure"
-        case .theirProofsList:
-            "theirProofsList"
-        case .restartRound:
-            "restartRound"
-        case .serverFailure:
-            "serverFailure"
-        }
-    }
-
-    private static func covertKind(
-        _ message: OpalFusion.ProtocolModel.CovertMessage
-    ) -> String {
-        switch message {
-        case .component:
-            "component"
-        case .transactionSignature:
-            "transactionSignature"
-        case .ping:
-            "ping"
-        }
-    }
-
-    private static func containsSubsequence<T: Equatable>(
-        _ sequence: [T],
-        subsequence: [T]
-    ) -> Bool {
-        guard subsequence.isEmpty == false else {
-            return true
-        }
-
-        var subsequenceIndex = 0
-        for element in sequence where element == subsequence[subsequenceIndex] {
-            subsequenceIndex += 1
-            if subsequenceIndex == subsequence.count {
-                return true
-            }
-        }
-
-        return false
     }
 }

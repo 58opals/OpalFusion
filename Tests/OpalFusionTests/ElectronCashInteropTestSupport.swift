@@ -73,6 +73,15 @@ struct ElectronCashInteropConfiguration: Sendable {
                 fromPrivateKey: Data(participantInputPrivateKey)
             )
         )
+        guard OpalFusion.Execution.ProtocolPrimitives.isStandardP2PKHLockingScript(
+            inputLockingScript,
+            publicKey: participantInputPublicKey
+        ) else {
+            throw ElectronCashInteropEnvironmentError.invalid(
+                "OPALFUSION_EC_INPUT_LOCKING_SCRIPT_HEX",
+                "must be a standard compressed-key P2PKH locking script matching OPALFUSION_EC_INPUT_PRIVATE_KEY_HEX"
+            )
+        }
 
         let outputLockingScript = try requiredHexBytes(
             "OPALFUSION_EC_OUTPUT_LOCKING_SCRIPT_HEX",

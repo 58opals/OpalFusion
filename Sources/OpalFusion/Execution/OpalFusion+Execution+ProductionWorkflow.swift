@@ -144,57 +144,7 @@ extension OpalFusion.Execution {
         func buildCovertSignatureMessages(
             round: inout OpalFusion.Execution.RoundContext
         ) throws -> [OpalFusion.ProtocolModel.CovertMessage] {
-            let sharedMaterial = try ensureSharedRoundMaterial(round: &round)
-            guard let startRound = round.startRound else {
-                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                    "StartRound must be present before signature submission"
-                )
-            }
-            guard let finalizedTransaction = round.finalizedTransaction else {
-                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                    "Finalized transaction was missing for signature submission"
-                )
-            }
-
-            let parsedFinalizedTransaction: OpalFusion.Execution.BCHTransaction
-            do {
-                parsedFinalizedTransaction = try .parse(finalizedTransaction.serializedTransaction)
-            } catch let error as OpalFusion.Execution.BCHTransactionError {
-                throw mapTransactionError(error)
-            }
-
-            do {
-                try validateFinalizedTransaction(
-                    parsedFinalizedTransaction,
-                    against: sharedMaterial.transactionTemplate,
-                    localInputReferences: sharedMaterial.localInputReferences
-                )
-            } catch let error as OpalFusion.Execution.BCHTransactionError {
-                throw mapTransactionError(error)
-            }
-
-            let messages: [OpalFusion.ProtocolModel.CovertMessage]
-            do {
-                messages = try sharedMaterial.localInputReferences
-                    .sorted(by: { $0.originalSlot < $1.originalSlot })
-                    .map { inputReference in
-                        let signature = try extractLocalSignature(
-                            from: parsedFinalizedTransaction.inputs[inputReference.transactionInputIndex],
-                            transaction: parsedFinalizedTransaction,
-                            inputReference: inputReference
-                        )
-                        return OpalFusion.ProtocolModel.CovertMessage.transactionSignature(
-                            .init(
-                                roundPublicKey: startRound.roundPublicKey,
-                                inputIndex: UInt32(inputReference.transactionInputIndex),
-                                transactionSignature: signature
-                            )
-                        )
-                    }
-            } catch let error as OpalFusion.Execution.BCHTransactionError {
-                throw mapTransactionError(error)
-            }
-            return messages
+            try ensureCovertSignatureMessages(round: &round)
         }
 
         func buildMyProofsList(
@@ -334,6 +284,72 @@ extension OpalFusion.Execution {
             return .init(blames: blames)
         }
 
+        private func ensureCovertSignatureMessages(
+            round: inout OpalFusion.Execution.RoundContext
+        ) throws -> [OpalFusion.ProtocolModel.CovertMessage] {
+            guard let finalizedTransaction = round.finalizedTransaction else {
+                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                    "Finalized transaction was missing for signature submission"
+                )
+            }
+            if let cachedMessages = round.executionMaterial.covertSignatureMessages,
+               round.executionMaterial.covertSignatureSourceTransaction ==
+                finalizedTransaction.serializedTransaction {
+                return cachedMessages
+            }
+
+            let sharedMaterial = try ensureSharedRoundMaterial(round: &round)
+            guard let startRound = round.startRound else {
+                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                    "StartRound must be present before signature submission"
+                )
+            }
+
+            let parsedFinalizedTransaction: OpalFusion.Execution.BCHTransaction
+            do {
+                parsedFinalizedTransaction = try .parse(finalizedTransaction.serializedTransaction)
+            } catch let error as OpalFusion.Execution.BCHTransactionError {
+                throw mapTransactionError(error)
+            }
+
+            do {
+                try validateFinalizedTransaction(
+                    parsedFinalizedTransaction,
+                    against: sharedMaterial.transactionTemplate,
+                    localInputReferences: sharedMaterial.localInputReferences
+                )
+            } catch let error as OpalFusion.Execution.BCHTransactionError {
+                throw mapTransactionError(error)
+            }
+
+            let messages: [OpalFusion.ProtocolModel.CovertMessage]
+            do {
+                messages = try sharedMaterial.localInputReferences
+                    .sorted(by: { $0.originalSlot < $1.originalSlot })
+                    .map { inputReference in
+                        let signature = try extractLocalSignature(
+                            from: parsedFinalizedTransaction.inputs[inputReference.transactionInputIndex],
+                            transaction: parsedFinalizedTransaction,
+                            inputReference: inputReference
+                        )
+                        return OpalFusion.ProtocolModel.CovertMessage.transactionSignature(
+                            .init(
+                                roundPublicKey: startRound.roundPublicKey,
+                                inputIndex: UInt32(inputReference.transactionInputIndex),
+                                transactionSignature: signature
+                            )
+                        )
+                    }
+            } catch let error as OpalFusion.Execution.BCHTransactionError {
+                throw mapTransactionError(error)
+            }
+
+            round.executionMaterial.covertSignatureMessages = messages
+            round.executionMaterial.covertSignatureSourceTransaction =
+                finalizedTransaction.serializedTransaction
+            return messages
+        }
+
         private func ensurePlayerCommitMaterial(
             round: inout OpalFusion.Execution.RoundContext
         ) throws -> OpalFusion.Execution.PlayerCommitMaterial {
@@ -378,24 +394,11 @@ extension OpalFusion.Execution {
             components.reserveCapacity(numberOfComponents)
 
             for (index, input) in reservation.inputs.enumerated() {
-                guard let publicKey = input.publicKey else {
-                    throw OpalFusion.Execution.WorkflowFailure.missingParticipantInputPublicKey(
-                        index: index
+                let publicKey = try OpalFusion.Execution.ProtocolPrimitives
+                    .validateSupportedParticipantInput(
+                        input,
+                        inputIndex: index
                     )
-                }
-                guard publicKey.count == 33, publicKey.first == 0x02 || publicKey.first == 0x03 else {
-                    throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
-                        "Participant input at index \(index) must provide a compressed public key"
-                    )
-                }
-                guard OpalFusion.Execution.ProtocolPrimitives.isStandardP2PKHLockingScript(
-                    input.lockingScript,
-                    publicKey: publicKey
-                ) else {
-                    throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(
-                        "Only standard P2PKH participant inputs are supported"
-                    )
-                }
 
                 let componentPayload = OpalFusion.Commitment.ComponentPayload.input(
                     .init(
@@ -522,6 +525,8 @@ extension OpalFusion.Execution {
             )
             round.executionMaterial.playerCommitMaterial = material
             round.executionMaterial.finalizedBlindSignatures = []
+            round.executionMaterial.covertSignatureMessages = nil
+            round.executionMaterial.covertSignatureSourceTransaction = nil
             return material
         }
 
@@ -611,6 +616,8 @@ extension OpalFusion.Execution {
                 localInputReferences: localInputReferences
             )
             round.executionMaterial.sharedRoundMaterial = material
+            round.executionMaterial.covertSignatureMessages = nil
+            round.executionMaterial.covertSignatureSourceTransaction = nil
             return material
         }
 
@@ -869,18 +876,19 @@ extension OpalFusion.Execution {
             let publicKeyPush = try parsePushData(from: unlockingScript, cursor: &cursor)
             guard cursor == unlockingScript.count else {
                 throw OpalFusion.Execution.BCHTransactionError.unsupportedInput(
-                    "Only standard P2PKH unlocking scripts are supported"
+                    OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
                 )
             }
             guard signaturePush.count == 65, signaturePush.last == 0x41 else {
                 throw OpalFusion.Execution.BCHTransactionError.unsupportedInput(
-                    "Only Schnorr P2PKH signatures with sighash type 0x41 are supported"
+                    OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
                 )
             }
-            guard publicKeyPush.count == 33,
-                  publicKeyPush.first == 0x02 || publicKeyPush.first == 0x03 else {
+            guard OpalFusion.Execution.ProtocolPrimitives.isCompressedSecp256k1PublicKey(
+                publicKeyPush
+            ) else {
                 throw OpalFusion.Execution.BCHTransactionError.unsupportedInput(
-                    "Only compressed-key P2PKH unlocking scripts are supported"
+                    OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
                 )
             }
             return (Array(signaturePush.dropLast()), publicKeyPush)
@@ -892,20 +900,20 @@ extension OpalFusion.Execution {
         ) throws -> [UInt8] {
             guard cursor < script.count else {
                 throw OpalFusion.Execution.BCHTransactionError.unsupportedInput(
-                    "Unlocking script ended unexpectedly"
+                    OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
                 )
             }
             let opcode = script[cursor]
             cursor += 1
             guard opcode > 0x00, opcode < 0x4C else {
                 throw OpalFusion.Execution.BCHTransactionError.unsupportedInput(
-                    "Only direct-push P2PKH unlocking scripts are supported"
+                    OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
                 )
             }
             let pushLength = Int(opcode)
             guard cursor + pushLength <= script.count else {
                 throw OpalFusion.Execution.BCHTransactionError.unsupportedInput(
-                    "Unlocking script push length exceeded the script boundary"
+                    OpalFusion.Execution.ProtocolPrimitives.supportedUnlockingScriptSummary
                 )
             }
             defer { cursor += pushLength }
