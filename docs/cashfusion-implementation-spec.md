@@ -337,9 +337,9 @@ The implementation phase should preserve at least these top-level outcome catego
 - The current coordinator-backed proof target is session-level eventual success rather than first-round success. Intermediate blame or restart rounds are acceptable as long as one round in the session completes successfully before the overall smoke timeout.
 - The current pilot-confidence exit target is three consecutive successful runs of `./scripts/run-electron-cash-interop-smoke.sh 3` on the supported path. Broader BCH script support stays deferred until after that gate.
 
-## 8. Acceptance Checklist for Future Implementation Work
+## 8. Acceptance Checklist for Future Changes
 
-This documentation phase is complete only if future implementers can answer these questions from this repository alone:
+Future maintainers and contributors should still be able to answer these questions from this repository alone:
 
 - What exact upstream behavior is normative for the first interoperability slice?
 - Which parts of the round lifecycle are mandatory to interoperate?
