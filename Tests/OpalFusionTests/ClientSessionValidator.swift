@@ -234,15 +234,11 @@ struct ClientSessionValidator {
         nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
 
-        let snapshot = try await withTimeout(.seconds(1)) {
-            while true {
-                let snapshot = await session.snapshot()
-                if snapshot.state.round?.completionStatus == .success {
-                    return snapshot
-                }
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
+        let snapshot = try await SessionTranscriptSupport.waitForSessionSuccessOrFatalTermination(
+            session: session,
+            timeout: .seconds(1),
+            pollInterval: .milliseconds(10)
+        )
 
         #expect(snapshot.lastError == nil)
         #expect(snapshot.state.isConnected)
@@ -679,6 +675,20 @@ struct ClientSessionValidator {
                 $0.snapshot.state.round?.completionStatus == .success
             }
         )
+        guard
+            let restartedConnectedSnapshotTime = transcript.stateSnapshots.first(where: {
+                $0.snapshot.state.isConnected && $0.snapshot.state.round == nil
+            })?.recordedAt,
+            let successSnapshotTime = transcript.stateSnapshots.first(where: {
+                $0.snapshot.state.round?.completionStatus == .success
+            })?.recordedAt
+        else {
+            Issue.record("Expected timed restart and success snapshots for ordering coverage")
+            await session.stop()
+            await coordinator.stop()
+            return
+        }
+        #expect(restartedConnectedSnapshotTime <= successSnapshotTime)
 
         await session.stop()
         await coordinator.stop()

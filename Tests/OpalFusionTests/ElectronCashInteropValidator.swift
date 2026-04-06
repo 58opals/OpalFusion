@@ -54,21 +54,10 @@ struct ElectronCashInteropValidator {
             }
         }
 
-        let snapshot = try await withTimeout(.seconds(600)) {
-            while true {
-                let snapshot = await session.snapshot()
-                if snapshot.state.round?.completionStatus == .success {
-                    return snapshot
-                }
-                if snapshot.state.round?.completionStatus != nil {
-                    return snapshot
-                }
-                if snapshot.lastError != nil, snapshot.state.round == nil {
-                    return snapshot
-                }
-                try await Task.sleep(for: .milliseconds(250))
-            }
-        }
+        let snapshot = try await SessionTranscriptSupport.waitForSessionSuccessOrFatalTermination(
+            session: session,
+            timeout: .seconds(600)
+        )
 
         #expect(snapshot.lastError == nil)
         #expect(snapshot.state.isConnected == true)

@@ -268,21 +268,24 @@ OpalFusion-specific choice:
 
 ### `OpalFusion.Commitment`
 
-Responsibilities:
+Current scaffold alignment:
 
-- Own future public types for initial commitments, amount commitments, salted hashes, and related validation surfaces.
+- `Commitment` already exposes public value models for component payloads, input/output/blank components, full components, and initial commitments.
+- Commitment generation, coordinator submission ordering, and execution-specific bookkeeping remain internal runtime concerns.
 
 ### `OpalFusion.BlindSignature`
 
-Responsibilities:
+Current scaffold alignment:
 
-- Own future public types for blind signature request/response handling tied to the pinned protocol behavior.
+- `BlindSignature` already exposes public request and response value models tied to the pinned protocol behavior.
+- Blind-signature material generation, unblinding, and round sequencing remain internal runtime concerns.
 
 ### `OpalFusion.Blame`
 
-Responsibilities:
+Current scaffold alignment:
 
-- Own future public types for proof relay, blame submission, and blame outcome modeling.
+- `Blame` already exposes public proof, encrypted-proof, relayed-proof, decrypter, and blame-proof value models.
+- Blame sequencing, proof validation, and restart handling remain internal runtime concerns.
 
 ## 6. Required Behavior and Failure Handling
 
@@ -326,36 +329,13 @@ The implementation phase should preserve at least these top-level outcome catego
 - Transport failure that prevents round completion.
 - Blame-capable round failure.
 
-## 7. Phased Implementation Roadmap
+## 7. Current Pilot Status
 
-### Phase 1: Canonical Specification
-
-- Add this document.
-- Reduce `README.md` to package overview plus links.
-- Treat this spec as the source of truth for later implementation work.
-
-### Phase 2: Public API Alignment
-
-- Reconcile public scaffolding with the responsibilities in this spec.
-- Expand coarse error and event surfaces where needed.
-- Preserve public-safe documentation boundaries.
-
-### Phase 3: Protocol and State Modeling
-
-- Add typed message models and round-state machinery required for the pinned baseline.
-- Keep wire compatibility anchored to Electron Cash `4.4.3`.
-
-### Phase 4: Runtime Interoperability
-
-- Implement primary-channel and covert-channel client behavior.
-- Integrate host boundaries for reserved inputs and transaction finalization.
-- Prove one successful Electron Cash-compatible round.
-
-### Phase 5: Hardening
-
-- Add broader failure-path coverage.
-- Strengthen blame handling and restart behavior.
-- Add interop-focused regression tests.
+- The canonical specification, public session surface, typed protocol/domain models, live runtime/transport stack, and `OpalCrypto`-backed execution materialization are now present on `develop`.
+- `develop` is the public pilot lane for Opal Fusion. `main` remains intentionally behind it until the current public pilot path is proven repeatedly against a real Electron Cash `4.4.3` coordinator.
+- The current live support envelope remains intentionally narrow: compressed-key standard P2PKH reserved inputs and matching standard Schnorr P2PKH unlocking scripts for local finalized inputs.
+- The current coordinator-backed proof target is session-level eventual success rather than first-round success. Intermediate blame or restart rounds are acceptable as long as one round in the session completes successfully before the overall smoke timeout.
+- The current pilot-confidence exit target is three consecutive successful runs of `./scripts/run-electron-cash-interop-smoke.sh 3` on the supported path. Broader BCH script support stays deferred until after that gate.
 
 ## 8. Acceptance Checklist for Future Implementation Work
 

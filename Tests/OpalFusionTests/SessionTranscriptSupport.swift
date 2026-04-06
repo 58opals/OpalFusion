@@ -134,6 +134,35 @@ struct SessionTranscript: Sendable {
 }
 
 enum SessionTranscriptSupport {
+    static func waitForSessionSuccessOrFatalTermination(
+        session: OpalFusion.Client.Session,
+        timeout: Duration,
+        pollInterval: Duration = .milliseconds(250)
+    ) async throws -> OpalFusion.Client.Session.Snapshot {
+        try await withTimeout(timeout) {
+            while true {
+                let snapshot = await session.snapshot()
+
+                if let completionStatus = snapshot.state.round?.completionStatus {
+                    switch completionStatus {
+                    case .success,
+                         .coordinatorRejected,
+                         .hostRejected,
+                         .protocolIncompatible,
+                         .transportFailed:
+                        return snapshot
+                    case .blameRequired:
+                        break
+                    }
+                } else if snapshot.lastError != nil, snapshot.state.round == nil {
+                    return snapshot
+                }
+
+                try await Task.sleep(for: pollInterval)
+            }
+        }
+    }
+
     static func clientKind(
         _ message: OpalFusion.ProtocolModel.ClientMessage
     ) -> String {

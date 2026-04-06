@@ -32,7 +32,7 @@ This README stays intentionally brief and points back to the canonical spec inst
 
 ## Current Maturity
 
-Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material, plus a gated real Electron Cash `4.4.3` interoperability smoke validator for local coordinator-backed proofing. A conservative public activation layer is now available through `OpalFusion.Client.Session`, while the runtime, transport, framing, protobuf, and execution internals remain intentionally hidden. The current pilot-supported live path is intentionally limited to compressed-key standard P2PKH participant inputs and matching Schnorr P2PKH unlocking scripts for local finalized inputs.
+Opal Fusion now has broad typed protocol and domain modeling, pinned transport/timing baseline values, an internal round engine, live primary/covert runtime and transport adapters, `OpalCrypto`-backed execution materialization for real commitments, transaction-template validation, signature submission, and blame material, plus a gated real Electron Cash `4.4.3` interoperability smoke validator for local coordinator-backed proofing. A conservative public activation layer is now available through `OpalFusion.Client.Session`, while the runtime, transport, framing, protobuf, and execution internals remain intentionally hidden. The current pilot-supported live path is intentionally limited to compressed-key standard P2PKH participant inputs and matching Schnorr P2PKH unlocking scripts for local finalized inputs. The public pilot lane is `develop`; `main` remains intentionally behind it until the current P2PKH-only path is proven repeatedly against a real coordinator.
 
 ## Current Public Surface
 
@@ -41,7 +41,7 @@ Opal Fusion now has broad typed protocol and domain modeling, pinned transport/t
 - `OpalFusion.Transport.CovertChannelConfiguration` and `OpalFusion.Transport.TorSocks5Configuration`
 - `OpalFusion.Host.ParticipantInput`, `OpalFusion.Host.ParticipantOutput`, and `OpalFusion.Host.ParticipantReservation`
 - `OpalFusion.Host.ParticipantInputProvider`, `OpalFusion.Host.TransactionAssembler`, and `OpalFusion.Host.EventObserver`
-- reserved namespaces for `OpalFusion.Commitment`, `OpalFusion.BlindSignature`, and `OpalFusion.Blame`
+- public model namespaces for `OpalFusion.Commitment`, `OpalFusion.BlindSignature`, and `OpalFusion.Blame`
 
 ## Requirements
 
@@ -99,6 +99,7 @@ Current live-path expectations:
 Real Electron Cash proofing:
 
 - The gated smoke now uses a session-level success rule: intermediate blame or restart rounds are acceptable as long as one round in the session completes successfully before timeout.
+- Treat `develop` as the public pilot lane for this proofing work; `main` remains blocked on repeated coordinator-backed confidence, not missing runtime architecture.
 - Export the required `OPALFUSION_EC_*` variables for your funded test reservation, then run `./scripts/run-electron-cash-interop-smoke.sh`.
 - Run `./scripts/run-electron-cash-interop-smoke.sh 3` for the current pilot-confidence target of three consecutive successful session-level proofs.
 
