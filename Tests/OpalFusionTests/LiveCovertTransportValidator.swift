@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 struct LiveCovertTransportValidator {
-    @Test("Live covert transport prepares endpoint state and executes HTTPS requests")
+    @Test("macOS live covert transport prepares endpoint state and executes HTTPS requests")
     func validateTLSExecution() async throws {
         let executor = RecordedCovertRequestExecutor(
             responseData: Data(
@@ -53,7 +53,7 @@ struct LiveCovertTransportValidator {
         #expect([UInt8](request.httpBody ?? Data()) == expectedRequestPayload)
     }
 
-    @Test("Live covert transport switches between HTTP and HTTPS and applies SOCKS5 proxy settings")
+    @Test("macOS live covert transport switches between HTTP and HTTPS and applies SOCKS5 proxy settings")
     func validateURLAndProxyConfiguration() async throws {
         let executor = RecordedCovertRequestExecutor(responseData: Data())
         let torSocks5 = OpalFusion.Transport.TorSocks5Configuration(

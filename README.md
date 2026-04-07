@@ -46,7 +46,8 @@ Opal Fusion now has broad typed protocol and domain modeling, pinned transport/t
 ## Requirements
 
 - Swift tools version: `6.2`
-- Platforms: `macOS 26`, `iOS 26`, `watchOS 26`, `tvOS 26`, `visionOS 26`
+- Platforms: `macOS 26`
+- Current live transport support, including the Tor SOCKS5 covert path, is macOS-only in this package.
 
 ## Quick Start
 

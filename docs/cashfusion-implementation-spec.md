@@ -20,6 +20,7 @@ It exists to isolate coordinator connectivity, covert transport, round-state han
 - `OpalCrypto` owns reusable Bitcoin Cash cryptographic primitives.
 - `OpalBase` owns app-facing orchestration, wallet policy, and product-facing integration.
 - `SwiftFulcrum` owns Fulcrum transport responsibilities.
+- The current package support contract is `macOS 26` only; the live covert transport and Tor SOCKS5 runtime path are macOS-only in this first slice.
 
 ### Non-goals
 
