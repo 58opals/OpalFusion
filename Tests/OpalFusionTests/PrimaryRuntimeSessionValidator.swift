@@ -424,6 +424,7 @@ struct PrimaryRuntimeSessionValidator {
             ]
         )
         #expect(session.lastError == .notImplemented)
+        #expect(session.lastErrorSummary == unsupportedSummary)
         #expect(
             session.clientState.round == .init(
                 identifier: PrimaryRuntimeTestFixtures.roundIdentifier,
@@ -483,6 +484,7 @@ struct PrimaryRuntimeSessionValidator {
             ]
         )
         #expect(session.lastError == .notImplemented)
+        #expect(session.lastErrorSummary == unsupportedSummary)
         #expect(session.clientState.round?.completionStatus == .hostRejected)
     }
 
@@ -512,6 +514,7 @@ struct PrimaryRuntimeSessionValidator {
         #expect(event.summary.hasPrefix("Primary wire decode failed:"))
         #expect(event.isTerminal == false)
         #expect(session.lastError == .protocolIncompatible)
+        #expect(session.lastErrorSummary?.hasPrefix("Primary wire decode failed:") == true)
         #expect(session.clientState.round == nil)
     }
 
@@ -541,6 +544,7 @@ struct PrimaryRuntimeSessionValidator {
         #expect(event.summary.hasPrefix("Covert response decode failed:"))
         #expect(event.isTerminal)
         #expect(session.lastError == .protocolIncompatible)
+        #expect(session.lastErrorSummary?.hasPrefix("Covert response decode failed:") == true)
         #expect(session.clientState.round?.completionStatus == .protocolIncompatible)
     }
 
@@ -573,6 +577,7 @@ struct PrimaryRuntimeSessionValidator {
             ]
         )
         #expect(session.lastError == .transportUnavailable)
+        #expect(session.lastErrorSummary == "Covert request failed")
         #expect(session.clientState.round?.completionStatus == .transportFailed)
         #expect(session.covertSession.substate == .idle)
     }

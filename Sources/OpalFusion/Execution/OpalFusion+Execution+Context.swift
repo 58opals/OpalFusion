@@ -22,6 +22,7 @@ extension OpalFusion.Execution {
         var restartCount: Int
         var connectionSubstate: OpalFusion.Execution.ConnectionSubstate
         var lastError: OpalFusion.Client.Error?
+        var lastErrorSummary: String?
 
         init(
             configuration: OpalFusion.Client.Configuration,
@@ -39,6 +40,7 @@ extension OpalFusion.Execution {
             self.restartCount = 0
             self.connectionSubstate = .disconnected
             self.lastError = nil
+            self.lastErrorSummary = nil
         }
     }
 

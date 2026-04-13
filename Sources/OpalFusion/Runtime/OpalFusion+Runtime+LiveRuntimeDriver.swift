@@ -5,6 +5,7 @@ extension OpalFusion.Runtime {
         struct Snapshot: Sendable, Equatable {
             let clientState: OpalFusion.Client.State
             let lastError: OpalFusion.Client.Error?
+            let lastErrorSummary: String?
         }
 
         typealias SnapshotSink = @Sendable (
@@ -112,7 +113,8 @@ extension OpalFusion.Runtime {
         func snapshot() -> OpalFusion.Runtime.LiveRuntimeDriver.Snapshot {
             .init(
                 clientState: runtimeSession.clientState,
-                lastError: runtimeSession.lastError
+                lastError: runtimeSession.lastError,
+                lastErrorSummary: runtimeSession.lastErrorSummary
             )
         }
 

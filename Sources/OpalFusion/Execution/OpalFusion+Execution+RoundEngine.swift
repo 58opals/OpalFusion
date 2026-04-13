@@ -182,6 +182,7 @@ extension OpalFusion.Execution {
             session.isConnected = true
             session.connectionSubstate = .awaitingServerHello
             session.lastError = nil
+            session.lastErrorSummary = nil
 
             let hello = OpalFusion.ProtocolModel.ClientHello(
                 versionBytes: session.baseline.protocolIdentity.versionBytes,
@@ -217,6 +218,7 @@ extension OpalFusion.Execution {
             round = nil
             session.connectionSubstate = .disconnected
             session.lastError = .transportUnavailable
+            session.lastErrorSummary = "Primary channel disconnected"
             return [
                 hostEvent(
                     roundIdentifier: nil,
@@ -824,6 +826,7 @@ extension OpalFusion.Execution {
             summary: String
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
             session.lastError = error
+            session.lastErrorSummary = summary
             session.connectionSubstate = .failed
             return [
                 hostEvent(
@@ -851,6 +854,7 @@ extension OpalFusion.Execution {
             round.completionStatus = completionStatus
             self.round = round
             session.lastError = clientError
+            session.lastErrorSummary = summary
             session.connectionSubstate = .failed
 
             return [

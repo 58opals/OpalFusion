@@ -71,6 +71,10 @@ extension OpalFusion.Runtime {
             engine.session.lastError
         }
 
+        var lastErrorSummary: String? {
+            engine.session.lastErrorSummary
+        }
+
         mutating func apply(
             input: OpalFusion.Runtime.PrimaryRuntimeSession.Input,
             now: OpalFusion.Execution.Instant

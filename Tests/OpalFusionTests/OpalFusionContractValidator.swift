@@ -177,7 +177,7 @@ struct OpalFusionContractValidator {
         #expect(reservation.outputs.isEmpty)
     }
 
-    @Test("Client session snapshot preserves state and coarse error visibility")
+    @Test("Client session snapshot preserves state and diagnostics visibility")
     func validateClientSessionSnapshotConstruction() {
         let state = OpalFusion.Client.State(
             isConnected: true,
@@ -190,11 +190,13 @@ struct OpalFusionContractValidator {
         )
         let snapshot = OpalFusion.Client.Session.Snapshot(
             state: state,
-            lastError: .transportUnavailable
+            lastError: .transportUnavailable,
+            lastErrorSummary: "Primary connect failed: connection reset"
         )
 
         #expect(snapshot.state == state)
         #expect(snapshot.lastError == .transportUnavailable)
+        #expect(snapshot.lastErrorSummary == "Primary connect failed: connection reset")
     }
 
     @Test("Client state observer satisfies the public session observation seam")
@@ -202,12 +204,14 @@ struct OpalFusionContractValidator {
         let observer: any OpalFusion.Client.StateObserver = ClientStateObserverAdapter()
         let snapshot = OpalFusion.Client.Session.Snapshot(
             state: .init(isConnected: true),
-            lastError: nil
+            lastError: nil,
+            lastErrorSummary: nil
         )
 
         await observer.receive(snapshot)
         #expect(snapshot.state.isConnected)
         #expect(snapshot.lastError == nil)
+        #expect(snapshot.lastErrorSummary == nil)
     }
 }
 

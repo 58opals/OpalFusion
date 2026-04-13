@@ -5,13 +5,16 @@ public extension OpalFusion.Client {
         public struct Snapshot: Sendable, Equatable {
             public let state: OpalFusion.Client.State
             public let lastError: OpalFusion.Client.Error?
+            public let lastErrorSummary: String?
 
             public init(
                 state: OpalFusion.Client.State = .init(),
-                lastError: OpalFusion.Client.Error? = nil
+                lastError: OpalFusion.Client.Error? = nil,
+                lastErrorSummary: String? = nil
             ) {
                 self.state = state
                 self.lastError = lastError
+                self.lastErrorSummary = lastErrorSummary
             }
         }
 
@@ -183,7 +186,8 @@ private extension OpalFusion.Client.Session.Snapshot {
     init(_ snapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot) {
         self.init(
             state: snapshot.clientState,
-            lastError: snapshot.lastError
+            lastError: snapshot.lastError,
+            lastErrorSummary: snapshot.lastErrorSummary
         )
     }
 }

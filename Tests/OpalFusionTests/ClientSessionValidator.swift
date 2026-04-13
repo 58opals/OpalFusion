@@ -29,11 +29,16 @@ struct ClientSessionValidator {
 
         let snapshot = await session.snapshot()
         #expect(snapshot.lastError == .invalidConfiguration)
+        #expect(snapshot.lastErrorSummary == "Coordinator host must not be empty")
         #expect(snapshot.state.isConnected == false)
         #expect(snapshot.state.round == nil)
 
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains(snapshot))
+        #expect(observedSnapshots.contains {
+            $0.lastError == .invalidConfiguration &&
+                $0.lastErrorSummary == "Coordinator host must not be empty"
+        })
     }
 
     @Test("Public client session maps primary connect failure to transport unavailable")
@@ -61,11 +66,16 @@ struct ClientSessionValidator {
 
         let snapshot = await session.snapshot()
         #expect(snapshot.lastError == .transportUnavailable)
+        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
         #expect(snapshot.state.isConnected == false)
         #expect(transportFactories.primaryCount() == 1)
 
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains(snapshot))
+        #expect(observedSnapshots.contains {
+            $0.lastError == .transportUnavailable &&
+                $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
+        })
     }
 
     @Test("Public client session start and stop are idempotent and restart creates a fresh driver")
@@ -100,6 +110,7 @@ struct ClientSessionValidator {
             }
         }
         #expect(runningSnapshot.lastError == nil)
+        #expect(runningSnapshot.lastErrorSummary == nil)
         #expect(transportFactories.primaryCount() == 1)
 
         await session.stop()
@@ -120,6 +131,7 @@ struct ClientSessionValidator {
         }
 
         #expect(restartedSnapshot.lastError == nil)
+        #expect(restartedSnapshot.lastErrorSummary == nil)
         #expect(transportFactories.primaryCount() == 2)
 
         let observedSnapshots = await stateObserver.snapshot()
@@ -128,10 +140,75 @@ struct ClientSessionValidator {
             observedSnapshots.contains(
                 .init(
                     state: .init(),
-                    lastError: nil
+                    lastError: nil,
+                    lastErrorSummary: nil
                 )
             )
         )
+    }
+
+    @Test("Public client session clears failure summaries on a fresh restart")
+    func validateRestartClearsFailureSummary() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder(
+            primaryConnectErrors: [
+                NSError(domain: "ClientSessionValidator", code: 7),
+                nil
+            ]
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantInputProvider: HostParticipantInputProviderAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            primaryTransportFactory: { transportFactories.makePrimary() },
+            covertTransportFactory: { transportFactories.makeCovert() }
+        )
+
+        await session.start()
+
+        let failedSnapshot = await session.snapshot()
+        #expect(failedSnapshot.lastError == .transportUnavailable)
+        #expect(failedSnapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+
+        await session.stop()
+        await session.start()
+
+        let restartedSnapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.isConnected {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(restartedSnapshot.lastError == nil)
+        #expect(restartedSnapshot.lastErrorSummary == nil)
+        #expect(transportFactories.primaryCount() == 2)
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(observedSnapshots.contains {
+            $0.lastError == .transportUnavailable &&
+                $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
+        })
+        #expect(
+            observedSnapshots.contains(
+                .init(
+                    state: .init(),
+                    lastError: nil,
+                    lastErrorSummary: nil
+                )
+            )
+        )
+        #expect(observedSnapshots.contains(restartedSnapshot))
     }
 
     @Test("Public client session completes a scripted loopback round and forwards observers")
@@ -949,20 +1026,34 @@ struct ClientSessionValidator {
 }
 
 private final class SessionTransportFactoryRecorder: @unchecked Sendable {
-    private let primaryConnectError: Error?
+    private let defaultPrimaryConnectError: Error?
     private let lock = NSLock()
     private var primaryTransports: [ScriptedPrimaryTransport] = []
     private var covertTransports: [ScriptedCovertTransport] = []
+    private var pendingPrimaryConnectErrors: [Error?]
 
     init(primaryConnectError: Error? = nil) {
-        self.primaryConnectError = primaryConnectError
+        self.defaultPrimaryConnectError = primaryConnectError
+        self.pendingPrimaryConnectErrors = []
+    }
+
+    init(primaryConnectErrors: [Error?]) {
+        self.defaultPrimaryConnectError = primaryConnectErrors.last ?? nil
+        self.pendingPrimaryConnectErrors = primaryConnectErrors
     }
 
     func makePrimary() -> any OpalFusion.Runtime.PrimaryTransporting {
-        let transport = ScriptedPrimaryTransport(connectError: primaryConnectError)
-        lock.lock()
-        primaryTransports.append(transport)
-        lock.unlock()
+        let connectError = lock.withLock { () -> Error? in
+            if pendingPrimaryConnectErrors.isEmpty == false {
+                return pendingPrimaryConnectErrors.removeFirst()
+            }
+
+            return defaultPrimaryConnectError
+        }
+        let transport = ScriptedPrimaryTransport(connectError: connectError)
+        lock.withLock {
+            primaryTransports.append(transport)
+        }
         return transport
     }
 

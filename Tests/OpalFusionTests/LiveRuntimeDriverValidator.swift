@@ -42,6 +42,7 @@ struct LiveRuntimeDriverValidator {
 
         let snapshot = await driver.snapshot()
         #expect(snapshot.lastError == .invalidConfiguration)
+        #expect(snapshot.lastErrorSummary == "Coordinator host must not be empty")
         #expect(snapshot.clientState.isConnected == false)
         #expect(await primaryTransport.recordedConnectCallCount() == 0)
 
@@ -91,6 +92,7 @@ struct LiveRuntimeDriverValidator {
 
         let snapshot = await driver.snapshot()
         #expect(snapshot.lastError == .transportUnavailable)
+        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
         #expect(snapshot.clientState.isConnected == false)
 
         let events = await eventSink.snapshot()
