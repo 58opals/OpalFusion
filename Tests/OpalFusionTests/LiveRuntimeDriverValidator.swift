@@ -111,6 +111,114 @@ struct LiveRuntimeDriverValidator {
         #expect(event.event.summary.hasPrefix("Primary connect failed:"))
     }
 
+    @Test("Live runtime driver keeps a pending primary connect alive past the startup clock tick")
+    func validatePendingPrimaryConnectIsNotCancelledByStartupClock() async throws {
+        let primaryTransport = ScriptedPrimaryTransport(blocksConnect: true)
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantInputProvider: DelayedParticipantInputProvider(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            clockTickInterval: .milliseconds(250),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        let startTask = Task {
+            await driver.start()
+        }
+
+        try await Task.sleep(for: .milliseconds(400))
+
+        let pendingSnapshot = await driver.snapshot()
+        #expect(pendingSnapshot.clientState.isConnected == false)
+        #expect(pendingSnapshot.lastError == nil)
+        #expect(pendingSnapshot.lastErrorSummary == nil)
+        #expect(await primaryTransport.recordedConnectCallCount() == 1)
+        #expect(await primaryTransport.recordedCloseCallCount() == 0)
+        #expect(await primaryTransport.hasPendingConnect())
+
+        await primaryTransport.releaseConnect()
+        await startTask.value
+
+        let connectedSnapshot = await driver.snapshot()
+        #expect(connectedSnapshot.clientState.isConnected)
+        #expect(connectedSnapshot.lastError == nil)
+        #expect(connectedSnapshot.lastErrorSummary == nil)
+        #expect(await primaryTransport.recordedWrittenPayloads().isEmpty == false)
+        #expect(await primaryTransport.recordedCloseCallCount() == 0)
+        #expect(await primaryTransport.hasPendingConnect() == false)
+
+        await driver.stop()
+    }
+
+    @Test("Live runtime driver defers startup teardown until a real connect failure arrives")
+    func validatePendingPrimaryConnectTearsDownOnlyAfterRealFailure() async throws {
+        let connectError = NSError(domain: "LiveRuntimeDriverValidator", code: 3)
+        let primaryTransport = ScriptedPrimaryTransport(blocksConnect: true)
+        let eventSink = RecordedHostEventSink()
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantInputProvider: DelayedParticipantInputProvider(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            hostEventSink: { roundIdentifier, event in
+                await eventSink.record(
+                    roundIdentifier: roundIdentifier,
+                    event: event
+                )
+            },
+            clockTickInterval: .milliseconds(250),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        let startTask = Task {
+            await driver.start()
+        }
+
+        try await Task.sleep(for: .milliseconds(400))
+
+        let pendingSnapshot = await driver.snapshot()
+        #expect(pendingSnapshot.clientState.isConnected == false)
+        #expect(pendingSnapshot.lastError == nil)
+        #expect(pendingSnapshot.lastErrorSummary == nil)
+        #expect(await primaryTransport.recordedCloseCallCount() == 0)
+        #expect(await primaryTransport.hasPendingConnect())
+
+        await primaryTransport.failConnect(connectError)
+        await startTask.value
+
+        let failedSnapshot = await driver.snapshot()
+        #expect(failedSnapshot.clientState.isConnected == false)
+        #expect(failedSnapshot.lastError == .transportUnavailable)
+        #expect(failedSnapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+        #expect(await primaryTransport.recordedCloseCallCount() == 1)
+        #expect(await primaryTransport.hasPendingConnect() == false)
+
+        let events = await eventSink.snapshot()
+        guard let event = events.last else {
+            Issue.record("Expected a delayed connect failure event")
+            return
+        }
+        #expect(event.roundIdentifier == nil)
+        #expect(event.event.kind == .failure)
+        #expect(event.event.phase == .connecting)
+        #expect(event.event.summary.hasPrefix("Primary connect failed:"))
+    }
+
     @Test("Live runtime driver preserves startup waiting errors when cancellation follows restart")
     func validateStartupWaitingCancellationPreservesUnderlyingErrorProjection() async throws {
         let underlyingError = NWError.posix(.ECONNRESET)

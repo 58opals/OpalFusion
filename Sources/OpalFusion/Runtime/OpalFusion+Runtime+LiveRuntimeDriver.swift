@@ -112,12 +112,13 @@ extension OpalFusion.Runtime {
                 return
             }
 
-            startClockLoop()
-
             do {
                 let inboundStream = try await primaryTransport.connect()
                 startPrimaryReadLoop(inboundStream)
                 await handle(.connected)
+                if isRunning {
+                    startClockLoop()
+                }
             } catch {
                 let summary = "Primary connect failed: \(String(describing: error))"
                 Self.logger.debug(

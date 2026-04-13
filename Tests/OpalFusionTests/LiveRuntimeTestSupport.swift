@@ -220,14 +220,36 @@ func withTimeout<T: Sendable>(
     }
 }
 
-func reserveLoopbackPort() throws -> UInt16 {
+final class ReservedLoopbackPort: @unchecked Sendable {
+    let port: UInt16
+    private var socketDescriptor: Int32?
+
+    init(
+        port: UInt16,
+        socketDescriptor: Int32
+    ) {
+        self.port = port
+        self.socketDescriptor = socketDescriptor
+    }
+
+    deinit {
+        release()
+    }
+
+    func release() {
+        guard let socketDescriptor else {
+            return
+        }
+
+        _ = close(socketDescriptor)
+        self.socketDescriptor = nil
+    }
+}
+
+func reserveLoopbackPort() throws -> ReservedLoopbackPort {
     let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
     guard socketDescriptor >= 0 else {
         throw POSIXError(.EADDRNOTAVAIL)
-    }
-
-    defer {
-        _ = close(socketDescriptor)
     }
 
     var address = sockaddr_in()
@@ -246,6 +268,7 @@ func reserveLoopbackPort() throws -> UInt16 {
         }
     }
     guard bindResult == 0 else {
+        _ = close(socketDescriptor)
         throw POSIXError(.EADDRNOTAVAIL)
     }
 
@@ -257,10 +280,14 @@ func reserveLoopbackPort() throws -> UInt16 {
         }
     }
     guard nameResult == 0 else {
+        _ = close(socketDescriptor)
         throw POSIXError(.EADDRNOTAVAIL)
     }
 
-    return UInt16(bigEndian: boundAddress.sin_port)
+    return ReservedLoopbackPort(
+        port: UInt16(bigEndian: boundAddress.sin_port),
+        socketDescriptor: socketDescriptor
+    )
 }
 
 actor LoopbackPrimaryCoordinator {
@@ -322,6 +349,20 @@ actor LoopbackPrimaryCoordinator {
         )
         try await coordinator.startListener()
         return coordinator
+    }
+
+    static func start(
+        reserving reservedPort: ReservedLoopbackPort,
+        requiresTLS: Bool = false,
+        baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443
+    ) async throws -> LoopbackPrimaryCoordinator {
+        let port = reservedPort.port
+        reservedPort.release()
+        return try await start(
+            port: port,
+            requiresTLS: requiresTLS,
+            baseline: baseline
+        )
     }
 
     private init(
@@ -1241,25 +1282,44 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
 actor ScriptedPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
     private let connectError: Error?
     private let writeError: Error?
+    private let blocksConnect: Bool
     private let inboundStream: AsyncThrowingStream<[UInt8], Error>
     private let inboundContinuation: AsyncThrowingStream<[UInt8], Error>.Continuation
     private var connectCallCount: Int = 0
     private var writtenPayloads: [[UInt8]] = []
     private var closeCallCount: Int = 0
+    private var connectContinuation: CheckedContinuation<Result<Void, Error>, Never>?
 
     init(
         connectError: Error? = nil,
-        writeError: Error? = nil
+        writeError: Error? = nil,
+        blocksConnect: Bool = false
     ) {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: [UInt8].self, throwing: Error.self)
         self.connectError = connectError
         self.writeError = writeError
+        self.blocksConnect = blocksConnect
         self.inboundStream = stream
         self.inboundContinuation = continuation
+        self.connectContinuation = nil
     }
 
     func connect() async throws -> AsyncThrowingStream<[UInt8], Error> {
         connectCallCount += 1
+
+        if blocksConnect {
+            let result = await withCheckedContinuation { continuation in
+                connectContinuation = continuation
+            }
+
+            switch result {
+            case .success:
+                break
+            case let .failure(error):
+                throw error
+            }
+        }
+
         if let connectError {
             throw connectError
         }
@@ -1275,11 +1335,27 @@ actor ScriptedPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
 
     func close() async {
         closeCallCount += 1
+        connectContinuation?.resume(
+            returning: .failure(
+                OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
+            )
+        )
+        connectContinuation = nil
         inboundContinuation.finish()
     }
 
     func yieldInboundBytes(_ bytes: [UInt8]) {
         inboundContinuation.yield(bytes)
+    }
+
+    func releaseConnect() {
+        connectContinuation?.resume(returning: .success(()))
+        connectContinuation = nil
+    }
+
+    func failConnect(_ error: Error) {
+        connectContinuation?.resume(returning: .failure(error))
+        connectContinuation = nil
     }
 
     func finishInbound(throwing error: Error? = nil) {
@@ -1296,6 +1372,10 @@ actor ScriptedPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
 
     func recordedCloseCallCount() -> Int {
         closeCallCount
+    }
+
+    func hasPendingConnect() -> Bool {
+        connectContinuation != nil
     }
 }
 

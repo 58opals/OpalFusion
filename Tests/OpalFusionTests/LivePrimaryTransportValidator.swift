@@ -60,7 +60,7 @@ struct LivePrimaryTransportValidator {
         let reservedPort = try reserveLoopbackPort()
         let transport = OpalFusion.Runtime.LivePrimaryTransport(
             host: "127.0.0.1",
-            port: reservedPort
+            port: reservedPort.port
         )
 
         let connectTask = Task {
@@ -68,7 +68,7 @@ struct LivePrimaryTransportValidator {
         }
 
         try await Task.sleep(for: .milliseconds(150))
-        let coordinator = try await LoopbackPrimaryCoordinator.start(port: reservedPort)
+        let coordinator = try await LoopbackPrimaryCoordinator.start(reserving: reservedPort)
         let inboundStream = try await withTimeout(.seconds(2)) {
             try await connectTask.value
         }
