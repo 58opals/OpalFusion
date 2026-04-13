@@ -162,13 +162,12 @@ extension OpalFusion.Execution {
                 phase = .completed
             }
 
-            let participantCount = round.allCommitments?.initialCommitments.count
             let completionStatus = round.completionStatus
 
             return .init(
                 identifier: identifier,
                 phase: phase,
-                participantCount: participantCount,
+                participantCount: nil,
                 completionStatus: completionStatus,
                 isTerminal: completionStatus != nil
             )

@@ -166,6 +166,7 @@ struct ProductionWorkflowValidator {
         )
 
         let proposal = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
+        #expect(proposal.participantCount == nil)
         let unsignedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
             proposal.serializedUnsignedTransaction
         )

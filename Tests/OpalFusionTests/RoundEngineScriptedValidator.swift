@@ -240,7 +240,7 @@ struct RoundEngineScriptedValidator {
             engine.clientState.round == .init(
                 identifier: roundIdentifier,
                 phase: .completed,
-                participantCount: 1,
+                participantCount: nil,
                 completionStatus: .success,
                 isTerminal: true
             )
@@ -586,7 +586,7 @@ private extension RoundEngineScriptedValidator {
             sessionHash: [0x41],
             expectedInputCount: 1,
             expectedOutputCount: 2,
-            participantCount: 1
+            participantCount: nil
         )
     }
 

@@ -1,6 +1,8 @@
 // LivePrimaryTransportValidator.swift
 
 @testable import OpalFusion
+import Foundation
+import Network
 import Testing
 
 struct LivePrimaryTransportValidator {
@@ -134,6 +136,77 @@ struct LivePrimaryTransportValidator {
         await coordinator.stop()
     }
 
+    @Test("Live primary transport preserves startup waiting errors across restart-triggered cancellation")
+    func validateWaitingCancellationPreservesUnderlyingError() async throws {
+        let underlyingError = NWError.posix(.ECONNRESET)
+        let factory = ScriptedNetworkPrimaryConnectionFactory(
+            startStates: [.waiting(underlyingError)],
+            restartStates: [.cancelled]
+        )
+        let transport = OpalFusion.Runtime.LivePrimaryTransport(
+            host: "127.0.0.1",
+            port: 8789,
+            restartDelay: .zero,
+            connectionFactory: { host, port, parameters in
+                factory.make(
+                    host: host,
+                    port: port,
+                    parameters: parameters
+                )
+            }
+        )
+
+        let connectTask = Task {
+            try await transport.connect()
+        }
+
+        do {
+            _ = try await withTimeout(.seconds(1)) {
+                try await connectTask.value
+            }
+            Issue.record("Expected startup failure")
+        } catch {
+            #expect(String(describing: error) == String(describing: underlyingError))
+        }
+    }
+
+    @Test("Live primary transport keeps explicit close cancellation after a stored waiting error")
+    func validateExplicitCloseKeepsGenericCancellation() async throws {
+        let factory = ScriptedNetworkPrimaryConnectionFactory(
+            startStates: [.waiting(NWError.posix(.ECONNRESET))]
+        )
+        let transport = OpalFusion.Runtime.LivePrimaryTransport(
+            host: "127.0.0.1",
+            port: 8789,
+            restartDelay: .seconds(1),
+            connectionFactory: { host, port, parameters in
+                factory.make(
+                    host: host,
+                    port: port,
+                    parameters: parameters
+                )
+            }
+        )
+
+        let connectTask = Task {
+            try await transport.connect()
+        }
+
+        await factory.connection.waitUntilStarted()
+        await transport.close()
+
+        do {
+            _ = try await withTimeout(.seconds(1)) {
+                try await connectTask.value
+            }
+            Issue.record("Expected explicit close cancellation")
+        } catch let error as OpalFusion.Runtime.LiveTransportError {
+            #expect(error == .primaryConnectionCancelled)
+        } catch {
+            Issue.record("Expected primaryConnectionCancelled, received \(String(describing: error))")
+        }
+    }
+
     private static func nextServerMessage(
         from inboundStream: AsyncThrowingStream<[UInt8], Error>
     ) async throws -> OpalFusion.ProtocolModel.ServerMessage {
@@ -163,5 +236,114 @@ struct LivePrimaryTransportValidator {
             tlsTrustAnchorCertificateDERs: try LoopbackPrimaryTLSTestFixture
                 .trustAnchorCertificateDERs()
         )
+    }
+}
+
+final class ScriptedNetworkPrimaryConnectionFactory: @unchecked Sendable {
+    let connection: ScriptedNetworkPrimaryConnection
+
+    init(
+        startStates: [NWConnection.State],
+        restartStates: [NWConnection.State] = []
+    ) {
+        self.connection = ScriptedNetworkPrimaryConnection(
+            startStates: startStates,
+            restartStates: restartStates
+        )
+    }
+
+    func make(
+        host _: String,
+        port _: UInt16,
+        parameters _: NWParameters
+    ) -> any OpalFusion.Runtime.PrimaryConnectioning {
+        connection
+    }
+}
+
+final class ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning, @unchecked Sendable {
+    private let stateQueue = DispatchQueue(
+        label: "OpalFusionTests.ScriptedNetworkPrimaryConnection"
+    )
+    private let startStates: [NWConnection.State]
+    private let restartStates: [NWConnection.State]
+    private var stateUpdateHandler: (@Sendable (NWConnection.State) -> Void)?
+    private var hasStarted: Bool
+    private var startContinuation: CheckedContinuation<Void, Never>?
+
+    init(
+        startStates: [NWConnection.State],
+        restartStates: [NWConnection.State]
+    ) {
+        self.startStates = startStates
+        self.restartStates = restartStates
+        self.stateUpdateHandler = nil
+        self.hasStarted = false
+        self.startContinuation = nil
+    }
+
+    func setStateUpdateHandler(_ handler: (@Sendable (NWConnection.State) -> Void)?) {
+        stateQueue.sync {
+            self.stateUpdateHandler = handler
+        }
+    }
+
+    func start(queue _: DispatchQueue) {
+        let states = stateQueue.sync { () -> [NWConnection.State] in
+            hasStarted = true
+            startContinuation?.resume()
+            startContinuation = nil
+            return startStates
+        }
+        emit(states)
+    }
+
+    func send(content _: Data?, completion: NWConnection.SendCompletion) {
+        switch completion {
+        case let .contentProcessed(handler):
+            handler(nil)
+        case .idempotent:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    func receive(
+        minimumIncompleteLength _: Int,
+        maximumLength _: Int,
+        completion _: @escaping @Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void
+    ) {}
+
+    func restart() {
+        emit(restartStates)
+    }
+
+    func cancel() {}
+
+    func waitUntilStarted() async {
+        let shouldWait = stateQueue.sync { hasStarted == false }
+        guard shouldWait else {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            stateQueue.sync {
+                if hasStarted {
+                    continuation.resume()
+                } else {
+                    startContinuation = continuation
+                }
+            }
+        }
+    }
+
+    private func emit(
+        _ states: [NWConnection.State]
+    ) {
+        let handler = stateQueue.sync { stateUpdateHandler }
+        for state in states {
+            handler?(state)
+        }
     }
 }

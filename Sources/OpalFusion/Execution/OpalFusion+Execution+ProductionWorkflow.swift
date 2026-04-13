@@ -137,7 +137,7 @@ extension OpalFusion.Execution {
                 sessionHash: sharedMaterial.sessionHash,
                 expectedInputCount: sharedMaterial.transactionTemplate.inputs.count,
                 expectedOutputCount: sharedMaterial.transactionTemplate.outputs.count,
-                participantCount: round.allCommitments?.initialCommitments.count
+                participantCount: nil
             )
         }
 

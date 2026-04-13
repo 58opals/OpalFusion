@@ -3,6 +3,7 @@
 import CFNetwork
 import Foundation
 import Network
+import OSLog
 import Security
 
 extension OpalFusion.Runtime {
@@ -22,6 +23,70 @@ extension OpalFusion.Runtime {
         let socksEnabled: Bool
         let proxyHost: String?
         let proxyPort: Int?
+    }
+
+    protocol PrimaryConnectioning: AnyObject {
+        func setStateUpdateHandler(_ handler: (@Sendable (NWConnection.State) -> Void)?)
+        func start(queue: DispatchQueue)
+        func send(content: Data?, completion: NWConnection.SendCompletion)
+        func receive(
+            minimumIncompleteLength: Int,
+            maximumLength: Int,
+            completion: @escaping @Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void
+        )
+        func restart()
+        func cancel()
+    }
+
+    final class NetworkPrimaryConnection: PrimaryConnectioning {
+        private let connection: NWConnection
+
+        init(
+            host: String,
+            port: UInt16,
+            parameters: NWParameters
+        ) {
+            self.connection = NWConnection(
+                host: NWEndpoint.Host(host),
+                port: NWEndpoint.Port(rawValue: port)!,
+                using: parameters
+            )
+        }
+
+        func setStateUpdateHandler(_ handler: (@Sendable (NWConnection.State) -> Void)?) {
+            connection.stateUpdateHandler = handler
+        }
+
+        func start(queue: DispatchQueue) {
+            connection.start(queue: queue)
+        }
+
+        func send(content: Data?, completion: NWConnection.SendCompletion) {
+            connection.send(
+                content: content,
+                completion: completion
+            )
+        }
+
+        func receive(
+            minimumIncompleteLength: Int,
+            maximumLength: Int,
+            completion: @escaping @Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void
+        ) {
+            connection.receive(
+                minimumIncompleteLength: minimumIncompleteLength,
+                maximumLength: maximumLength,
+                completion: completion
+            )
+        }
+
+        func restart() {
+            connection.restart()
+        }
+
+        func cancel() {
+            connection.cancel()
+        }
     }
 
     enum LiveTransportError: LocalizedError, Sendable, Equatable {
@@ -91,16 +156,30 @@ extension OpalFusion.Runtime {
     }
 
     actor LivePrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
+        typealias PrimaryConnectionFactory = @Sendable (
+            String,
+            UInt16,
+            NWParameters
+        ) -> any OpalFusion.Runtime.PrimaryConnectioning
+
+        private static let logger = Logger(
+            subsystem: "OpalFusion",
+            category: "LivePrimaryTransport"
+        )
+
         private let host: String
         private let port: UInt16
         private let requiresTLS: Bool
         private let tlsTrustAnchorCertificateDERs: [Data]
         private let connectionQueue: DispatchQueue
         private let tlsVerificationQueue: DispatchQueue
-        private var connection: NWConnection?
+        private let restartDelay: Duration
+        private let connectionFactory: PrimaryConnectionFactory
+        private var connection: (any OpalFusion.Runtime.PrimaryConnectioning)?
         private var connectContinuation: CheckedContinuation<Void, Error>?
         private var inboundContinuation: AsyncThrowingStream<[UInt8], Error>.Continuation?
         private var waitingRestartTask: Task<Void, Never>?
+        private var lastNonCancellationTransportError: Error?
         private var isReady: Bool
         private var isReceivePending: Bool
         private var isExplicitlyClosing: Bool
@@ -109,7 +188,18 @@ extension OpalFusion.Runtime {
             host: String,
             port: UInt16,
             requiresTLS: Bool = false,
-            tlsTrustAnchorCertificateDERs: [Data] = []
+            tlsTrustAnchorCertificateDERs: [Data] = [],
+            restartDelay: Duration = .milliseconds(100),
+            connectionFactory: @escaping PrimaryConnectionFactory = {
+                host,
+                port,
+                parameters in
+                OpalFusion.Runtime.NetworkPrimaryConnection(
+                    host: host,
+                    port: port,
+                    parameters: parameters
+                )
+            }
         ) {
             self.host = host
             self.port = port
@@ -119,10 +209,13 @@ extension OpalFusion.Runtime {
             self.tlsVerificationQueue = DispatchQueue(
                 label: "OpalFusion.Runtime.LivePrimaryTransport.TLSVerify"
             )
+            self.restartDelay = restartDelay
+            self.connectionFactory = connectionFactory
             self.connection = nil
             self.connectContinuation = nil
             self.inboundContinuation = nil
             self.waitingRestartTask = nil
+            self.lastNonCancellationTransportError = nil
             self.isReady = false
             self.isReceivePending = false
             self.isExplicitlyClosing = false
@@ -141,18 +234,23 @@ extension OpalFusion.Runtime {
             self.isReady = false
             self.isReceivePending = false
             self.isExplicitlyClosing = false
+            self.lastNonCancellationTransportError = nil
 
-            let connection = NWConnection(
-                host: NWEndpoint.Host(host),
-                port: NWEndpoint.Port(rawValue: port)!,
-                using: makeParameters()
+            Self.logger.debug(
+                "primary connect start host=\(self.host, privacy: .public) port=\(Int(self.port), privacy: .public) tls=\(self.requiresTLS, privacy: .public)"
+            )
+
+            let connection = connectionFactory(
+                host,
+                port,
+                makeParameters()
             )
             self.connection = connection
 
             try await withCheckedThrowingContinuation {
                 (continuation: CheckedContinuation<Void, Error>) in
                 self.connectContinuation = continuation
-                connection.stateUpdateHandler = { state in
+                connection.setStateUpdateHandler { state in
                     Task {
                         await self.handleStateUpdate(state)
                     }
@@ -186,6 +284,9 @@ extension OpalFusion.Runtime {
 
         func close() async {
             isExplicitlyClosing = true
+            Self.logger.debug(
+                "primary close explicit=true pendingConnect=\(self.connectContinuation != nil, privacy: .public)"
+            )
             connectContinuation?.resume(
                 throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
             )
@@ -193,11 +294,12 @@ extension OpalFusion.Runtime {
             waitingRestartTask?.cancel()
             waitingRestartTask = nil
 
-            connection?.stateUpdateHandler = nil
+            connection?.setStateUpdateHandler(nil)
             connection?.cancel()
             connection = nil
             isReady = false
             isReceivePending = false
+            lastNonCancellationTransportError = nil
             finishInbound(
                 throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
             )
@@ -246,27 +348,45 @@ extension OpalFusion.Runtime {
         private func handleStateUpdate(
             _ state: NWConnection.State
         ) async {
+            Self.logger.debug(
+                "primary state transition state=\(Self.describe(state), privacy: .public)"
+            )
+
             switch state {
             case .ready:
                 waitingRestartTask?.cancel()
                 waitingRestartTask = nil
                 isReady = true
+                lastNonCancellationTransportError = nil
                 connectContinuation?.resume()
                 connectContinuation = nil
                 if isReceivePending == false {
                     scheduleReceive()
                 }
             case let .failed(error):
+                if connectContinuation != nil {
+                    recordNonCancellationTransportError(error)
+                }
+                Self.logger.debug(
+                    "primary state failed error=\(Self.describe(error), privacy: .public)"
+                )
                 handleTerminalState(error)
             case let .waiting(error):
+                recordNonCancellationTransportError(error)
+                Self.logger.debug(
+                    "primary state waiting error=\(Self.describe(error), privacy: .public)"
+                )
                 handleWaitingState(error)
             case .cancelled:
+                let pendingConnect = connectContinuation != nil
+                let preservedStartupError = pendingConnect ? lastNonCancellationTransportError : nil
+                Self.logger.debug(
+                    "primary state cancelled explicit=\(self.isExplicitlyClosing, privacy: .public) pendingConnect=\(pendingConnect, privacy: .public) preservedError=\(Self.describeOptional(preservedStartupError), privacy: .public)"
+                )
                 if isExplicitlyClosing {
                     resetConnectionState()
                 } else {
-                    handleTerminalState(
-                        OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
-                    )
+                    handleTerminalState(resolveCancellationError())
                 }
             case .setup, .preparing:
                 break
@@ -281,6 +401,7 @@ extension OpalFusion.Runtime {
             }
 
             isReceivePending = true
+            Self.logger.debug("primary receive scheduled")
             connection.receive(
                 minimumIncompleteLength: 1,
                 maximumLength: 65_536
@@ -303,15 +424,24 @@ extension OpalFusion.Runtime {
             isReceivePending = false
 
             if let data, data.isEmpty == false {
+                Self.logger.debug(
+                    "primary receive bytes count=\(data.count, privacy: .public)"
+                )
                 inboundContinuation?.yield([UInt8](data))
             }
 
             if let error {
+                Self.logger.debug(
+                    "primary receive error error=\(Self.describe(error), privacy: .public)"
+                )
                 handleTerminalState(error)
                 return
             }
 
             if isComplete {
+                Self.logger.debug(
+                    "primary receive complete bytes=\(data?.count ?? 0, privacy: .public)"
+                )
                 finishInbound()
                 resetConnectionState()
                 return
@@ -333,35 +463,55 @@ extension OpalFusion.Runtime {
                 return
             }
 
+            let connectionID = ObjectIdentifier(connection)
+            Self.logger.debug(
+                "primary restart scheduled delayMs=\(Self.restartDelayMilliseconds(self.restartDelay), privacy: .public) error=\(Self.describe(error), privacy: .public)"
+            )
             waitingRestartTask = Task {
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: self.restartDelay)
                 guard Task.isCancelled == false else {
                     return
                 }
 
-                await self.restartConnectionIfCurrent(connection, lastError: error)
+                self.restartConnectionIfCurrent(
+                    connectionID,
+                    lastError: error
+                )
             }
         }
 
         private func restartConnectionIfCurrent(
-            _ expectedConnection: NWConnection,
+            _ expectedConnectionID: ObjectIdentifier,
             lastError: Error
         ) {
             defer {
                 waitingRestartTask = nil
             }
 
-            guard isExplicitlyClosing == false,
-                  let connection,
-                  connection === expectedConnection else {
+            guard isExplicitlyClosing == false else {
+                Self.logger.debug("primary restart skipped reason=explicit-close")
+                return
+            }
+
+            guard let connection else {
+                Self.logger.debug("primary restart skipped reason=connection-missing")
+                return
+            }
+
+            guard ObjectIdentifier(connection) == expectedConnectionID else {
+                Self.logger.debug("primary restart skipped reason=connection-replaced")
                 return
             }
 
             if connectContinuation == nil && inboundContinuation == nil {
+                Self.logger.debug(
+                    "primary restart skipped reason=no-active-consumer error=\(Self.describe(lastError), privacy: .public)"
+                )
                 handleTerminalState(lastError)
                 return
             }
 
+            Self.logger.debug("primary restart execute")
             connection.restart()
         }
 
@@ -374,6 +524,53 @@ extension OpalFusion.Runtime {
             connectContinuation = nil
             finishInbound(throwing: error)
             resetConnectionState()
+        }
+
+        private func recordNonCancellationTransportError(
+            _ error: Error
+        ) {
+            guard isCancellationError(error) == false else {
+                return
+            }
+
+            lastNonCancellationTransportError = error
+        }
+
+        private func resolveCancellationError() -> Error {
+            guard connectContinuation != nil,
+                  let lastNonCancellationTransportError else {
+                return OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
+            }
+
+            return lastNonCancellationTransportError
+        }
+
+        private func isCancellationError(
+            _ error: Error
+        ) -> Bool {
+            if let transportError = error as? OpalFusion.Runtime.LiveTransportError,
+               transportError == .primaryConnectionCancelled {
+                return true
+            }
+
+            if let networkError = error as? NWError,
+               case let .posix(code) = networkError,
+               code == .ECANCELED {
+                return true
+            }
+
+            let nsError = error as NSError
+            if nsError.domain == NSPOSIXErrorDomain,
+               nsError.code == Int(ECANCELED) {
+                return true
+            }
+
+            if nsError.domain == NSURLErrorDomain,
+               nsError.code == NSURLErrorCancelled {
+                return true
+            }
+
+            return false
         }
 
         private func finishInbound(
@@ -394,12 +591,57 @@ extension OpalFusion.Runtime {
         private func resetConnectionState() {
             waitingRestartTask?.cancel()
             waitingRestartTask = nil
-            connection?.stateUpdateHandler = nil
+            connection?.setStateUpdateHandler(nil)
             connection = nil
             connectContinuation = nil
+            lastNonCancellationTransportError = nil
             isReady = false
             isReceivePending = false
             isExplicitlyClosing = false
+        }
+
+        private static func describe(
+            _ state: NWConnection.State
+        ) -> String {
+            switch state {
+            case .setup:
+                "setup"
+            case .preparing:
+                "preparing"
+            case .ready:
+                "ready"
+            case let .waiting(error):
+                "waiting(\(describe(error)))"
+            case let .failed(error):
+                "failed(\(describe(error)))"
+            case .cancelled:
+                "cancelled"
+            @unknown default:
+                "unknown"
+            }
+        }
+
+        private static func describe(
+            _ error: Error
+        ) -> String {
+            String(describing: error)
+        }
+
+        private static func describeOptional(
+            _ error: Error?
+        ) -> String {
+            guard let error else {
+                return "none"
+            }
+
+            return describe(error)
+        }
+
+        private static func restartDelayMilliseconds(
+            _ delay: Duration
+        ) -> Int64 {
+            let components = delay.components
+            return components.seconds * 1_000 + Int64(components.attoseconds / 1_000_000_000_000_000)
         }
     }
 

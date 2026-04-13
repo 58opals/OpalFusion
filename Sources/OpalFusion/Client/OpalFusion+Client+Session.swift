@@ -25,6 +25,9 @@ public extension OpalFusion.Client {
             let clockTickInterval: Duration
             let primaryTransportFactory: @Sendable () -> (any OpalFusion.Runtime.PrimaryTransporting)?
             let covertTransportFactory: @Sendable () -> (any OpalFusion.Runtime.CovertTransporting)?
+            let snapshotDeliveryHook: @Sendable (
+                OpalFusion.Client.Session.Snapshot
+            ) async -> Void
 
             static let defaults = Self(
                 workflow: nil,
@@ -32,7 +35,8 @@ public extension OpalFusion.Client {
                 nowProvider: { .now() },
                 clockTickInterval: .milliseconds(250),
                 primaryTransportFactory: { nil },
-                covertTransportFactory: { nil }
+                covertTransportFactory: { nil },
+                snapshotDeliveryHook: { _ in }
             )
         }
 
@@ -45,7 +49,7 @@ public extension OpalFusion.Client {
         private let stateObserver: (any OpalFusion.Client.StateObserver)?
         private let dependencies: Dependencies
         private var runtimeDriver: OpalFusion.Runtime.LiveRuntimeDriver?
-        private var lastSnapshot: OpalFusion.Client.Session.Snapshot
+        private var lastEmittedSnapshot: OpalFusion.Client.Session.Snapshot
 
         public init(
             configuration: OpalFusion.Client.Configuration,
@@ -65,7 +69,7 @@ public extension OpalFusion.Client {
             self.stateObserver = stateObserver
             self.dependencies = .defaults
             self.runtimeDriver = nil
-            self.lastSnapshot = .init()
+            self.lastEmittedSnapshot = .init()
         }
 
         internal init(
@@ -83,7 +87,10 @@ public extension OpalFusion.Client {
             },
             clockTickInterval: Duration = .milliseconds(250),
             primaryTransportFactory: @escaping @Sendable () -> (any OpalFusion.Runtime.PrimaryTransporting)? = { nil },
-            covertTransportFactory: @escaping @Sendable () -> (any OpalFusion.Runtime.CovertTransporting)? = { nil }
+            covertTransportFactory: @escaping @Sendable () -> (any OpalFusion.Runtime.CovertTransporting)? = { nil },
+            snapshotDeliveryHook: @escaping @Sendable (
+                OpalFusion.Client.Session.Snapshot
+            ) async -> Void = { _ in }
         ) {
             self.configuration = configuration
             self.genesisHash = genesisHash
@@ -98,10 +105,11 @@ public extension OpalFusion.Client {
                 nowProvider: nowProvider,
                 clockTickInterval: clockTickInterval,
                 primaryTransportFactory: primaryTransportFactory,
-                covertTransportFactory: covertTransportFactory
+                covertTransportFactory: covertTransportFactory,
+                snapshotDeliveryHook: snapshotDeliveryHook
             )
             self.runtimeDriver = nil
-            self.lastSnapshot = .init()
+            self.lastEmittedSnapshot = .init()
         }
 
         public func start() async {
@@ -129,14 +137,12 @@ public extension OpalFusion.Client {
 
         public func snapshot() async -> OpalFusion.Client.Session.Snapshot {
             if let runtimeDriver {
-                let snapshot = OpalFusion.Client.Session.Snapshot(
+                return OpalFusion.Client.Session.Snapshot(
                     await runtimeDriver.snapshot()
                 )
-                lastSnapshot = snapshot
-                return snapshot
             }
 
-            return lastSnapshot
+            return lastEmittedSnapshot
         }
 
         private func makeRuntimeDriver() -> OpalFusion.Runtime.LiveRuntimeDriver {
@@ -162,17 +168,19 @@ public extension OpalFusion.Client {
         private func receive(
             _ snapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot
         ) async {
-            await updateSnapshotIfNeeded(.init(snapshot))
+            let sessionSnapshot = OpalFusion.Client.Session.Snapshot(snapshot)
+            await dependencies.snapshotDeliveryHook(sessionSnapshot)
+            await updateSnapshotIfNeeded(sessionSnapshot)
         }
 
         private func updateSnapshotIfNeeded(
             _ snapshot: OpalFusion.Client.Session.Snapshot
         ) async {
-            guard snapshot != lastSnapshot else {
+            guard snapshot != lastEmittedSnapshot else {
                 return
             }
 
-            lastSnapshot = snapshot
+            lastEmittedSnapshot = snapshot
             await stateObserver?.receive(snapshot)
         }
     }

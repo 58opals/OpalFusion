@@ -1006,6 +1006,109 @@ struct ClientSessionValidator {
         await coordinator.stop()
     }
 
+    @Test("Public client session snapshot polling does not suppress observer delivery")
+    func validateSnapshotPollingDoesNotSuppressObserverDelivery() async throws {
+        let scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let coordinator = try await LoopbackPrimaryCoordinator.start()
+        let covertTransport = ScriptedCovertTransport()
+        let stateObserver = RecordedClientStateObserver()
+        let eventObserver = RecordedRoundEventObserver()
+        let snapshotDeliveryGate = SessionSnapshotDeliveryGate()
+        let unsupportedInput = OpalFusion.Host.ParticipantInput(
+            outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+            outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+            amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
+            lockingScript: [0x51],
+            publicKey: scenario.reservation.inputs[0].publicKey
+        )
+        let participantInputProvider = DelayedParticipantInputProvider(
+            participantInputs: [unsupportedInput],
+            participantOutputs: scenario.reservation.outputs,
+            delay: .milliseconds(10)
+        )
+        let transactionAssembler = DelayedTransactionAssembler(
+            finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction,
+            delay: .milliseconds(10)
+        )
+        let nowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let session = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: "127.0.0.1",
+                coordinatorPort: await coordinator.port,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantInputProvider: participantInputProvider,
+            transactionAssembler: transactionAssembler,
+            eventObserver: eventObserver,
+            stateObserver: stateObserver,
+            nowProvider: { nowProvider.now() },
+            clockTickInterval: .milliseconds(100),
+            covertTransportFactory: { covertTransport },
+            snapshotDeliveryHook: { snapshot in
+                if isUnsupportedReservationConnectedTerminalSnapshot(snapshot) {
+                    await snapshotDeliveryGate.block(snapshot)
+                }
+            }
+        )
+
+        await session.start()
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 996)
+        try await coordinator.send(.serverHello(scenario.serverHello))
+        _ = try await coordinator.nextClientMessage()
+
+        nowProvider.set(unixSeconds: 1_000)
+        try await coordinator.send(.fusionBegin(scenario.fusionBegin))
+        try await withTimeout(.seconds(1)) {
+            while await covertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_030)
+        try await coordinator.send(.startRound(scenario.startRound))
+
+        let blockedSnapshot = try await withTimeout(.seconds(1)) {
+            await snapshotDeliveryGate.waitForBlockedSnapshot()
+        }
+        #expect(isUnsupportedReservationConnectedTerminalSnapshot(blockedSnapshot))
+
+        let polledSnapshot = await session.snapshot()
+        #expect(polledSnapshot.lastError == .notImplemented)
+        #expect(polledSnapshot.state.round?.completionStatus == .hostRejected)
+        #expect(
+            (await stateObserver.snapshot()).contains(
+                where: isUnsupportedReservationConnectedTerminalSnapshot
+            ) == false
+        )
+
+        await snapshotDeliveryGate.release()
+
+        let observedSnapshots = try await withTimeout(.seconds(1)) {
+            while true {
+                let observedSnapshots = await stateObserver.snapshot()
+                if observedSnapshots.filter(
+                    isUnsupportedReservationConnectedTerminalSnapshot
+                ).count == 1 {
+                    return observedSnapshots
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(
+            observedSnapshots.filter(
+                isUnsupportedReservationConnectedTerminalSnapshot
+            ).count == 1
+        )
+
+        await session.stop()
+        await coordinator.stop()
+    }
+
     @Test("Public client session fails unsupported finalized transactions before signature submission")
     func validateUnsupportedFinalizedTransactionProjection() async throws {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
@@ -1160,6 +1263,62 @@ struct ClientSessionValidator {
 
         await session.stop()
         await coordinator.stop()
+    }
+}
+
+private func isUnsupportedReservationConnectedTerminalSnapshot(
+    _ snapshot: OpalFusion.Client.Session.Snapshot
+) -> Bool {
+    snapshot.lastError == .notImplemented &&
+        snapshot.state.round?.completionStatus == .hostRejected &&
+        snapshot.state.isConnected
+}
+
+private actor SessionSnapshotDeliveryGate {
+    private var blockedSnapshot: OpalFusion.Client.Session.Snapshot?
+    private var blockedSnapshotWaiters: [CheckedContinuation<
+        OpalFusion.Client.Session.Snapshot,
+        Never
+    >] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var isReleased = false
+
+    func waitForBlockedSnapshot() async -> OpalFusion.Client.Session.Snapshot {
+        if let blockedSnapshot {
+            return blockedSnapshot
+        }
+
+        return await withCheckedContinuation { continuation in
+            blockedSnapshotWaiters.append(continuation)
+        }
+    }
+
+    func block(_ snapshot: OpalFusion.Client.Session.Snapshot) async {
+        if blockedSnapshot == nil {
+            blockedSnapshot = snapshot
+            let waiters = blockedSnapshotWaiters
+            self.blockedSnapshotWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume(returning: snapshot)
+            }
+        }
+
+        if isReleased {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        let waiters = releaseWaiters
+        self.releaseWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 

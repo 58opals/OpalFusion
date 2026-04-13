@@ -901,6 +901,114 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     }
 }
 
+actor BlockingParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider {
+    private let reservation: OpalFusion.Host.ParticipantReservation
+    private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
+    private var reservationContinuation: CheckedContinuation<Result<OpalFusion.Host.ParticipantReservation, Error>, Never>?
+
+    init(
+        reservation: OpalFusion.Host.ParticipantReservation
+    ) {
+        self.reservation = reservation
+    }
+
+    func reservedInputs(
+        for roundIdentifier: OpalFusion.Round.Identifier
+    ) async throws -> [OpalFusion.Host.ParticipantInput] {
+        let reservation = try await participantReservation(for: roundIdentifier)
+        return reservation.inputs
+    }
+
+    func participantReservation(
+        for roundIdentifier: OpalFusion.Round.Identifier
+    ) async throws -> OpalFusion.Host.ParticipantReservation {
+        requestedRoundIdentifiers.append(roundIdentifier)
+        let result = await withCheckedContinuation { continuation in
+            reservationContinuation = continuation
+        }
+
+        switch result {
+        case let .success(reservation):
+            return reservation
+        case let .failure(error):
+            throw error
+        }
+    }
+
+    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+        requestedRoundIdentifiers
+    }
+
+    func releaseReservation(
+        _ reservation: OpalFusion.Host.ParticipantReservation? = nil
+    ) {
+        reservationContinuation?.resume(returning: .success(reservation ?? self.reservation))
+        reservationContinuation = nil
+    }
+
+    func failReservation(
+        _ error: Error
+    ) {
+        reservationContinuation?.resume(returning: .failure(error))
+        reservationContinuation = nil
+    }
+}
+
+actor BlockingTransactionAssembler: OpalFusion.Host.TransactionAssembler {
+    private let finalizedTransaction: OpalFusion.Host.FinalizedTransaction
+    private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
+    private var proposals: [OpalFusion.Host.TransactionFinalizationProposal] = []
+    private var transactionContinuation: CheckedContinuation<Result<OpalFusion.Host.FinalizedTransaction, Error>, Never>?
+
+    init(
+        finalizedTransaction: OpalFusion.Host.FinalizedTransaction
+    ) {
+        self.finalizedTransaction = finalizedTransaction
+    }
+
+    func finalizeTransaction(
+        for roundIdentifier: OpalFusion.Round.Identifier,
+        proposal: OpalFusion.Host.TransactionFinalizationProposal
+    ) async throws -> OpalFusion.Host.FinalizedTransaction {
+        requestedRoundIdentifiers.append(roundIdentifier)
+        proposals.append(proposal)
+        let result = await withCheckedContinuation { continuation in
+            transactionContinuation = continuation
+        }
+
+        switch result {
+        case let .success(transaction):
+            return transaction
+        case let .failure(error):
+            throw error
+        }
+    }
+
+    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+        requestedRoundIdentifiers
+    }
+
+    func recordedProposals() -> [OpalFusion.Host.TransactionFinalizationProposal] {
+        proposals
+    }
+
+    func releaseTransaction(
+        _ finalizedTransaction: OpalFusion.Host.FinalizedTransaction? = nil
+    ) {
+        transactionContinuation?.resume(
+            returning: .success(finalizedTransaction ?? self.finalizedTransaction)
+        )
+        transactionContinuation = nil
+    }
+
+    func failTransaction(
+        _ error: Error
+    ) {
+        transactionContinuation?.resume(returning: .failure(error))
+        transactionContinuation = nil
+    }
+}
+
 actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     private let participantInput: OpalFusion.Host.ParticipantInput
     private let participantInputPrivateKey: [UInt8]
