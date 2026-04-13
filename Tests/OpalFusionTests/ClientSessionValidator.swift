@@ -116,8 +116,22 @@ struct ClientSessionValidator {
         await session.stop()
         await session.stop()
 
-        let stoppedSnapshot = await session.snapshot()
-        #expect(stoppedSnapshot == runningSnapshot)
+        let stoppedSnapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.isConnected == false {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(stoppedSnapshot.lastError == .transportUnavailable)
+        #expect(stoppedSnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(stoppedSnapshot.state.isConnected == false)
+        #expect(stoppedSnapshot.state.round == runningSnapshot.state.round)
+
+        let observedSnapshotsAfterStop = await stateObserver.snapshot()
+        #expect(observedSnapshotsAfterStop.last == stoppedSnapshot)
 
         await session.start()
         let restartedSnapshot = try await withTimeout(.seconds(1)) {

@@ -123,12 +123,8 @@ public extension OpalFusion.Client {
                 return
             }
 
-            let currentSnapshot = OpalFusion.Client.Session.Snapshot(
-                await runtimeDriver.snapshot()
-            )
-            self.runtimeDriver = nil
             await runtimeDriver.stop()
-            await updateSnapshotIfNeeded(currentSnapshot)
+            self.runtimeDriver = nil
         }
 
         public func snapshot() async -> OpalFusion.Client.Session.Snapshot {

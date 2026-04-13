@@ -109,7 +109,11 @@ extension OpalFusion.Runtime {
         }
 
         func stop() async {
-            await tearDownTransports()
+            guard isRunning else {
+                return
+            }
+
+            await handle(.disconnected)
         }
 
         func snapshot() -> OpalFusion.Runtime.LiveRuntimeDriver.Snapshot {
