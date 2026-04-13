@@ -15,6 +15,9 @@ extension OpalFusion.Runtime {
             OpalFusion.Round.Identifier?,
             OpalFusion.Host.Event
         ) async -> Void
+        typealias PrimaryTransportFactory = @Sendable (
+            OpalFusion.Client.Configuration
+        ) -> any OpalFusion.Runtime.PrimaryTransporting
 
         private var runtimeSession: OpalFusion.Runtime.PrimaryRuntimeSession
         private let participantInputProvider: any OpalFusion.Host.ParticipantInputProvider
@@ -47,6 +50,7 @@ extension OpalFusion.Runtime {
                 .now()
             },
             clockTickInterval: Duration = .milliseconds(250),
+            primaryTransportFactory: PrimaryTransportFactory? = nil,
             primaryTransport: (any OpalFusion.Runtime.PrimaryTransporting)? = nil,
             covertTransport: (any OpalFusion.Runtime.CovertTransporting)? = nil
         ) {
@@ -62,10 +66,17 @@ extension OpalFusion.Runtime {
             self.eventObserver = eventObserver
             self.hostEventSink = hostEventSink
             self.snapshotSink = snapshotSink
-            self.primaryTransport = primaryTransport ?? OpalFusion.Runtime.LivePrimaryTransport(
-                host: configuration.coordinatorHost,
-                port: configuration.coordinatorPort
-            )
+            if let primaryTransport {
+                self.primaryTransport = primaryTransport
+            } else if let primaryTransportFactory {
+                self.primaryTransport = primaryTransportFactory(configuration)
+            } else {
+                self.primaryTransport = OpalFusion.Runtime.LivePrimaryTransport(
+                    host: configuration.coordinatorHost,
+                    port: configuration.coordinatorPort,
+                    requiresTLS: configuration.coordinatorRequiresTLS
+                )
+            }
             self.covertTransport = covertTransport ?? OpalFusion.Runtime.LiveCovertTransport(
                 torSocks5: configuration.torSocks5
             )

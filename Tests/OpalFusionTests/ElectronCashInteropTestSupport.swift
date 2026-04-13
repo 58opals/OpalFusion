@@ -36,6 +36,11 @@ struct ElectronCashInteropConfiguration: Sendable {
             "OPALFUSION_EC_COORDINATOR_PORT",
             in: environment
         )
+        let coordinatorRequiresTLS = try parseOptionalBool(
+            environment["OPALFUSION_EC_COORDINATOR_TLS"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            variableName: "OPALFUSION_EC_COORDINATOR_TLS"
+        ) ?? false
         let genesisHash = try requiredHexBytes(
             "OPALFUSION_EC_GENESIS_HASH_HEX",
             in: environment,
@@ -149,6 +154,7 @@ struct ElectronCashInteropConfiguration: Sendable {
             clientConfiguration: .init(
                 coordinatorHost: coordinatorHost,
                 coordinatorPort: coordinatorPort,
+                coordinatorRequiresTLS: coordinatorRequiresTLS,
                 covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel,
                 torSocks5: torSocks5
             ),

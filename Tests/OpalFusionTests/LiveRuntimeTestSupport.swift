@@ -1,15 +1,202 @@
 // LiveRuntimeTestSupport.swift
 
 @testable import OpalFusion
-import Darwin
 import Foundation
+import Network
 import OpalCrypto
+import Security
+import Darwin
 
 enum LiveRuntimeTestSupportError: Swift.Error, Equatable {
     case timedOut(String)
     case missingConnection
     case inboundStreamClosed
     case signingInputNotFound
+    case invalidTLSFixture(String)
+}
+
+enum LoopbackPrimaryTLSTestFixture {
+    static let host = "localhost"
+    private static let pkcs12Passphrase = "OpalFusionTests"
+    private static let materialResult: Result<Material, LiveRuntimeTestSupportError> = {
+        do {
+            return .success(try makeMaterial())
+        } catch let error as LiveRuntimeTestSupportError {
+            return .failure(error)
+        } catch {
+            return .failure(
+                .invalidTLSFixture("TLS loopback material generation failed: \(error)")
+            )
+        }
+    }()
+
+    private struct Material: @unchecked Sendable {
+        let certificateDER: Data
+        let localIdentity: sec_identity_t
+    }
+
+    static func trustAnchorCertificateDERs() throws -> [Data] {
+        [try material().certificateDER]
+    }
+
+    static func makeListenerParameters() throws -> NWParameters {
+        let tlsOptions = NWProtocolTLS.Options()
+        sec_protocol_options_set_local_identity(
+            tlsOptions.securityProtocolOptions,
+            try material().localIdentity
+        )
+
+        let parameters = NWParameters(
+            tls: tlsOptions,
+            tcp: NWProtocolTCP.Options()
+        )
+        return parameters
+    }
+
+    private static func material() throws -> Material {
+        switch materialResult {
+        case let .success(material):
+            return material
+        case let .failure(error):
+            throw error
+        }
+    }
+
+    private static func makeMaterial() throws -> Material {
+        let cleanupDirectory = try prepareServerFiles()
+        let keyURL = cleanupDirectory.appendingPathComponent("localhost.key.pem")
+        let certificateURL = cleanupDirectory.appendingPathComponent("localhost.cert.pem")
+        let pkcs12URL = cleanupDirectory.appendingPathComponent("localhost.identity.p12")
+
+        defer {
+            try? FileManager.default.removeItem(at: cleanupDirectory)
+        }
+
+        try runOpenSSL(
+            [
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-sha256",
+                "-days",
+                "3650",
+                "-subj",
+                "/CN=\(host)",
+                "-addext",
+                "subjectAltName=DNS:\(host)",
+                "-keyout",
+                keyURL.path,
+                "-out",
+                certificateURL.path
+            ]
+        )
+        try runOpenSSL(
+            [
+                "pkcs12",
+                "-export",
+                "-passout",
+                "pass:\(pkcs12Passphrase)",
+                "-out",
+                pkcs12URL.path,
+                "-inkey",
+                keyURL.path,
+                "-in",
+                certificateURL.path
+            ]
+        )
+
+        let pkcs12Data = try Data(contentsOf: pkcs12URL)
+        let certificatePEM = try String(contentsOf: certificateURL, encoding: .utf8)
+        let certificateDER = try decodePEM(certificatePEM)
+        let importOptions = [
+            kSecImportExportPassphrase as String: pkcs12Passphrase
+        ] as CFDictionary
+        var importedItems: CFArray?
+        let importStatus = SecPKCS12Import(
+            pkcs12Data as CFData,
+            importOptions,
+            &importedItems
+        )
+        guard importStatus == errSecSuccess,
+              let importedItems = importedItems as? [[String: Any]],
+              let importedItem = importedItems.first
+        else {
+            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+                "TLS loopback identity import failed with status \(importStatus)"
+            )
+        }
+
+        let identity = importedItem[kSecImportItemIdentity as String] as! SecIdentity
+        guard let certificate = SecCertificateCreateWithData(
+            nil,
+            certificateDER as CFData
+        ) else {
+            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+                "TLS loopback certificate could not be materialized"
+            )
+        }
+
+        guard let localIdentity = sec_identity_create_with_certificates(
+            identity,
+            [certificate] as CFArray
+        ) else {
+            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+                "TLS loopback local identity could not be created"
+            )
+        }
+
+        return Material(
+            certificateDER: certificateDER,
+            localIdentity: localIdentity
+        )
+    }
+
+    private static func prepareServerFiles() throws -> URL {
+        let cleanupDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: cleanupDirectory,
+            withIntermediateDirectories: true
+        )
+        return cleanupDirectory
+    }
+
+    private static func runOpenSSL(_ arguments: [String]) throws {
+        let process = Process()
+        let errorPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        process.arguments = arguments
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorSummary = String(data: errorData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+                "TLS loopback OpenSSL command failed: \(errorSummary ?? arguments.joined(separator: " "))"
+            )
+        }
+    }
+
+    private static func decodePEM(_ pem: String) throws -> Data {
+        let base64 = pem
+            .split(separator: "\n")
+            .filter { $0.hasPrefix("-----") == false }
+            .joined()
+
+        guard let data = Data(base64Encoded: base64) else {
+            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+                "TLS loopback certificate fixture could not be decoded"
+            )
+        }
+
+        return data
+    }
 }
 
 func withTimeout<T: Sendable>(
@@ -33,10 +220,54 @@ func withTimeout<T: Sendable>(
     }
 }
 
+func reserveLoopbackPort() throws -> UInt16 {
+    let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
+    guard socketDescriptor >= 0 else {
+        throw POSIXError(.EADDRNOTAVAIL)
+    }
+
+    defer {
+        _ = close(socketDescriptor)
+    }
+
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = 0
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+    let bindResult = withUnsafePointer(to: &address) { addressPointer in
+        addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            bind(
+                socketDescriptor,
+                socketAddress,
+                socklen_t(MemoryLayout<sockaddr_in>.size)
+            )
+        }
+    }
+    guard bindResult == 0 else {
+        throw POSIXError(.EADDRNOTAVAIL)
+    }
+
+    var boundAddress = sockaddr_in()
+    var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let nameResult = withUnsafeMutablePointer(to: &boundAddress) { addressPointer in
+        addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            getsockname(socketDescriptor, socketAddress, &boundAddressLength)
+        }
+    }
+    guard nameResult == 0 else {
+        throw POSIXError(.EADDRNOTAVAIL)
+    }
+
+    return UInt16(bigEndian: boundAddress.sin_port)
+}
+
 actor LoopbackPrimaryCoordinator {
-    private let serverFileDescriptor: Int32
-    private let socketQueue: DispatchQueue
-    private var clientFileDescriptor: Int32?
+    private let listener: NWListener
+    private let networkQueue: DispatchQueue
+    private var connection: NWConnection?
+    private var connectionReady: Bool
     private var portValue: UInt16
     private var frameDecoder: OpalFusion.Wire.PrimaryFrameDecoder
     private let frameEncoder: OpalFusion.Wire.PrimaryFrameEncoder
@@ -47,63 +278,36 @@ actor LoopbackPrimaryCoordinator {
     private var serverMessageHistory: [OpalFusion.ProtocolModel.ServerMessage]
     private var messageWaiters: [CheckedContinuation<OpalFusion.ProtocolModel.ClientMessage, Error>]
     private var inboundError: Error?
+    private var startContinuation: CheckedContinuation<Void, Error>?
+    private var isStopping: Bool
 
     static func start(
+        port: UInt16? = nil,
+        requiresTLS: Bool = false,
         baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443
     ) async throws -> LoopbackPrimaryCoordinator {
-        let serverFileDescriptor = socket(AF_INET, SOCK_STREAM, 0)
-        guard serverFileDescriptor >= 0 else {
-            throw POSIXError(.ENOTCONN)
+        let networkQueue = DispatchQueue(label: "OpalFusionTests.LoopbackPrimaryCoordinator")
+        let parameters: NWParameters
+        if requiresTLS {
+            parameters = try LoopbackPrimaryTLSTestFixture.makeListenerParameters()
+        } else {
+            parameters = NWParameters.tcp
         }
-
-        var reuseAddress: Int32 = 1
-        guard setsockopt(
-            serverFileDescriptor,
-            SOL_SOCKET,
-            SO_REUSEADDR,
-            &reuseAddress,
-            socklen_t(MemoryLayout<Int32>.size)
-        ) == 0 else {
-            Darwin.close(serverFileDescriptor)
-            throw POSIXError(.ENOTCONN)
-        }
-
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(0).bigEndian
-        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-        let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { reboundPointer in
-                Darwin.bind(
-                    serverFileDescriptor,
-                    reboundPointer,
-                    socklen_t(MemoryLayout<sockaddr_in>.size)
-                )
-            }
-        }
-        guard bindResult == 0, listen(serverFileDescriptor, 1) == 0 else {
-            Darwin.close(serverFileDescriptor)
-            throw POSIXError(.ENOTCONN)
-        }
-
-        var boundAddress = sockaddr_in()
-        var boundLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { reboundPointer in
-                getsockname(serverFileDescriptor, reboundPointer, &boundLength)
-            }
-        }
-        guard nameResult == 0 else {
-            Darwin.close(serverFileDescriptor)
-            throw POSIXError(.ENOTCONN)
+        let listener: NWListener
+        if let port {
+            listener = try NWListener(
+                using: parameters,
+                on: NWEndpoint.Port(rawValue: port)!
+            )
+        } else {
+            listener = try NWListener(using: parameters, on: .any)
         }
 
         let coordinator = LoopbackPrimaryCoordinator(
-            serverFileDescriptor: serverFileDescriptor,
-            socketQueue: DispatchQueue(label: "OpalFusionTests.LoopbackPrimaryCoordinator"),
-            portValue: UInt16(bigEndian: boundAddress.sin_port),
+            listener: listener,
+            networkQueue: networkQueue,
+            connectionReady: false,
+            portValue: 0,
             frameDecoder: .init(configuration: baseline.framing),
             frameEncoder: .init(configuration: baseline.framing),
             messageEncoder: .init(),
@@ -112,15 +316,18 @@ actor LoopbackPrimaryCoordinator {
             clientMessageHistory: [],
             serverMessageHistory: [],
             messageWaiters: [],
-            inboundError: nil
+            inboundError: nil,
+            startContinuation: nil,
+            isStopping: false
         )
-        await coordinator.startAcceptLoop()
+        try await coordinator.startListener()
         return coordinator
     }
 
     private init(
-        serverFileDescriptor: Int32,
-        socketQueue: DispatchQueue,
+        listener: NWListener,
+        networkQueue: DispatchQueue,
+        connectionReady: Bool,
         portValue: UInt16,
         frameDecoder: OpalFusion.Wire.PrimaryFrameDecoder,
         frameEncoder: OpalFusion.Wire.PrimaryFrameEncoder,
@@ -130,11 +337,14 @@ actor LoopbackPrimaryCoordinator {
         clientMessageHistory: [OpalFusion.ProtocolModel.ClientMessage],
         serverMessageHistory: [OpalFusion.ProtocolModel.ServerMessage],
         messageWaiters: [CheckedContinuation<OpalFusion.ProtocolModel.ClientMessage, Error>],
-        inboundError: Error?
+        inboundError: Error?,
+        startContinuation: CheckedContinuation<Void, Error>?,
+        isStopping: Bool
     ) {
-        self.serverFileDescriptor = serverFileDescriptor
-        self.socketQueue = socketQueue
-        self.clientFileDescriptor = nil
+        self.listener = listener
+        self.networkQueue = networkQueue
+        self.connection = nil
+        self.connectionReady = connectionReady
         self.portValue = portValue
         self.frameDecoder = frameDecoder
         self.frameEncoder = frameEncoder
@@ -145,6 +355,8 @@ actor LoopbackPrimaryCoordinator {
         self.serverMessageHistory = serverMessageHistory
         self.messageWaiters = messageWaiters
         self.inboundError = inboundError
+        self.startContinuation = startContinuation
+        self.isStopping = isStopping
     }
 
     var port: UInt16 {
@@ -152,21 +364,19 @@ actor LoopbackPrimaryCoordinator {
     }
 
     func stop() async {
-        if let clientFileDescriptor {
-            Darwin.shutdown(clientFileDescriptor, SHUT_RDWR)
-            Darwin.close(clientFileDescriptor)
-            self.clientFileDescriptor = nil
-        }
-        Darwin.close(serverFileDescriptor)
+        isStopping = true
+        connection?.stateUpdateHandler = nil
+        connection?.cancel()
+        connection = nil
+        connectionReady = false
+        listener.stateUpdateHandler = nil
+        listener.newConnectionHandler = nil
+        listener.cancel()
         finishWaiters(with: LiveRuntimeTestSupportError.inboundStreamClosed)
     }
 
     func closeConnection() async {
-        if let clientFileDescriptor {
-            Darwin.shutdown(clientFileDescriptor, SHUT_RDWR)
-            Darwin.close(clientFileDescriptor)
-            self.clientFileDescriptor = nil
-        }
+        connection?.cancel()
     }
 
     func nextClientMessage(
@@ -206,53 +416,129 @@ actor LoopbackPrimaryCoordinator {
         }
     }
 
-    private func startAcceptLoop() {
-        socketQueue.async { [serverFileDescriptor] in
-            let clientFileDescriptor = Darwin.accept(serverFileDescriptor, nil, nil)
-            guard clientFileDescriptor >= 0 else {
+    private func startListener() async throws {
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
+            startContinuation = continuation
+            listener.newConnectionHandler = { connection in
                 Task {
-                    await self.failInbound(with: POSIXError(.ENOTCONN))
+                    await self.didAccept(connection)
                 }
-                return
             }
+            listener.stateUpdateHandler = { state in
+                Task {
+                    await self.handleListenerStateUpdate(state)
+                }
+            }
+            listener.start(queue: networkQueue)
+        }
+    }
 
+    private func didAccept(_ connection: NWConnection) {
+        self.connection?.stateUpdateHandler = nil
+        self.connection?.cancel()
+
+        self.connection = connection
+        self.connectionReady = false
+        connection.stateUpdateHandler = { state in
             Task {
-                await self.didAccept(clientFileDescriptor: clientFileDescriptor)
+                await self.handleConnectionStateUpdate(state)
             }
+        }
+        connection.start(queue: networkQueue)
+    }
 
-            var buffer = [UInt8](repeating: 0, count: 65_536)
-            while true {
-                let bytesRead = Darwin.recv(
-                    clientFileDescriptor,
-                    &buffer,
-                    buffer.count,
-                    0
+    private func handleListenerStateUpdate(_ state: NWListener.State) {
+        switch state {
+        case .ready:
+            portValue = listener.port?.rawValue ?? 0
+            startContinuation?.resume()
+            startContinuation = nil
+        case let .waiting(error):
+            startContinuation?.resume(throwing: error)
+            startContinuation = nil
+            failInbound(with: error)
+        case let .failed(error):
+            startContinuation?.resume(throwing: error)
+            startContinuation = nil
+            failInbound(with: error)
+        case .cancelled:
+            startContinuation?.resume(
+                throwing: LiveRuntimeTestSupportError.inboundStreamClosed
+            )
+            startContinuation = nil
+        case .setup:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleConnectionStateUpdate(_ state: NWConnection.State) {
+        switch state {
+        case .ready:
+            connectionReady = true
+            scheduleReceive()
+        case let .waiting(error):
+            connectionReady = false
+            connection = nil
+            failInbound(with: error)
+        case let .failed(error):
+            connectionReady = false
+            connection = nil
+            failInbound(with: error)
+        case .cancelled:
+            connectionReady = false
+            connection = nil
+            if isStopping == false {
+                finishInbound(with: LiveRuntimeTestSupportError.inboundStreamClosed)
+            }
+        case .setup, .preparing:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func scheduleReceive() {
+        guard let connection else {
+            return
+        }
+
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 65_536
+        ) { data, _, isComplete, error in
+            Task {
+                await self.handleReceive(
+                    data: data,
+                    isComplete: isComplete,
+                    error: error
                 )
-
-                if bytesRead > 0 {
-                    let bytes = Array(buffer[..<Int(bytesRead)])
-                    Task {
-                        await self.handleReceivedBytes(bytes)
-                    }
-                    continue
-                }
-
-                if bytesRead == 0 {
-                    Task {
-                        await self.finishInbound(with: LiveRuntimeTestSupportError.inboundStreamClosed)
-                    }
-                } else {
-                    Task {
-                        await self.failInbound(with: POSIXError(.ENOTCONN))
-                    }
-                }
-                break
             }
         }
     }
 
-    private func didAccept(clientFileDescriptor: Int32) {
-        self.clientFileDescriptor = clientFileDescriptor
+    private func handleReceive(
+        data: Data?,
+        isComplete: Bool,
+        error: NWError?
+    ) {
+        if let data, data.isEmpty == false {
+            handleReceivedBytes([UInt8](data))
+        }
+
+        if let error {
+            failInbound(with: error)
+            return
+        }
+
+        if isComplete {
+            finishInbound(with: LiveRuntimeTestSupportError.inboundStreamClosed)
+            return
+        }
+
+        scheduleReceive()
     }
 
     private func handleReceivedBytes(_ bytes: [UInt8]) {
@@ -274,39 +560,41 @@ actor LoopbackPrimaryCoordinator {
     }
 
     private func send(bytes: [UInt8]) async throws {
-        let clientFileDescriptor = try await waitForConnection()
-        let result = bytes.withUnsafeBytes { buffer in
-            Darwin.send(
-                clientFileDescriptor,
-                buffer.baseAddress,
-                buffer.count,
-                0
-            )
-        }
+        let connection = try await waitForConnection()
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(
+                content: Data(bytes),
+                completion: .contentProcessed { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
 
-        guard result == bytes.count else {
-            throw POSIXError(.ENOTCONN)
+                    continuation.resume()
+                }
+            )
         }
     }
 
     private func waitForConnection(
         timeout: Duration = .seconds(1)
-    ) async throws -> Int32 {
+    ) async throws -> NWConnection {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
 
-        while clientFileDescriptor == nil {
+        while connection == nil || connectionReady == false {
             if clock.now >= deadline {
                 throw LiveRuntimeTestSupportError.missingConnection
             }
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        guard let clientFileDescriptor else {
+        guard let connection, connectionReady else {
             throw LiveRuntimeTestSupportError.missingConnection
         }
 
-        return clientFileDescriptor
+        return connection
     }
 
     private func awaitNextClientMessage() async throws -> OpalFusion.ProtocolModel.ClientMessage {

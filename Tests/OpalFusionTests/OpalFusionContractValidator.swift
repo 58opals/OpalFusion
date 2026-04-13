@@ -38,6 +38,7 @@ struct OpalFusionContractValidator {
 
         #expect(configuration.coordinatorHost == "fusion.example.org")
         #expect(configuration.coordinatorPort == 8787)
+        #expect(configuration.coordinatorRequiresTLS == false)
         #expect(configuration.covertChannel == covertChannel)
         #expect(configuration.torSocks5 == nil)
         #expect(state.isConnected == false)

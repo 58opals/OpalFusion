@@ -4,6 +4,10 @@
 import Foundation
 import Testing
 
+private final class MutableBoolBox: @unchecked Sendable {
+    var value: Bool?
+}
+
 struct LiveRuntimeDriverValidator {
     @Test("Live runtime driver rejects invalid startup configuration before transport connect")
     func validateInvalidConfiguration() async throws {
@@ -147,6 +151,80 @@ struct LiveRuntimeDriverValidator {
         #expect(events.contains { $0.event.summary == "Primary channel connected; sending ClientHello" } == false)
     }
 
+    @Test("Live runtime driver uses a TLS-required coordinator when configuration opts in")
+    func validateTLSRequiredCoordinatorPath() async throws {
+        let coordinator = try await LoopbackPrimaryCoordinator.start(requiresTLS: true)
+        let covertTransport = ScriptedCovertTransport()
+        let eventSink = RecordedHostEventSink()
+        let observedRequiresTLS = MutableBoolBox()
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: .init(
+                coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
+                coordinatorPort: await coordinator.port,
+                coordinatorRequiresTLS: true,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantInputProvider: DelayedParticipantInputProvider(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            hostEventSink: { roundIdentifier, event in
+                await eventSink.record(
+                    roundIdentifier: roundIdentifier,
+                    event: event
+                )
+            },
+            primaryTransportFactory: { configuration in
+                observedRequiresTLS.value = configuration.coordinatorRequiresTLS
+                return OpalFusion.Runtime.LivePrimaryTransport(
+                    host: configuration.coordinatorHost,
+                    port: configuration.coordinatorPort,
+                    requiresTLS: configuration.coordinatorRequiresTLS,
+                    tlsTrustAnchorCertificateDERs: try! LoopbackPrimaryTLSTestFixture
+                        .trustAnchorCertificateDERs()
+                )
+            },
+            covertTransport: covertTransport
+        )
+
+        await driver.start()
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
+        )
+
+        try await coordinator.send(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
+        )
+
+        let snapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await driver.snapshot()
+                if snapshot.clientState.isConnected {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(snapshot.lastError == nil)
+        #expect(snapshot.lastErrorSummary == nil)
+        #expect(observedRequiresTLS.value == true)
+
+        let events = await eventSink.snapshot()
+        #expect(events.contains { $0.event.summary == "Primary channel connected; sending ClientHello" })
+
+        await driver.stop()
+        await coordinator.stop()
+    }
+
     @Test("Live runtime driver completes a scripted round over a loopback coordinator")
     func validateHappyPathLoopbackRuntime() async throws {
         let coordinator = try await LoopbackPrimaryCoordinator.start()
@@ -181,7 +259,7 @@ struct LiveRuntimeDriverValidator {
                 )
             },
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransport: covertTransport
         )
 
@@ -311,7 +389,7 @@ struct LiveRuntimeDriverValidator {
                 )
             },
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransport: covertTransport
         )
 
@@ -547,7 +625,7 @@ struct LiveRuntimeDriverValidator {
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransport: covertTransport
         )
 
@@ -665,7 +743,7 @@ struct LiveRuntimeDriverValidator {
                 )
             },
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             primaryTransport: primaryTransport,
             covertTransport: covertTransport
         )

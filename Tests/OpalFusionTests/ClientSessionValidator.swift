@@ -41,6 +41,17 @@ struct ClientSessionValidator {
         })
     }
 
+    @Test("Public client configuration keeps coordinator TLS opt-in disabled by default")
+    func validateCoordinatorRequiresTLSDefault() {
+        let configuration = OpalFusion.Client.Configuration(
+            coordinatorHost: "fusion.example.org",
+            coordinatorPort: 8_787,
+            covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+        )
+
+        #expect(configuration.coordinatorRequiresTLS == false)
+    }
+
     @Test("Public client session maps primary connect failure to transport unavailable")
     func validateConnectFailureProjection() async throws {
         let stateObserver = RecordedClientStateObserver()
@@ -76,6 +87,109 @@ struct ClientSessionValidator {
             $0.lastError == .transportUnavailable &&
                 $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
         })
+    }
+
+    @Test("Public client session surfaces TLS connect failures through primary diagnostics")
+    func validateTLSConnectFailureProjection() async throws {
+        let coordinator = try await LoopbackPrimaryCoordinator.start(requiresTLS: true)
+        let port = await coordinator.port
+        let stateObserver = RecordedClientStateObserver()
+        let primaryTransport = OpalFusion.Runtime.LivePrimaryTransport(
+            host: LoopbackPrimaryTLSTestFixture.host,
+            port: port,
+            requiresTLS: true
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
+                coordinatorPort: port,
+                coordinatorRequiresTLS: true,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantInputProvider: HostParticipantInputProviderAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            primaryTransportFactory: { primaryTransport }
+        )
+
+        await session.start()
+
+        let snapshot = await session.snapshot()
+        #expect(snapshot.lastError == .transportUnavailable)
+        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+        #expect(snapshot.state.isConnected == false)
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(observedSnapshots.contains(snapshot))
+        #expect(observedSnapshots.contains {
+            $0.lastError == .transportUnavailable &&
+                $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
+        })
+
+        await session.stop()
+        await coordinator.stop()
+    }
+
+    @Test("Public client session can exchange primary handshake messages over TLS")
+    func validateTLSHandshakeProjection() async throws {
+        let coordinator = try await LoopbackPrimaryCoordinator.start(requiresTLS: true)
+        let port = await coordinator.port
+        let stateObserver = RecordedClientStateObserver()
+        let primaryTransport = try makeTrustedTLSPrimaryTransport(port: port)
+        let session = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
+                coordinatorPort: port,
+                coordinatorRequiresTLS: true,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantInputProvider: HostParticipantInputProviderAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            primaryTransportFactory: { primaryTransport }
+        )
+
+        await session.start()
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
+        )
+
+        try await coordinator.send(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
+        #expect(
+            try await coordinator.nextClientMessage()
+                == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
+        )
+
+        let snapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.isConnected {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(snapshot.lastError == nil)
+        #expect(snapshot.lastErrorSummary == nil)
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(observedSnapshots.contains { $0.state.isConnected && $0.lastError == nil })
+
+        await session.stop()
+        await coordinator.stop()
     }
 
     @Test("Public client session start and stop are idempotent and restart creates a fresh driver")
@@ -255,7 +369,7 @@ struct ClientSessionValidator {
             stateObserver: stateObserver,
             workflow: PrimaryRuntimeTestFixtures.workflow,
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
 
@@ -339,7 +453,17 @@ struct ClientSessionValidator {
         let observedEvents = await eventObserver.snapshot()
         #expect(observedEvents.contains { $0.event.summary == "Round completed successfully" })
 
-        let observedSnapshots = await stateObserver.snapshot()
+        let observedSnapshots = try await withTimeout(.seconds(1)) {
+            while true {
+                let observedSnapshots = await stateObserver.snapshot()
+                if observedSnapshots.contains(
+                    where: { $0.state.round?.completionStatus == .success }
+                ) {
+                    return observedSnapshots
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
         #expect(observedSnapshots.contains { $0.state.isConnected && $0.state.round == nil })
         #expect(observedSnapshots.contains { $0.state.round?.completionStatus == .success })
 
@@ -376,7 +500,7 @@ struct ClientSessionValidator {
             transactionAssembler: transactionAssembler,
             stateObserver: stateObserver,
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
 
@@ -552,7 +676,7 @@ struct ClientSessionValidator {
             stateObserver: stateObserver,
             workflow: makeRoundAwareScriptedWorkflow(),
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransportFactory: { recordingCovertTransport }
         )
 
@@ -822,7 +946,7 @@ struct ClientSessionValidator {
             eventObserver: eventObserver,
             stateObserver: stateObserver,
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
 
@@ -916,7 +1040,7 @@ struct ClientSessionValidator {
             eventObserver: eventObserver,
             stateObserver: stateObserver,
             nowProvider: { nowProvider.now() },
-            clockTickInterval: .milliseconds(10),
+            clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
 
@@ -1084,6 +1208,18 @@ private final class SessionTransportFactoryRecorder: @unchecked Sendable {
             primaryTransports.count
         }
     }
+}
+
+private func makeTrustedTLSPrimaryTransport(
+    port: UInt16
+) throws -> OpalFusion.Runtime.LivePrimaryTransport {
+    OpalFusion.Runtime.LivePrimaryTransport(
+        host: LoopbackPrimaryTLSTestFixture.host,
+        port: port,
+        requiresTLS: true,
+        tlsTrustAnchorCertificateDERs: try LoopbackPrimaryTLSTestFixture
+            .trustAnchorCertificateDERs()
+    )
 }
 
 private func makeRoundAwareScriptedWorkflow() -> OpalFusion.Execution.WorkflowContext {

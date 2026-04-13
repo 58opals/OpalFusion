@@ -1,8 +1,9 @@
 // OpalFusion+Runtime+LiveTransport.swift
 
 import CFNetwork
-import Darwin
 import Foundation
+import Network
+import Security
 
 extension OpalFusion.Runtime {
     protocol PrimaryTransporting: Sendable {
@@ -92,141 +93,313 @@ extension OpalFusion.Runtime {
     actor LivePrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
         private let host: String
         private let port: UInt16
-        private let socketQueue: DispatchQueue
-        private var socketFileDescriptor: Int32?
+        private let requiresTLS: Bool
+        private let tlsTrustAnchorCertificateDERs: [Data]
+        private let connectionQueue: DispatchQueue
+        private let tlsVerificationQueue: DispatchQueue
+        private var connection: NWConnection?
+        private var connectContinuation: CheckedContinuation<Void, Error>?
         private var inboundContinuation: AsyncThrowingStream<[UInt8], Error>.Continuation?
+        private var waitingRestartTask: Task<Void, Never>?
+        private var isReady: Bool
+        private var isReceivePending: Bool
+        private var isExplicitlyClosing: Bool
 
         init(
             host: String,
-            port: UInt16
+            port: UInt16,
+            requiresTLS: Bool = false,
+            tlsTrustAnchorCertificateDERs: [Data] = []
         ) {
             self.host = host
             self.port = port
-            self.socketQueue = DispatchQueue(label: "OpalFusion.Runtime.LivePrimaryTransport")
-            self.socketFileDescriptor = nil
+            self.requiresTLS = requiresTLS
+            self.tlsTrustAnchorCertificateDERs = tlsTrustAnchorCertificateDERs
+            self.connectionQueue = DispatchQueue(label: "OpalFusion.Runtime.LivePrimaryTransport")
+            self.tlsVerificationQueue = DispatchQueue(
+                label: "OpalFusion.Runtime.LivePrimaryTransport.TLSVerify"
+            )
+            self.connection = nil
+            self.connectContinuation = nil
             self.inboundContinuation = nil
+            self.waitingRestartTask = nil
+            self.isReady = false
+            self.isReceivePending = false
+            self.isExplicitlyClosing = false
         }
 
         func connect() async throws -> AsyncThrowingStream<[UInt8], Error> {
-            guard socketFileDescriptor == nil else {
+            guard connection == nil else {
                 throw OpalFusion.Runtime.LiveTransportError.primaryConnectionAlreadyStarted
             }
-
-            let socketFileDescriptor = try connectSocket()
-            self.socketFileDescriptor = socketFileDescriptor
 
             let (stream, continuation) = AsyncThrowingStream.makeStream(
                 of: [UInt8].self,
                 throwing: Error.self
             )
             self.inboundContinuation = continuation
+            self.isReady = false
+            self.isReceivePending = false
+            self.isExplicitlyClosing = false
 
-            socketQueue.async { [socketFileDescriptor] in
-                var buffer = [UInt8](repeating: 0, count: 65_536)
+            let connection = NWConnection(
+                host: NWEndpoint.Host(host),
+                port: NWEndpoint.Port(rawValue: port)!,
+                using: makeParameters()
+            )
+            self.connection = connection
 
-                while true {
-                    let bytesRead = Darwin.recv(
-                        socketFileDescriptor,
-                        &buffer,
-                        buffer.count,
-                        0
-                    )
-
-                    if bytesRead > 0 {
-                        continuation.yield(Array(buffer[..<Int(bytesRead)]))
-                        continue
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                self.connectContinuation = continuation
+                connection.stateUpdateHandler = { state in
+                    Task {
+                        await self.handleStateUpdate(state)
                     }
-
-                    if bytesRead == 0 {
-                        continuation.finish()
-                    } else {
-                        continuation.finish(throwing: POSIXError(.ENOTCONN))
-                    }
-                    break
                 }
+                connection.start(queue: connectionQueue)
             }
 
             return stream
         }
 
         func write(_ bytes: [UInt8]) async throws {
-            guard let socketFileDescriptor else {
+            guard let connection, isReady else {
                 throw OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
             }
 
-            let sent = bytes.withUnsafeBytes { buffer in
-                Darwin.send(
-                    socketFileDescriptor,
-                    buffer.baseAddress,
-                    buffer.count,
-                    0
-                )
-            }
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                connection.send(
+                    content: Data(bytes),
+                    completion: .contentProcessed { error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                            return
+                        }
 
-            guard sent == bytes.count else {
-                throw POSIXError(.ENOTCONN)
+                        continuation.resume()
+                    }
+                )
             }
         }
 
         func close() async {
-            if let socketFileDescriptor {
-                Darwin.shutdown(socketFileDescriptor, SHUT_RDWR)
-                Darwin.close(socketFileDescriptor)
-                self.socketFileDescriptor = nil
-            }
-            inboundContinuation?.finish(
+            isExplicitlyClosing = true
+            connectContinuation?.resume(
                 throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
             )
-            inboundContinuation = nil
+            connectContinuation = nil
+            waitingRestartTask?.cancel()
+            waitingRestartTask = nil
+
+            connection?.stateUpdateHandler = nil
+            connection?.cancel()
+            connection = nil
+            isReady = false
+            isReceivePending = false
+            finishInbound(
+                throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
+            )
+            isExplicitlyClosing = false
         }
 
-        private func connectSocket() throws -> Int32 {
-            var hints = addrinfo(
-                ai_flags: AI_ADDRCONFIG,
-                ai_family: AF_UNSPEC,
-                ai_socktype: SOCK_STREAM,
-                ai_protocol: IPPROTO_TCP,
-                ai_addrlen: 0,
-                ai_canonname: nil,
-                ai_addr: nil,
-                ai_next: nil
+        private func makeParameters() -> NWParameters {
+            guard requiresTLS else {
+                return .tcp
+            }
+
+            let tlsOptions = NWProtocolTLS.Options()
+            let securityOptions = tlsOptions.securityProtocolOptions
+
+            host.withCString { serverName in
+                sec_protocol_options_set_tls_server_name(securityOptions, serverName)
+            }
+
+            if tlsTrustAnchorCertificateDERs.isEmpty == false {
+                let pinnedCertificateDERs = Set(self.tlsTrustAnchorCertificateDERs)
+                sec_protocol_options_set_verify_block(
+                    securityOptions,
+                    { _, trustReference, complete in
+                        let trust = sec_trust_copy_ref(trustReference).takeRetainedValue()
+                        let certificateChain = SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []
+                        for certificate in certificateChain {
+                            let certificateDER = SecCertificateCopyData(certificate) as Data
+                            if pinnedCertificateDERs.contains(certificateDER) {
+                                complete(true)
+                                return
+                            }
+                        }
+
+                        complete(false)
+                    },
+                    tlsVerificationQueue
+                )
+            }
+
+            return NWParameters(
+                tls: tlsOptions,
+                tcp: NWProtocolTCP.Options()
             )
-            var results: UnsafeMutablePointer<addrinfo>?
-            let portString = String(port)
+        }
 
-            guard getaddrinfo(host, portString, &hints, &results) == 0 else {
-                throw OpalFusion.Runtime.LiveTransportError.invalidConfiguration(
-                    "Coordinator host or port could not be resolved"
-                )
+        private func handleStateUpdate(
+            _ state: NWConnection.State
+        ) async {
+            switch state {
+            case .ready:
+                waitingRestartTask?.cancel()
+                waitingRestartTask = nil
+                isReady = true
+                connectContinuation?.resume()
+                connectContinuation = nil
+                if isReceivePending == false {
+                    scheduleReceive()
+                }
+            case let .failed(error):
+                handleTerminalState(error)
+            case let .waiting(error):
+                handleWaitingState(error)
+            case .cancelled:
+                if isExplicitlyClosing {
+                    resetConnectionState()
+                } else {
+                    handleTerminalState(
+                        OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
+                    )
+                }
+            case .setup, .preparing:
+                break
+            @unknown default:
+                break
+            }
+        }
+
+        private func scheduleReceive() {
+            guard let connection else {
+                return
             }
 
-            defer {
-                freeaddrinfo(results)
+            isReceivePending = true
+            connection.receive(
+                minimumIncompleteLength: 1,
+                maximumLength: 65_536
+            ) { data, _, isComplete, error in
+                Task {
+                    await self.handleReceive(
+                        data: data,
+                        isComplete: isComplete,
+                        error: error
+                    )
+                }
+            }
+        }
+
+        private func handleReceive(
+            data: Data?,
+            isComplete: Bool,
+            error: NWError?
+        ) async {
+            isReceivePending = false
+
+            if let data, data.isEmpty == false {
+                inboundContinuation?.yield([UInt8](data))
             }
 
-            var cursor = results
-            while let info = cursor {
-                let socketFileDescriptor = socket(
-                    info.pointee.ai_family,
-                    info.pointee.ai_socktype,
-                    info.pointee.ai_protocol
-                )
-                if socketFileDescriptor >= 0 {
-                    if Darwin.connect(
-                        socketFileDescriptor,
-                        info.pointee.ai_addr,
-                        info.pointee.ai_addrlen
-                    ) == 0 {
-                        return socketFileDescriptor
-                    }
+            if let error {
+                handleTerminalState(error)
+                return
+            }
 
-                    Darwin.close(socketFileDescriptor)
+            if isComplete {
+                finishInbound()
+                resetConnectionState()
+                return
+            }
+
+            scheduleReceive()
+        }
+
+        private func handleWaitingState(
+            _ error: Error
+        ) {
+            guard isExplicitlyClosing == false else {
+                return
+            }
+
+            isReady = false
+
+            guard waitingRestartTask == nil, let connection else {
+                return
+            }
+
+            waitingRestartTask = Task {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard Task.isCancelled == false else {
+                    return
                 }
 
-                cursor = info.pointee.ai_next
+                await self.restartConnectionIfCurrent(connection, lastError: error)
+            }
+        }
+
+        private func restartConnectionIfCurrent(
+            _ expectedConnection: NWConnection,
+            lastError: Error
+        ) {
+            defer {
+                waitingRestartTask = nil
             }
 
-            throw OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
+            guard isExplicitlyClosing == false,
+                  let connection,
+                  connection === expectedConnection else {
+                return
+            }
+
+            if connectContinuation == nil && inboundContinuation == nil {
+                handleTerminalState(lastError)
+                return
+            }
+
+            connection.restart()
+        }
+
+        private func handleTerminalState(
+            _ error: Error
+        ) {
+            waitingRestartTask?.cancel()
+            waitingRestartTask = nil
+            connectContinuation?.resume(throwing: error)
+            connectContinuation = nil
+            finishInbound(throwing: error)
+            resetConnectionState()
+        }
+
+        private func finishInbound(
+            throwing error: Error? = nil
+        ) {
+            guard let inboundContinuation else {
+                return
+            }
+
+            self.inboundContinuation = nil
+            if let error {
+                inboundContinuation.finish(throwing: error)
+            } else {
+                inboundContinuation.finish()
+            }
+        }
+
+        private func resetConnectionState() {
+            waitingRestartTask?.cancel()
+            waitingRestartTask = nil
+            connection?.stateUpdateHandler = nil
+            connection = nil
+            connectContinuation = nil
+            isReady = false
+            isReceivePending = false
+            isExplicitlyClosing = false
         }
     }
 

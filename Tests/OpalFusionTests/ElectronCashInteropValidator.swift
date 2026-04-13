@@ -27,7 +27,8 @@ struct ElectronCashInteropValidator {
         let primaryTransport = RecordingPrimaryTransport(
             base: OpalFusion.Runtime.LivePrimaryTransport(
                 host: interopConfiguration.clientConfiguration.coordinatorHost,
-                port: interopConfiguration.clientConfiguration.coordinatorPort
+                port: interopConfiguration.clientConfiguration.coordinatorPort,
+                requiresTLS: interopConfiguration.clientConfiguration.coordinatorRequiresTLS
             )
         )
         let covertTransport = RecordingCovertTransport(
