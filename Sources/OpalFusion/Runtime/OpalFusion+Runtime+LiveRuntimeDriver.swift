@@ -30,6 +30,7 @@ extension OpalFusion.Runtime {
         private var clockTask: Task<Void, Never>?
         private var isRunning: Bool
         private var lastEmittedSnapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot?
+        private var covertOperationGeneration: UInt64
 
         init(
             configuration: OpalFusion.Client.Configuration,
@@ -74,6 +75,7 @@ extension OpalFusion.Runtime {
             self.clockTask = nil
             self.isRunning = false
             self.lastEmittedSnapshot = nil
+            self.covertOperationGeneration = 0
         }
 
         func start() async {
@@ -167,14 +169,18 @@ extension OpalFusion.Runtime {
 
             for effect in effects {
                 await process(effect)
+
+                if hasTerminalConnectionState {
+                    break
+                }
             }
 
             if runtimeSession.engine.session.connectionSubstate != .inRound {
+                invalidateCovertOperations()
                 await covertTransport.reset()
             }
 
-            if runtimeSession.engine.session.connectionSubstate == .failed ||
-                runtimeSession.engine.session.connectionSubstate == .disconnected {
+            if hasTerminalConnectionState {
                 await tearDownTransports()
             }
 
@@ -196,28 +202,37 @@ extension OpalFusion.Runtime {
                     )
                 }
             case let .prepareCovertEndpoint(plan):
+                let generation = covertOperationGeneration
                 Task {
                     do {
                         try await self.covertTransport.prepare(plan)
-                        await self.handle(.covertPrepared)
+                        await self.handleCovertPreparedIfCurrent(
+                            plan: plan,
+                            generation: generation
+                        )
                     } catch {
-                        await self.handle(
-                            .covertPreparationFailed(
-                                summary: "Covert endpoint preparation failed: \(String(describing: error))"
-                            )
+                        await self.handleCovertPreparationFailureIfCurrent(
+                            summary: "Covert endpoint preparation failed: \(String(describing: error))",
+                            plan: plan,
+                            generation: generation
                         )
                     }
                 }
             case let .performCovertRequest(request):
+                let generation = covertOperationGeneration
                 Task {
                     do {
                         let responseBytes = try await self.covertTransport.perform(request)
-                        await self.handle(.receivedCovertResponseBytes(responseBytes))
+                        await self.handleCovertResponseIfCurrent(
+                            responseBytes,
+                            request: request,
+                            generation: generation
+                        )
                     } catch {
-                        await self.handle(
-                            .covertRequestFailed(
-                                summary: "Covert request failed: \(String(describing: error))"
-                            )
+                        await self.handleCovertRequestFailureIfCurrent(
+                            summary: "Covert request failed: \(String(describing: error))",
+                            request: request,
+                            generation: generation
                         )
                     }
                 }
@@ -259,12 +274,77 @@ extension OpalFusion.Runtime {
             }
 
             isRunning = false
+            invalidateCovertOperations()
             primaryReadTask?.cancel()
             primaryReadTask = nil
             clockTask?.cancel()
             clockTask = nil
             await primaryTransport.close()
             await covertTransport.reset()
+        }
+
+        private var hasTerminalConnectionState: Bool {
+            switch runtimeSession.engine.session.connectionSubstate {
+            case .failed, .disconnected:
+                true
+            case .awaitingServerHello, .awaitingFusionBegin, .inRound:
+                false
+            }
+        }
+
+        private func invalidateCovertOperations() {
+            covertOperationGeneration &+= 1
+        }
+
+        private func handleCovertPreparedIfCurrent(
+            plan: OpalFusion.Runtime.CovertPreparationPlan,
+            generation: UInt64
+        ) async {
+            guard generation == covertOperationGeneration,
+                  runtimeSession.covertSession.preparationPlan == plan else {
+                return
+            }
+
+            await handle(.covertPrepared)
+        }
+
+        private func handleCovertPreparationFailureIfCurrent(
+            summary: String,
+            plan: OpalFusion.Runtime.CovertPreparationPlan,
+            generation: UInt64
+        ) async {
+            guard generation == covertOperationGeneration,
+                  runtimeSession.covertSession.preparationPlan == plan else {
+                return
+            }
+
+            await handle(.covertPreparationFailed(summary: summary))
+        }
+
+        private func handleCovertResponseIfCurrent(
+            _ responseBytes: [UInt8],
+            request: OpalFusion.Runtime.CovertRequest,
+            generation: UInt64
+        ) async {
+            guard generation == covertOperationGeneration,
+                  runtimeSession.covertSession.outstandingRequest == request else {
+                return
+            }
+
+            await handle(.receivedCovertResponseBytes(responseBytes))
+        }
+
+        private func handleCovertRequestFailureIfCurrent(
+            summary: String,
+            request: OpalFusion.Runtime.CovertRequest,
+            generation: UInt64
+        ) async {
+            guard generation == covertOperationGeneration,
+                  runtimeSession.covertSession.outstandingRequest == request else {
+                return
+            }
+
+            await handle(.covertRequestFailed(summary: summary))
         }
 
         private func emitSnapshotIfNeeded() async {

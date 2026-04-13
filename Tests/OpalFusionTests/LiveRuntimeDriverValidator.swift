@@ -106,6 +106,47 @@ struct LiveRuntimeDriverValidator {
         #expect(event.event.summary.hasPrefix("Primary connect failed:"))
     }
 
+    @Test("Live runtime driver stops queued handshake effects after a primary write failure")
+    func validatePrimaryWriteFailureDoesNotEmitQueuedHandshakeStatus() async throws {
+        let primaryTransport = ScriptedPrimaryTransport(
+            writeError: NSError(domain: "LiveRuntimeDriverValidator", code: 2)
+        )
+        let eventSink = RecordedHostEventSink()
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantInputProvider: DelayedParticipantInputProvider(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            hostEventSink: { roundIdentifier, event in
+                await eventSink.record(
+                    roundIdentifier: roundIdentifier,
+                    event: event
+                )
+            },
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        await driver.start()
+
+        let snapshot = await driver.snapshot()
+        #expect(snapshot.lastError == .transportUnavailable)
+        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary write failed:") == true)
+
+        let events = await eventSink.snapshot()
+        #expect(events.count == 1)
+        #expect(events[0].roundIdentifier == nil)
+        #expect(events[0].event.kind == .failure)
+        #expect(events[0].event.summary.hasPrefix("Primary write failed:"))
+        #expect(events.contains { $0.event.summary == "Primary channel connected; sending ClientHello" } == false)
+    }
+
     @Test("Live runtime driver completes a scripted round over a loopback coordinator")
     func validateHappyPathLoopbackRuntime() async throws {
         let coordinator = try await LoopbackPrimaryCoordinator.start()
@@ -598,5 +639,144 @@ struct LiveRuntimeDriverValidator {
 
         await driver.stop()
         await coordinator.stop()
+    }
+
+    @Test("Live runtime driver ignores stale covert completions after stop")
+    func validateStaleCovertCompletionIsIgnoredAfterStop() async throws {
+        let primaryTransport = ScriptedPrimaryTransport()
+        let covertTransport = BlockingCovertTransport(blocksPerform: true)
+        let eventSink = RecordedHostEventSink()
+        let nowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantInputProvider: DelayedParticipantInputProvider(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            hostEventSink: { roundIdentifier, event in
+                await eventSink.record(
+                    roundIdentifier: roundIdentifier,
+                    event: event
+                )
+            },
+            nowProvider: { nowProvider.now() },
+            clockTickInterval: .milliseconds(10),
+            primaryTransport: primaryTransport,
+            covertTransport: covertTransport
+        )
+
+        await driver.start()
+        try await withTimeout(.seconds(1)) {
+            while await primaryTransport.recordedWrittenPayloads().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 996)
+        await primaryTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await withTimeout(.seconds(1)) {
+            while await primaryTransport.recordedWrittenPayloads().count < 2 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_000)
+        await primaryTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
+            )
+        )
+        try await withTimeout(.seconds(1)) {
+            while await covertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_030)
+        await primaryTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .startRound(PrimaryRuntimeTestFixtures.startRound)
+            )
+        )
+        try await withTimeout(.seconds(1)) {
+            while await primaryTransport.recordedWrittenPayloads().count < 3 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        nowProvider.set(unixSeconds: 1_032)
+        await primaryTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
+            )
+        )
+
+        nowProvider.set(unixSeconds: 1_034)
+        await primaryTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .allCommitments(PrimaryRuntimeTestFixtures.allCommitments)
+            )
+        )
+        nowProvider.set(unixSeconds: 1_035)
+        try await withTimeout(.seconds(1)) {
+            while await covertTransport.recordedRequests().count < 1 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        let snapshotBeforeStop = await driver.snapshot()
+        #expect(snapshotBeforeStop.clientState.round?.phase == .awaitingCommitments)
+        #expect(snapshotBeforeStop.lastError == nil)
+
+        await driver.stop()
+
+        let stoppedSnapshot = try await withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await driver.snapshot()
+                if snapshot.lastError == .transportUnavailable &&
+                    snapshot.lastErrorSummary == "Primary channel disconnected" &&
+                    snapshot.clientState.isConnected == false {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(stoppedSnapshot.lastError == .transportUnavailable)
+        #expect(stoppedSnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(stoppedSnapshot.clientState.isConnected == false)
+        #expect(await covertTransport.recordedResetCount() > 0)
+
+        let eventsAfterStop = try await withTimeout(.seconds(1)) {
+            while true {
+                let events = await eventSink.snapshot()
+                if events.last?.event.summary == "Primary channel disconnected" {
+                    return events
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(eventsAfterStop.last?.event.summary == "Primary channel disconnected")
+
+        await covertTransport.releasePerform(
+            response: try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                PrimaryRuntimeTestFixtures.acknowledgement
+            )
+        )
+        try await Task.sleep(for: .milliseconds(50))
+
+        let finalSnapshot = await driver.snapshot()
+        #expect(finalSnapshot == stoppedSnapshot)
+
+        let eventsAfterRelease = await eventSink.snapshot()
+        #expect(eventsAfterRelease == eventsAfterStop)
     }
 }
