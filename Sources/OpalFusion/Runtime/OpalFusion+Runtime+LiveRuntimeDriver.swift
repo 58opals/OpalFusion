@@ -158,6 +158,7 @@ extension OpalFusion.Runtime {
                     for try await bytes in inboundStream {
                         await self.handle(.receivedPrimaryBytes(bytes))
                     }
+                    self.logPreRoundDisconnectIfNeeded()
                     await self.handle(.disconnected)
                 } catch {
                     let summary = "Primary read failed: \(String(describing: error))"
@@ -228,6 +229,7 @@ extension OpalFusion.Runtime {
             case let .writePrimaryBytes(bytes):
                 do {
                     try await primaryTransport.write(bytes)
+                    runtimeSession.recordWrittenPrimaryFrame(bytes)
                 } catch {
                     let summary = "Primary write failed: \(String(describing: error))"
                     Self.logger.debug(
@@ -496,6 +498,18 @@ extension OpalFusion.Runtime {
 
             lastEmittedSnapshot = snapshot
             await snapshotSink(snapshot)
+        }
+
+        private func logPreRoundDisconnectIfNeeded() {
+            let trace = runtimeSession.preRoundTrace
+            guard runtimeSession.engine.round == nil,
+                  trace.wroteClientHello || trace.wroteJoinPools || trace.lastInboundKind != nil else {
+                return
+            }
+
+            Self.logger.debug(
+                "primary preround disconnect lastInboundKind=\(trace.lastInboundKind?.rawValue ?? "nil", privacy: .public) lastInboundPayloadBytes=\(trace.lastInboundPayloadBytes.map(String.init) ?? "nil", privacy: .public) sawServerHello=\(trace.sawServerHello, privacy: .public) wroteJoinPools=\(trace.wroteJoinPools, privacy: .public)"
+            )
         }
     }
 }

@@ -96,6 +96,42 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.covertSession.endpointContext == PrimaryRuntimeTestFixtures.covertEndpointContext)
     }
 
+    @Test("Primary runtime keeps ServerHello context when the primary channel disconnects before FusionBegin")
+    func validateDisconnectAfterServerHelloBeforeFusionBegin() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        _ = session.apply(input: .connected, now: PrimaryRuntimeTestFixtures.instant(995))
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(996)
+        )
+
+        let effects = session.apply(
+            input: .disconnected,
+            now: PrimaryRuntimeTestFixtures.instant(997)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "Primary channel disconnected"
+                    )
+                )
+            ]
+        )
+        #expect(session.engine.session.latestServerHello == PrimaryRuntimeTestFixtures.serverHello)
+        #expect(session.clientState.round == nil)
+        #expect(session.lastError == .transportUnavailable)
+        #expect(session.lastErrorSummary == "Primary channel disconnected")
+    }
+
     @Test("Primary runtime drives framed StartRound input collection and PlayerCommit submission")
     func validateStartRoundAndCommitFlow() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()

@@ -168,6 +168,38 @@ struct LivePrimaryTransportValidator {
         } catch {
             #expect(String(describing: error) == String(describing: underlyingError))
         }
+
+        #expect(factory.connection.cancelCount() == 1)
+    }
+
+    @Test("Live primary transport cancels the underlying connection after terminal startup failure")
+    func validateTerminalStartupFailureCancelsConnection() async throws {
+        let underlyingError = NWError.posix(.ECONNRESET)
+        let factory = ScriptedNetworkPrimaryConnectionFactory(
+            startStates: [.failed(underlyingError)]
+        )
+        let transport = OpalFusion.Runtime.LivePrimaryTransport(
+            host: "127.0.0.1",
+            port: 8789,
+            connectionFactory: { host, port, parameters in
+                factory.make(
+                    host: host,
+                    port: port,
+                    parameters: parameters
+                )
+            }
+        )
+
+        do {
+            _ = try await withTimeout(.seconds(1)) {
+                try await transport.connect()
+            }
+            Issue.record("Expected startup failure")
+        } catch {
+            #expect(String(describing: error) == String(describing: underlyingError))
+        }
+
+        #expect(factory.connection.cancelCount() == 1)
     }
 
     @Test("Live primary transport keeps explicit close cancellation after a stored waiting error")
@@ -270,6 +302,7 @@ final class ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnecti
     private var stateUpdateHandler: (@Sendable (NWConnection.State) -> Void)?
     private var hasStarted: Bool
     private var startContinuation: CheckedContinuation<Void, Never>?
+    private var cancelCallCount: Int
 
     init(
         startStates: [NWConnection.State],
@@ -280,6 +313,7 @@ final class ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnecti
         self.stateUpdateHandler = nil
         self.hasStarted = false
         self.startContinuation = nil
+        self.cancelCallCount = 0
     }
 
     func setStateUpdateHandler(_ handler: (@Sendable (NWConnection.State) -> Void)?) {
@@ -319,7 +353,17 @@ final class ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnecti
         emit(restartStates)
     }
 
-    func cancel() {}
+    func cancel() {
+        stateQueue.sync {
+            cancelCallCount += 1
+        }
+    }
+
+    func cancelCount() -> Int {
+        stateQueue.sync {
+            cancelCallCount
+        }
+    }
 
     func waitUntilStarted() async {
         let shouldWait = stateQueue.sync { hasStarted == false }

@@ -183,6 +183,7 @@ extension OpalFusion.Runtime {
         private var isReady: Bool
         private var isReceivePending: Bool
         private var isExplicitlyClosing: Bool
+        private var didObservePeerEOF: Bool
 
         init(
             host: String,
@@ -219,6 +220,7 @@ extension OpalFusion.Runtime {
             self.isReady = false
             self.isReceivePending = false
             self.isExplicitlyClosing = false
+            self.didObservePeerEOF = false
         }
 
         func connect() async throws -> AsyncThrowingStream<[UInt8], Error> {
@@ -234,6 +236,7 @@ extension OpalFusion.Runtime {
             self.isReady = false
             self.isReceivePending = false
             self.isExplicitlyClosing = false
+            self.didObservePeerEOF = false
             self.lastNonCancellationTransportError = nil
 
             Self.logger.debug(
@@ -284,6 +287,7 @@ extension OpalFusion.Runtime {
 
         func close() async {
             isExplicitlyClosing = true
+            didObservePeerEOF = false
             Self.logger.debug(
                 "primary close explicit=true pendingConnect=\(self.connectContinuation != nil, privacy: .public)"
             )
@@ -385,6 +389,9 @@ extension OpalFusion.Runtime {
                 )
                 if isExplicitlyClosing {
                     resetConnectionState()
+                } else if didObservePeerEOF {
+                    Self.logger.debug("primary state cancelled ignored reason=peer-eof")
+                    resetConnectionState()
                 } else {
                     handleTerminalState(resolveCancellationError())
                 }
@@ -439,6 +446,7 @@ extension OpalFusion.Runtime {
             }
 
             if isComplete {
+                didObservePeerEOF = true
                 Self.logger.debug(
                     "primary receive complete bytes=\(data?.count ?? 0, privacy: .public)"
                 )
@@ -591,13 +599,15 @@ extension OpalFusion.Runtime {
         private func resetConnectionState() {
             waitingRestartTask?.cancel()
             waitingRestartTask = nil
+            let connection = self.connection
             connection?.setStateUpdateHandler(nil)
-            connection = nil
+            self.connection = nil
             connectContinuation = nil
             lastNonCancellationTransportError = nil
             isReady = false
             isReceivePending = false
             isExplicitlyClosing = false
+            connection?.cancel()
         }
 
         private static func describe(

@@ -77,6 +77,10 @@ extension OpalFusion.Execution {
             case .primaryDisconnected:
                 return handlePrimaryDisconnected()
             case let .primaryTransportFailed(summary):
+                if session.connectionSubstate == .failed {
+                    session.isConnected = false
+                    return []
+                }
                 session.isConnected = false
                 if round?.identifier != nil {
                     return failRound(

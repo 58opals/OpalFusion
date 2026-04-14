@@ -1,7 +1,32 @@
 // OpalFusion+Runtime+PrimaryRuntimeSession.swift
 
+import OSLog
+
 extension OpalFusion.Runtime {
     struct PrimaryRuntimeSession: Sendable {
+        struct PreRoundTrace: Sendable, Equatable {
+            enum InboundKind: String, Sendable, Equatable {
+                case serverHello = "ServerHello"
+                case tierStatusUpdate = "TierStatusUpdate"
+                case fusionBegin = "FusionBegin"
+                case serverFailure = "ServerFailure"
+            }
+
+            var lastInboundKind: InboundKind?
+            var lastInboundPayloadBytes: Int?
+            var sawServerHello: Bool
+            var wroteClientHello: Bool
+            var wroteJoinPools: Bool
+
+            init() {
+                self.lastInboundKind = nil
+                self.lastInboundPayloadBytes = nil
+                self.sawServerHello = false
+                self.wroteClientHello = false
+                self.wroteJoinPools = false
+            }
+        }
+
         enum Input: Sendable, Equatable {
             case invalidConfiguration(summary: String)
             case connected
@@ -34,10 +59,16 @@ extension OpalFusion.Runtime {
             )
         }
 
+        private static let logger = Logger(
+            subsystem: "OpalFusion",
+            category: "PrimaryRuntimeSession"
+        )
+
         private(set) var frameDecoder: OpalFusion.Wire.PrimaryFrameDecoder
         private let frameEncoder: OpalFusion.Wire.PrimaryFrameEncoder
         private let messageEncoder: OpalFusion.Wire.PrimaryMessageEncoder
         private let messageDecoder: OpalFusion.Wire.PrimaryMessageDecoder
+        private(set) var preRoundTrace: PreRoundTrace
         private(set) var covertSession: OpalFusion.Runtime.CovertRuntimeSession
         private(set) var engine: OpalFusion.Execution.RoundEngine
 
@@ -53,6 +84,7 @@ extension OpalFusion.Runtime {
             self.frameEncoder = .init(configuration: baseline.framing)
             self.messageEncoder = .init()
             self.messageDecoder = .init()
+            self.preRoundTrace = .init()
             self.covertSession = .init()
             self.engine = .init(
                 configuration: configuration,
@@ -73,6 +105,35 @@ extension OpalFusion.Runtime {
 
         var lastErrorSummary: String? {
             engine.session.lastErrorSummary
+        }
+
+        mutating func recordWrittenPrimaryFrame(_ bytes: [UInt8]) {
+            guard shouldTracePreRoundTraffic else {
+                return
+            }
+
+            do {
+                var frameDecoder = OpalFusion.Wire.PrimaryFrameDecoder(
+                    configuration: engine.session.baseline.framing
+                )
+                let payloads = try frameDecoder.append(bytes)
+                guard payloads.count == 1 else {
+                    Self.logger.debug(
+                        "primary preround outbound decode failed framedBytes=\(bytes.count, privacy: .public) payloadCount=\(payloads.count, privacy: .public)"
+                    )
+                    return
+                }
+
+                let message = try messageDecoder.decodeClient(payloads[0])
+                logPreRoundOutboundMessage(
+                    message,
+                    payloadBytes: payloads[0].count
+                )
+            } catch {
+                Self.logger.debug(
+                    "primary preround outbound decode failed framedBytes=\(bytes.count, privacy: .public) summary=\(String(describing: error), privacy: .public)"
+                )
+            }
         }
 
         mutating func apply(
@@ -174,6 +235,10 @@ extension OpalFusion.Runtime {
 
                 for payload in payloads {
                     let message = try messageDecoder.decodeServer(payload)
+                    logPreRoundInboundMessage(
+                        message,
+                        payloadBytes: payload.count
+                    )
                     runtimeEffects.append(
                         contentsOf: translate(
                             engine.apply(input: .primaryMessage(message), now: now),
@@ -184,6 +249,11 @@ extension OpalFusion.Runtime {
 
                 return runtimeEffects
             } catch {
+                if shouldTracePreRoundTraffic {
+                    Self.logger.debug(
+                        "primary preround inbound decode failed chunkBytes=\(bytes.count, privacy: .public) summary=\(String(describing: error), privacy: .public)"
+                    )
+                }
                 return protocolFailureEffects(
                     summary: "Primary wire decode failed: \(String(describing: error))",
                     now: now
@@ -314,6 +384,89 @@ extension OpalFusion.Runtime {
                 ),
                 now: now
             )
+        }
+
+        private var shouldTracePreRoundTraffic: Bool {
+            guard engine.round == nil else {
+                return false
+            }
+
+            return switch engine.session.connectionSubstate {
+            case .awaitingServerHello, .awaitingFusionBegin:
+                true
+            case .disconnected, .inRound, .failed:
+                false
+            }
+        }
+
+        private mutating func logPreRoundInboundMessage(
+            _ message: OpalFusion.ProtocolModel.ServerMessage,
+            payloadBytes: Int
+        ) {
+            guard shouldTracePreRoundTraffic else {
+                return
+            }
+
+            switch message {
+            case let .serverHello(serverHello):
+                preRoundTrace.lastInboundKind = .serverHello
+                preRoundTrace.lastInboundPayloadBytes = payloadBytes
+                preRoundTrace.sawServerHello = true
+                Self.logger.debug(
+                    "primary preround inbound kind=ServerHello payloadBytes=\(payloadBytes, privacy: .public) tiersCount=\(serverHello.tiers.count, privacy: .public) firstTier=\(Self.describe(serverHello.tiers.first), privacy: .public) numberOfComponents=\(Int(serverHello.numberOfComponents), privacy: .public)"
+                )
+            case let .tierStatusUpdate(update):
+                preRoundTrace.lastInboundKind = .tierStatusUpdate
+                preRoundTrace.lastInboundPayloadBytes = payloadBytes
+                Self.logger.debug(
+                    "primary preround inbound kind=TierStatusUpdate payloadBytes=\(payloadBytes, privacy: .public) statusTierCount=\(update.statusesByTier.count, privacy: .public) firstTier=\(Self.describe(update.statusesByTier.keys.sorted().first), privacy: .public)"
+                )
+            case let .fusionBegin(fusionBegin):
+                preRoundTrace.lastInboundKind = .fusionBegin
+                preRoundTrace.lastInboundPayloadBytes = payloadBytes
+                Self.logger.debug(
+                    "primary preround inbound kind=FusionBegin payloadBytes=\(payloadBytes, privacy: .public) tier=\(fusionBegin.tier, privacy: .public) covertPort=\(Int(fusionBegin.covertPort), privacy: .public) covertTLS=\(Self.describe(fusionBegin.covertSsl), privacy: .public)"
+                )
+            case let .serverFailure(failure):
+                preRoundTrace.lastInboundKind = .serverFailure
+                preRoundTrace.lastInboundPayloadBytes = payloadBytes
+                Self.logger.debug(
+                    "primary preround inbound kind=ServerFailure payloadBytes=\(payloadBytes, privacy: .public) messagePresent=\(failure.message != nil, privacy: .public)"
+                )
+            case .startRound, .blindSignatureResponses, .allCommitments, .shareCovertComponents,
+                    .fusionResult, .theirProofsList, .restartRound:
+                break
+            }
+        }
+
+        private mutating func logPreRoundOutboundMessage(
+            _ message: OpalFusion.ProtocolModel.ClientMessage,
+            payloadBytes: Int
+        ) {
+            switch message {
+            case let .clientHello(clientHello):
+                preRoundTrace.wroteClientHello = true
+                Self.logger.debug(
+                    "primary preround outbound kind=ClientHello payloadBytes=\(payloadBytes, privacy: .public) versionByteCount=\(clientHello.versionBytes.count, privacy: .public) hasGenesisHash=\(clientHello.genesisHash != nil, privacy: .public)"
+                )
+            case let .joinPools(joinPools):
+                preRoundTrace.wroteJoinPools = true
+                Self.logger.debug(
+                    "primary preround outbound kind=JoinPools payloadBytes=\(payloadBytes, privacy: .public) tiersCount=\(joinPools.tiers.count, privacy: .public) firstTier=\(Self.describe(joinPools.tiers.first), privacy: .public) tagCount=\(joinPools.tags.count, privacy: .public)"
+                )
+            case .playerCommit, .myProofsList, .blames:
+                break
+            }
+        }
+
+        private static func describe<T>(
+            _ value: T?
+        ) -> String {
+            guard let value else {
+                return "nil"
+            }
+
+            return String(describing: value)
         }
     }
 }

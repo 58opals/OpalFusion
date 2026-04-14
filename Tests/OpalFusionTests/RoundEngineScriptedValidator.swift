@@ -340,6 +340,53 @@ struct RoundEngineScriptedValidator {
         #expect(engine.session.latestServerHello == Self.serverHello)
     }
 
+    @Test("Round engine preserves a pre-round server rejection over later transport failure noise")
+    func validateServerFailurePrecedenceOverTransportFailure() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(
+            input: .primaryConnected,
+            now: Self.instant(995)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+
+        let rejectionSummary = "Coordinator rejected JoinPools"
+        let rejectionEffects = engine.apply(
+            input: .primaryMessage(
+                .serverFailure(.init(message: rejectionSummary))
+            ),
+            now: Self.instant(997)
+        )
+        #expect(
+            rejectionEffects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: rejectionSummary
+                    )
+                )
+            ]
+        )
+        #expect(engine.session.lastError == .coordinatorRejected)
+        #expect(engine.session.lastErrorSummary == rejectionSummary)
+        #expect(engine.clientState.isConnected == true)
+
+        let transportEffects = engine.apply(
+            input: .primaryTransportFailed(
+                summary: "Primary read failed: primaryConnectionCancelled"
+            ),
+            now: Self.instant(998)
+        )
+        #expect(transportEffects.isEmpty)
+        #expect(engine.session.lastError == .coordinatorRejected)
+        #expect(engine.session.lastErrorSummary == rejectionSummary)
+        #expect(engine.clientState.isConnected == false)
+    }
+
     @Test("Round engine owns timing semantics and validates server clock skew")
     func validateTimingOwnership() {
         var happyEngine = Self.makeEngine()
