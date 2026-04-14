@@ -16,7 +16,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: HostParticipantInputProviderAdapter(
+            participantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: HostTransactionAssemblerAdapter(
@@ -62,7 +62,7 @@ struct ClientSessionValidator {
             configuration: PrimaryRuntimeTestFixtures.configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: HostParticipantInputProviderAdapter(
+            participantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: HostTransactionAssemblerAdapter(
@@ -108,7 +108,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: HostParticipantInputProviderAdapter(
+            participantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: HostTransactionAssemblerAdapter(
@@ -151,7 +151,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: HostParticipantInputProviderAdapter(
+            participantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: HostTransactionAssemblerAdapter(
@@ -200,7 +200,7 @@ struct ClientSessionValidator {
             configuration: PrimaryRuntimeTestFixtures.configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: HostParticipantInputProviderAdapter(
+            participantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: HostTransactionAssemblerAdapter(
@@ -288,7 +288,7 @@ struct ClientSessionValidator {
             configuration: PrimaryRuntimeTestFixtures.configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: HostParticipantInputProviderAdapter(
+            participantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: HostTransactionAssemblerAdapter(
@@ -345,7 +345,7 @@ struct ClientSessionValidator {
         let covertTransport = ScriptedCovertTransport()
         let stateObserver = RecordedClientStateObserver()
         let eventObserver = RecordedRoundEventObserver()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: [PrimaryRuntimeTestFixtures.participantInput],
             participantOutputs: [PrimaryRuntimeTestFixtures.participantOutput],
             delay: .milliseconds(10)
@@ -363,7 +363,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
@@ -476,7 +476,7 @@ struct ClientSessionValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let coordinator = try await LoopbackPrimaryCoordinator.start()
         let covertTransport = ScriptedCovertTransport()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: scenario.reservation.inputs,
             participantOutputs: scenario.reservation.outputs,
             delay: .milliseconds(10)
@@ -496,7 +496,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             stateObserver: stateObserver,
             nowProvider: { nowProvider.now() },
@@ -529,7 +529,7 @@ struct ClientSessionValidator {
             return
         }
 
-        let blindResponses = try scenario.buildBlindSignatureResponses(for: playerCommit)
+        let blindResponses = try await scenario.buildBlindSignatureResponses(for: playerCommit)
         nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(.blindSignatureResponses(blindResponses))
 
@@ -618,7 +618,7 @@ struct ClientSessionValidator {
         #expect(snapshot.state.round?.phase == .completed)
         #expect(snapshot.state.round?.completionStatus == .success)
         #expect(
-            await participantInputProvider.requestedRounds()
+            await participantReservationSource.requestedRounds()
                 == [scenario.round.identifier!]
         )
         #expect(
@@ -639,7 +639,7 @@ struct ClientSessionValidator {
         let recordingCovertTransport = RecordingCovertTransport(base: scriptedCovertTransport)
         let stateObserver = RecordedClientStateObserver()
         let eventObserver = RecordedRoundEventObserver()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: [PrimaryRuntimeTestFixtures.participantInput],
             participantOutputs: [PrimaryRuntimeTestFixtures.participantOutput],
             delay: .milliseconds(10)
@@ -670,7 +670,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
@@ -848,7 +848,7 @@ struct ClientSessionValidator {
             ),
             roundEvents: await eventObserver.timedSnapshot(),
             stateSnapshots: await stateObserver.timedSnapshot(),
-            reservationRequests: await participantInputProvider.timedRequestRecords(),
+            reservationRequests: await participantReservationSource.timedRequestRecords(),
             transactionProposals: await transactionAssembler.timedProposalRecords()
         )
 
@@ -917,13 +917,13 @@ struct ClientSessionValidator {
         let stateObserver = RecordedClientStateObserver()
         let eventObserver = RecordedRoundEventObserver()
         let unsupportedInput = OpalFusion.Host.ParticipantInput(
-            outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+            outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
             outpointIndex: scenario.reservation.inputs[0].outpointIndex,
             amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
-            lockingScript: [0x51],
+            lockingScriptBytes: [0x51],
             publicKey: scenario.reservation.inputs[0].publicKey
         )
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: [unsupportedInput],
             participantOutputs: scenario.reservation.outputs,
             delay: .milliseconds(10)
@@ -941,7 +941,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
@@ -1015,13 +1015,13 @@ struct ClientSessionValidator {
         let eventObserver = RecordedRoundEventObserver()
         let snapshotDeliveryGate = SessionSnapshotDeliveryGate()
         let unsupportedInput = OpalFusion.Host.ParticipantInput(
-            outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+            outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
             outpointIndex: scenario.reservation.inputs[0].outpointIndex,
             amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
-            lockingScript: [0x51],
+            lockingScriptBytes: [0x51],
             publicKey: scenario.reservation.inputs[0].publicKey
         )
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: [unsupportedInput],
             participantOutputs: scenario.reservation.outputs,
             delay: .milliseconds(10)
@@ -1039,7 +1039,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
@@ -1116,7 +1116,7 @@ struct ClientSessionValidator {
         let covertTransport = ScriptedCovertTransport()
         let stateObserver = RecordedClientStateObserver()
         let eventObserver = RecordedRoundEventObserver()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: scenario.reservation.inputs,
             participantOutputs: scenario.reservation.outputs,
             delay: .milliseconds(10)
@@ -1138,7 +1138,7 @@ struct ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
@@ -1172,7 +1172,7 @@ struct ClientSessionValidator {
             return
         }
 
-        let blindResponses = try scenario.buildBlindSignatureResponses(for: playerCommit)
+        let blindResponses = try await scenario.buildBlindSignatureResponses(for: playerCommit)
         nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(.blindSignatureResponses(blindResponses))
 

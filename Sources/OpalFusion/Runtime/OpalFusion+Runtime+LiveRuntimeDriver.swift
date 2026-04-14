@@ -27,7 +27,7 @@ extension OpalFusion.Runtime {
         ) -> any OpalFusion.Runtime.PrimaryTransporting
 
         private var runtimeSession: OpalFusion.Runtime.PrimaryRuntimeSession
-        private let participantInputProvider: any OpalFusion.Host.ParticipantInputProvider
+        private let participantReservationSource: any OpalFusion.Host.ParticipantReservationSource
         private let transactionAssembler: any OpalFusion.Host.TransactionAssembler
         private let eventObserver: (any OpalFusion.Host.EventObserver)?
         private let hostEventSink: HostEventSink
@@ -48,7 +48,7 @@ extension OpalFusion.Runtime {
             genesisHash: [UInt8]? = nil,
             joinPools: OpalFusion.ProtocolModel.JoinPools,
             workflow: OpalFusion.Execution.WorkflowContext? = nil,
-            participantInputProvider: any OpalFusion.Host.ParticipantInputProvider,
+            participantReservationSource: any OpalFusion.Host.ParticipantReservationSource,
             transactionAssembler: any OpalFusion.Host.TransactionAssembler,
             eventObserver: (any OpalFusion.Host.EventObserver)? = nil,
             hostEventSink: @escaping HostEventSink = { _, _ in },
@@ -69,7 +69,7 @@ extension OpalFusion.Runtime {
                 workflow: workflow,
                 baseline: baseline
             )
-            self.participantInputProvider = participantInputProvider
+            self.participantReservationSource = participantReservationSource
             self.transactionAssembler = transactionAssembler
             self.eventObserver = eventObserver
             self.hostEventSink = hostEventSink
@@ -278,7 +278,7 @@ extension OpalFusion.Runtime {
                 let generation = hostOperationGeneration
                 Task {
                     do {
-                        let reservation = try await self.participantInputProvider.participantReservation(
+                        let reservation = try await self.participantReservationSource.participantReservation(
                             for: roundIdentifier
                         )
                         await self.handleParticipantReservationLoadedIfCurrent(

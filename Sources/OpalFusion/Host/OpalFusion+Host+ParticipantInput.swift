@@ -2,24 +2,27 @@
 
 public extension OpalFusion.Host {
     struct ParticipantInput: Sendable, Equatable {
-        public let outpointTransactionHash: [UInt8]
+        /// The 32-byte transaction identifier in standard display order.
+        /// Reverse these bytes only when encoding BCH wire or protobuf fields.
+        public let outpointTransactionHashBytes: [UInt8]
         public let outpointIndex: UInt32
         public let amountSatoshis: UInt64
-        public let lockingScript: [UInt8]
+        /// The full serialized BCH locking script bytecode for the reserved input.
+        public let lockingScriptBytes: [UInt8]
         /// The compressed public key for the reserved input when the host can provide it.
         public let publicKey: [UInt8]?
 
         public init(
-            outpointTransactionHash: [UInt8],
+            outpointTransactionHashBytes: [UInt8],
             outpointIndex: UInt32,
             amountSatoshis: UInt64,
-            lockingScript: [UInt8],
+            lockingScriptBytes: [UInt8],
             publicKey: [UInt8]? = nil
         ) {
-            self.outpointTransactionHash = outpointTransactionHash
+            self.outpointTransactionHashBytes = outpointTransactionHashBytes
             self.outpointIndex = outpointIndex
             self.amountSatoshis = amountSatoshis
-            self.lockingScript = lockingScript
+            self.lockingScriptBytes = lockingScriptBytes
             self.publicKey = publicKey
         }
     }

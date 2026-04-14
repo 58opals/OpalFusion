@@ -149,7 +149,7 @@ extension OpalFusion.Execution {
                 )
             }
             guard isStandardP2PKHLockingScript(
-                input.lockingScript,
+                input.lockingScriptBytes,
                 publicKey: publicKey
             ) else {
                 throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(

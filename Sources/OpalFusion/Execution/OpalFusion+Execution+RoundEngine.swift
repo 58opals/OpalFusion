@@ -164,12 +164,18 @@ extension OpalFusion.Execution {
 
             let completionStatus = round.completionStatus
 
+            if let completionStatus {
+                return .init(
+                    identifier: identifier,
+                    participantCount: nil,
+                    completionStatus: completionStatus
+                )
+            }
+
             return .init(
                 identifier: identifier,
                 phase: phase,
-                participantCount: nil,
-                completionStatus: completionStatus,
-                isTerminal: completionStatus != nil
+                participantCount: nil
             )
         }
 

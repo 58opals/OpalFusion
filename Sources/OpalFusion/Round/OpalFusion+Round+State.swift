@@ -8,21 +8,28 @@ public extension OpalFusion.Round {
         public let participantCount: Int?
         /// A terminal round outcome when the round has completed, otherwise `nil`.
         public let completionStatus: OpalFusion.Round.CompletionStatus?
-        /// Maintained for source compatibility with the original scaffold.
-        public let isTerminal: Bool
+        public var isTerminal: Bool { completionStatus != nil }
 
         public init(
             identifier: OpalFusion.Round.Identifier,
             phase: OpalFusion.Round.Phase,
-            participantCount: Int? = nil,
-            completionStatus: OpalFusion.Round.CompletionStatus? = nil,
-            isTerminal: Bool = false
+            participantCount: Int? = nil
         ) {
             self.identifier = identifier
             self.phase = phase
             self.participantCount = participantCount
+            self.completionStatus = nil
+        }
+
+        public init(
+            identifier: OpalFusion.Round.Identifier,
+            participantCount: Int? = nil,
+            completionStatus: OpalFusion.Round.CompletionStatus
+        ) {
+            self.identifier = identifier
+            self.phase = .completed
+            self.participantCount = participantCount
             self.completionStatus = completionStatus
-            self.isTerminal = isTerminal
         }
     }
 }

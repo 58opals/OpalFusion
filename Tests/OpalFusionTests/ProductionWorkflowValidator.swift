@@ -53,10 +53,10 @@ struct ProductionWorkflowValidator {
         do {
             var scenario = try ProductionWorkflowTestFixtures.makeScenario()
             let invalidInput = OpalFusion.Host.ParticipantInput(
-                outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+                outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
                 outpointIndex: scenario.reservation.inputs[0].outpointIndex,
                 amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
-                lockingScript: scenario.reservation.inputs[0].lockingScript
+                lockingScriptBytes: scenario.reservation.inputs[0].lockingScriptBytes
             )
             let invalidReservation = OpalFusion.Host.ParticipantReservation(
                 inputs: [invalidInput],
@@ -106,10 +106,10 @@ struct ProductionWorkflowValidator {
             scenario.round.participantReservation = .init(
                 inputs: [
                     .init(
-                        outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+                        outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
                         outpointIndex: scenario.reservation.inputs[0].outpointIndex,
                         amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
-                        lockingScript: scenario.reservation.inputs[0].lockingScript,
+                        lockingScriptBytes: scenario.reservation.inputs[0].lockingScriptBytes,
                         publicKey: [UInt8](repeating: 0x04, count: 65)
                     )
                 ],
@@ -130,10 +130,10 @@ struct ProductionWorkflowValidator {
             scenario.round.participantReservation = .init(
                 inputs: [
                     .init(
-                        outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHash,
+                        outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
                         outpointIndex: scenario.reservation.inputs[0].outpointIndex,
                         amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
-                        lockingScript: [0x51],
+                        lockingScriptBytes: [0x51],
                         publicKey: scenario.reservation.inputs[0].publicKey
                     )
                 ],
@@ -151,10 +151,10 @@ struct ProductionWorkflowValidator {
     }
 
     @Test("Production workflow derives the unsigned template and extracts local signatures")
-    func validateTransactionTemplateAndSignatureExtraction() throws {
+    func validateTransactionTemplateAndSignatureExtraction() async throws {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
-        _ = try scenario.buildBlindSignatureResponses(for: playerCommit)
+        _ = try await scenario.buildBlindSignatureResponses(for: playerCommit)
 
         let covertMessages = try scenario.workflow.buildCovertComponentMessages(round: &scenario.round)
         #expect(covertMessages.count == 3)
@@ -168,7 +168,7 @@ struct ProductionWorkflowValidator {
         let proposal = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
         #expect(proposal.participantCount == nil)
         let unsignedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.serializedUnsignedTransaction
+            proposal.unsignedTransactionBytes
         )
 
         #expect(unsignedTransaction.version == 1)
@@ -188,7 +188,7 @@ struct ProductionWorkflowValidator {
         )
         #expect(
             unsignedTransaction.outputs[1].lockingScript
-                == scenario.reservation.outputs[0].lockingScript
+                == scenario.reservation.outputs[0].lockingScriptBytes
         )
 
         let signingResult = try scenario.makeSignedFinalizedTransaction(proposal: proposal)
@@ -212,7 +212,7 @@ struct ProductionWorkflowValidator {
             var mismatchedTransaction = unsignedTransaction
             mismatchedTransaction.outputs[1].amountSatoshis += 1
             mismatchedRound.finalizedTransaction = .init(
-                serializedTransaction: try mismatchedTransaction.serialized()
+                transactionBytes: try mismatchedTransaction.serialized()
             )
             _ = try scenario.workflow.buildCovertSignatureMessages(round: &mismatchedRound)
             Issue.record("Expected mismatched finalized transaction to fail")
@@ -350,8 +350,8 @@ struct ProductionWorkflowScenario {
 
     mutating func buildBlindSignatureResponses(
         for playerCommit: OpalFusion.ProtocolModel.PlayerCommit
-    ) throws -> OpalFusion.ProtocolModel.BlindSignatureResponses {
-        let responses = try blindCoordinator.responses(for: playerCommit)
+    ) async throws -> OpalFusion.ProtocolModel.BlindSignatureResponses {
+        let responses = try await blindCoordinator.responses(for: playerCommit)
         round.blindSignatureResponses = responses
         return responses
     }
@@ -434,7 +434,7 @@ struct BlindSigningCoordinator {
 
     mutating func responses(
         for playerCommit: OpalFusion.ProtocolModel.PlayerCommit
-    ) throws -> OpalFusion.ProtocolModel.BlindSignatureResponses {
+    ) async throws -> OpalFusion.ProtocolModel.BlindSignatureResponses {
         guard playerCommit.blindSignatureRequests.count == signers.count else {
             throw BlindSigningCoordinatorError.invalidBlindRequestCount
         }
@@ -443,7 +443,7 @@ struct BlindSigningCoordinator {
         responses.reserveCapacity(signers.count)
 
         for index in signers.indices {
-            let scalar = try signers[index].sign(
+            let scalar = try await signers[index].sign(
                 privateKey: Data(roundPrivateKey),
                 requestScalar: Data(playerCommit.blindSignatureRequests[index].scalar)
             )
@@ -476,16 +476,16 @@ enum ProductionWorkflowTestFixtures {
         let reservation = OpalFusion.Host.ParticipantReservation(
             inputs: [
                 .init(
-                    outpointTransactionHash: [UInt8](repeating: 0xAA, count: 32),
+                    outpointTransactionHashBytes: [UInt8](repeating: 0xAA, count: 32),
                     outpointIndex: 1,
                     amountSatoshis: 100_000,
-                    lockingScript: p2pkhLockingScript(publicKey: inputPublicKey),
+                    lockingScriptBytes: p2pkhLockingScript(publicKey: inputPublicKey),
                     publicKey: inputPublicKey
                 )
             ],
             outputs: [
                 .init(
-                    lockingScript: p2pkhLockingScript(publicKey: outputPublicKey),
+                    lockingScriptBytes: p2pkhLockingScript(publicKey: outputPublicKey),
                     amountSatoshis: 99_600
                 )
             ]
@@ -633,19 +633,18 @@ enum ProductionWorkflowTestFixtures {
         }
 
         var transaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.serializedUnsignedTransaction
+            proposal.unsignedTransactionBytes
         )
         let sighash = try transaction.signatureHash(
             forInputAt: 0,
-            lockingScript: participantInput.lockingScript,
+            lockingScript: participantInput.lockingScriptBytes,
             amountSatoshis: participantInput.amountSatoshis
         )
         let signature = try Array(
-            OpalCrypto.Signature.sign(
-                message: Data(sighash),
+            OpalCrypto.Signature.signSchnorr(
+                digest: Data(sighash),
                 privateKey: Data(participantInputPrivateKey),
-                format: .schnorr,
-                nonce: .bip340Deterministic
+                noncePolicy: .bip340Deterministic
             )
         )
 
@@ -659,7 +658,7 @@ enum ProductionWorkflowTestFixtures {
 
         transaction = transaction.settingUnlockingScript(unlockingScript, at: 0)
         return .init(
-            transaction: .init(serializedTransaction: try transaction.serialized()),
+            transaction: .init(transactionBytes: try transaction.serialized()),
             signature: signature
         )
     }

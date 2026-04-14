@@ -133,7 +133,7 @@ extension OpalFusion.Execution {
         ) throws -> OpalFusion.Host.TransactionFinalizationProposal {
             let sharedMaterial = try ensureSharedRoundMaterial(round: &round)
             return .init(
-                serializedUnsignedTransaction: try sharedMaterial.transactionTemplate.serialized(),
+                unsignedTransactionBytes: try sharedMaterial.transactionTemplate.serialized(),
                 sessionHash: sharedMaterial.sessionHash,
                 expectedInputCount: sharedMaterial.transactionTemplate.inputs.count,
                 expectedOutputCount: sharedMaterial.transactionTemplate.outputs.count,
@@ -294,7 +294,7 @@ extension OpalFusion.Execution {
             }
             if let cachedMessages = round.executionMaterial.covertSignatureMessages,
                round.executionMaterial.covertSignatureSourceTransaction ==
-                finalizedTransaction.serializedTransaction {
+                finalizedTransaction.transactionBytes {
                 return cachedMessages
             }
 
@@ -307,7 +307,7 @@ extension OpalFusion.Execution {
 
             let parsedFinalizedTransaction: OpalFusion.Execution.BCHTransaction
             do {
-                parsedFinalizedTransaction = try .parse(finalizedTransaction.serializedTransaction)
+                parsedFinalizedTransaction = try .parse(finalizedTransaction.transactionBytes)
             } catch let error as OpalFusion.Execution.BCHTransactionError {
                 throw mapTransactionError(error)
             }
@@ -346,7 +346,7 @@ extension OpalFusion.Execution {
 
             round.executionMaterial.covertSignatureMessages = messages
             round.executionMaterial.covertSignatureSourceTransaction =
-                finalizedTransaction.serializedTransaction
+                finalizedTransaction.transactionBytes
             return messages
         }
 
@@ -402,7 +402,7 @@ extension OpalFusion.Execution {
 
                 let componentPayload = OpalFusion.Commitment.ComponentPayload.input(
                     .init(
-                        outpointTransactionHash: input.outpointTransactionHash,
+                        outpointTransactionHash: input.outpointTransactionHashBytes,
                         outpointIndex: input.outpointIndex,
                         publicKey: publicKey,
                         amountSatoshis: input.amountSatoshis
@@ -423,7 +423,7 @@ extension OpalFusion.Execution {
 
             for (index, output) in reservation.outputs.enumerated() {
                 let minimumAmount = OpalFusion.Execution.ProtocolPrimitives.minimumOutputAmount(
-                    for: output.lockingScript,
+                    for: output.lockingScriptBytes,
                     baseline: baseline
                 )
                 guard output.amountSatoshis >= minimumAmount else {
@@ -434,13 +434,13 @@ extension OpalFusion.Execution {
 
                 let componentPayload = OpalFusion.Commitment.ComponentPayload.output(
                     .init(
-                        lockingScript: output.lockingScript,
+                        lockingScript: output.lockingScriptBytes,
                         amountSatoshis: output.amountSatoshis
                     )
                 )
                 let fee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
                     sizeBytes: OpalFusion.Execution.ProtocolPrimitives.outputSize(
-                        for: output.lockingScript
+                        for: output.lockingScriptBytes
                     ),
                     feeRateSatoshisPerKb: feeRateSatoshisPerKb
                 )
@@ -839,16 +839,15 @@ extension OpalFusion.Execution {
 
             let sighash = try transaction.signatureHash(
                 forInputAt: inputReference.transactionInputIndex,
-                lockingScript: inputReference.participantInput.lockingScript,
+                lockingScript: inputReference.participantInput.lockingScriptBytes,
                 amountSatoshis: inputReference.participantInput.amountSatoshis
             )
             let isValid: Bool
             do {
-                isValid = try OpalCrypto.Signature.verify(
+                isValid = try OpalCrypto.Signature.verifySchnorr(
                     signature: Data(signature),
-                    message: Data(sighash),
-                    publicKey: Data(publicKey),
-                    format: .schnorr
+                    digest: Data(sighash),
+                    publicKey: Data(publicKey)
                 )
             } catch {
                 throw OpalFusion.Execution.BCHTransactionError.templateMismatch(

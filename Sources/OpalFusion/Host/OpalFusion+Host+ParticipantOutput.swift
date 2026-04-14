@@ -2,14 +2,15 @@
 
 public extension OpalFusion.Host {
     struct ParticipantOutput: Sendable, Equatable {
-        public let lockingScript: [UInt8]
+        /// The full serialized BCH locking script bytecode for the reserved output.
+        public let lockingScriptBytes: [UInt8]
         public let amountSatoshis: UInt64
 
         public init(
-            lockingScript: [UInt8],
+            lockingScriptBytes: [UInt8],
             amountSatoshis: UInt64
         ) {
-            self.lockingScript = lockingScript
+            self.lockingScriptBytes = lockingScriptBytes
             self.amountSatoshis = amountSatoshis
         }
     }

@@ -257,7 +257,7 @@ Responsibilities:
 
 Current scaffold alignment:
 
-- `ParticipantInputProvider` supplies a round-scoped `ParticipantReservation`.
+- `ParticipantReservationSource` supplies a round-scoped `ParticipantReservation`.
 - `TransactionAssembler` finalizes a transaction from a round-scoped proposal.
 - `EventObserver` receives round-scoped events.
 - `ParticipantInput`, `ParticipantOutput`, `ParticipantReservation`, `TransactionFinalizationProposal`, `FinalizedTransaction`, and `Event` provide the current host-facing value surface.

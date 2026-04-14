@@ -1,8 +1,8 @@
-// HostParticipantInputProviderAdapter.swift
+// HostParticipantReservationSourceAdapter.swift
 
 import OpalFusion
 
-struct HostParticipantInputProviderAdapter: OpalFusion.Host.ParticipantInputProvider {
+struct HostParticipantReservationSourceAdapter: OpalFusion.Host.ParticipantReservationSource {
     let participantInputs: [OpalFusion.Host.ParticipantInput]
     let participantOutputs: [OpalFusion.Host.ParticipantOutput]
 
@@ -12,12 +12,6 @@ struct HostParticipantInputProviderAdapter: OpalFusion.Host.ParticipantInputProv
     ) {
         self.participantInputs = participantInputs
         self.participantOutputs = participantOutputs
-    }
-
-    func reservedInputs(
-        for roundIdentifier: OpalFusion.Round.Identifier
-    ) async throws -> [OpalFusion.Host.ParticipantInput] {
-        participantInputs
     }
 
     func participantReservation(

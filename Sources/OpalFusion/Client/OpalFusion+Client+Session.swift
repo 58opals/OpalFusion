@@ -43,7 +43,7 @@ public extension OpalFusion.Client {
         private let configuration: OpalFusion.Client.Configuration
         private let genesisHash: [UInt8]?
         private let joinPools: OpalFusion.ProtocolModel.JoinPools
-        private let participantInputProvider: any OpalFusion.Host.ParticipantInputProvider
+        private let participantReservationSource: any OpalFusion.Host.ParticipantReservationSource
         private let transactionAssembler: any OpalFusion.Host.TransactionAssembler
         private let eventObserver: (any OpalFusion.Host.EventObserver)?
         private let stateObserver: (any OpalFusion.Client.StateObserver)?
@@ -55,7 +55,7 @@ public extension OpalFusion.Client {
             configuration: OpalFusion.Client.Configuration,
             genesisHash: [UInt8]? = nil,
             joinPools: OpalFusion.ProtocolModel.JoinPools,
-            participantInputProvider: any OpalFusion.Host.ParticipantInputProvider,
+            participantReservationSource: any OpalFusion.Host.ParticipantReservationSource,
             transactionAssembler: any OpalFusion.Host.TransactionAssembler,
             eventObserver: (any OpalFusion.Host.EventObserver)? = nil,
             stateObserver: (any OpalFusion.Client.StateObserver)? = nil
@@ -63,7 +63,7 @@ public extension OpalFusion.Client {
             self.configuration = configuration
             self.genesisHash = genesisHash
             self.joinPools = joinPools
-            self.participantInputProvider = participantInputProvider
+            self.participantReservationSource = participantReservationSource
             self.transactionAssembler = transactionAssembler
             self.eventObserver = eventObserver
             self.stateObserver = stateObserver
@@ -76,7 +76,7 @@ public extension OpalFusion.Client {
             configuration: OpalFusion.Client.Configuration,
             genesisHash: [UInt8]? = nil,
             joinPools: OpalFusion.ProtocolModel.JoinPools,
-            participantInputProvider: any OpalFusion.Host.ParticipantInputProvider,
+            participantReservationSource: any OpalFusion.Host.ParticipantReservationSource,
             transactionAssembler: any OpalFusion.Host.TransactionAssembler,
             eventObserver: (any OpalFusion.Host.EventObserver)? = nil,
             stateObserver: (any OpalFusion.Client.StateObserver)? = nil,
@@ -95,7 +95,7 @@ public extension OpalFusion.Client {
             self.configuration = configuration
             self.genesisHash = genesisHash
             self.joinPools = joinPools
-            self.participantInputProvider = participantInputProvider
+            self.participantReservationSource = participantReservationSource
             self.transactionAssembler = transactionAssembler
             self.eventObserver = eventObserver
             self.stateObserver = stateObserver
@@ -151,7 +151,7 @@ public extension OpalFusion.Client {
                 genesisHash: genesisHash,
                 joinPools: joinPools,
                 workflow: dependencies.workflow,
-                participantInputProvider: participantInputProvider,
+                participantReservationSource: participantReservationSource,
                 transactionAssembler: transactionAssembler,
                 eventObserver: eventObserver,
                 snapshotSink: { snapshot in

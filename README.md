@@ -40,7 +40,7 @@ Opal Fusion now has broad typed protocol and domain modeling, pinned transport/t
 - `OpalFusion.Round.Identifier`, `OpalFusion.Round.Phase`, and `OpalFusion.Round.State`
 - `OpalFusion.Transport.CovertChannelConfiguration` and `OpalFusion.Transport.TorSocks5Configuration`
 - `OpalFusion.Host.ParticipantInput`, `OpalFusion.Host.ParticipantOutput`, and `OpalFusion.Host.ParticipantReservation`
-- `OpalFusion.Host.ParticipantInputProvider`, `OpalFusion.Host.TransactionAssembler`, and `OpalFusion.Host.EventObserver`
+- `OpalFusion.Host.ParticipantReservationSource`, `OpalFusion.Host.TransactionAssembler`, and `OpalFusion.Host.EventObserver`
 - public model namespaces for `OpalFusion.Commitment`, `OpalFusion.BlindSignature`, and `OpalFusion.Blame`
 
 ## Requirements
@@ -82,7 +82,7 @@ let joinPools = OpalFusion.ProtocolModel.JoinPools(
 let session = OpalFusion.Client.Session(
     configuration: configuration,
     joinPools: joinPools,
-    participantInputProvider: participantInputProvider,
+    participantReservationSource: participantReservationSource,
     transactionAssembler: transactionAssembler,
     stateObserver: stateObserver
 )

@@ -15,7 +15,7 @@ struct LiveRuntimeDriverValidator {
         let primaryTransport = ScriptedPrimaryTransport()
         let covertTransport = ScriptedCovertTransport()
         let eventSink = RecordedHostEventSink()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
         )
         let transactionAssembler = DelayedTransactionAssembler(
@@ -31,7 +31,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             hostEventSink: { roundIdentifier, event in
                 await eventSink.record(
@@ -77,7 +77,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -119,7 +119,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -168,7 +168,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -245,7 +245,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -290,7 +290,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -336,7 +336,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -400,7 +400,7 @@ struct LiveRuntimeDriverValidator {
 
         let covertTransport = ScriptedCovertTransport()
         let eventSink = RecordedHostEventSink()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: [PrimaryRuntimeTestFixtures.participantInput],
             delay: .milliseconds(10)
         )
@@ -419,7 +419,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             hostEventSink: { roundIdentifier, event in
                 await eventSink.record(
@@ -512,7 +512,7 @@ struct LiveRuntimeDriverValidator {
         #expect(snapshot.clientState.isConnected)
         #expect(snapshot.clientState.round?.phase == .completed)
         #expect(snapshot.clientState.round?.completionStatus == .success)
-        #expect(await participantInputProvider.requestedRounds() == [PrimaryRuntimeTestFixtures.roundIdentifier])
+        #expect(await participantReservationSource.requestedRounds() == [PrimaryRuntimeTestFixtures.roundIdentifier])
         #expect(await transactionAssembler.requestedRounds() == [PrimaryRuntimeTestFixtures.roundIdentifier])
 
         let events = await eventSink.snapshot()
@@ -529,7 +529,7 @@ struct LiveRuntimeDriverValidator {
 
         let covertTransport = ScriptedCovertTransport()
         let eventSink = RecordedHostEventSink()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: scenario.reservation.inputs,
             participantOutputs: scenario.reservation.outputs,
             delay: .milliseconds(10)
@@ -549,7 +549,7 @@ struct LiveRuntimeDriverValidator {
             configuration: configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             hostEventSink: { roundIdentifier, event in
                 await eventSink.record(
@@ -593,7 +593,7 @@ struct LiveRuntimeDriverValidator {
             return
         }
 
-        let blindResponses = try scenario.buildBlindSignatureResponses(for: playerCommit)
+        let blindResponses = try await scenario.buildBlindSignatureResponses(for: playerCommit)
         nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(.blindSignatureResponses(blindResponses))
 
@@ -706,7 +706,7 @@ struct LiveRuntimeDriverValidator {
         #expect(snapshot.clientState.round?.phase == .completed)
         #expect(snapshot.clientState.round?.completionStatus == .success)
         #expect(
-            await participantInputProvider.requestedRounds()
+            await participantReservationSource.requestedRounds()
                 == [scenario.round.identifier!]
         )
         #expect(
@@ -740,7 +740,7 @@ struct LiveRuntimeDriverValidator {
                 ),
                 .init(
                     previousTransactionHashLittleEndian: Array(
-                        scenario.reservation.inputs[0].outpointTransactionHash.reversed()
+                        scenario.reservation.inputs[0].outpointTransactionHashBytes.reversed()
                     ),
                     previousOutputIndex: scenario.reservation.inputs[0].outpointIndex,
                     unlockingScript: [],
@@ -750,13 +750,13 @@ struct LiveRuntimeDriverValidator {
             outputs: [
                 .init(
                     amountSatoshis: scenario.reservation.outputs[0].amountSatoshis,
-                    lockingScript: scenario.reservation.outputs[0].lockingScript
+                    lockingScript: scenario.reservation.outputs[0].lockingScriptBytes
                 )
             ],
             lockTime: 0
         )
         let proposal = OpalFusion.Host.TransactionFinalizationProposal(
-            serializedUnsignedTransaction: try unsignedTransaction.serialized()
+            unsignedTransactionBytes: try unsignedTransaction.serialized()
         )
 
         let finalizedTransaction = try await assembler.finalizeTransaction(
@@ -764,7 +764,7 @@ struct LiveRuntimeDriverValidator {
             proposal: proposal
         )
         let parsedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
-            finalizedTransaction.serializedTransaction
+            finalizedTransaction.transactionBytes
         )
 
         #expect(parsedTransaction.inputs[0].unlockingScript.isEmpty)
@@ -787,7 +787,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -899,7 +899,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
             transactionAssembler: DelayedTransactionAssembler(
@@ -1031,7 +1031,7 @@ struct LiveRuntimeDriverValidator {
     func validateStaleParticipantReservationIsIgnoredAfterStop() async throws {
         let primaryTransport = ScriptedPrimaryTransport()
         let covertTransport = ScriptedCovertTransport()
-        let participantInputProvider = BlockingParticipantInputProvider(
+        let participantReservationSource = BlockingParticipantReservationSource(
             reservation: .init(
                 inputs: [PrimaryRuntimeTestFixtures.participantInput],
                 outputs: [PrimaryRuntimeTestFixtures.participantOutput]
@@ -1044,7 +1044,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: DelayedTransactionAssembler(
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
@@ -1107,7 +1107,7 @@ struct LiveRuntimeDriverValidator {
         #expect(stoppedSnapshot.lastErrorSummary == "Primary channel disconnected")
         #expect(stoppedSnapshot.clientState.isConnected == false)
 
-        await participantInputProvider.releaseReservation()
+        await participantReservationSource.releaseReservation()
         try await Task.sleep(for: .milliseconds(100))
 
         let finalSnapshot = await driver.snapshot()
@@ -1133,7 +1133,7 @@ struct LiveRuntimeDriverValidator {
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            participantInputProvider: DelayedParticipantInputProvider(
+            participantReservationSource: DelayedParticipantReservationSource(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput],
                 participantOutputs: [PrimaryRuntimeTestFixtures.participantOutput]
             ),

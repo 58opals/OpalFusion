@@ -239,10 +239,8 @@ struct RoundEngineScriptedValidator {
         #expect(
             engine.clientState.round == .init(
                 identifier: roundIdentifier,
-                phase: .completed,
                 participantCount: nil,
-                completionStatus: .success,
-                isTerminal: true
+                completionStatus: .success
             )
         )
     }
@@ -493,17 +491,17 @@ private extension RoundEngineScriptedValidator {
 
     static var participantInput: OpalFusion.Host.ParticipantInput {
         .init(
-            outpointTransactionHash: [0x10, 0x11],
+            outpointTransactionHashBytes: [0x10, 0x11],
             outpointIndex: 0,
             amountSatoshis: 50_000,
-            lockingScript: [0x51],
+            lockingScriptBytes: [0x51],
             publicKey: [0x02, 0x10, 0x11]
         )
     }
 
     static var participantOutput: OpalFusion.Host.ParticipantOutput {
         .init(
-            lockingScript: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
+            lockingScriptBytes: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
             amountSatoshis: 49_000
         )
     }
@@ -582,7 +580,7 @@ private extension RoundEngineScriptedValidator {
 
     static var transactionProposal: OpalFusion.Host.TransactionFinalizationProposal {
         .init(
-            serializedUnsignedTransaction: [0x50],
+            unsignedTransactionBytes: [0x50],
             sessionHash: [0x41],
             expectedInputCount: 1,
             expectedOutputCount: 2,
@@ -591,7 +589,7 @@ private extension RoundEngineScriptedValidator {
     }
 
     static var finalizedTransaction: OpalFusion.Host.FinalizedTransaction {
-        .init(serializedTransaction: [0x60])
+        .init(transactionBytes: [0x60])
     }
 
     static var signatureMessage: OpalFusion.ProtocolModel.CovertMessage {

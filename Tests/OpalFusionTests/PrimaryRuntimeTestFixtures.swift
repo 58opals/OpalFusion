@@ -73,15 +73,15 @@ enum PrimaryRuntimeTestFixtures {
     )
 
     static let participantInput = OpalFusion.Host.ParticipantInput(
-        outpointTransactionHash: [0x10, 0x11],
+        outpointTransactionHashBytes: [0x10, 0x11],
         outpointIndex: 0,
         amountSatoshis: 50_000,
-        lockingScript: [0x51],
+        lockingScriptBytes: [0x51],
         publicKey: [0x02, 0x10, 0x11]
     )
 
     static let participantOutput = OpalFusion.Host.ParticipantOutput(
-        lockingScript: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
+        lockingScriptBytes: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
         amountSatoshis: 49_000
     )
 
@@ -129,7 +129,7 @@ enum PrimaryRuntimeTestFixtures {
     )
 
     static let transactionProposal = OpalFusion.Host.TransactionFinalizationProposal(
-        serializedUnsignedTransaction: [0x50],
+        unsignedTransactionBytes: [0x50],
         sessionHash: [0x41],
         expectedInputCount: 1,
         expectedOutputCount: 2,
@@ -137,7 +137,7 @@ enum PrimaryRuntimeTestFixtures {
     )
 
     static let finalizedTransaction = OpalFusion.Host.FinalizedTransaction(
-        serializedTransaction: [0x60]
+        transactionBytes: [0x60]
     )
 
     static let signatureMessage = OpalFusion.ProtocolModel.CovertMessage.transactionSignature(

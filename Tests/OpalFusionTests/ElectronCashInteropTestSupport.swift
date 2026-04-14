@@ -100,16 +100,16 @@ struct ElectronCashInteropConfiguration: Sendable {
         let participantReservation = OpalFusion.Host.ParticipantReservation(
             inputs: [
                 .init(
-                    outpointTransactionHash: inputTransactionHash,
+                    outpointTransactionHashBytes: inputTransactionHash,
                     outpointIndex: inputIndex,
                     amountSatoshis: inputAmountSatoshis,
-                    lockingScript: inputLockingScript,
+                    lockingScriptBytes: inputLockingScript,
                     publicKey: participantInputPublicKey
                 )
             ],
             outputs: [
                 .init(
-                    lockingScript: outputLockingScript,
+                    lockingScriptBytes: outputLockingScript,
                     amountSatoshis: outputAmountSatoshis
                 )
             ]

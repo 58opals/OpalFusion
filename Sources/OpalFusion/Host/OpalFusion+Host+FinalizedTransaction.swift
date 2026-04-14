@@ -2,10 +2,11 @@
 
 public extension OpalFusion.Host {
     struct FinalizedTransaction: Sendable, Equatable {
-        public let serializedTransaction: [UInt8]
+        /// The full BCH wire-format finalized transaction bytes returned by the host.
+        public let transactionBytes: [UInt8]
 
-        public init(serializedTransaction: [UInt8]) {
-            self.serializedTransaction = serializedTransaction
+        public init(transactionBytes: [UInt8]) {
+            self.transactionBytes = transactionBytes
         }
     }
 }

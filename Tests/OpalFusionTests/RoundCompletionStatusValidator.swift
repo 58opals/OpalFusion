@@ -24,8 +24,8 @@ struct RoundCompletionStatusValidator {
         #expect(statuses[5] == .blameRequired)
     }
 
-    @Test("Round state preserves backward-compatible construction without a completion status")
-    func validateLegacyRoundStateConstruction() {
+    @Test("Round state preserves nonterminal construction without a completion status")
+    func validateNonterminalRoundStateConstruction() {
         let round = OpalFusion.Round.State(
             identifier: .init(rawValue: "round-001"),
             phase: .connecting
@@ -51,10 +51,8 @@ struct RoundCompletionStatusValidator {
         for status in statuses {
             let round = OpalFusion.Round.State(
                 identifier: .init(rawValue: "round-terminal"),
-                phase: .completed,
                 participantCount: 8,
-                completionStatus: status,
-                isTerminal: true
+                completionStatus: status
             )
 
             #expect(round.phase == .completed)
@@ -68,9 +66,7 @@ struct RoundCompletionStatusValidator {
     func validateBlamePhaseConstruction() {
         let round = OpalFusion.Round.State(
             identifier: .init(rawValue: "round-blame"),
-            phase: .blame,
-            completionStatus: nil,
-            isTerminal: false
+            phase: .blame
         )
 
         #expect(round.phase == .blame)

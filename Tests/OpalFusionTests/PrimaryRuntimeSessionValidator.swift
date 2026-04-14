@@ -428,9 +428,7 @@ struct PrimaryRuntimeSessionValidator {
         #expect(
             session.clientState.round == .init(
                 identifier: PrimaryRuntimeTestFixtures.roundIdentifier,
-                phase: .completed,
-                completionStatus: .hostRejected,
-                isTerminal: true
+                completionStatus: .hostRejected
             )
         )
     }

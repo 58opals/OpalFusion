@@ -825,7 +825,7 @@ final class ScriptedNowProvider: @unchecked Sendable {
     }
 }
 
-actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider {
+actor DelayedParticipantReservationSource: OpalFusion.Host.ParticipantReservationSource {
     private let participantInputs: [OpalFusion.Host.ParticipantInput]
     private let participantOutputs: [OpalFusion.Host.ParticipantOutput]
     private let delay: Duration
@@ -841,24 +841,6 @@ actor DelayedParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider 
         self.participantOutputs = participantOutputs
         self.delay = delay
         self.requestedRoundIdentifiers = []
-    }
-
-    func reservedInputs(
-        for roundIdentifier: OpalFusion.Round.Identifier
-    ) async throws -> [OpalFusion.Host.ParticipantInput] {
-        requestedRoundIdentifiers.append(roundIdentifier)
-        requestRecords.append(
-            .init(
-                roundIdentifier: roundIdentifier,
-                recordedAt: Date()
-            )
-        )
-
-        if delay > .zero {
-            try await Task.sleep(for: delay)
-        }
-
-        return participantInputs
     }
 
     func participantReservation(
@@ -942,7 +924,7 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     }
 }
 
-actor BlockingParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider {
+actor BlockingParticipantReservationSource: OpalFusion.Host.ParticipantReservationSource {
     private let reservation: OpalFusion.Host.ParticipantReservation
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
     private var reservationContinuation: CheckedContinuation<Result<OpalFusion.Host.ParticipantReservation, Error>, Never>?
@@ -951,13 +933,6 @@ actor BlockingParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider
         reservation: OpalFusion.Host.ParticipantReservation
     ) {
         self.reservation = reservation
-    }
-
-    func reservedInputs(
-        for roundIdentifier: OpalFusion.Round.Identifier
-    ) async throws -> [OpalFusion.Host.ParticipantInput] {
-        let reservation = try await participantReservation(for: roundIdentifier)
-        return reservation.inputs
     }
 
     func participantReservation(
@@ -1122,10 +1097,10 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         }
 
         var transaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.serializedUnsignedTransaction
+            proposal.unsignedTransactionBytes
         )
         let previousTransactionHashLittleEndian = Array(
-            participantInput.outpointTransactionHash.reversed()
+            participantInput.outpointTransactionHashBytes.reversed()
         )
         guard let inputIndex = transaction.inputs.firstIndex(where: { input in
             input.previousTransactionHashLittleEndian == previousTransactionHashLittleEndian &&
@@ -1135,15 +1110,14 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         }
         let sighash = try transaction.signatureHash(
             forInputAt: inputIndex,
-            lockingScript: participantInput.lockingScript,
+            lockingScript: participantInput.lockingScriptBytes,
             amountSatoshis: participantInput.amountSatoshis
         )
         let signature = try Array(
-            OpalCrypto.Signature.sign(
-                message: Data(sighash),
+            OpalCrypto.Signature.signSchnorr(
+                digest: Data(sighash),
                 privateKey: Data(participantInputPrivateKey),
-                format: .schnorr,
-                nonce: .bip340Deterministic
+                noncePolicy: .bip340Deterministic
             )
         )
 
@@ -1154,7 +1128,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
 
         transaction = transaction.settingUnlockingScript(unlockingScript, at: inputIndex)
         return (
-            .init(serializedTransaction: try transaction.serialized()),
+            .init(transactionBytes: try transaction.serialized()),
             signature
         )
     }

@@ -27,11 +27,11 @@ struct OpalFusionContractValidator {
         let session = OpalFusion.Client.Session(
             configuration: configuration,
             joinPools: .init(tiers: [10_000], tags: []),
-            participantInputProvider: HostParticipantInputProviderAdapter(
+            participantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: []
             ),
             transactionAssembler: HostTransactionAssemblerAdapter(
-                finalizedTransaction: .init(serializedTransaction: [])
+                finalizedTransaction: .init(transactionBytes: [])
             )
         )
         let snapshot = await session.snapshot()
@@ -50,10 +50,8 @@ struct OpalFusionContractValidator {
     func validateRoundStateCompletionStatusConstruction() {
         let round = OpalFusion.Round.State(
             identifier: .init(rawValue: "round-002"),
-            phase: .completed,
             participantCount: 8,
-            completionStatus: .success,
-            isTerminal: true
+            completionStatus: .success
         )
 
         #expect(round.identifier == .init(rawValue: "round-002"))
@@ -67,13 +65,13 @@ struct OpalFusionContractValidator {
     func validateHostProtocolAdapters() async throws {
         let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "round-001")
         let participantInput = OpalFusion.Host.ParticipantInput(
-            outpointTransactionHash: [0x00, 0x01],
+            outpointTransactionHashBytes: [0x00, 0x01],
             outpointIndex: 1,
             amountSatoshis: 42_000,
-            lockingScript: [0x51]
+            lockingScriptBytes: [0x51]
         )
         let participantOutput = OpalFusion.Host.ParticipantOutput(
-            lockingScript: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
+            lockingScriptBytes: [0x76, 0xA9, 0x14, 0x01, 0x88, 0xAC],
             amountSatoshis: 41_000
         )
         let reservation = OpalFusion.Host.ParticipantReservation(
@@ -81,10 +79,10 @@ struct OpalFusionContractValidator {
             outputs: [participantOutput]
         )
         let finalizedTransaction = OpalFusion.Host.FinalizedTransaction(
-            serializedTransaction: [0xDE, 0xAD, 0xBE, 0xEF]
+            transactionBytes: [0xDE, 0xAD, 0xBE, 0xEF]
         )
         let proposal = OpalFusion.Host.TransactionFinalizationProposal(
-            serializedUnsignedTransaction: [0xAA]
+            unsignedTransactionBytes: [0xAA]
         )
         let event = OpalFusion.Host.Event(
             kind: .completed,
@@ -93,8 +91,8 @@ struct OpalFusionContractValidator {
             isTerminal: true
         )
 
-        let inputProvider: any OpalFusion.Host.ParticipantInputProvider =
-            HostParticipantInputProviderAdapter(
+        let participantReservationSource: any OpalFusion.Host.ParticipantReservationSource =
+            HostParticipantReservationSourceAdapter(
                 participantInputs: [participantInput],
                 participantOutputs: [participantOutput]
             )
@@ -102,8 +100,7 @@ struct OpalFusionContractValidator {
             HostTransactionAssemblerAdapter(finalizedTransaction: finalizedTransaction)
         let eventObserver: any OpalFusion.Host.EventObserver = HostEventObserverAdapter()
 
-        let reservedInputs = try await inputProvider.reservedInputs(for: roundIdentifier)
-        let participantReservation = try await inputProvider.participantReservation(
+        let participantReservation = try await participantReservationSource.participantReservation(
             for: roundIdentifier
         )
         let assembledTransaction = try await transactionAssembler.finalizeTransaction(
@@ -112,24 +109,25 @@ struct OpalFusionContractValidator {
         )
         await eventObserver.receive(event, for: roundIdentifier)
 
-        #expect(reservedInputs == [participantInput])
         #expect(participantReservation == reservation)
+        #expect(participantReservation.inputs == [participantInput])
+        #expect(participantReservation.outputs == [participantOutput])
         #expect(assembledTransaction == finalizedTransaction)
     }
 
     @Test("Participant input preserves the additive optional public key")
     func validateParticipantInputPublicKeyConstruction() {
         let legacyInput = OpalFusion.Host.ParticipantInput(
-            outpointTransactionHash: [0x00, 0x01],
+            outpointTransactionHashBytes: [0x00, 0x01],
             outpointIndex: 1,
             amountSatoshis: 42_000,
-            lockingScript: [0x51]
+            lockingScriptBytes: [0x51]
         )
         let enrichedInput = OpalFusion.Host.ParticipantInput(
-            outpointTransactionHash: [0x02, 0x03],
+            outpointTransactionHashBytes: [0x02, 0x03],
             outpointIndex: 2,
             amountSatoshis: 84_000,
-            lockingScript: [0x52],
+            lockingScriptBytes: [0x52],
             publicKey: [0x02, 0xAA, 0xBB]
         )
 
@@ -140,16 +138,16 @@ struct OpalFusionContractValidator {
     @Test("Participant reservation keeps additive host output modeling source-compatible")
     func validateParticipantReservationConstruction() {
         let output = OpalFusion.Host.ParticipantOutput(
-            lockingScript: [0x76, 0xA9, 0x14, 0x02, 0x88, 0xAC],
+            lockingScriptBytes: [0x76, 0xA9, 0x14, 0x02, 0x88, 0xAC],
             amountSatoshis: 21_000
         )
         let reservation = OpalFusion.Host.ParticipantReservation(
             inputs: [
                 .init(
-                    outpointTransactionHash: [0xAA, 0xBB],
+                    outpointTransactionHashBytes: [0xAA, 0xBB],
                     outpointIndex: 0,
                     amountSatoshis: 22_000,
-                    lockingScript: [0x51],
+                    lockingScriptBytes: [0x51],
                     publicKey: [0x02, 0x11, 0x22]
                 )
             ],
@@ -160,33 +158,13 @@ struct OpalFusionContractValidator {
         #expect(reservation.outputs == [output])
     }
 
-    @Test("ParticipantInputProvider default reservation preserves legacy input-only conformers")
-    func validateParticipantReservationDefaultImplementation() async throws {
-        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "round-legacy")
-        let participantInput = OpalFusion.Host.ParticipantInput(
-            outpointTransactionHash: [0x01, 0x02],
-            outpointIndex: 0,
-            amountSatoshis: 1_000,
-            lockingScript: [0x51]
-        )
-        let provider: any OpalFusion.Host.ParticipantInputProvider =
-            LegacyParticipantInputProvider(participantInputs: [participantInput])
-
-        let reservation = try await provider.participantReservation(for: roundIdentifier)
-
-        #expect(reservation.inputs == [participantInput])
-        #expect(reservation.outputs.isEmpty)
-    }
-
     @Test("Client session snapshot preserves state and diagnostics visibility")
     func validateClientSessionSnapshotConstruction() {
         let state = OpalFusion.Client.State(
             isConnected: true,
             round: .init(
                 identifier: .init(rawValue: "round-003"),
-                phase: .completed,
-                completionStatus: .success,
-                isTerminal: true
+                completionStatus: .success
             )
         )
         let snapshot = OpalFusion.Client.Session.Snapshot(
@@ -213,15 +191,5 @@ struct OpalFusionContractValidator {
         #expect(snapshot.state.isConnected)
         #expect(snapshot.lastError == nil)
         #expect(snapshot.lastErrorSummary == nil)
-    }
-}
-
-private struct LegacyParticipantInputProvider: OpalFusion.Host.ParticipantInputProvider {
-    let participantInputs: [OpalFusion.Host.ParticipantInput]
-
-    func reservedInputs(
-        for roundIdentifier: OpalFusion.Round.Identifier
-    ) async throws -> [OpalFusion.Host.ParticipantInput] {
-        participantInputs
     }
 }

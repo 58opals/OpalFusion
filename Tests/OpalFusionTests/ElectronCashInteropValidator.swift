@@ -14,7 +14,7 @@ struct ElectronCashInteropValidator {
     )
     func validateRealElectronCashCoordinatorInterop() async throws {
         let interopConfiguration = try ElectronCashInteropConfiguration.fromEnvironment()
-        let participantInputProvider = DelayedParticipantInputProvider(
+        let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: interopConfiguration.participantReservation.inputs,
             participantOutputs: interopConfiguration.participantReservation.outputs
         )
@@ -40,7 +40,7 @@ struct ElectronCashInteropValidator {
             configuration: interopConfiguration.clientConfiguration,
             genesisHash: interopConfiguration.genesisHash,
             joinPools: interopConfiguration.joinPools,
-            participantInputProvider: participantInputProvider,
+            participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
@@ -77,7 +77,7 @@ struct ElectronCashInteropValidator {
             ),
             roundEvents: await eventObserver.timedSnapshot(),
             stateSnapshots: await stateObserver.timedSnapshot(),
-            reservationRequests: await participantInputProvider.timedRequestRecords(),
+            reservationRequests: await participantReservationSource.timedRequestRecords(),
             transactionProposals: await transactionAssembler.timedProposalRecords()
         )
 
