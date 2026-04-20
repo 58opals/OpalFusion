@@ -39,6 +39,8 @@ struct ClientSessionValidator {
             $0.lastError == .invalidConfiguration &&
                 $0.lastErrorSummary == "Coordinator host must not be empty"
         })
+
+        await session.stop()
     }
 
     @Test("Public client configuration keeps coordinator TLS opt-in disabled by default")
@@ -87,6 +89,8 @@ struct ClientSessionValidator {
             $0.lastError == .transportUnavailable &&
                 $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
         })
+
+        await session.stop()
     }
 
     @Test("Public client session surfaces TLS connect failures through primary diagnostics")
@@ -273,6 +277,8 @@ struct ClientSessionValidator {
                 )
             )
         )
+
+        await session.stop()
     }
 
     @Test("Public client session clears failure summaries on a fresh restart")
@@ -337,6 +343,8 @@ struct ClientSessionValidator {
             )
         )
         #expect(observedSnapshots.contains(restartedSnapshot))
+
+        await session.stop()
     }
 
     @Test("Public client session completes a scripted loopback round and forwards observers")
