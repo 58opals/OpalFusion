@@ -1,3 +1,5 @@
+// fusion.pb.swift
+
 // DO NOT EDIT.
 // swift-format-ignore-file
 // swiftlint:disable all

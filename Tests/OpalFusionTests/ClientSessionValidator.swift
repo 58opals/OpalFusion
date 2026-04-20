@@ -145,7 +145,7 @@ struct ClientSessionValidator {
         let coordinator = try await LoopbackPrimaryCoordinator.start(requiresTLS: true)
         let port = await coordinator.port
         let stateObserver = RecordedClientStateObserver()
-        let primaryTransport = try makeTrustedTLSPrimaryTransport(port: port)
+        let primaryTransport = try ClientSessionValidatorSupport.makeTrustedTLSPrimaryTransport(port: port)
         let session = OpalFusion.Client.Session(
             configuration: .init(
                 coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
@@ -177,7 +177,7 @@ struct ClientSessionValidator {
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.isConnected {
@@ -218,7 +218,7 @@ struct ClientSessionValidator {
         await session.start()
         await session.start()
 
-        let runningSnapshot = try await withTimeout(.seconds(1)) {
+        let runningSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.isConnected {
@@ -234,7 +234,7 @@ struct ClientSessionValidator {
         await session.stop()
         await session.stop()
 
-        let stoppedSnapshot = try await withTimeout(.seconds(1)) {
+        let stoppedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.isConnected == false {
@@ -252,7 +252,7 @@ struct ClientSessionValidator {
         #expect(observedSnapshotsAfterStop.last == stoppedSnapshot)
 
         await session.start()
-        let restartedSnapshot = try await withTimeout(.seconds(1)) {
+        let restartedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.isConnected {
@@ -314,7 +314,7 @@ struct ClientSessionValidator {
         await session.stop()
         await session.start()
 
-        let restartedSnapshot = try await withTimeout(.seconds(1)) {
+        let restartedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.isConnected {
@@ -396,7 +396,7 @@ struct ClientSessionValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -423,7 +423,7 @@ struct ClientSessionValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_035)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -438,7 +438,7 @@ struct ClientSessionValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_050)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -461,7 +461,7 @@ struct ClientSessionValidator {
         let observedEvents = await eventObserver.snapshot()
         #expect(observedEvents.contains { $0.event.summary == "Round completed successfully" })
 
-        let observedSnapshots = try await withTimeout(.seconds(1)) {
+        let observedSnapshots = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let observedSnapshots = await stateObserver.snapshot()
                 if observedSnapshots.contains(
@@ -521,7 +521,7 @@ struct ClientSessionValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -554,7 +554,7 @@ struct ClientSessionValidator {
             )
         }
         nowProvider.set(unixSeconds: 1_035)
-        let componentRequests = try await withTimeout(.seconds(1)) {
+        let componentRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
                 if requests.count == playerCommit.initialCommitments.count {
@@ -582,7 +582,7 @@ struct ClientSessionValidator {
             )
         )
 
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await transactionAssembler.recordedProposals().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -594,7 +594,7 @@ struct ClientSessionValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_050)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < playerCommit.initialCommitments.count + 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -611,7 +611,7 @@ struct ClientSessionValidator {
             )
         )
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.round?.completionStatus == .success {
@@ -682,7 +682,7 @@ struct ClientSessionValidator {
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
-            workflow: makeRoundAwareScriptedWorkflow(),
+            workflow: ClientSessionValidatorSupport.makeRoundAwareScriptedWorkflow(),
             nowProvider: { nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { recordingCovertTransport }
@@ -703,7 +703,7 @@ struct ClientSessionValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -726,7 +726,7 @@ struct ClientSessionValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_035)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -741,7 +741,7 @@ struct ClientSessionValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_050)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -764,7 +764,7 @@ struct ClientSessionValidator {
         nowProvider.set(unixSeconds: 1_060)
         try await coordinator.send(.restartRound(.init()))
 
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.isConnected && snapshot.state.round == nil {
@@ -776,7 +776,7 @@ struct ClientSessionValidator {
 
         nowProvider.set(unixSeconds: 1_060)
         try await coordinator.send(.fusionBegin(secondFusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedPreparationPlans().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -799,7 +799,7 @@ struct ClientSessionValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_095)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 3 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -814,7 +814,7 @@ struct ClientSessionValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_110)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 4 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -823,7 +823,7 @@ struct ClientSessionValidator {
         nowProvider.set(unixSeconds: 1_115)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.state.round?.completionStatus == .success {
@@ -967,7 +967,7 @@ struct ClientSessionValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -976,7 +976,7 @@ struct ClientSessionValidator {
         nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(scenario.startRound))
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.lastError == .notImplemented {
@@ -1055,7 +1055,7 @@ struct ClientSessionValidator {
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport },
             snapshotDeliveryHook: { snapshot in
-                if isUnsupportedReservationConnectedTerminalSnapshot(snapshot) {
+                if ClientSessionValidatorSupport.isUnsupportedReservationConnectedTerminalSnapshot(snapshot) {
                     await snapshotDeliveryGate.block(snapshot)
                 }
             }
@@ -1070,7 +1070,7 @@ struct ClientSessionValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1079,27 +1079,29 @@ struct ClientSessionValidator {
         nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(scenario.startRound))
 
-        let blockedSnapshot = try await withTimeout(.seconds(1)) {
+        let blockedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             await snapshotDeliveryGate.waitForBlockedSnapshot()
         }
-        #expect(isUnsupportedReservationConnectedTerminalSnapshot(blockedSnapshot))
+        #expect(ClientSessionValidatorSupport.isUnsupportedReservationConnectedTerminalSnapshot(blockedSnapshot))
 
         let polledSnapshot = await session.snapshot()
         #expect(polledSnapshot.lastError == .notImplemented)
         #expect(polledSnapshot.state.round?.completionStatus == .hostRejected)
         #expect(
             (await stateObserver.snapshot()).contains(
-                where: isUnsupportedReservationConnectedTerminalSnapshot
+                where: ClientSessionValidatorSupport
+                    .isUnsupportedReservationConnectedTerminalSnapshot
             ) == false
         )
 
         await snapshotDeliveryGate.release()
 
-        let observedSnapshots = try await withTimeout(.seconds(1)) {
+        let observedSnapshots = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let observedSnapshots = await stateObserver.snapshot()
                 if observedSnapshots.filter(
-                    isUnsupportedReservationConnectedTerminalSnapshot
+                    ClientSessionValidatorSupport
+                        .isUnsupportedReservationConnectedTerminalSnapshot
                 ).count == 1 {
                     return observedSnapshots
                 }
@@ -1109,7 +1111,8 @@ struct ClientSessionValidator {
 
         #expect(
             observedSnapshots.filter(
-                isUnsupportedReservationConnectedTerminalSnapshot
+                ClientSessionValidatorSupport
+                    .isUnsupportedReservationConnectedTerminalSnapshot
             ).count == 1
         )
 
@@ -1164,7 +1167,7 @@ struct ClientSessionValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1197,7 +1200,7 @@ struct ClientSessionValidator {
             )
         }
         nowProvider.set(unixSeconds: 1_035)
-        let componentRequests = try await withTimeout(.seconds(1)) {
+        let componentRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
                 if requests.count == playerCommit.initialCommitments.count {
@@ -1225,13 +1228,13 @@ struct ClientSessionValidator {
             )
         )
 
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await transactionAssembler.recordedProposals().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await session.snapshot()
                 if snapshot.lastError == .notImplemented {
@@ -1272,160 +1275,4 @@ struct ClientSessionValidator {
         await session.stop()
         await coordinator.stop()
     }
-}
-
-private func isUnsupportedReservationConnectedTerminalSnapshot(
-    _ snapshot: OpalFusion.Client.Session.Snapshot
-) -> Bool {
-    snapshot.lastError == .notImplemented &&
-        snapshot.state.round?.completionStatus == .hostRejected &&
-        snapshot.state.isConnected
-}
-
-private actor SessionSnapshotDeliveryGate {
-    private var blockedSnapshot: OpalFusion.Client.Session.Snapshot?
-    private var blockedSnapshotWaiters: [CheckedContinuation<
-        OpalFusion.Client.Session.Snapshot,
-        Never
-    >] = []
-    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var isReleased = false
-
-    func waitForBlockedSnapshot() async -> OpalFusion.Client.Session.Snapshot {
-        if let blockedSnapshot {
-            return blockedSnapshot
-        }
-
-        return await withCheckedContinuation { continuation in
-            blockedSnapshotWaiters.append(continuation)
-        }
-    }
-
-    func block(_ snapshot: OpalFusion.Client.Session.Snapshot) async {
-        if blockedSnapshot == nil {
-            blockedSnapshot = snapshot
-            let waiters = blockedSnapshotWaiters
-            self.blockedSnapshotWaiters.removeAll()
-            for waiter in waiters {
-                waiter.resume(returning: snapshot)
-            }
-        }
-
-        if isReleased {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            releaseWaiters.append(continuation)
-        }
-    }
-
-    func release() {
-        isReleased = true
-        let waiters = releaseWaiters
-        self.releaseWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-}
-
-private final class SessionTransportFactoryRecorder: @unchecked Sendable {
-    private let defaultPrimaryConnectError: Error?
-    private let lock = NSLock()
-    private var primaryTransports: [ScriptedPrimaryTransport] = []
-    private var covertTransports: [ScriptedCovertTransport] = []
-    private var pendingPrimaryConnectErrors: [Error?]
-
-    init(primaryConnectError: Error? = nil) {
-        self.defaultPrimaryConnectError = primaryConnectError
-        self.pendingPrimaryConnectErrors = []
-    }
-
-    init(primaryConnectErrors: [Error?]) {
-        self.defaultPrimaryConnectError = primaryConnectErrors.last ?? nil
-        self.pendingPrimaryConnectErrors = primaryConnectErrors
-    }
-
-    func makePrimary() -> any OpalFusion.Runtime.PrimaryTransporting {
-        let connectError = lock.withLock { () -> Error? in
-            if pendingPrimaryConnectErrors.isEmpty == false {
-                return pendingPrimaryConnectErrors.removeFirst()
-            }
-
-            return defaultPrimaryConnectError
-        }
-        let transport = ScriptedPrimaryTransport(connectError: connectError)
-        lock.withLock {
-            primaryTransports.append(transport)
-        }
-        return transport
-    }
-
-    func makeCovert() -> any OpalFusion.Runtime.CovertTransporting {
-        let transport = ScriptedCovertTransport()
-        lock.lock()
-        covertTransports.append(transport)
-        lock.unlock()
-        return transport
-    }
-
-    func primaryCount() -> Int {
-        lock.withLock {
-            primaryTransports.count
-        }
-    }
-}
-
-private func makeTrustedTLSPrimaryTransport(
-    port: UInt16
-) throws -> OpalFusion.Runtime.LivePrimaryTransport {
-    OpalFusion.Runtime.LivePrimaryTransport(
-        host: LoopbackPrimaryTLSTestFixture.host,
-        port: port,
-        requiresTLS: true,
-        tlsTrustAnchorCertificateDERs: try LoopbackPrimaryTLSTestFixture
-            .trustAnchorCertificateDERs()
-    )
-}
-
-private func makeRoundAwareScriptedWorkflow() -> OpalFusion.Execution.WorkflowContext {
-    .init(
-        buildPlayerCommit: { _ in
-            PrimaryRuntimeTestFixtures.playerCommit
-        },
-        buildCovertComponentMessages: { round in
-            let roundPublicKey = round.startRound?.roundPublicKey ?? []
-            return [
-                .component(
-                    .init(
-                        roundPublicKey: roundPublicKey,
-                        signature: [0x30],
-                        serializedComponent: [0x31]
-                    )
-                )
-            ]
-        },
-        buildTransactionFinalizationProposal: { _ in
-            PrimaryRuntimeTestFixtures.transactionProposal
-        },
-        buildCovertSignatureMessages: { round in
-            let roundPublicKey = round.startRound?.roundPublicKey ?? []
-            return [
-                .transactionSignature(
-                    .init(
-                        roundPublicKey: roundPublicKey,
-                        inputIndex: 0,
-                        transactionSignature: [0x61]
-                    )
-                )
-            ]
-        },
-        buildMyProofsList: { _ in
-            PrimaryRuntimeTestFixtures.myProofsList
-        },
-        buildBlames: { _ in
-            PrimaryRuntimeTestFixtures.blames
-        }
-    )
 }

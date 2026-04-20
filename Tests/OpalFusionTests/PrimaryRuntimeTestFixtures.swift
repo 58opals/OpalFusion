@@ -2,12 +2,6 @@
 
 @testable import OpalFusion
 
-enum PrimaryRuntimeTestFixtureError: Swift.Error, Equatable {
-    case expectedSinglePayload(Int)
-    case expectedWriteEffect
-    case expectedCovertRequestEffect
-}
-
 enum PrimaryRuntimeTestFixtures {
     static let baseline = OpalFusion.Transport.BaselineConfiguration.electronCash443
     static let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")

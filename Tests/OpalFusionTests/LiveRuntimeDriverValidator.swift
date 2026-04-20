@@ -5,10 +5,6 @@ import Foundation
 import Network
 import Testing
 
-private final class MutableBoolBox: @unchecked Sendable {
-    var value: Bool?
-}
-
 struct LiveRuntimeDriverValidator {
     @Test("Live runtime driver rejects invalid startup configuration before transport connect")
     func validateInvalidConfiguration() async throws {
@@ -142,7 +138,7 @@ struct LiveRuntimeDriverValidator {
         #expect(pendingSnapshot.lastErrorSummary == nil)
         #expect(await primaryTransport.recordedConnectCallCount() == 1)
         #expect(await primaryTransport.recordedCloseCallCount() == 0)
-        #expect(await primaryTransport.hasPendingConnect())
+        #expect(await primaryTransport.hasPendingConnect)
 
         await primaryTransport.releaseConnect()
         await startTask.value
@@ -153,7 +149,7 @@ struct LiveRuntimeDriverValidator {
         #expect(connectedSnapshot.lastErrorSummary == nil)
         #expect(await primaryTransport.recordedWrittenPayloads().isEmpty == false)
         #expect(await primaryTransport.recordedCloseCallCount() == 0)
-        #expect(await primaryTransport.hasPendingConnect() == false)
+        #expect(await primaryTransport.hasPendingConnect == false)
 
         await driver.stop()
     }
@@ -196,7 +192,7 @@ struct LiveRuntimeDriverValidator {
         #expect(pendingSnapshot.lastError == nil)
         #expect(pendingSnapshot.lastErrorSummary == nil)
         #expect(await primaryTransport.recordedCloseCallCount() == 0)
-        #expect(await primaryTransport.hasPendingConnect())
+        #expect(await primaryTransport.hasPendingConnect)
 
         await primaryTransport.failConnect(connectError)
         await startTask.value
@@ -206,7 +202,7 @@ struct LiveRuntimeDriverValidator {
         #expect(failedSnapshot.lastError == .transportUnavailable)
         #expect(failedSnapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
         #expect(await primaryTransport.recordedCloseCallCount() == 1)
-        #expect(await primaryTransport.hasPendingConnect() == false)
+        #expect(await primaryTransport.hasPendingConnect == false)
 
         let events = await eventSink.snapshot()
         guard let event = events.last else {
@@ -373,7 +369,7 @@ struct LiveRuntimeDriverValidator {
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
                 if snapshot.clientState.isConnected {
@@ -436,7 +432,7 @@ struct LiveRuntimeDriverValidator {
 
         await coordinator.closeConnection()
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
                 if snapshot.lastError == .transportUnavailable,
@@ -511,7 +507,7 @@ struct LiveRuntimeDriverValidator {
         )
         await coordinator.closeConnection()
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
                 if snapshot.lastError == .coordinatorRejected,
@@ -586,7 +582,7 @@ struct LiveRuntimeDriverValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -613,7 +609,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_035)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -628,7 +624,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_050)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -637,7 +633,7 @@ struct LiveRuntimeDriverValidator {
         nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
                 if snapshot.clientState.round?.completionStatus == .success {
@@ -716,7 +712,7 @@ struct LiveRuntimeDriverValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -749,7 +745,7 @@ struct LiveRuntimeDriverValidator {
             )
         }
         nowProvider.set(unixSeconds: 1_035)
-        let componentRequests = try await withTimeout(.seconds(1)) {
+        let componentRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
                 if requests.count == playerCommit.initialCommitments.count {
@@ -777,7 +773,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
 
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await transactionAssembler.recordedProposals().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -789,7 +785,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_050)
-        let allRequests = try await withTimeout(.seconds(1)) {
+        let allRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
                 if requests.count == playerCommit.initialCommitments.count + 1 {
@@ -830,7 +826,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
                 if snapshot.clientState.round?.completionStatus == .success {
@@ -946,7 +942,7 @@ struct LiveRuntimeDriverValidator {
 
         nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -969,7 +965,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_035)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -984,7 +980,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_050)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1009,7 +1005,7 @@ struct LiveRuntimeDriverValidator {
         nowProvider.set(unixSeconds: 1_060)
         try await coordinator.send(.restartRound(.init()))
 
-        let snapshot = try await withTimeout(.seconds(1)) {
+        let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
                 if snapshot.clientState.isConnected && snapshot.clientState.round == nil {
@@ -1057,7 +1053,7 @@ struct LiveRuntimeDriverValidator {
         )
 
         await driver.start()
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1069,7 +1065,7 @@ struct LiveRuntimeDriverValidator {
                 .serverHello(PrimaryRuntimeTestFixtures.serverHello)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1081,7 +1077,7 @@ struct LiveRuntimeDriverValidator {
                 .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1093,7 +1089,7 @@ struct LiveRuntimeDriverValidator {
                 .startRound(PrimaryRuntimeTestFixtures.startRound)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().count < 3 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1113,7 +1109,7 @@ struct LiveRuntimeDriverValidator {
             )
         )
         nowProvider.set(unixSeconds: 1_035)
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1125,7 +1121,7 @@ struct LiveRuntimeDriverValidator {
 
         await driver.stop()
 
-        let stoppedSnapshot = try await withTimeout(.seconds(1)) {
+        let stoppedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
                 if snapshot.lastError == .transportUnavailable &&
@@ -1141,7 +1137,7 @@ struct LiveRuntimeDriverValidator {
         #expect(stoppedSnapshot.clientState.isConnected == false)
         #expect(await covertTransport.recordedResetCount() > 0)
 
-        let eventsAfterStop = try await withTimeout(.seconds(1)) {
+        let eventsAfterStop = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let events = await eventSink.snapshot()
                 if events.last?.event.summary == "Primary channel disconnected" {
@@ -1200,7 +1196,7 @@ struct LiveRuntimeDriverValidator {
         )
 
         await driver.start()
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1212,7 +1208,7 @@ struct LiveRuntimeDriverValidator {
                 .serverHello(PrimaryRuntimeTestFixtures.serverHello)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1224,7 +1220,7 @@ struct LiveRuntimeDriverValidator {
                 .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1290,7 +1286,7 @@ struct LiveRuntimeDriverValidator {
         )
 
         await driver.start()
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1302,7 +1298,7 @@ struct LiveRuntimeDriverValidator {
                 .serverHello(PrimaryRuntimeTestFixtures.serverHello)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1314,7 +1310,7 @@ struct LiveRuntimeDriverValidator {
                 .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -1326,7 +1322,7 @@ struct LiveRuntimeDriverValidator {
                 .startRound(PrimaryRuntimeTestFixtures.startRound)
             )
         )
-        try await withTimeout(.seconds(1)) {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await primaryTransport.recordedWrittenPayloads().count < 3 {
                 try await Task.sleep(for: .milliseconds(10))
             }
