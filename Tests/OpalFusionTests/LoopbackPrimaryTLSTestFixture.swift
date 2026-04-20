@@ -4,54 +4,79 @@ import Foundation
 import Network
 import Security
 
-enum LoopbackPrimaryTLSTestFixture {
-    private typealias Material = (
-        certificateDER: Data,
-        localIdentity: sec_identity_t
-    )
+private actor LoopbackPrimaryTLSMaterialCache {
+    private var materialResult: Result<
+        LoopbackPrimaryTLSTestFixture.Material,
+        LiveRuntimeTestSupportError
+    >?
 
-    static let host = "localhost"
-    private static let pkcs12Passphrase = "OpalFusionTests"
-    nonisolated(unsafe) private static let materialResult: Result<Material, LiveRuntimeTestSupportError> = {
-        do {
-            return .success(try makeMaterial())
-        } catch let error as LiveRuntimeTestSupportError {
-            return .failure(error)
-        } catch {
-            return .failure(
-                .invalidTLSFixture("TLS loopback material generation failed: \(error)")
-            )
-        }
-    }()
-
-    static func trustAnchorCertificateDERs() throws -> [Data] {
+    func trustAnchorCertificateDERs() throws -> [Data] {
         [try material().certificateDER]
     }
 
-    static func makeListenerParameters() throws -> NWParameters {
+    func makeListenerParameters() throws -> NWParameters {
         let tlsOptions = NWProtocolTLS.Options()
         sec_protocol_options_set_local_identity(
             tlsOptions.securityProtocolOptions,
             try material().localIdentity
         )
 
-        let parameters = NWParameters(
+        return NWParameters(
             tls: tlsOptions,
             tcp: NWProtocolTCP.Options()
         )
-        return parameters
     }
 
-    private static func material() throws -> Material {
-        switch materialResult {
+    private func material() throws -> LoopbackPrimaryTLSTestFixture.Material {
+        if let materialResult {
+            switch materialResult {
+            case let .success(material):
+                return material
+            case let .failure(error):
+                throw error
+            }
+        }
+
+        let result: Result<LoopbackPrimaryTLSTestFixture.Material, LiveRuntimeTestSupportError>
+        do {
+            result = .success(try LoopbackPrimaryTLSTestFixture.makeMaterial())
+        } catch let error as LiveRuntimeTestSupportError {
+            result = .failure(error)
+        } catch {
+            result = .failure(
+                .invalidTLSFixture("TLS loopback material generation failed: \(error)")
+            )
+        }
+
+        materialResult = result
+        switch result {
         case let .success(material):
             return material
         case let .failure(error):
             throw error
         }
     }
+}
 
-    private static func makeMaterial() throws -> Material {
+enum LoopbackPrimaryTLSTestFixture {
+    fileprivate typealias Material = (
+        certificateDER: Data,
+        localIdentity: sec_identity_t
+    )
+
+    static let host = "localhost"
+    private static let pkcs12Passphrase = "OpalFusionTests"
+    private static let materialCache = LoopbackPrimaryTLSMaterialCache()
+
+    static func trustAnchorCertificateDERs() async throws -> [Data] {
+        try await materialCache.trustAnchorCertificateDERs()
+    }
+
+    static func makeListenerParameters() async throws -> NWParameters {
+        try await materialCache.makeListenerParameters()
+    }
+
+    fileprivate static func makeMaterial() throws -> Material {
         let cleanupDirectory = try prepareServerFiles()
         let keyURL = cleanupDirectory.appendingPathComponent("localhost.key.pem")
         let certificateURL = cleanupDirectory.appendingPathComponent("localhost.cert.pem")

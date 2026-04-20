@@ -24,24 +24,32 @@ extension OpalFusion.Runtime {
         ) async -> Void
         typealias PrimaryTransportFactory = @Sendable (
             OpalFusion.Client.Configuration
-        ) -> any OpalFusion.Runtime.PrimaryTransporting
+        ) async -> any OpalFusion.Runtime.PrimaryTransporting
+        typealias CovertTransportFactory = @Sendable (
+            OpalFusion.Client.Configuration
+        ) async -> any OpalFusion.Runtime.CovertTransporting
 
+        private let configuration: OpalFusion.Client.Configuration
         private var runtimeSession: OpalFusion.Runtime.PrimaryRuntimeSession
         private let participantReservationSource: any OpalFusion.Host.ParticipantReservationSource
         private let transactionAssembler: any OpalFusion.Host.TransactionAssembler
         private let eventObserver: (any OpalFusion.Host.EventObserver)?
         private let hostEventSink: HostEventSink
         private let snapshotSink: SnapshotSink
-        private let primaryTransport: any OpalFusion.Runtime.PrimaryTransporting
-        private let covertTransport: any OpalFusion.Runtime.CovertTransporting
-        private let nowProvider: @Sendable () -> OpalFusion.Execution.Instant
+        private let primaryTransportFactory: PrimaryTransportFactory
+        private let covertTransportFactory: CovertTransportFactory
+        private var primaryTransport: (any OpalFusion.Runtime.PrimaryTransporting)?
+        private var covertTransport: (any OpalFusion.Runtime.CovertTransporting)?
+        private let nowProvider: @Sendable () async -> OpalFusion.Execution.Instant
         private let clockTickInterval: Duration
         private var primaryReadTask: Task<Void, Never>?
         private var clockTask: Task<Void, Never>?
+        private var covertPreparationTask: Task<Void, Never>?
+        private var covertRequestTask: Task<Void, Never>?
+        private var participantReservationTask: Task<Void, Never>?
+        private var transactionFinalizationTask: Task<Void, Never>?
         private var isRunning: Bool
         private var lastEmittedSnapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot?
-        private var covertOperationGeneration: UInt64
-        private var hostOperationGeneration: UInt64
 
         init(
             configuration: OpalFusion.Client.Configuration,
@@ -54,14 +62,16 @@ extension OpalFusion.Runtime {
             hostEventSink: @escaping HostEventSink = { _, _ in },
             snapshotSink: @escaping SnapshotSink = { _ in },
             baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443,
-            nowProvider: @escaping @Sendable () -> OpalFusion.Execution.Instant = {
+            nowProvider: @escaping @Sendable () async -> OpalFusion.Execution.Instant = {
                 .now()
             },
             clockTickInterval: Duration = .milliseconds(250),
             primaryTransportFactory: PrimaryTransportFactory? = nil,
+            covertTransportFactory: CovertTransportFactory? = nil,
             primaryTransport: (any OpalFusion.Runtime.PrimaryTransporting)? = nil,
             covertTransport: (any OpalFusion.Runtime.CovertTransporting)? = nil
         ) {
+            self.configuration = configuration
             self.runtimeSession = .init(
                 configuration: configuration,
                 genesisHash: genesisHash,
@@ -75,27 +85,45 @@ extension OpalFusion.Runtime {
             self.hostEventSink = hostEventSink
             self.snapshotSink = snapshotSink
             if let primaryTransport {
-                self.primaryTransport = primaryTransport
+                self.primaryTransportFactory = { _ in
+                    primaryTransport
+                }
             } else if let primaryTransportFactory {
-                self.primaryTransport = primaryTransportFactory(configuration)
+                self.primaryTransportFactory = primaryTransportFactory
             } else {
-                self.primaryTransport = OpalFusion.Runtime.LivePrimaryTransport(
-                    host: configuration.coordinatorHost,
-                    port: configuration.coordinatorPort,
-                    requiresTLS: configuration.coordinatorRequiresTLS
-                )
+                self.primaryTransportFactory = { configuration in
+                    OpalFusion.Runtime.LivePrimaryTransport(
+                        host: configuration.coordinatorHost,
+                        port: configuration.coordinatorPort,
+                        requiresTLS: configuration.coordinatorRequiresTLS
+                    )
+                }
             }
-            self.covertTransport = covertTransport ?? OpalFusion.Runtime.LiveCovertTransport(
-                torSocks5: configuration.torSocks5
-            )
+            if let covertTransport {
+                self.covertTransportFactory = { _ in
+                    covertTransport
+                }
+            } else if let covertTransportFactory {
+                self.covertTransportFactory = covertTransportFactory
+            } else {
+                self.covertTransportFactory = { configuration in
+                    OpalFusion.Runtime.LiveCovertTransport(
+                        torSocks5: configuration.torSocks5
+                    )
+                }
+            }
+            self.primaryTransport = nil
+            self.covertTransport = nil
             self.nowProvider = nowProvider
             self.clockTickInterval = clockTickInterval
             self.primaryReadTask = nil
             self.clockTask = nil
+            self.covertPreparationTask = nil
+            self.covertRequestTask = nil
+            self.participantReservationTask = nil
+            self.transactionFinalizationTask = nil
             self.isRunning = false
             self.lastEmittedSnapshot = nil
-            self.covertOperationGeneration = 0
-            self.hostOperationGeneration = 0
         }
 
         func start() async {
@@ -108,6 +136,23 @@ extension OpalFusion.Runtime {
                 runtimeSession.engine.session.configuration
             ) {
                 await handle(.invalidConfiguration(summary: summary))
+                await tearDownTransports()
+                return
+            }
+
+            if primaryTransport == nil {
+                primaryTransport = await primaryTransportFactory(configuration)
+            }
+            if covertTransport == nil {
+                covertTransport = await covertTransportFactory(configuration)
+            }
+
+            guard let primaryTransport else {
+                await handle(
+                    .primaryTransportFailed(
+                        summary: "Primary transport was unavailable"
+                    )
+                )
                 await tearDownTransports()
                 return
             }
@@ -135,6 +180,9 @@ extension OpalFusion.Runtime {
 
         func stop() async {
             guard isRunning else {
+                if runtimeSession.clientState.isConnected {
+                    await handle(.disconnected)
+                }
                 return
             }
 
@@ -158,9 +206,16 @@ extension OpalFusion.Runtime {
                     for try await bytes in inboundStream {
                         await self.handle(.receivedPrimaryBytes(bytes))
                     }
+                    guard Task.isCancelled == false else {
+                        return
+                    }
                     self.logPreRoundDisconnectIfNeeded()
                     await self.handle(.disconnected)
                 } catch {
+                    guard Task.isCancelled == false,
+                          Self.shouldIgnorePrimaryReadTermination(error) == false else {
+                        return
+                    }
                     let summary = "Primary read failed: \(String(describing: error))"
                     Self.logger.debug(
                         "primary read failure summary=\(summary, privacy: .public)"
@@ -172,6 +227,32 @@ extension OpalFusion.Runtime {
                     )
                 }
             }
+        }
+
+        private static func shouldIgnorePrimaryReadTermination(
+            _ error: Error
+        ) -> Bool {
+            if error is CancellationError {
+                return true
+            }
+
+            if let transportError = error as? OpalFusion.Runtime.LiveTransportError,
+               transportError == .primaryConnectionCancelled {
+                return true
+            }
+
+            let nsError = error as NSError
+            if nsError.domain == NSPOSIXErrorDomain,
+               nsError.code == Int(ECANCELED) {
+                return true
+            }
+
+            if nsError.domain == NSURLErrorDomain,
+               nsError.code == NSURLErrorCancelled {
+                return true
+            }
+
+            return false
         }
 
         private func startClockLoop() {
@@ -198,7 +279,7 @@ extension OpalFusion.Runtime {
         ) async {
             let effects = runtimeSession.apply(
                 input: input,
-                now: nowProvider()
+                now: await nowProvider()
             )
 
             for effect in effects {
@@ -209,14 +290,27 @@ extension OpalFusion.Runtime {
                 }
             }
 
-            if runtimeSession.engine.session.connectionSubstate != .inRound {
-                invalidateCovertOperations()
-                invalidateHostOperations()
-                await covertTransport.reset()
+            let shouldCancelRoundScopedTasks = runtimeSession.engine.session.connectionSubstate != .inRound
+            let reachedTerminalConnectionState = hasTerminalConnectionState
+            let shouldProjectPreRoundDisconnect = reachedTerminalConnectionState &&
+                runtimeSession.engine.round == nil &&
+                runtimeSession.clientState.isConnected
+
+            if shouldCancelRoundScopedTasks {
+                cancelCovertTasks()
+                cancelHostTasks()
+                if let covertTransport {
+                    await covertTransport.reset()
+                }
             }
 
-            if hasTerminalConnectionState {
+            if reachedTerminalConnectionState {
+                await emitSnapshotIfNeeded()
                 await tearDownTransports()
+                if shouldProjectPreRoundDisconnect {
+                    await handle(.disconnected)
+                }
+                return
             }
 
             await emitSnapshotIfNeeded()
@@ -227,6 +321,14 @@ extension OpalFusion.Runtime {
         ) async {
             switch effect {
             case let .writePrimaryBytes(bytes):
+                guard let primaryTransport else {
+                    await handle(
+                        .primaryTransportFailed(
+                            summary: "Primary transport was unavailable"
+                        )
+                    )
+                    return
+                }
                 do {
                     try await primaryTransport.write(bytes)
                     runtimeSession.recordWrittenPrimaryFrame(bytes)
@@ -242,76 +344,98 @@ extension OpalFusion.Runtime {
                     )
                 }
             case let .prepareCovertEndpoint(plan):
-                let generation = covertOperationGeneration
-                Task {
+                guard let covertTransport else {
+                    return
+                }
+                covertPreparationTask?.cancel()
+                covertPreparationTask = Task { [covertTransport] in
                     do {
-                        try await self.covertTransport.prepare(plan)
-                        await self.handleCovertPreparedIfCurrent(
-                            plan: plan,
-                            generation: generation
-                        )
+                        try await covertTransport.prepare(plan)
+                        guard Task.isCancelled == false else {
+                            return
+                        }
+                        await self.handleCovertPreparedIfCurrent(plan: plan)
                     } catch {
+                        guard Task.isCancelled == false else {
+                            return
+                        }
                         await self.handleCovertPreparationFailureIfCurrent(
                             summary: "Covert endpoint preparation failed: \(String(describing: error))",
-                            plan: plan,
-                            generation: generation
+                            plan: plan
                         )
                     }
                 }
             case let .performCovertRequest(request):
-                let generation = covertOperationGeneration
-                Task {
+                guard let covertTransport else {
+                    return
+                }
+                covertRequestTask?.cancel()
+                covertRequestTask = Task { [covertTransport] in
                     do {
-                        let responseBytes = try await self.covertTransport.perform(request)
+                        let responseBytes = try await covertTransport.perform(request)
+                        guard Task.isCancelled == false else {
+                            return
+                        }
                         await self.handleCovertResponseIfCurrent(
                             responseBytes,
-                            request: request,
-                            generation: generation
+                            request: request
                         )
                     } catch {
+                        guard Task.isCancelled == false else {
+                            return
+                        }
                         await self.handleCovertRequestFailureIfCurrent(
                             summary: "Covert request failed: \(String(describing: error))",
-                            request: request,
-                            generation: generation
+                            request: request
                         )
                     }
                 }
             case let .requestParticipantReservation(roundIdentifier):
-                let generation = hostOperationGeneration
-                Task {
+                let participantReservationSource = self.participantReservationSource
+                participantReservationTask?.cancel()
+                participantReservationTask = Task { [participantReservationSource] in
                     do {
-                        let reservation = try await self.participantReservationSource.participantReservation(
+                        let reservation = try await participantReservationSource.participantReservation(
                             for: roundIdentifier
                         )
+                        guard Task.isCancelled == false else {
+                            return
+                        }
                         await self.handleParticipantReservationLoadedIfCurrent(
                             reservation,
-                            roundIdentifier: roundIdentifier,
-                            generation: generation
+                            roundIdentifier: roundIdentifier
                         )
                     } catch {
+                        guard Task.isCancelled == false else {
+                            return
+                        }
                         await self.handleParticipantReservationRejectedIfCurrent(
-                            roundIdentifier: roundIdentifier,
-                            generation: generation
+                            roundIdentifier: roundIdentifier
                         )
                     }
                 }
             case let .requestTransactionFinalization(roundIdentifier, proposal):
-                let generation = hostOperationGeneration
-                Task {
+                let transactionAssembler = self.transactionAssembler
+                transactionFinalizationTask?.cancel()
+                transactionFinalizationTask = Task { [transactionAssembler] in
                     do {
-                        let transaction = try await self.transactionAssembler.finalizeTransaction(
+                        let transaction = try await transactionAssembler.finalizeTransaction(
                             for: roundIdentifier,
                             proposal: proposal
                         )
+                        guard Task.isCancelled == false else {
+                            return
+                        }
                         await self.handleFinalizedTransactionLoadedIfCurrent(
                             transaction,
-                            roundIdentifier: roundIdentifier,
-                            generation: generation
+                            roundIdentifier: roundIdentifier
                         )
                     } catch {
+                        guard Task.isCancelled == false else {
+                            return
+                        }
                         await self.handleTransactionFinalizationRejectedIfCurrent(
-                            roundIdentifier: roundIdentifier,
-                            generation: generation
+                            roundIdentifier: roundIdentifier
                         )
                     }
                 }
@@ -330,14 +454,20 @@ extension OpalFusion.Runtime {
             }
 
             isRunning = false
-            invalidateCovertOperations()
-            invalidateHostOperations()
+            cancelCovertTasks()
+            cancelHostTasks()
             primaryReadTask?.cancel()
             primaryReadTask = nil
             clockTask?.cancel()
             clockTask = nil
-            await primaryTransport.close()
-            await covertTransport.reset()
+            if let primaryTransport {
+                await primaryTransport.close()
+                self.primaryTransport = nil
+            }
+            if let covertTransport {
+                await covertTransport.reset()
+                self.covertTransport = nil
+            }
         }
 
         private var hasTerminalConnectionState: Bool {
@@ -349,20 +479,24 @@ extension OpalFusion.Runtime {
             }
         }
 
-        private func invalidateCovertOperations() {
-            covertOperationGeneration &+= 1
+        private func cancelCovertTasks() {
+            covertPreparationTask?.cancel()
+            covertPreparationTask = nil
+            covertRequestTask?.cancel()
+            covertRequestTask = nil
         }
 
-        private func invalidateHostOperations() {
-            hostOperationGeneration &+= 1
+        private func cancelHostTasks() {
+            participantReservationTask?.cancel()
+            participantReservationTask = nil
+            transactionFinalizationTask?.cancel()
+            transactionFinalizationTask = nil
         }
 
         private func handleCovertPreparedIfCurrent(
-            plan: OpalFusion.Runtime.CovertPreparationPlan,
-            generation: UInt64
+            plan: OpalFusion.Runtime.CovertPreparationPlan
         ) async {
-            guard generation == covertOperationGeneration,
-                  runtimeSession.covertSession.preparationPlan == plan else {
+            guard runtimeSession.covertSession.preparationPlan == plan else {
                 return
             }
 
@@ -371,11 +505,9 @@ extension OpalFusion.Runtime {
 
         private func handleCovertPreparationFailureIfCurrent(
             summary: String,
-            plan: OpalFusion.Runtime.CovertPreparationPlan,
-            generation: UInt64
+            plan: OpalFusion.Runtime.CovertPreparationPlan
         ) async {
-            guard generation == covertOperationGeneration,
-                  runtimeSession.covertSession.preparationPlan == plan else {
+            guard runtimeSession.covertSession.preparationPlan == plan else {
                 return
             }
 
@@ -384,11 +516,9 @@ extension OpalFusion.Runtime {
 
         private func handleCovertResponseIfCurrent(
             _ responseBytes: [UInt8],
-            request: OpalFusion.Runtime.CovertRequest,
-            generation: UInt64
+            request: OpalFusion.Runtime.CovertRequest
         ) async {
-            guard generation == covertOperationGeneration,
-                  runtimeSession.covertSession.outstandingRequest == request else {
+            guard runtimeSession.covertSession.outstandingRequest == request else {
                 return
             }
 
@@ -397,11 +527,9 @@ extension OpalFusion.Runtime {
 
         private func handleCovertRequestFailureIfCurrent(
             summary: String,
-            request: OpalFusion.Runtime.CovertRequest,
-            generation: UInt64
+            request: OpalFusion.Runtime.CovertRequest
         ) async {
-            guard generation == covertOperationGeneration,
-                  runtimeSession.covertSession.outstandingRequest == request else {
+            guard runtimeSession.covertSession.outstandingRequest == request else {
                 return
             }
 
@@ -410,13 +538,9 @@ extension OpalFusion.Runtime {
 
         private func handleParticipantReservationLoadedIfCurrent(
             _ reservation: OpalFusion.Host.ParticipantReservation,
-            roundIdentifier: OpalFusion.Round.Identifier,
-            generation: UInt64
+            roundIdentifier: OpalFusion.Round.Identifier
         ) async {
-            guard isHostOperationCurrent(
-                roundIdentifier: roundIdentifier,
-                generation: generation
-            ) else {
+            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
                 Self.logger.debug(
                     "stale participant reservation ignored round=\(roundIdentifier.rawValue, privacy: .public)"
                 )
@@ -427,13 +551,9 @@ extension OpalFusion.Runtime {
         }
 
         private func handleParticipantReservationRejectedIfCurrent(
-            roundIdentifier: OpalFusion.Round.Identifier,
-            generation: UInt64
+            roundIdentifier: OpalFusion.Round.Identifier
         ) async {
-            guard isHostOperationCurrent(
-                roundIdentifier: roundIdentifier,
-                generation: generation
-            ) else {
+            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
                 Self.logger.debug(
                     "stale participant reservation rejection ignored round=\(roundIdentifier.rawValue, privacy: .public)"
                 )
@@ -445,13 +565,9 @@ extension OpalFusion.Runtime {
 
         private func handleFinalizedTransactionLoadedIfCurrent(
             _ transaction: OpalFusion.Host.FinalizedTransaction,
-            roundIdentifier: OpalFusion.Round.Identifier,
-            generation: UInt64
+            roundIdentifier: OpalFusion.Round.Identifier
         ) async {
-            guard isHostOperationCurrent(
-                roundIdentifier: roundIdentifier,
-                generation: generation
-            ) else {
+            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
                 Self.logger.debug(
                     "stale transaction finalization ignored round=\(roundIdentifier.rawValue, privacy: .public)"
                 )
@@ -462,13 +578,9 @@ extension OpalFusion.Runtime {
         }
 
         private func handleTransactionFinalizationRejectedIfCurrent(
-            roundIdentifier: OpalFusion.Round.Identifier,
-            generation: UInt64
+            roundIdentifier: OpalFusion.Round.Identifier
         ) async {
-            guard isHostOperationCurrent(
-                roundIdentifier: roundIdentifier,
-                generation: generation
-            ) else {
+            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
                 Self.logger.debug(
                     "stale transaction finalization rejection ignored round=\(roundIdentifier.rawValue, privacy: .public)"
                 )
@@ -479,11 +591,9 @@ extension OpalFusion.Runtime {
         }
 
         private func isHostOperationCurrent(
-            roundIdentifier: OpalFusion.Round.Identifier,
-            generation: UInt64
+            roundIdentifier: OpalFusion.Round.Identifier
         ) -> Bool {
-            guard generation == hostOperationGeneration,
-                  runtimeSession.engine.round?.identifier == roundIdentifier else {
+            guard runtimeSession.engine.round?.identifier == roundIdentifier else {
                 return false
             }
 

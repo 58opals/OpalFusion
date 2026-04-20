@@ -1,11 +1,9 @@
 // SessionTransportFactoryRecorder.swift
 
 @testable import OpalFusion
-import Foundation
 
-final class SessionTransportFactoryRecorder: @unchecked Sendable {
+actor SessionTransportFactoryRecorder {
     private let defaultPrimaryConnectError: Error?
-    private let lock = NSLock()
     private var primaryTransports: [ScriptedPrimaryTransport] = []
     private var covertTransports: [ScriptedCovertTransport] = []
     private var pendingPrimaryConnectErrors: [Error?]
@@ -21,31 +19,24 @@ final class SessionTransportFactoryRecorder: @unchecked Sendable {
     }
 
     func makePrimary() -> any OpalFusion.Runtime.PrimaryTransporting {
-        let connectError = lock.withLock { () -> Error? in
-            if pendingPrimaryConnectErrors.isEmpty == false {
-                return pendingPrimaryConnectErrors.removeFirst()
-            }
-
-            return defaultPrimaryConnectError
+        let connectError: Error?
+        if pendingPrimaryConnectErrors.isEmpty == false {
+            connectError = pendingPrimaryConnectErrors.removeFirst()
+        } else {
+            connectError = defaultPrimaryConnectError
         }
         let transport = ScriptedPrimaryTransport(connectError: connectError)
-        lock.withLock {
-            primaryTransports.append(transport)
-        }
+        primaryTransports.append(transport)
         return transport
     }
 
     func makeCovert() -> any OpalFusion.Runtime.CovertTransporting {
         let transport = ScriptedCovertTransport()
-        lock.lock()
         covertTransports.append(transport)
-        lock.unlock()
         return transport
     }
 
     func primaryCount() -> Int {
-        lock.withLock {
-            primaryTransports.count
-        }
+        primaryTransports.count
     }
 }

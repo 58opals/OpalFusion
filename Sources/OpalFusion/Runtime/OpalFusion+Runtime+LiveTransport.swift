@@ -25,21 +25,43 @@ extension OpalFusion.Runtime {
         let proxyPort: Int?
     }
 
-    protocol PrimaryConnectioning: AnyObject {
-        func setStateUpdateHandler(_ handler: (@Sendable (NWConnection.State) -> Void)?)
-        func start(queue: DispatchQueue)
-        func send(content: Data?, completion: NWConnection.SendCompletion)
-        func receive(
-            minimumIncompleteLength: Int,
-            maximumLength: Int,
-            completion: @escaping @Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void
-        )
-        func restart()
-        func cancel()
+    enum PrimaryConnectionEvent: Sendable {
+        case ready
+        case waiting(any Error & Sendable)
+        case received(Data)
+        case peerEOF
+        case failed(any Error & Sendable)
+        case cancelled
     }
 
-    final class NetworkPrimaryConnection: PrimaryConnectioning {
+    protocol PrimaryConnectioning: Actor {
+        func connect(
+            restartDelay: Duration
+        ) async throws -> AsyncStream<OpalFusion.Runtime.PrimaryConnectionEvent>
+        func send(content: Data?) async throws
+        func cancel() async
+    }
+
+    actor NetworkPrimaryConnection: PrimaryConnectioning {
+        private static let logger = Logger(
+            subsystem: "OpalFusion",
+            category: "NetworkPrimaryConnection"
+        )
         private let connection: NWConnection
+        private let queue = DispatchQueue(
+            label: "OpalFusion.Runtime.NetworkPrimaryConnection"
+        )
+        private var eventContinuation: AsyncStream<
+            OpalFusion.Runtime.PrimaryConnectionEvent
+        >.Continuation?
+        private var readyContinuation: CheckedContinuation<Void, Error>?
+        private var waitingRestartTask: Task<Void, Never>?
+        private var lastNonCancellationTransportError: (any Error & Sendable)?
+        private var hasStarted: Bool
+        private var isReady: Bool
+        private var isReceivePending: Bool
+        private var isExplicitlyClosing: Bool
+        private var didObservePeerEOF: Bool
 
         init(
             host: String,
@@ -51,41 +73,365 @@ extension OpalFusion.Runtime {
                 port: NWEndpoint.Port(rawValue: port)!,
                 using: parameters
             )
+            self.eventContinuation = nil
+            self.readyContinuation = nil
+            self.waitingRestartTask = nil
+            self.lastNonCancellationTransportError = nil
+            self.hasStarted = false
+            self.isReady = false
+            self.isReceivePending = false
+            self.isExplicitlyClosing = false
+            self.didObservePeerEOF = false
         }
 
-        func setStateUpdateHandler(_ handler: (@Sendable (NWConnection.State) -> Void)?) {
-            connection.stateUpdateHandler = handler
+        func connect(
+            restartDelay: Duration
+        ) async throws -> AsyncStream<OpalFusion.Runtime.PrimaryConnectionEvent> {
+            guard hasStarted == false else {
+                throw OpalFusion.Runtime.LiveTransportError.primaryConnectionAlreadyStarted
+            }
+
+            hasStarted = true
+            isReady = false
+            isReceivePending = false
+            isExplicitlyClosing = false
+            didObservePeerEOF = false
+            lastNonCancellationTransportError = nil
+
+            let eventStream = makeEventStream()
+            connection.stateUpdateHandler = { state in
+                Task {
+                    await self.handleStateUpdate(
+                        state,
+                        restartDelay: restartDelay
+                    )
+                }
+            }
+
+            do {
+                try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<Void, Error>) in
+                    self.readyContinuation = continuation
+                    connection.start(queue: queue)
+                }
+            } catch {
+                finishEvents()
+                throw error
+            }
+
+            return eventStream
         }
 
-        func start(queue: DispatchQueue) {
-            connection.start(queue: queue)
+        func send(content: Data?) async throws {
+            guard isReady else {
+                throw OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
+            }
+
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                connection.send(
+                    content: content,
+                    completion: .contentProcessed { error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                            return
+                        }
+
+                        continuation.resume()
+                    }
+                )
+            }
         }
 
-        func send(content: Data?, completion: NWConnection.SendCompletion) {
-            connection.send(
-                content: content,
-                completion: completion
+        func cancel() async {
+            isExplicitlyClosing = true
+            waitingRestartTask?.cancel()
+            waitingRestartTask = nil
+            readyContinuation?.resume(
+                throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
             )
+            readyContinuation = nil
+            connection.cancel()
         }
 
-        func receive(
-            minimumIncompleteLength: Int,
-            maximumLength: Int,
-            completion: @escaping @Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void
-        ) {
+        private func makeEventStream() -> AsyncStream<
+            OpalFusion.Runtime.PrimaryConnectionEvent
+        > {
+            var capturedContinuation: AsyncStream<
+                OpalFusion.Runtime.PrimaryConnectionEvent
+            >.Continuation?
+            let eventStream = AsyncStream(bufferingPolicy: .unbounded) { continuation in
+                capturedContinuation = continuation
+            }
+            self.eventContinuation = capturedContinuation
+            return eventStream
+        }
+
+        private func handleStateUpdate(
+            _ state: NWConnection.State,
+            restartDelay: Duration
+        ) async {
+            Self.logger.debug(
+                "state transition state=\(Self.describe(state), privacy: .public)"
+            )
+            switch state {
+            case .ready:
+                waitingRestartTask?.cancel()
+                waitingRestartTask = nil
+                isReady = true
+                lastNonCancellationTransportError = nil
+                eventContinuation?.yield(.ready)
+                readyContinuation?.resume()
+                readyContinuation = nil
+                if isReceivePending == false {
+                    scheduleReceive()
+                }
+            case let .failed(error):
+                if readyContinuation != nil {
+                    recordNonCancellationTransportError(error)
+                }
+                handleTerminalFailure(error)
+            case let .waiting(error):
+                recordNonCancellationTransportError(error)
+                handleWaitingState(
+                    error,
+                    restartDelay: restartDelay
+                )
+            case .cancelled:
+                if isExplicitlyClosing {
+                    handleCancellation()
+                } else if didObservePeerEOF {
+                    resetState(cancelUnderlying: false)
+                } else {
+                    handleTerminalFailure(resolveCancellationError())
+                }
+            case .setup, .preparing:
+                break
+            @unknown default:
+                break
+            }
+        }
+
+        private func scheduleReceive() {
+            isReceivePending = true
             connection.receive(
-                minimumIncompleteLength: minimumIncompleteLength,
-                maximumLength: maximumLength,
-                completion: completion
-            )
+                minimumIncompleteLength: 1,
+                maximumLength: 65_536
+            ) { data, _, isComplete, error in
+                Task {
+                    await self.handleReceive(
+                        data: data,
+                        isComplete: isComplete,
+                        error: error
+                    )
+                }
+            }
         }
 
-        func restart() {
+        private func handleReceive(
+            data: Data?,
+            isComplete: Bool,
+            error: NWError?
+        ) async {
+            isReceivePending = false
+
+            if let data, data.isEmpty == false {
+                eventContinuation?.yield(.received(data))
+            }
+
+            if let error {
+                if isExplicitlyClosing && isCancellationError(error) {
+                    return
+                }
+                handleTerminalFailure(error)
+                return
+            }
+
+            if isComplete {
+                didObservePeerEOF = true
+                eventContinuation?.yield(.peerEOF)
+                finishEvents()
+                resetState(cancelUnderlying: true)
+                return
+            }
+
+            scheduleReceive()
+        }
+
+        private func handleWaitingState(
+            _ error: NWError,
+            restartDelay: Duration
+        ) {
+            guard isExplicitlyClosing == false else {
+                return
+            }
+
+            isReady = false
+            eventContinuation?.yield(.waiting(error))
+
+            guard shouldRestartAfterWaiting(error) else {
+                handleTerminalFailure(error)
+                return
+            }
+
+            guard waitingRestartTask == nil else {
+                return
+            }
+
+            waitingRestartTask = Task {
+                try? await Task.sleep(for: restartDelay)
+                guard Task.isCancelled == false else {
+                    return
+                }
+
+                self.restartConnectionIfNeeded(
+                    lastError: error
+                )
+            }
+        }
+
+        private func restartConnectionIfNeeded(
+            lastError: NWError
+        ) {
+            defer {
+                waitingRestartTask = nil
+            }
+
+            guard isExplicitlyClosing == false else {
+                return
+            }
+
+            if readyContinuation == nil && eventContinuation == nil {
+                handleTerminalFailure(lastError)
+                return
+            }
+
             connection.restart()
         }
 
-        func cancel() {
-            connection.cancel()
+        private func handleTerminalFailure(
+            _ error: any Error & Sendable
+        ) {
+            waitingRestartTask?.cancel()
+            waitingRestartTask = nil
+            readyContinuation?.resume(throwing: error)
+            readyContinuation = nil
+            eventContinuation?.yield(.failed(error))
+            finishEvents()
+            resetState(cancelUnderlying: true)
+        }
+
+        private func handleCancellation() {
+            eventContinuation?.yield(.cancelled)
+            finishEvents()
+            resetState(cancelUnderlying: false)
+        }
+
+        private func recordNonCancellationTransportError(
+            _ error: any Error & Sendable
+        ) {
+            guard isCancellationError(error) == false else {
+                return
+            }
+
+            lastNonCancellationTransportError = error
+        }
+
+        private func resolveCancellationError() -> any Error & Sendable {
+            guard readyContinuation != nil,
+                  let lastNonCancellationTransportError else {
+                return OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
+            }
+
+            return lastNonCancellationTransportError
+        }
+
+        private func isCancellationError(
+            _ error: Error
+        ) -> Bool {
+            if let transportError = error as? OpalFusion.Runtime.LiveTransportError,
+               transportError == .primaryConnectionCancelled {
+                return true
+            }
+
+            if let networkError = error as? NWError,
+               case let .posix(code) = networkError,
+               code == .ECANCELED {
+                return true
+            }
+
+            let nsError = error as NSError
+            if nsError.domain == NSPOSIXErrorDomain,
+               nsError.code == Int(ECANCELED) {
+                return true
+            }
+
+            if nsError.domain == NSURLErrorDomain,
+               nsError.code == NSURLErrorCancelled {
+                return true
+            }
+
+            return false
+        }
+
+        private func shouldRestartAfterWaiting(
+            _ error: NWError
+        ) -> Bool {
+            switch error {
+            case .tls:
+                false
+            case .dns, .posix, .wifiAware:
+                true
+            @unknown default:
+                true
+            }
+        }
+
+        private static func describe(
+            _ state: NWConnection.State
+        ) -> String {
+            switch state {
+            case .setup:
+                "setup"
+            case .preparing:
+                "preparing"
+            case .ready:
+                "ready"
+            case let .waiting(error):
+                "waiting(\(String(describing: error)))"
+            case let .failed(error):
+                "failed(\(String(describing: error)))"
+            case .cancelled:
+                "cancelled"
+            @unknown default:
+                "unknown"
+            }
+        }
+
+        private func finishEvents() {
+            guard let eventContinuation else {
+                return
+            }
+
+            self.eventContinuation = nil
+            eventContinuation.finish()
+        }
+
+        private func resetState(
+            cancelUnderlying: Bool
+        ) {
+            waitingRestartTask?.cancel()
+            waitingRestartTask = nil
+            connection.stateUpdateHandler = nil
+            if cancelUnderlying {
+                connection.cancel()
+            }
+            readyContinuation = nil
+            lastNonCancellationTransportError = nil
+            isReady = false
+            isReceivePending = false
+            isExplicitlyClosing = false
+            didObservePeerEOF = false
         }
     }
 
@@ -171,19 +517,11 @@ extension OpalFusion.Runtime {
         private let port: UInt16
         private let requiresTLS: Bool
         private let tlsTrustAnchorCertificateDERs: [Data]
-        private let connectionQueue: DispatchQueue
         private let tlsVerificationQueue: DispatchQueue
         private let restartDelay: Duration
         private let connectionFactory: PrimaryConnectionFactory
         private var connection: (any OpalFusion.Runtime.PrimaryConnectioning)?
-        private var connectContinuation: CheckedContinuation<Void, Error>?
-        private var inboundContinuation: AsyncThrowingStream<[UInt8], Error>.Continuation?
-        private var waitingRestartTask: Task<Void, Never>?
-        private var lastNonCancellationTransportError: Error?
-        private var isReady: Bool
-        private var isReceivePending: Bool
-        private var isExplicitlyClosing: Bool
-        private var didObservePeerEOF: Bool
+        private var eventTask: Task<Void, Never>?
 
         init(
             host: String,
@@ -206,21 +544,13 @@ extension OpalFusion.Runtime {
             self.port = port
             self.requiresTLS = requiresTLS
             self.tlsTrustAnchorCertificateDERs = tlsTrustAnchorCertificateDERs
-            self.connectionQueue = DispatchQueue(label: "OpalFusion.Runtime.LivePrimaryTransport")
             self.tlsVerificationQueue = DispatchQueue(
                 label: "OpalFusion.Runtime.LivePrimaryTransport.TLSVerify"
             )
             self.restartDelay = restartDelay
             self.connectionFactory = connectionFactory
             self.connection = nil
-            self.connectContinuation = nil
-            self.inboundContinuation = nil
-            self.waitingRestartTask = nil
-            self.lastNonCancellationTransportError = nil
-            self.isReady = false
-            self.isReceivePending = false
-            self.isExplicitlyClosing = false
-            self.didObservePeerEOF = false
+            self.eventTask = nil
         }
 
         func connect() async throws -> AsyncThrowingStream<[UInt8], Error> {
@@ -228,16 +558,10 @@ extension OpalFusion.Runtime {
                 throw OpalFusion.Runtime.LiveTransportError.primaryConnectionAlreadyStarted
             }
 
-            let (stream, continuation) = AsyncThrowingStream.makeStream(
+            let (inboundStream, inboundContinuation) = AsyncThrowingStream.makeStream(
                 of: [UInt8].self,
                 throwing: Error.self
             )
-            self.inboundContinuation = continuation
-            self.isReady = false
-            self.isReceivePending = false
-            self.isExplicitlyClosing = false
-            self.didObservePeerEOF = false
-            self.lastNonCancellationTransportError = nil
 
             Self.logger.debug(
                 "primary connect start host=\(self.host, privacy: .public) port=\(Int(self.port), privacy: .public) tls=\(self.requiresTLS, privacy: .public)"
@@ -248,66 +572,102 @@ extension OpalFusion.Runtime {
                 port,
                 makeParameters()
             )
+            let connectionID = ObjectIdentifier(connection as AnyObject)
             self.connection = connection
-
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Void, Error>) in
-                self.connectContinuation = continuation
-                connection.setStateUpdateHandler { state in
-                    Task {
-                        await self.handleStateUpdate(state)
-                    }
+            do {
+                let eventStream = try await connection.connect(
+                    restartDelay: restartDelay
+                )
+                let eventTask = Task { [eventStream, inboundContinuation] in
+                    await self.pumpConnectionEvents(
+                        eventStream,
+                        into: inboundContinuation,
+                        for: connectionID
+                    )
                 }
-                connection.start(queue: connectionQueue)
+                self.eventTask = eventTask
+                return inboundStream
+            } catch {
+                clearConnectionIfCurrent(connectionID)
+                throw error
             }
-
-            return stream
         }
 
         func write(_ bytes: [UInt8]) async throws {
-            guard let connection, isReady else {
+            guard let connection else {
                 throw OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
             }
 
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Void, Error>) in
-                connection.send(
-                    content: Data(bytes),
-                    completion: .contentProcessed { error in
-                        if let error {
-                            continuation.resume(throwing: error)
-                            return
-                        }
-
-                        continuation.resume()
-                    }
-                )
-            }
+            try await connection.send(content: Data(bytes))
         }
 
         func close() async {
-            isExplicitlyClosing = true
-            didObservePeerEOF = false
-            Self.logger.debug(
-                "primary close explicit=true pendingConnect=\(self.connectContinuation != nil, privacy: .public)"
-            )
-            connectContinuation?.resume(
-                throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
-            )
-            connectContinuation = nil
-            waitingRestartTask?.cancel()
-            waitingRestartTask = nil
+            guard let connection else {
+                return
+            }
 
-            connection?.setStateUpdateHandler(nil)
-            connection?.cancel()
-            connection = nil
-            isReady = false
-            isReceivePending = false
-            lastNonCancellationTransportError = nil
-            finishInbound(
-                throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
-            )
-            isExplicitlyClosing = false
+            await connection.cancel()
+            let eventTask = self.eventTask
+            _ = await eventTask?.result
+        }
+
+        private func pumpConnectionEvents(
+            _ eventStream: AsyncStream<OpalFusion.Runtime.PrimaryConnectionEvent>,
+            into inboundStream: AsyncThrowingStream<[UInt8], Error>.Continuation,
+            for connectionID: ObjectIdentifier
+        ) async {
+            for await event in eventStream {
+                switch event {
+                case .ready:
+                    Self.logger.debug("primary state transition state=ready")
+                case let .waiting(error):
+                    Self.logger.debug(
+                        "primary state waiting error=\(String(describing: error), privacy: .public)"
+                    )
+                case let .received(data):
+                    Self.logger.debug(
+                        "primary receive bytes count=\(data.count, privacy: .public)"
+                    )
+                    inboundStream.yield([UInt8](data))
+                case .peerEOF:
+                    Self.logger.debug("primary receive complete bytes=0")
+                    inboundStream.finish()
+                    clearConnectionIfCurrent(connectionID)
+                    return
+                case let .failed(error):
+                    Self.logger.debug(
+                        "primary terminal failure error=\(String(describing: error), privacy: .public)"
+                    )
+                    inboundStream.finish(throwing: error)
+                    clearConnectionIfCurrent(connectionID)
+                    return
+                case .cancelled:
+                    Self.logger.debug("primary state transition state=cancelled")
+                    inboundStream.finish(
+                        throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
+                    )
+                    clearConnectionIfCurrent(connectionID)
+                    return
+                }
+            }
+
+            inboundStream.finish()
+            clearConnectionIfCurrent(connectionID)
+        }
+
+        private func clearConnectionIfCurrent(
+            _ expectedConnectionID: ObjectIdentifier
+        ) {
+            guard let connection else {
+                return
+            }
+
+            guard ObjectIdentifier(connection as AnyObject) == expectedConnectionID else {
+                return
+            }
+
+            self.connection = nil
+            self.eventTask = nil
         }
 
         private func makeParameters() -> NWParameters {
@@ -347,311 +707,6 @@ extension OpalFusion.Runtime {
                 tls: tlsOptions,
                 tcp: NWProtocolTCP.Options()
             )
-        }
-
-        private func handleStateUpdate(
-            _ state: NWConnection.State
-        ) async {
-            Self.logger.debug(
-                "primary state transition state=\(Self.describe(state), privacy: .public)"
-            )
-
-            switch state {
-            case .ready:
-                waitingRestartTask?.cancel()
-                waitingRestartTask = nil
-                isReady = true
-                lastNonCancellationTransportError = nil
-                connectContinuation?.resume()
-                connectContinuation = nil
-                if isReceivePending == false {
-                    scheduleReceive()
-                }
-            case let .failed(error):
-                if connectContinuation != nil {
-                    recordNonCancellationTransportError(error)
-                }
-                Self.logger.debug(
-                    "primary state failed error=\(Self.describe(error), privacy: .public)"
-                )
-                handleTerminalState(error)
-            case let .waiting(error):
-                recordNonCancellationTransportError(error)
-                Self.logger.debug(
-                    "primary state waiting error=\(Self.describe(error), privacy: .public)"
-                )
-                handleWaitingState(error)
-            case .cancelled:
-                let pendingConnect = connectContinuation != nil
-                let preservedStartupError = pendingConnect ? lastNonCancellationTransportError : nil
-                Self.logger.debug(
-                    "primary state cancelled explicit=\(self.isExplicitlyClosing, privacy: .public) pendingConnect=\(pendingConnect, privacy: .public) preservedError=\(Self.describeOptional(preservedStartupError), privacy: .public)"
-                )
-                if isExplicitlyClosing {
-                    resetConnectionState()
-                } else if didObservePeerEOF {
-                    Self.logger.debug("primary state cancelled ignored reason=peer-eof")
-                    resetConnectionState()
-                } else {
-                    handleTerminalState(resolveCancellationError())
-                }
-            case .setup, .preparing:
-                break
-            @unknown default:
-                break
-            }
-        }
-
-        private func scheduleReceive() {
-            guard let connection else {
-                return
-            }
-
-            isReceivePending = true
-            Self.logger.debug("primary receive scheduled")
-            connection.receive(
-                minimumIncompleteLength: 1,
-                maximumLength: 65_536
-            ) { data, _, isComplete, error in
-                Task {
-                    await self.handleReceive(
-                        data: data,
-                        isComplete: isComplete,
-                        error: error
-                    )
-                }
-            }
-        }
-
-        private func handleReceive(
-            data: Data?,
-            isComplete: Bool,
-            error: NWError?
-        ) async {
-            isReceivePending = false
-
-            if let data, data.isEmpty == false {
-                Self.logger.debug(
-                    "primary receive bytes count=\(data.count, privacy: .public)"
-                )
-                inboundContinuation?.yield([UInt8](data))
-            }
-
-            if let error {
-                Self.logger.debug(
-                    "primary receive error error=\(Self.describe(error), privacy: .public)"
-                )
-                handleTerminalState(error)
-                return
-            }
-
-            if isComplete {
-                didObservePeerEOF = true
-                Self.logger.debug(
-                    "primary receive complete bytes=\(data?.count ?? 0, privacy: .public)"
-                )
-                finishInbound()
-                resetConnectionState()
-                return
-            }
-
-            scheduleReceive()
-        }
-
-        private func handleWaitingState(
-            _ error: Error
-        ) {
-            guard isExplicitlyClosing == false else {
-                return
-            }
-
-            isReady = false
-
-            guard waitingRestartTask == nil, let connection else {
-                return
-            }
-
-            let connectionID = ObjectIdentifier(connection)
-            Self.logger.debug(
-                "primary restart scheduled delayMs=\(Self.restartDelayMilliseconds(self.restartDelay), privacy: .public) error=\(Self.describe(error), privacy: .public)"
-            )
-            waitingRestartTask = Task {
-                try? await Task.sleep(for: self.restartDelay)
-                guard Task.isCancelled == false else {
-                    return
-                }
-
-                self.restartConnectionIfCurrent(
-                    connectionID,
-                    lastError: error
-                )
-            }
-        }
-
-        private func restartConnectionIfCurrent(
-            _ expectedConnectionID: ObjectIdentifier,
-            lastError: Error
-        ) {
-            defer {
-                waitingRestartTask = nil
-            }
-
-            guard isExplicitlyClosing == false else {
-                Self.logger.debug("primary restart skipped reason=explicit-close")
-                return
-            }
-
-            guard let connection else {
-                Self.logger.debug("primary restart skipped reason=connection-missing")
-                return
-            }
-
-            guard ObjectIdentifier(connection) == expectedConnectionID else {
-                Self.logger.debug("primary restart skipped reason=connection-replaced")
-                return
-            }
-
-            if connectContinuation == nil && inboundContinuation == nil {
-                Self.logger.debug(
-                    "primary restart skipped reason=no-active-consumer error=\(Self.describe(lastError), privacy: .public)"
-                )
-                handleTerminalState(lastError)
-                return
-            }
-
-            Self.logger.debug("primary restart execute")
-            connection.restart()
-        }
-
-        private func handleTerminalState(
-            _ error: Error
-        ) {
-            waitingRestartTask?.cancel()
-            waitingRestartTask = nil
-            connectContinuation?.resume(throwing: error)
-            connectContinuation = nil
-            finishInbound(throwing: error)
-            resetConnectionState()
-        }
-
-        private func recordNonCancellationTransportError(
-            _ error: Error
-        ) {
-            guard isCancellationError(error) == false else {
-                return
-            }
-
-            lastNonCancellationTransportError = error
-        }
-
-        private func resolveCancellationError() -> Error {
-            guard connectContinuation != nil,
-                  let lastNonCancellationTransportError else {
-                return OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
-            }
-
-            return lastNonCancellationTransportError
-        }
-
-        private func isCancellationError(
-            _ error: Error
-        ) -> Bool {
-            if let transportError = error as? OpalFusion.Runtime.LiveTransportError,
-               transportError == .primaryConnectionCancelled {
-                return true
-            }
-
-            if let networkError = error as? NWError,
-               case let .posix(code) = networkError,
-               code == .ECANCELED {
-                return true
-            }
-
-            let nsError = error as NSError
-            if nsError.domain == NSPOSIXErrorDomain,
-               nsError.code == Int(ECANCELED) {
-                return true
-            }
-
-            if nsError.domain == NSURLErrorDomain,
-               nsError.code == NSURLErrorCancelled {
-                return true
-            }
-
-            return false
-        }
-
-        private func finishInbound(
-            throwing error: Error? = nil
-        ) {
-            guard let inboundContinuation else {
-                return
-            }
-
-            self.inboundContinuation = nil
-            if let error {
-                inboundContinuation.finish(throwing: error)
-            } else {
-                inboundContinuation.finish()
-            }
-        }
-
-        private func resetConnectionState() {
-            waitingRestartTask?.cancel()
-            waitingRestartTask = nil
-            let connection = self.connection
-            connection?.setStateUpdateHandler(nil)
-            self.connection = nil
-            connectContinuation = nil
-            lastNonCancellationTransportError = nil
-            isReady = false
-            isReceivePending = false
-            isExplicitlyClosing = false
-            connection?.cancel()
-        }
-
-        private static func describe(
-            _ state: NWConnection.State
-        ) -> String {
-            switch state {
-            case .setup:
-                "setup"
-            case .preparing:
-                "preparing"
-            case .ready:
-                "ready"
-            case let .waiting(error):
-                "waiting(\(describe(error)))"
-            case let .failed(error):
-                "failed(\(describe(error)))"
-            case .cancelled:
-                "cancelled"
-            @unknown default:
-                "unknown"
-            }
-        }
-
-        private static func describe(
-            _ error: Error
-        ) -> String {
-            String(describing: error)
-        }
-
-        private static func describeOptional(
-            _ error: Error?
-        ) -> String {
-            guard let error else {
-                return "none"
-            }
-
-            return describe(error)
-        }
-
-        private static func restartDelayMilliseconds(
-            _ delay: Duration
-        ) -> Int64 {
-            let components = delay.components
-            return components.seconds * 1_000 + Int64(components.attoseconds / 1_000_000_000_000_000)
         }
     }
 

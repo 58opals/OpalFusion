@@ -1,5 +1,13 @@
 // MutableBoolBox.swift
 
-final class MutableBoolBox: @unchecked Sendable {
-    var value: Bool?
+actor MutableBoolBox {
+    private var storedValue: Bool?
+
+    func set(_ value: Bool) {
+        storedValue = value
+    }
+
+    func value() -> Bool? {
+        storedValue
+    }
 }

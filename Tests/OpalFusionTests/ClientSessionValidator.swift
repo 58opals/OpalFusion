@@ -71,8 +71,8 @@ struct ClientSessionValidator {
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             stateObserver: stateObserver,
-            primaryTransportFactory: { transportFactories.makePrimary() },
-            covertTransportFactory: { transportFactories.makeCovert() }
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
         )
 
         await session.start()
@@ -81,7 +81,7 @@ struct ClientSessionValidator {
         #expect(snapshot.lastError == .transportUnavailable)
         #expect(snapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
         #expect(snapshot.state.isConnected == false)
-        #expect(transportFactories.primaryCount() == 1)
+        #expect(await transportFactories.primaryCount() == 1)
 
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains(snapshot))
@@ -145,7 +145,7 @@ struct ClientSessionValidator {
         let coordinator = try await LoopbackPrimaryCoordinator.start(requiresTLS: true)
         let port = await coordinator.port
         let stateObserver = RecordedClientStateObserver()
-        let primaryTransport = try ClientSessionValidatorSupport.makeTrustedTLSPrimaryTransport(port: port)
+        let primaryTransport = try await ClientSessionValidatorSupport.makeTrustedTLSPrimaryTransport(port: port)
         let session = OpalFusion.Client.Session(
             configuration: .init(
                 coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
@@ -211,8 +211,8 @@ struct ClientSessionValidator {
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             stateObserver: stateObserver,
-            primaryTransportFactory: { transportFactories.makePrimary() },
-            covertTransportFactory: { transportFactories.makeCovert() }
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
         )
 
         await session.start()
@@ -229,7 +229,7 @@ struct ClientSessionValidator {
         }
         #expect(runningSnapshot.lastError == nil)
         #expect(runningSnapshot.lastErrorSummary == nil)
-        #expect(transportFactories.primaryCount() == 1)
+        #expect(await transportFactories.primaryCount() == 1)
 
         await session.stop()
         await session.stop()
@@ -264,7 +264,7 @@ struct ClientSessionValidator {
 
         #expect(restartedSnapshot.lastError == nil)
         #expect(restartedSnapshot.lastErrorSummary == nil)
-        #expect(transportFactories.primaryCount() == 2)
+        #expect(await transportFactories.primaryCount() == 2)
 
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains(runningSnapshot))
@@ -301,8 +301,8 @@ struct ClientSessionValidator {
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             stateObserver: stateObserver,
-            primaryTransportFactory: { transportFactories.makePrimary() },
-            covertTransportFactory: { transportFactories.makeCovert() }
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
         )
 
         await session.start()
@@ -326,7 +326,7 @@ struct ClientSessionValidator {
 
         #expect(restartedSnapshot.lastError == nil)
         #expect(restartedSnapshot.lastErrorSummary == nil)
-        #expect(transportFactories.primaryCount() == 2)
+        #expect(await transportFactories.primaryCount() == 2)
 
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains {
@@ -376,7 +376,7 @@ struct ClientSessionValidator {
             eventObserver: eventObserver,
             stateObserver: stateObserver,
             workflow: PrimaryRuntimeTestFixtures.workflow,
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
@@ -387,14 +387,14 @@ struct ClientSessionValidator {
                 == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
         )
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
         #expect(
             try await coordinator.nextClientMessage()
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -402,19 +402,19 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(PrimaryRuntimeTestFixtures.startRound))
         #expect(
             try await coordinator.nextClientMessage()
                 == .playerCommit(PrimaryRuntimeTestFixtures.playerCommit)
         )
 
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(
             .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
         )
 
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         try await coordinator.send(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
 
         await covertTransport.enqueueResponse(
@@ -422,14 +422,14 @@ struct ClientSessionValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         try await coordinator.send(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
 
         await covertTransport.enqueueResponse(
@@ -437,14 +437,14 @@ struct ClientSessionValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_050)
+        await nowProvider.set(unixSeconds: 1_050)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_055)
+        await nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
 
         let snapshot = try await SessionTranscriptSupport.waitForSessionSuccessOrFatalTermination(
@@ -507,7 +507,7 @@ struct ClientSessionValidator {
             participantReservationSource: participantReservationSource,
             transactionAssembler: transactionAssembler,
             stateObserver: stateObserver,
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
@@ -515,11 +515,11 @@ struct ClientSessionValidator {
         await session.start()
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(scenario.serverHello))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -527,7 +527,7 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(scenario.startRound))
         let playerCommitMessage = try await coordinator.nextClientMessage()
         guard case let .playerCommit(playerCommit) = playerCommitMessage else {
@@ -538,10 +538,10 @@ struct ClientSessionValidator {
         }
 
         let blindResponses = try await scenario.buildBlindSignatureResponses(for: playerCommit)
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(.blindSignatureResponses(blindResponses))
 
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         try await coordinator.send(
             .allCommitments(.init(initialCommitments: playerCommit.initialCommitments))
         )
@@ -553,7 +553,7 @@ struct ClientSessionValidator {
                 )
             )
         }
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         let componentRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
@@ -571,7 +571,7 @@ struct ClientSessionValidator {
             return componentMessage.serializedComponent
         }
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         try await coordinator.send(
             .shareCovertComponents(
                 .init(
@@ -593,14 +593,14 @@ struct ClientSessionValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_050)
+        await nowProvider.set(unixSeconds: 1_050)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < playerCommit.initialCommitments.count + 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_055)
+        await nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(
             .fusionResult(
                 .init(
@@ -683,7 +683,7 @@ struct ClientSessionValidator {
             eventObserver: eventObserver,
             stateObserver: stateObserver,
             workflow: ClientSessionValidatorSupport.makeRoundAwareScriptedWorkflow(),
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { recordingCovertTransport }
         )
@@ -694,14 +694,14 @@ struct ClientSessionValidator {
                 == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
         )
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
         #expect(
             try await coordinator.nextClientMessage()
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedPreparationPlans().isEmpty {
@@ -709,15 +709,15 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(firstStartRound))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(
             .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
         )
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         try await coordinator.send(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
 
         await scriptedCovertTransport.enqueueResponse(
@@ -725,14 +725,14 @@ struct ClientSessionValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         try await coordinator.send(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
 
         await scriptedCovertTransport.enqueueResponse(
@@ -740,28 +740,28 @@ struct ClientSessionValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_050)
+        await nowProvider.set(unixSeconds: 1_050)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_055)
+        await nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.failureResult))
         #expect(
             try await coordinator.nextClientMessage()
                 == .myProofsList(PrimaryRuntimeTestFixtures.myProofsList)
         )
 
-        nowProvider.set(unixSeconds: 1_056)
+        await nowProvider.set(unixSeconds: 1_056)
         try await coordinator.send(.theirProofsList(PrimaryRuntimeTestFixtures.theirProofsList))
         #expect(
             try await coordinator.nextClientMessage()
                 == .blames(PrimaryRuntimeTestFixtures.blames)
         )
 
-        nowProvider.set(unixSeconds: 1_060)
+        await nowProvider.set(unixSeconds: 1_060)
         try await coordinator.send(.restartRound(.init()))
 
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
@@ -774,7 +774,7 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_060)
+        await nowProvider.set(unixSeconds: 1_060)
         try await coordinator.send(.fusionBegin(secondFusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedPreparationPlans().count < 2 {
@@ -782,15 +782,15 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_090)
+        await nowProvider.set(unixSeconds: 1_090)
         try await coordinator.send(.startRound(secondStartRound))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_092)
+        await nowProvider.set(unixSeconds: 1_092)
         try await coordinator.send(
             .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
         )
-        nowProvider.set(unixSeconds: 1_094)
+        await nowProvider.set(unixSeconds: 1_094)
         try await coordinator.send(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
 
         await scriptedCovertTransport.enqueueResponse(
@@ -798,14 +798,14 @@ struct ClientSessionValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_095)
+        await nowProvider.set(unixSeconds: 1_095)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 3 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_100)
+        await nowProvider.set(unixSeconds: 1_100)
         try await coordinator.send(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
 
         await scriptedCovertTransport.enqueueResponse(
@@ -813,14 +813,14 @@ struct ClientSessionValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_110)
+        await nowProvider.set(unixSeconds: 1_110)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await recordingCovertTransport.recordedRequests().count < 4 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_115)
+        await nowProvider.set(unixSeconds: 1_115)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
 
         let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
@@ -953,7 +953,7 @@ struct ClientSessionValidator {
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
@@ -961,11 +961,11 @@ struct ClientSessionValidator {
         await session.start()
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(scenario.serverHello))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -973,7 +973,7 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(scenario.startRound))
 
         let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
@@ -1051,7 +1051,7 @@ struct ClientSessionValidator {
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport },
             snapshotDeliveryHook: { snapshot in
@@ -1064,11 +1064,11 @@ struct ClientSessionValidator {
         await session.start()
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(scenario.serverHello))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -1076,11 +1076,11 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(scenario.startRound))
 
         let blockedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
-            await snapshotDeliveryGate.waitForBlockedSnapshot()
+            try await snapshotDeliveryGate.waitForBlockedSnapshot()
         }
         #expect(ClientSessionValidatorSupport.isUnsupportedReservationConnectedTerminalSnapshot(blockedSnapshot))
 
@@ -1153,7 +1153,7 @@ struct ClientSessionValidator {
             transactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport }
         )
@@ -1161,11 +1161,11 @@ struct ClientSessionValidator {
         await session.start()
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(scenario.serverHello))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -1173,7 +1173,7 @@ struct ClientSessionValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(scenario.startRound))
         let playerCommitMessage = try await coordinator.nextClientMessage()
         guard case let .playerCommit(playerCommit) = playerCommitMessage else {
@@ -1184,10 +1184,10 @@ struct ClientSessionValidator {
         }
 
         let blindResponses = try await scenario.buildBlindSignatureResponses(for: playerCommit)
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(.blindSignatureResponses(blindResponses))
 
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         try await coordinator.send(
             .allCommitments(.init(initialCommitments: playerCommit.initialCommitments))
         )
@@ -1199,7 +1199,7 @@ struct ClientSessionValidator {
                 )
             )
         }
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         let componentRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
@@ -1217,7 +1217,7 @@ struct ClientSessionValidator {
             return componentMessage.serializedComponent
         }
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         try await coordinator.send(
             .shareCovertComponents(
                 .init(

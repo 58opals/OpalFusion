@@ -60,7 +60,7 @@ struct LivePrimaryTransportValidator {
         let reservedPort = try LiveRuntimeTestSupport.reserveLoopbackPort()
         let transport = OpalFusion.Runtime.LivePrimaryTransport(
             host: "127.0.0.1",
-            port: reservedPort.port
+            port: await reservedPort.port
         )
 
         let connectTask = Task {
@@ -169,7 +169,7 @@ struct LivePrimaryTransportValidator {
             #expect(String(describing: error) == String(describing: underlyingError))
         }
 
-        #expect(factory.connection.cancelCount() == 1)
+        #expect(await factory.connection.cancelCount() == 1)
     }
 
     @Test("Live primary transport cancels the underlying connection after terminal startup failure")
@@ -199,7 +199,7 @@ struct LivePrimaryTransportValidator {
             #expect(String(describing: error) == String(describing: underlyingError))
         }
 
-        #expect(factory.connection.cancelCount() == 1)
+        #expect(await factory.connection.cancelCount() == 1)
     }
 
     @Test("Live primary transport keeps explicit close cancellation after a stored waiting error")
@@ -265,7 +265,7 @@ struct LivePrimaryTransportValidator {
             host: LoopbackPrimaryTLSTestFixture.host,
             port: port,
             requiresTLS: true,
-            tlsTrustAnchorCertificateDERs: try LoopbackPrimaryTLSTestFixture
+            tlsTrustAnchorCertificateDERs: try await LoopbackPrimaryTLSTestFixture
                 .trustAnchorCertificateDERs()
         )
     }

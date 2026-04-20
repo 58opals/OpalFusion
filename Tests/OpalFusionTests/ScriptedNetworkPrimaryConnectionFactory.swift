@@ -3,7 +3,7 @@
 @testable import OpalFusion
 import Network
 
-final class ScriptedNetworkPrimaryConnectionFactory: @unchecked Sendable {
+struct ScriptedNetworkPrimaryConnectionFactory: Sendable {
     let connection: ScriptedNetworkPrimaryConnection
 
     init(

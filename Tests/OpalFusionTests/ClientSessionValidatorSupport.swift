@@ -13,12 +13,12 @@ enum ClientSessionValidatorSupport {
 
     static func makeTrustedTLSPrimaryTransport(
         port: UInt16
-    ) throws -> OpalFusion.Runtime.LivePrimaryTransport {
+    ) async throws -> OpalFusion.Runtime.LivePrimaryTransport {
         OpalFusion.Runtime.LivePrimaryTransport(
             host: LoopbackPrimaryTLSTestFixture.host,
             port: port,
             requiresTLS: true,
-            tlsTrustAnchorCertificateDERs: try LoopbackPrimaryTLSTestFixture
+            tlsTrustAnchorCertificateDERs: try await LoopbackPrimaryTLSTestFixture
                 .trustAnchorCertificateDERs()
         )
     }

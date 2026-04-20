@@ -2,20 +2,26 @@
 
 import Darwin
 
-final class ReservedLoopbackPort: @unchecked Sendable {
-    let port: UInt16
+actor ReservedLoopbackPort {
+    private let portValue: UInt16
     private var socketDescriptor: Int32?
 
     init(
         port: UInt16,
         socketDescriptor: Int32
     ) {
-        self.port = port
+        self.portValue = port
         self.socketDescriptor = socketDescriptor
     }
 
     deinit {
-        release()
+        if let socketDescriptor {
+            _ = close(socketDescriptor)
+        }
+    }
+
+    var port: UInt16 {
+        portValue
     }
 
     func release() {

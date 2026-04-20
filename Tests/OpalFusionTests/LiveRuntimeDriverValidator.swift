@@ -345,12 +345,12 @@ struct LiveRuntimeDriverValidator {
                 )
             },
             primaryTransportFactory: { configuration in
-                observedRequiresTLS.value = configuration.coordinatorRequiresTLS
+                await observedRequiresTLS.set(configuration.coordinatorRequiresTLS)
                 return OpalFusion.Runtime.LivePrimaryTransport(
                     host: configuration.coordinatorHost,
                     port: configuration.coordinatorPort,
                     requiresTLS: configuration.coordinatorRequiresTLS,
-                    tlsTrustAnchorCertificateDERs: try! LoopbackPrimaryTLSTestFixture
+                    tlsTrustAnchorCertificateDERs: try! await LoopbackPrimaryTLSTestFixture
                         .trustAnchorCertificateDERs()
                 )
             },
@@ -381,7 +381,7 @@ struct LiveRuntimeDriverValidator {
 
         #expect(snapshot.lastError == nil)
         #expect(snapshot.lastErrorSummary == nil)
-        #expect(observedRequiresTLS.value == true)
+        #expect(await observedRequiresTLS.value() == true)
 
         let events = await eventSink.snapshot()
         #expect(events.contains { $0.event.summary == "Primary channel connected; sending ClientHello" })
@@ -562,7 +562,7 @@ struct LiveRuntimeDriverValidator {
                     event: event
                 )
             },
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransport: covertTransport
         )
@@ -573,14 +573,14 @@ struct LiveRuntimeDriverValidator {
                 == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
         )
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
         #expect(
             try await coordinator.nextClientMessage()
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -588,19 +588,19 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(PrimaryRuntimeTestFixtures.startRound))
         #expect(
             try await coordinator.nextClientMessage()
                 == .playerCommit(PrimaryRuntimeTestFixtures.playerCommit)
         )
 
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(
             .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
         )
 
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         try await coordinator.send(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
 
         await covertTransport.enqueueResponse(
@@ -608,14 +608,14 @@ struct LiveRuntimeDriverValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         try await coordinator.send(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
 
         await covertTransport.enqueueResponse(
@@ -623,14 +623,14 @@ struct LiveRuntimeDriverValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_050)
+        await nowProvider.set(unixSeconds: 1_050)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_055)
+        await nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
 
         let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
@@ -692,7 +692,7 @@ struct LiveRuntimeDriverValidator {
                     event: event
                 )
             },
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransport: covertTransport
         )
@@ -703,14 +703,14 @@ struct LiveRuntimeDriverValidator {
                 == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
         )
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(scenario.serverHello))
         #expect(
             try await coordinator.nextClientMessage()
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -718,7 +718,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(scenario.startRound))
         let playerCommitMessage = try await coordinator.nextClientMessage()
         guard case let .playerCommit(playerCommit) = playerCommitMessage else {
@@ -729,10 +729,10 @@ struct LiveRuntimeDriverValidator {
         }
 
         let blindResponses = try await scenario.buildBlindSignatureResponses(for: playerCommit)
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(.blindSignatureResponses(blindResponses))
 
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         try await coordinator.send(
             .allCommitments(.init(initialCommitments: playerCommit.initialCommitments))
         )
@@ -744,7 +744,7 @@ struct LiveRuntimeDriverValidator {
                 )
             )
         }
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         let componentRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
@@ -762,7 +762,7 @@ struct LiveRuntimeDriverValidator {
             return componentMessage.serializedComponent
         }
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         try await coordinator.send(
             .shareCovertComponents(
                 .init(
@@ -784,7 +784,7 @@ struct LiveRuntimeDriverValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_050)
+        await nowProvider.set(unixSeconds: 1_050)
         let allRequests = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let requests = await covertTransport.recordedRequests()
@@ -815,7 +815,7 @@ struct LiveRuntimeDriverValidator {
         #expect(signaturePayload.roundPublicKey == scenario.startRound.roundPublicKey)
         #expect(signaturePayload.inputIndex == 0)
 
-        nowProvider.set(unixSeconds: 1_055)
+        await nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(
             .fusionResult(
                 .init(
@@ -928,7 +928,7 @@ struct LiveRuntimeDriverValidator {
             transactionAssembler: DelayedTransactionAssembler(
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             covertTransport: covertTransport
         )
@@ -936,11 +936,11 @@ struct LiveRuntimeDriverValidator {
         await driver.start()
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         try await coordinator.send(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedPreparationPlans().isEmpty {
@@ -948,15 +948,15 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         try await coordinator.send(.startRound(PrimaryRuntimeTestFixtures.startRound))
         _ = try await coordinator.nextClientMessage()
 
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         try await coordinator.send(
             .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
         )
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         try await coordinator.send(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
 
         await covertTransport.enqueueResponse(
@@ -964,14 +964,14 @@ struct LiveRuntimeDriverValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         try await coordinator.send(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
 
         await covertTransport.enqueueResponse(
@@ -979,21 +979,21 @@ struct LiveRuntimeDriverValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_050)
+        await nowProvider.set(unixSeconds: 1_050)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 2 {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
 
-        nowProvider.set(unixSeconds: 1_055)
+        await nowProvider.set(unixSeconds: 1_055)
         try await coordinator.send(.fusionResult(PrimaryRuntimeTestFixtures.failureResult))
         #expect(
             try await coordinator.nextClientMessage()
                 == .myProofsList(PrimaryRuntimeTestFixtures.myProofsList)
         )
 
-        nowProvider.set(unixSeconds: 1_056)
+        await nowProvider.set(unixSeconds: 1_056)
         try await coordinator.send(.theirProofsList(PrimaryRuntimeTestFixtures.theirProofsList))
         #expect(
             try await coordinator.nextClientMessage()
@@ -1002,7 +1002,7 @@ struct LiveRuntimeDriverValidator {
 
         let resetCountBeforeRestart = await covertTransport.recordedResetCount()
 
-        nowProvider.set(unixSeconds: 1_060)
+        await nowProvider.set(unixSeconds: 1_060)
         try await coordinator.send(.restartRound(.init()))
 
         let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
@@ -1046,7 +1046,7 @@ struct LiveRuntimeDriverValidator {
                     event: event
                 )
             },
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             primaryTransport: primaryTransport,
             covertTransport: covertTransport
@@ -1059,7 +1059,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .serverHello(PrimaryRuntimeTestFixtures.serverHello)
@@ -1071,7 +1071,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
@@ -1083,7 +1083,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .startRound(PrimaryRuntimeTestFixtures.startRound)
@@ -1095,20 +1095,20 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
             )
         )
 
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .allCommitments(PrimaryRuntimeTestFixtures.allCommitments)
             )
         )
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while await covertTransport.recordedRequests().count < 1 {
                 try await Task.sleep(for: .milliseconds(10))
@@ -1189,7 +1189,7 @@ struct LiveRuntimeDriverValidator {
                     event: event
                 )
             },
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             primaryTransport: primaryTransport,
             covertTransport: covertTransport
@@ -1202,7 +1202,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .serverHello(PrimaryRuntimeTestFixtures.serverHello)
@@ -1214,7 +1214,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
@@ -1226,7 +1226,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .startRound(PrimaryRuntimeTestFixtures.startRound)
@@ -1279,7 +1279,7 @@ struct LiveRuntimeDriverValidator {
                     event: event
                 )
             },
-            nowProvider: { nowProvider.now() },
+            nowProvider: { await nowProvider.now() },
             clockTickInterval: .milliseconds(100),
             primaryTransport: primaryTransport,
             covertTransport: covertTransport
@@ -1292,7 +1292,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 996)
+        await nowProvider.set(unixSeconds: 996)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .serverHello(PrimaryRuntimeTestFixtures.serverHello)
@@ -1304,7 +1304,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_000)
+        await nowProvider.set(unixSeconds: 1_000)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
@@ -1316,7 +1316,7 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_030)
+        await nowProvider.set(unixSeconds: 1_030)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .startRound(PrimaryRuntimeTestFixtures.startRound)
@@ -1328,14 +1328,14 @@ struct LiveRuntimeDriverValidator {
             }
         }
 
-        nowProvider.set(unixSeconds: 1_032)
+        await nowProvider.set(unixSeconds: 1_032)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
             )
         )
 
-        nowProvider.set(unixSeconds: 1_034)
+        await nowProvider.set(unixSeconds: 1_034)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .allCommitments(PrimaryRuntimeTestFixtures.allCommitments)
@@ -1347,11 +1347,11 @@ struct LiveRuntimeDriverValidator {
                 PrimaryRuntimeTestFixtures.acknowledgement
             )
         )
-        nowProvider.set(unixSeconds: 1_035)
+        await nowProvider.set(unixSeconds: 1_035)
         try await Task.sleep(for: .milliseconds(150))
         #expect(await covertTransport.recordedRequests().count == 1)
 
-        nowProvider.set(unixSeconds: 1_040)
+        await nowProvider.set(unixSeconds: 1_040)
         await primaryTransport.yieldInboundBytes(
             try PrimaryRuntimeTestFixtures.encodeServerFrame(
                 .shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents)

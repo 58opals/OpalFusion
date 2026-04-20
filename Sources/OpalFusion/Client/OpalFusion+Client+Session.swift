@@ -21,10 +21,10 @@ public extension OpalFusion.Client {
         private struct Dependencies: Sendable {
             let workflow: OpalFusion.Execution.WorkflowContext?
             let baseline: OpalFusion.Transport.BaselineConfiguration
-            let nowProvider: @Sendable () -> OpalFusion.Execution.Instant
+            let nowProvider: @Sendable () async -> OpalFusion.Execution.Instant
             let clockTickInterval: Duration
-            let primaryTransportFactory: @Sendable () -> (any OpalFusion.Runtime.PrimaryTransporting)?
-            let covertTransportFactory: @Sendable () -> (any OpalFusion.Runtime.CovertTransporting)?
+            let primaryTransportFactory: @Sendable () async -> (any OpalFusion.Runtime.PrimaryTransporting)?
+            let covertTransportFactory: @Sendable () async -> (any OpalFusion.Runtime.CovertTransporting)?
             let snapshotDeliveryHook: @Sendable (
                 OpalFusion.Client.Session.Snapshot
             ) async -> Void
@@ -82,12 +82,12 @@ public extension OpalFusion.Client {
             stateObserver: (any OpalFusion.Client.StateObserver)? = nil,
             workflow: OpalFusion.Execution.WorkflowContext? = nil,
             baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443,
-            nowProvider: @escaping @Sendable () -> OpalFusion.Execution.Instant = {
+            nowProvider: @escaping @Sendable () async -> OpalFusion.Execution.Instant = {
                 .now()
             },
             clockTickInterval: Duration = .milliseconds(250),
-            primaryTransportFactory: @escaping @Sendable () -> (any OpalFusion.Runtime.PrimaryTransporting)? = { nil },
-            covertTransportFactory: @escaping @Sendable () -> (any OpalFusion.Runtime.CovertTransporting)? = { nil },
+            primaryTransportFactory: @escaping @Sendable () async -> (any OpalFusion.Runtime.PrimaryTransporting)? = { nil },
+            covertTransportFactory: @escaping @Sendable () async -> (any OpalFusion.Runtime.CovertTransporting)? = { nil },
             snapshotDeliveryHook: @escaping @Sendable (
                 OpalFusion.Client.Session.Snapshot
             ) async -> Void = { _ in }
@@ -119,7 +119,7 @@ public extension OpalFusion.Client {
 
             await updateSnapshotIfNeeded(.init())
 
-            let runtimeDriver = makeRuntimeDriver()
+            let runtimeDriver = await makeRuntimeDriver()
             self.runtimeDriver = runtimeDriver
 
             await runtimeDriver.start()
@@ -145,8 +145,10 @@ public extension OpalFusion.Client {
             return lastEmittedSnapshot
         }
 
-        private func makeRuntimeDriver() -> OpalFusion.Runtime.LiveRuntimeDriver {
-            OpalFusion.Runtime.LiveRuntimeDriver(
+        private func makeRuntimeDriver() async -> OpalFusion.Runtime.LiveRuntimeDriver {
+            let primaryTransport = await dependencies.primaryTransportFactory()
+            let covertTransport = await dependencies.covertTransportFactory()
+            return OpalFusion.Runtime.LiveRuntimeDriver(
                 configuration: configuration,
                 genesisHash: genesisHash,
                 joinPools: joinPools,
@@ -160,8 +162,8 @@ public extension OpalFusion.Client {
                 baseline: dependencies.baseline,
                 nowProvider: dependencies.nowProvider,
                 clockTickInterval: dependencies.clockTickInterval,
-                primaryTransport: dependencies.primaryTransportFactory(),
-                covertTransport: dependencies.covertTransportFactory()
+                primaryTransport: primaryTransport,
+                covertTransport: covertTransport
             )
         }
 

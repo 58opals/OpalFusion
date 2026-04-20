@@ -30,7 +30,7 @@ actor LoopbackPrimaryCoordinator {
         let networkQueue = DispatchQueue(label: "OpalFusionTests.LoopbackPrimaryCoordinator")
         let parameters: NWParameters
         if requiresTLS {
-            parameters = try LoopbackPrimaryTLSTestFixture.makeListenerParameters()
+            parameters = try await LoopbackPrimaryTLSTestFixture.makeListenerParameters()
         } else {
             parameters = NWParameters.tcp
         }
@@ -70,8 +70,8 @@ actor LoopbackPrimaryCoordinator {
         requiresTLS: Bool = false,
         baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443
     ) async throws -> LoopbackPrimaryCoordinator {
-        let port = reservedPort.port
-        reservedPort.release()
+        let port = await reservedPort.port
+        await reservedPort.release()
         return try await start(
             port: port,
             requiresTLS: requiresTLS,
