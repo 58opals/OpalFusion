@@ -150,6 +150,86 @@ struct ProductionWorkflowValidator {
         }
     }
 
+    @Test("Production workflow rejects compressed-length participant keys that are not curve points")
+    func validateParticipantReservationRejectsInvalidCompressedPublicKey() throws {
+        let invalidCompressedPublicKey = [UInt8](arrayLiteral: 0x02)
+            + [UInt8](repeating: 0x00, count: 32)
+
+        do {
+            var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+            scenario.round.participantReservation = .init(
+                inputs: [
+                    .init(
+                        outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
+                        outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+                        amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
+                        lockingScriptBytes: ProductionWorkflowTestFixtures.p2pkhLockingScript(
+                            publicKey: invalidCompressedPublicKey
+                        ),
+                        publicKey: invalidCompressedPublicKey
+                    )
+                ],
+                outputs: scenario.reservation.outputs
+            )
+            _ = try scenario.workflow.buildPlayerCommit(round: &scenario.round)
+            Issue.record("Expected invalid curve-point reservation to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .invalidParticipantReservation(
+                    "Participant input at index 0 must provide the compressed public key required for standard P2PKH support"
+                )
+            )
+        }
+    }
+
+    @Test("Production workflow rejects participant amounts above the BCH money supply")
+    func validateParticipantReservationRejectsImpossibleAmounts() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let impossibleInputAmount: UInt64 = 3_000_000_000_000_000
+        let inputFee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+            sizeBytes: OpalFusion.Execution.ProtocolPrimitives.inputSize(
+                for: scenario.reservation.inputs[0].publicKey ?? []
+            ),
+            feeRateSatoshisPerKb: scenario.serverHello.componentFeeRateSatoshisPerKb
+        )
+        let outputFee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+            sizeBytes: OpalFusion.Execution.ProtocolPrimitives.outputSize(
+                for: scenario.reservation.outputs[0].lockingScriptBytes
+            ),
+            feeRateSatoshisPerKb: scenario.serverHello.componentFeeRateSatoshisPerKb
+        )
+        let impossibleOutputAmount = impossibleInputAmount - inputFee - outputFee - 250
+
+        scenario.round.participantReservation = .init(
+            inputs: [
+                .init(
+                    outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
+                    outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+                    amountSatoshis: impossibleInputAmount,
+                    lockingScriptBytes: scenario.reservation.inputs[0].lockingScriptBytes,
+                    publicKey: scenario.reservation.inputs[0].publicKey
+                )
+            ],
+            outputs: [
+                .init(
+                    lockingScriptBytes: scenario.reservation.outputs[0].lockingScriptBytes,
+                    amountSatoshis: impossibleOutputAmount
+                )
+            ]
+        )
+
+        do {
+            _ = try scenario.workflow.buildPlayerCommit(round: &scenario.round)
+            Issue.record("Expected impossible participant amount to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .invalidParticipantReservation(
+                    "Participant input at index 0 exceeds the maximum BCH money supply"
+                )
+            )
+        }
+    }
+
     @Test("Production workflow derives the unsigned template and extracts local signatures")
     func validateTransactionTemplateAndSignatureExtraction() async throws {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
@@ -244,6 +324,186 @@ struct ProductionWorkflowValidator {
         }
     }
 
+    @Test("Production workflow rejects shared output components above the BCH money supply")
+    func validateSharedOutputComponentRejectsImpossibleAmount() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+
+        var component = Fusion_Component()
+        component.saltCommitment = Data([0xA0])
+        var output = Fusion_OutputComponent()
+        output.scriptpubkey = Data([0x51])
+        output.amount = OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis + 1
+        component.component = .output(output)
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments + [
+                .init(
+                    saltedComponentHash: [0xA1],
+                    amountCommitment: [0xA2],
+                    communicationPublicKey: [0xA3]
+                )
+            ],
+            serializedComponents: scenario.localSerializedComponents()
+                + [try Array(component.serializedData())]
+        )
+
+        do {
+            _ = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
+            Issue.record("Expected impossible shared output amount to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .protocolValidationFailed(
+                    "Shared output component at index 3 exceeds the maximum BCH money supply"
+                )
+            )
+        }
+    }
+
+    @Test("Production workflow rejects shared output components below the minimum amount")
+    func validateSharedOutputComponentRejectsDustAmount() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+
+        var component = Fusion_Component()
+        component.saltCommitment = Data([0xD0])
+        var output = Fusion_OutputComponent()
+        output.scriptpubkey = Data([0x51])
+        output.amount = 1
+        component.component = .output(output)
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments + [
+                .init(
+                    saltedComponentHash: [0xD1],
+                    amountCommitment: [0xD2],
+                    communicationPublicKey: [0xD3]
+                )
+            ],
+            serializedComponents: scenario.localSerializedComponents()
+                + [try Array(component.serializedData())]
+        )
+
+        do {
+            _ = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
+            Issue.record("Expected dust shared output to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .protocolValidationFailed(
+                    "Shared output component at index 3 is below the minimum allowed amount"
+                )
+            )
+        }
+    }
+
+    @Test("Production workflow rejects shared component count mismatches")
+    func validateSharedComponentCountMustMatchCommitments() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+
+        var extraComponent = Fusion_Component()
+        extraComponent.saltCommitment = Data([0xE0])
+        extraComponent.component = .blank(.init())
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments,
+            serializedComponents: scenario.localSerializedComponents()
+                + [try Array(extraComponent.serializedData())]
+        )
+
+        do {
+            _ = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
+            Issue.record("Expected shared component count mismatch to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .protocolValidationFailed(
+                    "Coordinator returned a different number of shared components than commitments"
+                )
+            )
+        }
+    }
+
+    @Test("Production workflow rejects shared input components with invalid public keys")
+    func validateSharedInputComponentRejectsInvalidPublicKey() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+
+        var component = Fusion_Component()
+        component.saltCommitment = Data([0xB0])
+        var input = Fusion_InputComponent()
+        input.prevTxid = Data([UInt8](repeating: 0xCC, count: 32).reversed())
+        input.prevIndex = 2
+        input.pubkey = Data([UInt8](arrayLiteral: 0x02) + [UInt8](repeating: 0x00, count: 32))
+        input.amount = 60_000
+        component.component = .input(input)
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments + [
+                .init(
+                    saltedComponentHash: [0xB1],
+                    amountCommitment: [0xB2],
+                    communicationPublicKey: [0xB3]
+                )
+            ],
+            serializedComponents: scenario.localSerializedComponents()
+                + [try Array(component.serializedData())]
+        )
+
+        do {
+            _ = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
+            Issue.record("Expected invalid shared input public key to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .protocolValidationFailed(
+                    "Shared input component at index 3 must provide a valid compressed public key"
+                )
+            )
+        }
+    }
+
+    @Test("Production workflow rejects shared input components with short previous hashes")
+    func validateSharedInputComponentRejectsShortPreviousHash() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+
+        guard let publicKey = scenario.reservation.inputs[0].publicKey else {
+            Issue.record("Expected fixture public key")
+            return
+        }
+
+        var component = Fusion_Component()
+        component.saltCommitment = Data([0xC0])
+        var input = Fusion_InputComponent()
+        input.prevTxid = Data([UInt8](repeating: 0xCC, count: 31))
+        input.prevIndex = 2
+        input.pubkey = Data(publicKey)
+        input.amount = 60_000
+        component.component = .input(input)
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments + [
+                .init(
+                    saltedComponentHash: [0xC1],
+                    amountCommitment: [0xC2],
+                    communicationPublicKey: [0xC3]
+                )
+            ],
+            serializedComponents: scenario.localSerializedComponents()
+                + [try Array(component.serializedData())]
+        )
+
+        do {
+            _ = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
+            Issue.record("Expected short previous transaction hash to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .protocolValidationFailed(
+                    "Shared input component at index 3 previous transaction hash must be 32 bytes"
+                )
+            )
+        }
+    }
+
     @Test("Production workflow generates decryptable proofs and blame outputs")
     func validateProofGenerationAndBlameMaterialization() throws {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
@@ -269,8 +529,12 @@ struct ProductionWorkflowValidator {
         #expect(myProofsList.encryptedProofs.count == playerCommitMaterial.componentsByCommitmentOrder.count)
 
         let decryptedProof = try OpalCrypto.Communication.decrypt(
-            Data(myProofsList.encryptedProofs[0]),
-            privateKey: Data(extraInputComponent.communicationPrivateKey)
+            OpalCrypto.Communication.Ciphertext(
+                rawRepresentation: Data(myProofsList.encryptedProofs[0])
+            ),
+            privateKey: OpalCrypto.Secp256k1.PrivateKey(
+                rawRepresentation: Data(extraInputComponent.communicationPrivateKey)
+            )
         )
         let parsedProof = try Fusion_Proof(serializedBytes: decryptedProof.message)
         #expect(sharedRoundMaterial.myComponentIndices.contains(Int(parsedProof.componentIdx)))
@@ -279,8 +543,12 @@ struct ProductionWorkflowValidator {
         let invalidEncryptedProof = try Array(
             OpalCrypto.Communication.encrypt(
                 message: Data([0x00]),
-                recipientPublicKey: Data(destinationComponent.initialCommitment.communicationPublicKey)
-            )
+                recipientPublicKey: OpalCrypto.Secp256k1.PublicKey(
+                    rawRepresentation: Data(
+                        destinationComponent.initialCommitment.communicationPublicKey
+                    )
+                )
+            ).rawRepresentation
         )
         let validEncryptedProof = try ProductionWorkflowTestFixtures.encryptProof(
             componentIndex: sharedRoundMaterial.allComponentBytes.count - 1,
@@ -324,6 +592,36 @@ struct ProductionWorkflowValidator {
             #expect(sessionKey.count == 32)
         } else {
             Issue.record("Expected input proof blame to carry a session key")
+        }
+    }
+
+    @Test("Production workflow fails proof generation when a destination communication key is invalid")
+    func validateProofGenerationRejectsInvalidDestinationCommunicationKey() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+        let externalComponent = try scenario.makeExternalInputComponent()
+        let invalidCommunicationPublicKey = [UInt8](arrayLiteral: 0x02)
+            + [UInt8](repeating: 0x00, count: 32)
+        let invalidExternalCommitment = OpalFusion.Commitment.InitialCommitment(
+            saltedComponentHash: externalComponent.initialCommitment.saltedComponentHash,
+            amountCommitment: externalComponent.initialCommitment.amountCommitment,
+            communicationPublicKey: invalidCommunicationPublicKey
+        )
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments + [invalidExternalCommitment],
+            serializedComponents: scenario.localSerializedComponents()
+                + [externalComponent.serializedComponent]
+        )
+
+        do {
+            _ = try scenario.workflow.buildMyProofsList(round: &scenario.round)
+            Issue.record("Expected invalid proof destination key to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            guard case let .protocolValidationFailed(summary) = error else {
+                Issue.record("Expected protocol validation failure")
+                return
+            }
+            #expect(summary.hasPrefix("Proof encryption failed"))
         }
     }
 }

@@ -93,14 +93,12 @@ extension OpalFusion.Runtime {
             case .covertPrepared:
                 return handleCovertPrepared(now: now)
             case let .covertPreparationFailed(summary):
-                substate = .idle
-                preparationPlan = nil
+                reset()
                 return [.emitTransportFailure(summary: summary)]
             case let .covertResponseBytesReceived(bytes):
                 return handleCovertResponseBytes(bytes, now: now)
             case let .covertRequestFailed(summary):
-                outstanding = nil
-                outstandingRequest = nil
+                reset()
                 return [.emitTransportFailure(summary: summary)]
             case .clockAdvanced:
                 return handleClockAdvanced(now: now)
@@ -133,7 +131,7 @@ extension OpalFusion.Runtime {
         private mutating func handleCovertPrepared(
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
-            guard endpointContext != nil, preparationPlan != nil else {
+            guard endpointContext != nil, let preparationPlan else {
                 return [
                     .emitProtocolFailure(
                         summary: "Covert preparation completed before an endpoint was configured"
@@ -141,8 +139,15 @@ extension OpalFusion.Runtime {
                 ]
             }
 
+            if now > preparationPlan.deadline {
+                reset()
+                return [
+                    .emitTransportFailure(summary: "Covert endpoint preparation timed out")
+                ]
+            }
+
             substate = .prepared
-            preparationPlan = nil
+            self.preparationPlan = nil
             return maybeDispatchNextRequest(now: now)
         }
 
@@ -150,7 +155,8 @@ extension OpalFusion.Runtime {
             _ bytes: [UInt8],
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
-            guard outstanding != nil else {
+            guard let outstanding else {
+                reset()
                 return [
                     .emitProtocolFailure(
                         summary: "Received a covert response without an outstanding request"
@@ -158,10 +164,22 @@ extension OpalFusion.Runtime {
                 ]
             }
 
+            if now > outstanding.request.deadline {
+                reset()
+                return [
+                    .emitTransportFailure(summary: "Covert request timed out")
+                ]
+            }
+
             do {
                 let response = try messageDecoder.decodeResponse(bytes)
-                outstanding = nil
+                self.outstanding = nil
                 outstandingRequest = nil
+
+                if case .serverFailure = response {
+                    reset()
+                    return [.deliverCovertResponse(response)]
+                }
 
                 var effects: [OpalFusion.Runtime.CovertRuntimeSession.Effect] = [
                     .deliverCovertResponse(response)
@@ -169,8 +187,7 @@ extension OpalFusion.Runtime {
                 effects.append(contentsOf: maybeDispatchNextRequest(now: now))
                 return effects
             } catch {
-                outstanding = nil
-                outstandingRequest = nil
+                reset()
                 return [
                     .emitProtocolFailure(
                         summary: "Covert response decode failed: \(String(describing: error))"
@@ -183,16 +200,14 @@ extension OpalFusion.Runtime {
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
             if let plan = preparationPlan, now > plan.deadline {
-                substate = .idle
-                preparationPlan = nil
+                reset()
                 return [
                     .emitTransportFailure(summary: "Covert endpoint preparation timed out")
                 ]
             }
 
             if let outstanding, now > outstanding.request.deadline {
-                self.outstanding = nil
-                self.outstandingRequest = nil
+                reset()
                 return [
                     .emitTransportFailure(summary: "Covert request timed out")
                 ]

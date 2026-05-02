@@ -60,9 +60,11 @@ struct ElectronCashInteropConfiguration: Sendable {
             expectedByteCount: 32
         )
         let participantInputPublicKey = try Array(
-            OpalCrypto.Signature.derivePublicKey(
-                fromPrivateKey: Data(participantInputPrivateKey)
-            )
+            OpalCrypto.Secp256k1.derivePublicKey(
+                from: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(participantInputPrivateKey)
+                )
+            ).rawRepresentation
         )
         guard OpalFusion.Execution.ProtocolPrimitives.isStandardP2PKHLockingScript(
             inputLockingScript,

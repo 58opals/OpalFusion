@@ -93,11 +93,13 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
             amountSatoshis: participantInput.amountSatoshis
         )
         let signature = try Array(
-            OpalCrypto.Signature.signSchnorr(
-                digest: Data(sighash),
-                privateKey: Data(participantInputPrivateKey),
+            OpalCrypto.Signature.Schnorr.sign(
+                digest: OpalCrypto.Signature.Digest(rawRepresentation: Data(sighash)),
+                privateKey: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(participantInputPrivateKey)
+                ),
                 noncePolicy: .bip340Deterministic
-            )
+            ).rawRepresentation
         )
 
         let unlockingScript = unlockingScriptBuilder?(

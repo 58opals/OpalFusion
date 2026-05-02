@@ -82,6 +82,10 @@ extension OpalFusion.Execution {
                     return []
                 }
                 session.isConnected = false
+                if round?.substate == .terminal {
+                    session.connectionSubstate = .disconnected
+                    return []
+                }
                 if round?.identifier != nil {
                     return failRound(
                         completionStatus: .transportFailed,
@@ -94,6 +98,9 @@ extension OpalFusion.Execution {
                     summary: summary
                 )
             case let .covertTransportFailed(summary):
+                if round?.substate == .terminal {
+                    return []
+                }
                 if round?.identifier != nil {
                     return failRound(
                         completionStatus: .transportFailed,
@@ -106,6 +113,9 @@ extension OpalFusion.Execution {
                     summary: summary
                 )
             case let .protocolRejected(summary):
+                if round?.substate == .terminal {
+                    return []
+                }
                 if round?.identifier != nil {
                     return failRound(
                         completionStatus: .protocolIncompatible,
@@ -124,6 +134,9 @@ extension OpalFusion.Execution {
             case let .participantReservationLoaded(reservation):
                 return handleParticipantReservationLoaded(reservation)
             case .participantReservationRejected:
+                if round?.substate == .terminal {
+                    return []
+                }
                 return failRound(
                     completionStatus: .hostRejected,
                     clientError: .hostRejected,
@@ -132,6 +145,9 @@ extension OpalFusion.Execution {
             case let .finalizedTransactionLoaded(transaction):
                 return handleFinalizedTransactionLoaded(transaction, now: now)
             case .transactionFinalizationRejected:
+                if round?.substate == .terminal {
+                    return []
+                }
                 return failRound(
                     completionStatus: .hostRejected,
                     clientError: .hostRejected,
@@ -216,6 +232,11 @@ extension OpalFusion.Execution {
                 return []
             }
 
+            if round?.substate == .terminal {
+                session.connectionSubstate = .disconnected
+                return []
+            }
+
             if round?.identifier != nil {
                 return failRound(
                     completionStatus: .transportFailed,
@@ -242,6 +263,10 @@ extension OpalFusion.Execution {
             _ message: OpalFusion.ProtocolModel.ServerMessage,
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            if round?.substate == .terminal {
+                return []
+            }
+
             if case let .serverFailure(failure) = message {
                 return failForServerFailure(failure)
             }
@@ -278,6 +303,12 @@ extension OpalFusion.Execution {
                             return failBeforeRound(
                                 error: .protocolIncompatible,
                                 summary: "FusionBegin arrived before a valid ServerHello was recorded"
+                            )
+                        }
+                        guard session.joinPools.tiers.contains(fusionBegin.tier) else {
+                            return failBeforeRound(
+                                error: .protocolIncompatible,
+                                summary: "FusionBegin tier was not requested"
                             )
                         }
                         guard isServerTimeAcceptable(fusionBegin.serverTimeUnixSeconds, now: now) else {
@@ -561,6 +592,10 @@ extension OpalFusion.Execution {
         private mutating func handleCovertResponse(
             _ response: OpalFusion.ProtocolModel.CovertResponse
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            if round?.substate == .terminal {
+                return []
+            }
+
             switch response {
             case .acknowledgement:
                 guard var round else {
@@ -587,6 +622,10 @@ extension OpalFusion.Execution {
         private mutating func handleParticipantReservationLoaded(
             _ reservation: OpalFusion.Host.ParticipantReservation
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            if round?.substate == .terminal {
+                return []
+            }
+
             guard var round, round.substate == .collectingInputs else {
                 return failRound(
                     completionStatus: .protocolIncompatible,
@@ -621,6 +660,10 @@ extension OpalFusion.Execution {
             _ transaction: OpalFusion.Host.FinalizedTransaction,
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            if round?.substate == .terminal {
+                return []
+            }
+
             guard var round, round.substate == .awaitingHostFinalization else {
                 return failRound(
                     completionStatus: .protocolIncompatible,
@@ -834,6 +877,7 @@ extension OpalFusion.Execution {
             error: OpalFusion.Client.Error,
             summary: String
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            round = nil
             session.lastError = error
             session.lastErrorSummary = summary
             session.connectionSubstate = .failed

@@ -442,6 +442,7 @@ extension OpalFusion.Runtime {
         case primaryConnectionCancelled
         case covertEndpointNotPrepared
         case malformedCovertURL
+        case covertPayloadTooLarge
         case unexpectedHTTPStatus(Int)
 
         var errorDescription: String? {
@@ -458,6 +459,8 @@ extension OpalFusion.Runtime {
                 "Covert endpoint was not prepared"
             case .malformedCovertURL:
                 "Covert request URL could not be constructed"
+            case .covertPayloadTooLarge:
+                "Covert request payload exceeded the configured size limit"
             case let .unexpectedHTTPStatus(statusCode):
                 "Covert request failed with HTTP status \(statusCode)"
             }
@@ -467,17 +470,29 @@ extension OpalFusion.Runtime {
     static func validateConfiguration(
         _ configuration: OpalFusion.Client.Configuration
     ) -> String? {
-        if configuration.coordinatorHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let coordinatorHost = configuration.coordinatorHost.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if coordinatorHost.isEmpty {
             return "Coordinator host must not be empty"
+        }
+
+        if coordinatorHost != configuration.coordinatorHost {
+            return "Coordinator host must not include leading or trailing whitespace"
         }
 
         if configuration.coordinatorPort == 0 {
             return "Coordinator port must be greater than zero"
         }
 
-        if configuration.covertChannel.entryPath.isEmpty ||
-            configuration.covertChannel.entryPath.hasPrefix("/") == false {
+        let covertEntryPath = configuration.covertChannel.entryPath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if covertEntryPath.isEmpty || covertEntryPath.hasPrefix("/") == false {
             return "Covert entry path must start with /"
+        }
+
+        if covertEntryPath != configuration.covertChannel.entryPath {
+            return "Covert entry path must not include leading or trailing whitespace"
         }
 
         if configuration.covertChannel.maxPayloadBytes <= 0 {
@@ -489,8 +504,14 @@ extension OpalFusion.Runtime {
         }
 
         if let torSocks5 = configuration.torSocks5 {
-            if torSocks5.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let torSocks5Host = torSocks5.host.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if torSocks5Host.isEmpty {
                 return "Tor SOCKS5 host must not be empty"
+            }
+
+            if torSocks5Host != torSocks5.host {
+                return "Tor SOCKS5 host must not include leading or trailing whitespace"
             }
 
             if torSocks5.port == 0 {
@@ -767,6 +788,10 @@ extension OpalFusion.Runtime {
                 throw OpalFusion.Runtime.LiveTransportError.covertEndpointNotPrepared
             }
 
+            guard request.payload.count <= request.endpoint.maxPayloadBytes else {
+                throw OpalFusion.Runtime.LiveTransportError.covertPayloadTooLarge
+            }
+
             let timeoutSeconds = Self.timeInterval(
                 from: request.startedAt.distance(to: request.deadline),
                 minimumMilliseconds: 1
@@ -805,11 +830,26 @@ extension OpalFusion.Runtime {
         private func makeURL(
             for endpoint: OpalFusion.Runtime.CovertEndpointContext
         ) throws -> URL {
+            guard endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
+            }
+
+            guard (1 ... UInt32(UInt16.max)).contains(endpoint.port) else {
+                throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
+            }
+
+            let entryPath = endpoint.entryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard entryPath.isEmpty == false,
+                  entryPath.hasPrefix("/"),
+                  entryPath == endpoint.entryPath else {
+                throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
+            }
+
             var components = URLComponents()
             components.scheme = endpoint.requiresTLS == true ? "https" : "http"
             components.host = endpoint.host
             components.port = Int(endpoint.port)
-            components.path = endpoint.entryPath
+            components.path = entryPath
 
             guard let url = components.url else {
                 throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL

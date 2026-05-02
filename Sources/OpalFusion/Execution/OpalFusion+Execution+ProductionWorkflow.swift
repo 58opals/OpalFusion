@@ -45,7 +45,7 @@ extension OpalFusion.Execution {
             self.baseline = baseline
             self.pedersenSetup = try! OpalCrypto.Pedersen.Setup(
                 alternateBasePoint: OpalFusion.Execution.ProtocolPrimitives
-                    .pedersenAlternateBasePoint
+                    .pedersenAlternateBasePublicKey
             )
         }
 
@@ -57,7 +57,7 @@ extension OpalFusion.Execution {
                 material.randomNumber
             )
             let blindRequests = material.blindSignatureRequests.map {
-                OpalFusion.BlindSignature.Request(scalar: Array($0.scalar))
+                OpalFusion.BlindSignature.Request(scalar: Array($0.scalar.rawRepresentation))
             }
             return .init(
                 initialCommitments: material.componentsByCommitmentOrder.map(\.initialCommitment),
@@ -96,9 +96,11 @@ extension OpalFusion.Execution {
                 ).map { request, response in
                     try Array(
                         request.finalize(
-                            responseScalar: Data(response.scalar),
+                            responseScalar: try OpalCrypto.Secp256k1.Scalar(
+                                rawRepresentation: Data(response.scalar)
+                            ),
                             verify: true
-                        )
+                        ).rawRepresentation
                     )
                 }
             } catch {
@@ -183,12 +185,16 @@ extension OpalFusion.Execution {
                     return Array(
                         try OpalCrypto.Communication.encrypt(
                             message: Data(proof),
-                            recipientPublicKey: Data(destinationCommitment.communicationPublicKey),
+                            recipientPublicKey: OpalCrypto.Secp256k1.PublicKey(
+                                rawRepresentation: Data(destinationCommitment.communicationPublicKey)
+                            ),
                             paddedPlaintextLength: 80
-                        )
+                        ).rawRepresentation
                     )
                 } catch {
-                    return []
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Proof encryption failed: \(String(describing: error))"
+                    )
                 }
             }
 
@@ -234,8 +240,12 @@ extension OpalFusion.Execution {
                 let decrypted: OpalCrypto.Communication.DecryptionResult
                 do {
                     decrypted = try OpalCrypto.Communication.decrypt(
-                        Data(relayedProof.encryptedProof),
-                        privateKey: Data(localComponent.communicationPrivateKey)
+                        OpalCrypto.Communication.Ciphertext(
+                            rawRepresentation: Data(relayedProof.encryptedProof)
+                        ),
+                        privateKey: OpalCrypto.Secp256k1.PrivateKey(
+                            rawRepresentation: Data(localComponent.communicationPrivateKey)
+                        )
                     )
                 } catch {
                     blames.append(
@@ -261,7 +271,7 @@ extension OpalFusion.Execution {
                     blames.append(
                         .init(
                             proofIndex: UInt32(proofIndex),
-                            decrypter: .sessionKey(decrypted.symmetricKey.bytes),
+                            decrypter: .sessionKey(decrypted.symmetricKey.rawRepresentation.bytes),
                             requiresBlockchainLookup: false,
                             reason: error.reason
                         )
@@ -273,7 +283,7 @@ extension OpalFusion.Execution {
                     blames.append(
                         .init(
                             proofIndex: UInt32(proofIndex),
-                            decrypter: .sessionKey(decrypted.symmetricKey.bytes),
+                            decrypter: .sessionKey(decrypted.symmetricKey.rawRepresentation.bytes),
                             requiresBlockchainLookup: true,
                             reason: "input requires blockchain lookup"
                         )
@@ -394,6 +404,12 @@ extension OpalFusion.Execution {
             components.reserveCapacity(numberOfComponents)
 
             for (index, input) in reservation.inputs.enumerated() {
+                guard input.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
+                        "Participant input at index \(index) exceeds the maximum BCH money supply"
+                    )
+                }
+
                 let publicKey = try OpalFusion.Execution.ProtocolPrimitives
                     .validateSupportedParticipantInput(
                         input,
@@ -422,6 +438,12 @@ extension OpalFusion.Execution {
             }
 
             for (index, output) in reservation.outputs.enumerated() {
+                guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
+                        "Participant output at index \(index) exceeds the maximum BCH money supply"
+                    )
+                }
+
                 let minimumAmount = OpalFusion.Execution.ProtocolPrimitives.minimumOutputAmount(
                     for: output.lockingScriptBytes,
                     baseline: baseline
@@ -498,11 +520,17 @@ extension OpalFusion.Execution {
                     sortedComponents
                 ).map { blindNoncePoint, component in
                     try OpalCrypto.BlindSignature.Request(
-                        signerPublicKey: Data(startRound.roundPublicKey),
-                        noncePoint: Data(blindNoncePoint),
-                        messageDigest: Data(
-                            OpalFusion.Execution.ProtocolPrimitives.sha256(
-                                component.serializedComponent
+                        signerPublicKey: OpalCrypto.Secp256k1.PublicKey(
+                            rawRepresentation: Data(startRound.roundPublicKey)
+                        ),
+                        noncePoint: OpalCrypto.Secp256k1.PublicKey(
+                            rawRepresentation: Data(blindNoncePoint)
+                        ),
+                        messageDigest: OpalCrypto.Signature.Digest(
+                            rawRepresentation: Data(
+                                OpalFusion.Execution.ProtocolPrimitives.sha256(
+                                    component.serializedComponent
+                                )
                             )
                         )
                     )
@@ -563,6 +591,12 @@ extension OpalFusion.Execution {
             }
 
             let allComponentBytes = sharedComponents.serializedComponents
+            guard allComponentBytes.count == allCommitmentBytes.count else {
+                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                    "Coordinator returned a different number of shared components than commitments"
+                )
+            }
+
             guard hasDuplicateByteArrays(allComponentBytes) == false else {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                     "Coordinator returned duplicate shared components"
@@ -577,7 +611,9 @@ extension OpalFusion.Execution {
                 return index
             }
 
-            let decodedComponents = try allComponentBytes.map(decodeComponent)
+            let decodedComponents = try allComponentBytes.enumerated().map {
+                try decodeComponent(bytes: $0.element, componentIndex: $0.offset)
+            }
             let previousHash = OpalFusion.Execution.ProtocolPrimitives.calculateInitialHash(
                 fusionBegin: round.fusionBegin,
                 baseline: baseline
@@ -639,12 +675,12 @@ extension OpalFusion.Execution {
                     "Pedersen commitment construction failed: \(String(describing: error))"
                 )
             }
-            let communicationPrivateKey: Data
-            let communicationPublicKey: Data
+            let communicationPrivateKey: OpalCrypto.Secp256k1.PrivateKey
+            let communicationPublicKey: OpalCrypto.Secp256k1.PublicKey
             do {
-                communicationPrivateKey = try OpalCrypto.Secp256k1.generatePrivateKey()
+                communicationPrivateKey = try OpalCrypto.Secp256k1.PrivateKey.generate()
                 communicationPublicKey = try OpalCrypto.Secp256k1
-                    .deriveCompressedPublicKey(from: communicationPrivateKey)
+                    .derivePublicKey(from: communicationPrivateKey)
             } catch {
                 throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(
                     "Communication key generation failed: \(String(describing: error))"
@@ -655,8 +691,8 @@ extension OpalFusion.Execution {
                 saltedComponentHash: OpalFusion.Execution.ProtocolPrimitives.sha256(
                     salt + serializedComponent
                 ),
-                amountCommitment: pedersenCommitment.uncompressedPoint.bytes,
-                communicationPublicKey: communicationPublicKey.bytes
+                amountCommitment: pedersenCommitment.point.uncompressedRepresentation.bytes,
+                communicationPublicKey: communicationPublicKey.rawRepresentation.bytes
             )
             return .init(
                 originalSlot: originalSlot,
@@ -666,9 +702,9 @@ extension OpalFusion.Execution {
                 initialCommitment: initialCommitment,
                 proofMaterial: .init(
                     salt: salt,
-                    pedersenNonce: pedersenCommitment.nonce.bytes
+                    pedersenNonce: pedersenCommitment.nonce.rawRepresentation.bytes
                 ),
-                communicationPrivateKey: communicationPrivateKey.bytes,
+                communicationPrivateKey: communicationPrivateKey.rawRepresentation.bytes,
                 contributionSatoshis: contributionSatoshis
             )
         }
@@ -844,10 +880,13 @@ extension OpalFusion.Execution {
             )
             let isValid: Bool
             do {
-                isValid = try OpalCrypto.Signature.verifySchnorr(
-                    signature: Data(signature),
-                    digest: Data(sighash),
-                    publicKey: Data(publicKey)
+                isValid = try OpalCrypto.Signature.Schnorr(
+                    rawRepresentation: Data(signature)
+                ).verify(
+                    digest: OpalCrypto.Signature.Digest(rawRepresentation: Data(sighash)),
+                    publicKey: OpalCrypto.Secp256k1.PublicKey(
+                        rawRepresentation: Data(publicKey)
+                    )
                 )
             } catch {
                 throw OpalFusion.Execution.BCHTransactionError.templateMismatch(
@@ -967,14 +1006,17 @@ extension OpalFusion.Execution {
             do {
                 expectedCommitment = try pedersenSetup.commit(
                     amount: contribution,
-                    nonce: Data(parsedProof.pedersenNonce)
+                    nonce: OpalCrypto.Pedersen.Nonce(
+                        rawRepresentation: Data(parsedProof.pedersenNonce)
+                    )
                 )
             } catch {
                 throw OpalFusion.Execution.RelayedProofValidationFailure(
                     reason: "pedersen commitment verification error"
                 )
             }
-            guard expectedCommitment.uncompressedPoint.bytes == sourceCommitment.amountCommitment else {
+            guard expectedCommitment.point.uncompressedRepresentation.bytes ==
+                sourceCommitment.amountCommitment else {
                 throw OpalFusion.Execution.RelayedProofValidationFailure(
                     reason: "pedersen commitment mismatch"
                 )
@@ -1015,12 +1057,32 @@ extension OpalFusion.Execution {
         }
 
         private func decodeComponent(
-            bytes: [UInt8]
+            bytes: [UInt8],
+            componentIndex: Int
         ) throws -> OpalFusion.Execution.DecodedComponent {
             let message = try parseComponent(bytes: bytes)
             let payload: OpalFusion.Commitment.ComponentPayload
             switch message.component {
             case let .input(input):
+                guard input.prevTxid.count == 32 else {
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Shared input component at index \(componentIndex) previous transaction hash must be 32 bytes"
+                    )
+                }
+
+                guard input.amount <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Shared input component at index \(componentIndex) exceeds the maximum BCH money supply"
+                    )
+                }
+                guard OpalFusion.Execution.ProtocolPrimitives.isCompressedSecp256k1PublicKey(
+                    input.pubkey.bytes
+                ) else {
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Shared input component at index \(componentIndex) must provide a valid compressed public key"
+                    )
+                }
+
                 payload = .input(
                     .init(
                         outpointTransactionHash: Array(input.prevTxid.reversed()),
@@ -1030,6 +1092,22 @@ extension OpalFusion.Execution {
                     )
                 )
             case let .output(output):
+                guard output.amount <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Shared output component at index \(componentIndex) exceeds the maximum BCH money supply"
+                    )
+                }
+
+                let minimumAmount = OpalFusion.Execution.ProtocolPrimitives.minimumOutputAmount(
+                    for: output.scriptpubkey.bytes,
+                    baseline: baseline
+                )
+                guard output.amount >= minimumAmount else {
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Shared output component at index \(componentIndex) is below the minimum allowed amount"
+                    )
+                }
+
                 payload = .output(
                     .init(
                         lockingScript: output.scriptpubkey.bytes,

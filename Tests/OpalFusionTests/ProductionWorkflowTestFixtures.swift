@@ -13,11 +13,19 @@ enum ProductionWorkflowTestFixtures {
         let blindCoordinator = try BlindSigningCoordinator(numberOfComponents: 3)
         let inputPrivateKey = [UInt8](repeating: 0x11, count: 32)
         let inputPublicKey = try Array(
-            OpalCrypto.Signature.derivePublicKey(fromPrivateKey: Data(inputPrivateKey))
+            OpalCrypto.Secp256k1.derivePublicKey(
+                from: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(inputPrivateKey)
+                )
+            ).rawRepresentation
         )
         let outputPrivateKey = [UInt8](repeating: 0x22, count: 32)
         let outputPublicKey = try Array(
-            OpalCrypto.Signature.derivePublicKey(fromPrivateKey: Data(outputPrivateKey))
+            OpalCrypto.Secp256k1.derivePublicKey(
+                from: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(outputPrivateKey)
+                )
+            ).rawRepresentation
         )
 
         let reservation = OpalFusion.Host.ParticipantReservation(
@@ -97,13 +105,19 @@ enum ProductionWorkflowTestFixtures {
     ) throws -> ExternalInputComponentFixture {
         let inputPrivateKey = [UInt8](repeating: 0x44, count: 32)
         let inputPublicKey = try Array(
-            OpalCrypto.Signature.derivePublicKey(fromPrivateKey: Data(inputPrivateKey))
+            OpalCrypto.Secp256k1.derivePublicKey(
+                from: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(inputPrivateKey)
+                )
+            ).rawRepresentation
         )
         let communicationPrivateKey = [UInt8](repeating: 0x55, count: 32)
         let communicationPublicKey = try Array(
-            OpalCrypto.Secp256k1.deriveCompressedPublicKey(
-                from: Data(communicationPrivateKey)
-            )
+            OpalCrypto.Secp256k1.derivePublicKey(
+                from: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(communicationPrivateKey)
+                )
+            ).rawRepresentation
         )
         let salt = [UInt8](repeating: 0x66, count: 32)
         let pedersenNonce = [UInt8](repeating: 0x77, count: 32)
@@ -131,13 +145,13 @@ enum ProductionWorkflowTestFixtures {
             )
         let pedersenCommitment = try workflow.pedersenSetup.commit(
             amount: contribution,
-            nonce: Data(pedersenNonce)
+            nonce: OpalCrypto.Pedersen.Nonce(rawRepresentation: Data(pedersenNonce))
         )
         let initialCommitment = OpalFusion.Commitment.InitialCommitment(
             saltedComponentHash: OpalFusion.Execution.ProtocolPrimitives.sha256(
                 salt + serializedComponent
             ),
-            amountCommitment: Array(pedersenCommitment.uncompressedPoint),
+            amountCommitment: Array(pedersenCommitment.point.uncompressedRepresentation),
             communicationPublicKey: communicationPublicKey
         )
 
@@ -163,9 +177,11 @@ enum ProductionWorkflowTestFixtures {
         return try Array(
             OpalCrypto.Communication.encrypt(
                 message: proof.serializedData(),
-                recipientPublicKey: Data(recipientPublicKey),
+                recipientPublicKey: OpalCrypto.Secp256k1.PublicKey(
+                    rawRepresentation: Data(recipientPublicKey)
+                ),
                 paddedPlaintextLength: 80
-            )
+            ).rawRepresentation
         )
     }
 
@@ -188,11 +204,13 @@ enum ProductionWorkflowTestFixtures {
             amountSatoshis: participantInput.amountSatoshis
         )
         let signature = try Array(
-            OpalCrypto.Signature.signSchnorr(
-                digest: Data(sighash),
-                privateKey: Data(participantInputPrivateKey),
+            OpalCrypto.Signature.Schnorr.sign(
+                digest: OpalCrypto.Signature.Digest(rawRepresentation: Data(sighash)),
+                privateKey: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(participantInputPrivateKey)
+                ),
                 noncePolicy: .bip340Deterministic
-            )
+            ).rawRepresentation
         )
 
         let unlockingScript = unlockingScriptBuilder?(

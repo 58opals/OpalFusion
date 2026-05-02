@@ -28,6 +28,18 @@ extension OpalFusion.Execution {
         var lockTime: UInt32
 
         func serialized() throws -> [UInt8] {
+            guard inputs.isEmpty == false else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction must contain at least one input"
+                )
+            }
+
+            guard outputs.isEmpty == false else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction must contain at least one output"
+                )
+            }
+
             var bytes = [UInt8]()
             bytes.append(contentsOf: version.littleEndianBytes)
             bytes.append(contentsOf: try CompactSize.encode(inputs.count))
@@ -46,6 +58,12 @@ extension OpalFusion.Execution {
 
             bytes.append(contentsOf: try CompactSize.encode(outputs.count))
             for output in outputs {
+                guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.BCHTransactionError.malformed(
+                        "Transaction output amount exceeds the maximum BCH money supply"
+                    )
+                }
+
                 bytes.append(contentsOf: output.amountSatoshis.littleEndianBytes)
                 bytes.append(contentsOf: try CompactSize.encode(output.lockingScript.count))
                 bytes.append(contentsOf: output.lockingScript)
@@ -74,6 +92,21 @@ extension OpalFusion.Execution {
                     "Transaction input index \(inputIndex) is out of bounds"
                 )
             }
+            guard inputs.allSatisfy({ $0.previousTransactionHashLittleEndian.count == 32 }) else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction input previous hash must be 32 bytes"
+                )
+            }
+            guard amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction input amount exceeds the maximum BCH money supply"
+                )
+            }
+            guard outputs.isEmpty == false else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction must contain at least one output"
+                )
+            }
 
             let hashPrevouts = OpalFusion.Execution.ProtocolPrimitives.hash256(
                 inputs.flatMap { input in
@@ -86,6 +119,12 @@ extension OpalFusion.Execution {
             )
             var serializedOutputs = [UInt8]()
             for output in outputs {
+                guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.BCHTransactionError.malformed(
+                        "Transaction output amount exceeds the maximum BCH money supply"
+                    )
+                }
+
                 serializedOutputs.append(contentsOf: output.amountSatoshis.littleEndianBytes)
                 serializedOutputs.append(
                     contentsOf: try CompactSize.encode(output.lockingScript.count)
@@ -121,6 +160,12 @@ extension OpalFusion.Execution {
             )
 
             let inputCount = try CompactSize.decode(from: bytes, cursor: &cursor)
+            guard inputCount > 0 else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction must contain at least one input"
+                )
+            }
+
             var inputs: [OpalFusion.Execution.BCHTransaction.Input] = []
             inputs.reserveCapacity(inputCount)
             for _ in 0..<inputCount {
@@ -152,12 +197,24 @@ extension OpalFusion.Execution {
             }
 
             let outputCount = try CompactSize.decode(from: bytes, cursor: &cursor)
+            guard outputCount > 0 else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction must contain at least one output"
+                )
+            }
+
             var outputs: [OpalFusion.Execution.BCHTransaction.Output] = []
             outputs.reserveCapacity(outputCount)
             for _ in 0..<outputCount {
                 let amountSatoshis = try UInt64(
                     littleEndianBytes: readBytes(count: 8, from: bytes, cursor: &cursor)
                 )
+                guard amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.BCHTransactionError.malformed(
+                        "Transaction output amount exceeds the maximum BCH money supply"
+                    )
+                }
+
                 let lockingScriptLength = try CompactSize.decode(from: bytes, cursor: &cursor)
                 let lockingScript = try readBytes(
                     count: lockingScriptLength,
@@ -219,21 +276,34 @@ private enum CompactSize {
         case 0x00...0xFC:
             return Int(prefix)
         case 0xFD:
-            return Int(
-                try UInt16(
-                    littleEndianBytes: readBytes(count: 2, from: bytes, cursor: &cursor)
-                )
+            let value = try UInt16(
+                littleEndianBytes: readBytes(count: 2, from: bytes, cursor: &cursor)
             )
+            guard value >= 0xFD else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "CompactSize value used a non-canonical encoding"
+                )
+            }
+            return Int(value)
         case 0xFE:
-            return Int(
-                try UInt32(
-                    littleEndianBytes: readBytes(count: 4, from: bytes, cursor: &cursor)
-                )
+            let value = try UInt32(
+                littleEndianBytes: readBytes(count: 4, from: bytes, cursor: &cursor)
             )
+            guard value > UInt32(UInt16.max) else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "CompactSize value used a non-canonical encoding"
+                )
+            }
+            return Int(value)
         default:
             let value = try UInt64(
                 littleEndianBytes: readBytes(count: 8, from: bytes, cursor: &cursor)
             )
+            guard value > UInt64(UInt32.max) else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "CompactSize value used a non-canonical encoding"
+                )
+            }
             guard value <= UInt64(Int.max) else {
                 throw OpalFusion.Execution.BCHTransactionError.malformed(
                     "CompactSize value exceeded the supported range"

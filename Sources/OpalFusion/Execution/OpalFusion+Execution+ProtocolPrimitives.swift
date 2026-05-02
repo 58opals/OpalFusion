@@ -9,10 +9,14 @@ extension OpalFusion.Execution {
         static let pedersenAlternateBasePoint = Data([0x02]) + Data(
             "CashFusion gives us fungibility.".utf8
         )
+        static let pedersenAlternateBasePublicKey = try! OpalCrypto.Secp256k1.PublicKey(
+            rawRepresentation: pedersenAlternateBasePoint
+        )
         static let supportedParticipantInputSummary =
             "Only standard compressed-key P2PKH participant inputs are supported"
         static let supportedUnlockingScriptSummary =
             "Only standard compressed-key Schnorr P2PKH unlocking scripts are supported"
+        static let maximumMoneySatoshis: UInt64 = 2_100_000_000_000_000
 
         static func randomBytes(count: Int) throws -> [UInt8] {
             var bytes = [UInt8](repeating: 0x00, count: count)
@@ -25,15 +29,15 @@ extension OpalFusion.Execution {
         }
 
         static func sha256(_ bytes: [UInt8]) -> [UInt8] {
-            Array(OpalCrypto.Hashing.computeSHA256(Data(bytes)))
+            Array(OpalCrypto.Hashing.sha256(Data(bytes)))
         }
 
         static func hash256(_ bytes: [UInt8]) -> [UInt8] {
-            Array(OpalCrypto.Hashing.computeHash256(Data(bytes)))
+            Array(OpalCrypto.Hashing.hash256(Data(bytes)))
         }
 
         static func hash160(_ bytes: [UInt8]) -> [UInt8] {
-            Array(OpalCrypto.Hashing.computeHash160(Data(bytes)))
+            Array(OpalCrypto.Hashing.hash160(Data(bytes)))
         }
 
         static func listHash(_ items: [[UInt8]]) -> [UInt8] {
@@ -112,7 +116,11 @@ extension OpalFusion.Execution {
         static func isCompressedSecp256k1PublicKey(
             _ publicKey: [UInt8]
         ) -> Bool {
-            publicKey.count == 33 && (publicKey.first == 0x02 || publicKey.first == 0x03)
+            guard publicKey.count == 33 && (publicKey.first == 0x02 || publicKey.first == 0x03) else {
+                return false
+            }
+
+            return (try? OpalCrypto.Secp256k1.PublicKey(rawRepresentation: Data(publicKey))) != nil
         }
 
         static func isStandardP2PKHLockingScript(

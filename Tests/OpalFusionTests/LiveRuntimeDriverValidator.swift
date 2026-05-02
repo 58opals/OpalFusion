@@ -6,6 +6,57 @@ import Network
 import Testing
 
 struct LiveRuntimeDriverValidator {
+    @Test("Runtime configuration rejects host names with surrounding whitespace")
+    func validateHostNamesWithSurroundingWhitespace() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+
+        let paddedCoordinatorConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: " \(baseConfiguration.coordinatorHost) ",
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(paddedCoordinatorConfiguration) ==
+                "Coordinator host must not include leading or trailing whitespace"
+        )
+
+        let paddedTorConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel,
+            torSocks5: .init(
+                host: " 127.0.0.1 ",
+                port: 9050
+            )
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(paddedTorConfiguration) ==
+                "Tor SOCKS5 host must not include leading or trailing whitespace"
+        )
+    }
+
+    @Test("Runtime configuration rejects covert entry paths with surrounding whitespace")
+    func validateCovertEntryPathWithSurroundingWhitespace() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+        let paddedPathConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: .init(
+                entryPath: "\(baseConfiguration.covertChannel.entryPath) ",
+                maxPayloadBytes: baseConfiguration.covertChannel.maxPayloadBytes,
+                requestTimeoutMilliseconds: baseConfiguration.covertChannel.requestTimeoutMilliseconds
+            )
+        )
+
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(paddedPathConfiguration) ==
+                "Covert entry path must not include leading or trailing whitespace"
+        )
+    }
+
     @Test("Live runtime driver rejects invalid startup configuration before transport connect")
     func validateInvalidConfiguration() async throws {
         let primaryTransport = ScriptedPrimaryTransport()

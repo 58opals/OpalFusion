@@ -13,9 +13,11 @@ struct BlindSigningCoordinator {
         let roundPrivateKey = [UInt8](repeating: 0x31, count: 32)
         self.roundPrivateKey = roundPrivateKey
         self.roundPublicKey = try Array(
-            OpalCrypto.Signature.derivePublicKey(
-                fromPrivateKey: Data(roundPrivateKey)
-            )
+            OpalCrypto.Secp256k1.derivePublicKey(
+                from: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(roundPrivateKey)
+                )
+            ).rawRepresentation
         )
         self.signers = try (0..<numberOfComponents).map { _ in
             try OpalCrypto.BlindSignature.Signer()
@@ -25,7 +27,7 @@ struct BlindSigningCoordinator {
     var startRound: OpalFusion.ProtocolModel.StartRound {
         .init(
             roundPublicKey: roundPublicKey,
-            blindNoncePoints: signers.map { Array($0.noncePoint) },
+            blindNoncePoints: signers.map { Array($0.noncePoint.rawRepresentation) },
             serverTimeUnixSeconds: 1_030
         )
     }
@@ -42,10 +44,14 @@ struct BlindSigningCoordinator {
 
         for index in signers.indices {
             let scalar = try await signers[index].sign(
-                privateKey: Data(roundPrivateKey),
-                requestScalar: Data(playerCommit.blindSignatureRequests[index].scalar)
+                privateKey: OpalCrypto.Secp256k1.PrivateKey(
+                    rawRepresentation: Data(roundPrivateKey)
+                ),
+                requestScalar: OpalCrypto.Secp256k1.Scalar(
+                    rawRepresentation: Data(playerCommit.blindSignatureRequests[index].scalar)
+                )
             )
-            responses.append(.init(scalar: Array(scalar)))
+            responses.append(.init(scalar: Array(scalar.rawRepresentation)))
         }
 
         return .init(responses: responses)

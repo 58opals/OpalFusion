@@ -472,6 +472,302 @@ struct RoundEngineScriptedValidator {
             ]
         )
     }
+
+    @Test("Round engine rejects FusionBegin tiers that were not joined")
+    func validateFusionBeginTierMustBeJoined() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .fusionBegin(
+                    .init(
+                        tier: 20_000,
+                        covertDomain: Self.fusionBegin.covertDomain,
+                        covertPort: Self.fusionBegin.covertPort,
+                        covertSsl: Self.fusionBegin.covertSsl,
+                        serverTimeUnixSeconds: Self.fusionBegin.serverTimeUnixSeconds
+                    )
+                )
+            ),
+            now: Self.instant(1_000)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "FusionBegin tier was not requested"
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine clears warmup round after pre-StartRound covert failure")
+    func validateWarmupCovertFailureClearsRound() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        let failureEffects = engine.apply(
+            input: .covertTransportFailed(summary: "Covert endpoint preparation failed"),
+            now: Self.instant(1_001)
+        )
+        #expect(engine.round == nil)
+        #expect(engine.session.lastError == .transportUnavailable)
+        #expect(
+            failureEffects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "Covert endpoint preparation failed"
+                    )
+                )
+            ]
+        )
+
+        let staleStartRoundEffects = engine.apply(
+            input: .primaryMessage(.startRound(Self.startRound)),
+            now: Self.instant(1_030)
+        )
+        #expect(staleStartRoundEffects.isEmpty)
+        #expect(engine.clientState.round == nil)
+    }
+
+    @Test("Round engine ignores primary messages after terminal completion")
+    func validateTerminalRoundIgnoresLatePrimaryMessages() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let lateEffects = engine.apply(
+            input: .primaryMessage(
+                .serverFailure(.init(message: "late failure"))
+            ),
+            now: Self.instant(1_062)
+        )
+
+        #expect(lateEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after clean primary disconnect")
+    func validateTerminalRoundKeepsSuccessAfterPrimaryDisconnect() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let disconnectEffects = engine.apply(
+            input: .primaryDisconnected,
+            now: Self.instant(1_062)
+        )
+
+        #expect(disconnectEffects.isEmpty)
+        #expect(engine.clientState.isConnected == false)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after primary transport failure noise")
+    func validateTerminalRoundKeepsSuccessAfterPrimaryTransportFailure() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let failureEffects = engine.apply(
+            input: .primaryTransportFailed(summary: "Primary read failed after result"),
+            now: Self.instant(1_062)
+        )
+
+        #expect(failureEffects.isEmpty)
+        #expect(engine.clientState.isConnected == false)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after covert transport failure noise")
+    func validateTerminalRoundKeepsSuccessAfterCovertTransportFailure() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let failureEffects = engine.apply(
+            input: .covertTransportFailed(summary: "Covert request failed after result"),
+            now: Self.instant(1_062)
+        )
+
+        #expect(failureEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after covert server failure noise")
+    func validateTerminalRoundKeepsSuccessAfterCovertServerFailure() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let failureEffects = engine.apply(
+            input: .covertResponse(
+                .serverFailure(.init(message: "late covert failure"))
+            ),
+            now: Self.instant(1_062)
+        )
+
+        #expect(failureEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after transaction finalization rejection noise")
+    func validateTerminalRoundKeepsSuccessAfterTransactionFinalizationRejection() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let rejectionEffects = engine.apply(
+            input: .transactionFinalizationRejected,
+            now: Self.instant(1_062)
+        )
+
+        #expect(rejectionEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after participant reservation rejection noise")
+    func validateTerminalRoundKeepsSuccessAfterParticipantReservationRejection() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let rejectionEffects = engine.apply(
+            input: .participantReservationRejected,
+            now: Self.instant(1_062)
+        )
+
+        #expect(rejectionEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after participant reservation noise")
+    func validateTerminalRoundKeepsSuccessAfterParticipantReservation() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let loadedEffects = engine.apply(
+            input: .participantReservationLoaded(Self.participantReservation),
+            now: Self.instant(1_062)
+        )
+
+        #expect(loadedEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after finalized transaction noise")
+    func validateTerminalRoundKeepsSuccessAfterFinalizedTransaction() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let loadedEffects = engine.apply(
+            input: .finalizedTransactionLoaded(Self.finalizedTransaction),
+            now: Self.instant(1_062)
+        )
+
+        #expect(loadedEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine preserves terminal success after protocol rejection noise")
+    func validateTerminalRoundKeepsSuccessAfterProtocolRejection() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_061)
+        )
+        #expect(engine.clientState.round?.completionStatus == .success)
+
+        let rejectionEffects = engine.apply(
+            input: .protocolRejected(summary: "Trailing primary bytes were malformed"),
+            now: Self.instant(1_062)
+        )
+
+        #expect(rejectionEffects.isEmpty)
+        #expect(engine.clientState.round?.completionStatus == .success)
+        #expect(engine.session.lastError == nil)
+    }
 }
 
 private extension RoundEngineScriptedValidator {
@@ -747,5 +1043,16 @@ private extension RoundEngineScriptedValidator {
             input: .primaryMessage(.shareCovertComponents(sharedComponents)),
             now: instant(1_040)
         )
+    }
+
+    static func driveToSignatureSubmission(
+        engine: inout OpalFusion.Execution.RoundEngine
+    ) {
+        driveToSharedComponents(engine: &engine)
+        _ = engine.apply(
+            input: .finalizedTransactionLoaded(finalizedTransaction),
+            now: instant(1_042)
+        )
+        _ = engine.apply(input: .clockAdvanced, now: instant(1_050))
     }
 }
