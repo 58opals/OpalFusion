@@ -166,6 +166,11 @@ extension OpalFusion.Execution {
                     index: inputIndex
                 )
             }
+            guard input.outpointTransactionHashBytes.count == 32 else {
+                throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
+                    "Participant input at index \(inputIndex) previous transaction hash must be 32 bytes"
+                )
+            }
             guard isCompressedSecp256k1PublicKey(publicKey) else {
                 throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
                     "Participant input at index \(inputIndex) must provide the compressed public key required for standard P2PKH support"

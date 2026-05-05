@@ -130,6 +130,30 @@ struct ProductionWorkflowValidator {
             scenario.round.participantReservation = .init(
                 inputs: [
                     .init(
+                        outpointTransactionHashBytes: [UInt8](repeating: 0xAB, count: 31),
+                        outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+                        amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
+                        lockingScriptBytes: scenario.reservation.inputs[0].lockingScriptBytes,
+                        publicKey: scenario.reservation.inputs[0].publicKey
+                    )
+                ],
+                outputs: scenario.reservation.outputs
+            )
+            _ = try scenario.workflow.buildPlayerCommit(round: &scenario.round)
+            Issue.record("Expected short previous transaction hash reservation to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .invalidParticipantReservation(
+                    "Participant input at index 0 previous transaction hash must be 32 bytes"
+                )
+            )
+        }
+
+        do {
+            var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+            scenario.round.participantReservation = .init(
+                inputs: [
+                    .init(
                         outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
                         outpointIndex: scenario.reservation.inputs[0].outpointIndex,
                         amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,

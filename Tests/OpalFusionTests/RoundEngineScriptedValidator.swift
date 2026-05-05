@@ -592,6 +592,47 @@ struct RoundEngineScriptedValidator {
         )
     }
 
+    @Test("Round engine rejects FusionBegin tiers absent from ServerHello")
+    func validateFusionBeginTierMustBeAdvertised() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(
+                .serverHello(
+                    .init(
+                        tiers: [20_000],
+                        numberOfComponents: Self.serverHello.numberOfComponents,
+                        componentFeeRateSatoshisPerKb: Self.serverHello.componentFeeRateSatoshisPerKb,
+                        minimumExcessFeeSatoshis: Self.serverHello.minimumExcessFeeSatoshis,
+                        maximumExcessFeeSatoshis: Self.serverHello.maximumExcessFeeSatoshis,
+                        donationAddress: Self.serverHello.donationAddress
+                    )
+                )
+            ),
+            now: Self.instant(996)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "FusionBegin tier was not advertised by ServerHello"
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Round engine rejects FusionBegin covert ports outside the supported range")
     func validateFusionBeginCovertPortRange() {
         var engine = Self.makeEngine()
@@ -793,6 +834,98 @@ struct RoundEngineScriptedValidator {
                         kind: .failure,
                         phase: .completed,
                         summary: "StartRound blind nonce count did not match ServerHello component count",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects StartRound messages without a round public key")
+    func validateStartRoundRoundPublicKeyPresence() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .startRound(
+                    .init(
+                        roundPublicKey: [],
+                        blindNoncePoints: Self.startRound.blindNoncePoints,
+                        serverTimeUnixSeconds: Self.startRound.serverTimeUnixSeconds
+                    )
+                )
+            ),
+            now: Self.instant(1_030)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.round?.substate == .terminal)
+        #expect(engine.round?.completionStatus == .protocolIncompatible)
+        #expect(engine.clientState.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "StartRound round public key was missing",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects StartRound messages with missing blind nonce points")
+    func validateStartRoundBlindNoncePointPresence() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        var blindNoncePoints = Self.startRound.blindNoncePoints
+        blindNoncePoints[1] = []
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .startRound(
+                    .init(
+                        roundPublicKey: Self.startRound.roundPublicKey,
+                        blindNoncePoints: blindNoncePoints,
+                        serverTimeUnixSeconds: Self.startRound.serverTimeUnixSeconds
+                    )
+                )
+            ),
+            now: Self.instant(1_030)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.round?.substate == .terminal)
+        #expect(engine.round?.completionStatus == .protocolIncompatible)
+        #expect(engine.clientState.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "StartRound blind nonce point was missing",
                         isTerminal: true
                     )
                 )

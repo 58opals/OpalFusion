@@ -73,6 +73,10 @@ extension OpalFusion.Runtime {
             if torSocks5.port == 0 {
                 return "Tor SOCKS5 port must be greater than zero"
             }
+
+            if torSocks5.resolvesCoordinatorHostNameRemotely == false {
+                return "Tor SOCKS5 remote hostname resolution must be enabled"
+            }
         }
 
         return nil

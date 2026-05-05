@@ -301,6 +301,12 @@ extension OpalFusion.Execution {
                                 summary: "FusionBegin tier was not requested"
                             )
                         }
+                        guard serverHello.tiers.contains(fusionBegin.tier) else {
+                            return failBeforeRound(
+                                error: .protocolIncompatible,
+                                summary: "FusionBegin tier was not advertised by ServerHello"
+                            )
+                        }
                         guard (1 ... UInt32(UInt16.max)).contains(fusionBegin.covertPort) else {
                             return failBeforeRound(
                                 error: .protocolIncompatible,
@@ -375,6 +381,20 @@ extension OpalFusion.Execution {
                         completionStatus: .protocolIncompatible,
                         clientError: .protocolIncompatible,
                         summary: "StartRound blind nonce count did not match ServerHello component count"
+                    )
+                }
+                guard startRound.roundPublicKey.isEmpty == false else {
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: "StartRound round public key was missing"
+                    )
+                }
+                guard startRound.blindNoncePoints.allSatisfy({ $0.isEmpty == false }) else {
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: "StartRound blind nonce point was missing"
                     )
                 }
 

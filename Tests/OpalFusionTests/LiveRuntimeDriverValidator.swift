@@ -68,6 +68,27 @@ struct LiveRuntimeDriverValidator {
         )
     }
 
+    @Test("Runtime configuration rejects unsupported local Tor hostname resolution")
+    func validateTorSocks5LocalHostnameResolution() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+        let torConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel,
+            torSocks5: .init(
+                host: "127.0.0.1",
+                port: 9_050,
+                resolvesCoordinatorHostNameRemotely: false
+            )
+        )
+
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(torConfiguration) ==
+                "Tor SOCKS5 remote hostname resolution must be enabled"
+        )
+    }
+
     @Test("Runtime configuration rejects covert entry paths with surrounding whitespace")
     func validateCovertEntryPathWithSurroundingWhitespace() {
         let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
