@@ -6,15 +6,18 @@ public extension OpalFusion.Client {
             public let state: OpalFusion.Client.State
             public let lastError: OpalFusion.Client.Error?
             public let lastErrorSummary: String?
+            public let diagnostics: OpalFusion.Client.Diagnostics
 
             public init(
                 state: OpalFusion.Client.State = .init(),
                 lastError: OpalFusion.Client.Error? = nil,
-                lastErrorSummary: String? = nil
+                lastErrorSummary: String? = nil,
+                diagnostics: OpalFusion.Client.Diagnostics = .init()
             ) {
                 self.state = state
                 self.lastError = lastError
                 self.lastErrorSummary = lastErrorSummary
+                self.diagnostics = diagnostics
             }
         }
 
@@ -47,9 +50,13 @@ public extension OpalFusion.Client {
         private let transactionAssembler: any OpalFusion.Host.TransactionAssembler
         private let eventObserver: (any OpalFusion.Host.EventObserver)?
         private let stateObserver: (any OpalFusion.Client.StateObserver)?
+        private let reconnectPolicy: OpalFusion.Client.ReconnectPolicy
         private let dependencies: Dependencies
         private var runtimeDriver: OpalFusion.Runtime.LiveRuntimeDriver?
         private var runtimeDriverGeneration: Int
+        private var isActive: Bool
+        private var retryAttempt: Int
+        private var pendingRetryTask: Task<Void, Never>?
         private var lastEmittedSnapshot: OpalFusion.Client.Session.Snapshot
 
         public init(
@@ -59,7 +66,8 @@ public extension OpalFusion.Client {
             participantReservationSource: any OpalFusion.Host.ParticipantReservationSource,
             transactionAssembler: any OpalFusion.Host.TransactionAssembler,
             eventObserver: (any OpalFusion.Host.EventObserver)? = nil,
-            stateObserver: (any OpalFusion.Client.StateObserver)? = nil
+            stateObserver: (any OpalFusion.Client.StateObserver)? = nil,
+            reconnectPolicy: OpalFusion.Client.ReconnectPolicy = .disabled
         ) {
             self.configuration = configuration
             self.genesisHash = genesisHash
@@ -68,9 +76,13 @@ public extension OpalFusion.Client {
             self.transactionAssembler = transactionAssembler
             self.eventObserver = eventObserver
             self.stateObserver = stateObserver
+            self.reconnectPolicy = reconnectPolicy
             self.dependencies = .defaults
             self.runtimeDriver = nil
             self.runtimeDriverGeneration = 0
+            self.isActive = false
+            self.retryAttempt = 0
+            self.pendingRetryTask = nil
             self.lastEmittedSnapshot = .init()
         }
 
@@ -82,6 +94,7 @@ public extension OpalFusion.Client {
             transactionAssembler: any OpalFusion.Host.TransactionAssembler,
             eventObserver: (any OpalFusion.Host.EventObserver)? = nil,
             stateObserver: (any OpalFusion.Client.StateObserver)? = nil,
+            reconnectPolicy: OpalFusion.Client.ReconnectPolicy = .disabled,
             workflow: OpalFusion.Execution.WorkflowContext? = nil,
             baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443,
             nowProvider: @escaping @Sendable () async -> OpalFusion.Execution.Instant = {
@@ -101,6 +114,7 @@ public extension OpalFusion.Client {
             self.transactionAssembler = transactionAssembler
             self.eventObserver = eventObserver
             self.stateObserver = stateObserver
+            self.reconnectPolicy = reconnectPolicy
             self.dependencies = .init(
                 workflow: workflow,
                 baseline: baseline,
@@ -112,39 +126,49 @@ public extension OpalFusion.Client {
             )
             self.runtimeDriver = nil
             self.runtimeDriverGeneration = 0
+            self.isActive = false
+            self.retryAttempt = 0
+            self.pendingRetryTask = nil
             self.lastEmittedSnapshot = .init()
         }
 
         public func start() async {
-            guard runtimeDriver == nil else {
+            guard isActive == false else {
                 return
             }
 
+            isActive = true
+            retryAttempt = 0
+            pendingRetryTask?.cancel()
+            pendingRetryTask = nil
             await updateSnapshotIfNeeded(.init())
 
-            runtimeDriverGeneration += 1
-            let runtimeDriverGeneration = self.runtimeDriverGeneration
-            let runtimeDriver = await makeRuntimeDriver(
-                generation: runtimeDriverGeneration
-            )
-            self.runtimeDriver = runtimeDriver
-
-            await runtimeDriver.start()
-            let snapshot = OpalFusion.Client.Session.Snapshot(
-                await runtimeDriver.snapshot()
-            )
-            await updateSnapshotIfNeeded(snapshot)
-
-            if snapshot.state.isConnected == false,
-               snapshot.lastError != nil,
-               self.runtimeDriver === runtimeDriver,
-               self.runtimeDriverGeneration == runtimeDriverGeneration {
-                self.runtimeDriver = nil
-            }
+            await startRuntimeDriver()
         }
 
         public func stop() async {
+            guard isActive || runtimeDriver != nil || pendingRetryTask != nil else {
+                return
+            }
+
+            isActive = false
+            pendingRetryTask?.cancel()
+            pendingRetryTask = nil
+
             guard let runtimeDriver else {
+                runtimeDriverGeneration += 1
+                await updateSnapshotIfNeeded(
+                    .init(
+                        state: .init(),
+                        lastError: nil,
+                        lastErrorSummary: nil,
+                        diagnostics: lastEmittedSnapshot.diagnostics
+                            .withoutFailure()
+                            .withRetry(attempt: nil, delay: nil)
+                            .withHandshakeStage(.notStarted)
+                            .withActivity(.stopped)
+                    )
+                )
                 return
             }
 
@@ -161,6 +185,39 @@ public extension OpalFusion.Client {
             }
 
             return lastEmittedSnapshot
+        }
+
+        private func startRuntimeDriver() async {
+            guard isActive else {
+                return
+            }
+
+            runtimeDriverGeneration += 1
+            let runtimeDriverGeneration = self.runtimeDriverGeneration
+            let runtimeDriver = await makeRuntimeDriver(
+                generation: runtimeDriverGeneration
+            )
+            self.runtimeDriver = runtimeDriver
+
+            await runtimeDriver.start()
+            guard self.runtimeDriver === runtimeDriver,
+                  self.runtimeDriverGeneration == runtimeDriverGeneration else {
+                return
+            }
+
+            let runtimeSnapshot = await runtimeDriver.snapshot()
+            let snapshot = OpalFusion.Client.Session.Snapshot(runtimeSnapshot)
+            await updateSnapshotIfNeeded(snapshot)
+
+            if snapshot.state.isConnected == false,
+               snapshot.lastError != nil,
+               self.runtimeDriver === runtimeDriver,
+               self.runtimeDriverGeneration == runtimeDriverGeneration {
+                await completeCurrentDriverAfterFailure(
+                    snapshot: runtimeSnapshot,
+                    generation: runtimeDriverGeneration
+                )
+            }
         }
 
         private func makeRuntimeDriver(
@@ -201,8 +258,87 @@ public extension OpalFusion.Client {
 
             if sessionSnapshot.state.isConnected == false,
                sessionSnapshot.lastError != nil {
-                runtimeDriver = nil
+                await completeCurrentDriverAfterFailure(
+                    snapshot: snapshot,
+                    generation: generation
+                )
             }
+        }
+
+        private func completeCurrentDriverAfterFailure(
+            snapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot,
+            generation: Int
+        ) async {
+            guard generation == runtimeDriverGeneration,
+                  runtimeDriver != nil else {
+                return
+            }
+
+            runtimeDriver = nil
+
+            guard isActive,
+                  snapshot.allowsReconnect,
+                  snapshot.lastError == .transportUnavailable else {
+                isActive = false
+                return
+            }
+
+            let nextAttempt = retryAttempt + 1
+            guard let retryDelay = reconnectPolicy.delay(
+                forRetryAttempt: nextAttempt
+            ) else {
+                isActive = false
+                return
+            }
+
+            retryAttempt = nextAttempt
+            await scheduleRetry(
+                attempt: nextAttempt,
+                delay: retryDelay
+            )
+        }
+
+        private func scheduleRetry(
+            attempt: Int,
+            delay: Duration
+        ) async {
+            let event = OpalFusion.Client.Diagnostics.Event(
+                kind: .retry,
+                summary: "Primary reconnect scheduled",
+                retryAttempt: attempt,
+                retryDelayMilliseconds: delay.opalFusionMillisecondsRoundedUp,
+                handshakeStage: lastEmittedSnapshot.diagnostics.handshakeStage
+            )
+            let diagnostics = lastEmittedSnapshot.diagnostics
+                .withRetry(attempt: attempt, delay: delay)
+                .appending(event)
+            await updateSnapshotIfNeeded(
+                lastEmittedSnapshot.withDiagnostics(diagnostics)
+            )
+
+            let scheduledGeneration = runtimeDriverGeneration
+            pendingRetryTask?.cancel()
+            pendingRetryTask = Task { [delay, scheduledGeneration] in
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+
+                await self.runScheduledRetry(generation: scheduledGeneration)
+            }
+        }
+
+        private func runScheduledRetry(
+            generation: Int
+        ) async {
+            guard isActive,
+                  generation == runtimeDriverGeneration else {
+                return
+            }
+
+            pendingRetryTask = nil
+            await startRuntimeDriver()
         }
 
         private func updateSnapshotIfNeeded(
@@ -223,7 +359,19 @@ private extension OpalFusion.Client.Session.Snapshot {
         self.init(
             state: snapshot.clientState,
             lastError: snapshot.lastError,
-            lastErrorSummary: snapshot.lastErrorSummary
+            lastErrorSummary: snapshot.lastErrorSummary,
+            diagnostics: snapshot.diagnostics
+        )
+    }
+
+    func withDiagnostics(
+        _ diagnostics: OpalFusion.Client.Diagnostics
+    ) -> Self {
+        .init(
+            state: state,
+            lastError: lastError,
+            lastErrorSummary: lastErrorSummary,
+            diagnostics: diagnostics
         )
     }
 }

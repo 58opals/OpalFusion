@@ -17,6 +17,8 @@ extension OpalFusion.Runtime {
             var sawServerHello: Bool
             var wroteClientHello: Bool
             var wroteJoinPools: Bool
+            var handshakeStage: OpalFusion.Client.Diagnostics.HandshakeStage
+            var recentEvents: [OpalFusion.Client.Diagnostics.Event]
 
             init() {
                 self.lastInboundKind = nil
@@ -24,6 +26,8 @@ extension OpalFusion.Runtime {
                 self.sawServerHello = false
                 self.wroteClientHello = false
                 self.wroteJoinPools = false
+                self.handshakeStage = .notStarted
+                self.recentEvents = []
             }
         }
 
@@ -108,6 +112,18 @@ extension OpalFusion.Runtime {
             engine.session.lastErrorSummary
         }
 
+        func diagnostics(
+            activity: OpalFusion.Client.Diagnostics.Activity
+        ) -> OpalFusion.Client.Diagnostics {
+            .init(
+                activity: activity,
+                primaryFailureCategory: lastError,
+                primaryFailureSummary: lastErrorSummary,
+                handshakeStage: preRoundTrace.handshakeStage,
+                recentEvents: preRoundTrace.recentEvents
+            )
+        }
+
         mutating func recordWrittenPrimaryFrame(_ bytes: [UInt8]) {
             guard shouldTracePreRoundTraffic else {
                 return
@@ -143,26 +159,37 @@ extension OpalFusion.Runtime {
         ) -> [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] {
             switch input {
             case let .invalidConfiguration(summary):
+                recordFailureEvent(summary: summary)
                 return translate(
                     engine.apply(input: .configurationRejected(summary: summary), now: now),
                     now: now
                 )
             case .connected:
+                recordLifecycleEvent(
+                    summary: "Primary channel connected",
+                    handshakeStage: .awaitingServerHello
+                )
                 return translate(
                     engine.apply(input: .primaryConnected, now: now),
                     now: now
                 )
             case .disconnected:
+                recordFailureEvent(summary: "Primary channel disconnected")
                 return translate(
                     engine.apply(input: .primaryDisconnected, now: now),
                     now: now
                 )
             case .stopped:
+                recordLifecycleEvent(
+                    summary: "Session stopped",
+                    handshakeStage: .notStarted
+                )
                 return translate(
                     engine.apply(input: .stopped, now: now),
                     now: now
                 )
             case let .primaryTransportFailed(summary):
+                recordFailureEvent(summary: summary)
                 return translate(
                     engine.apply(input: .primaryTransportFailed(summary: summary), now: now),
                     now: now
@@ -175,6 +202,7 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case let .covertPreparationFailed(summary):
+                recordFailureEvent(summary: summary)
                 return handleCovertRuntimeEffects(
                     covertSession.apply(
                         input: .covertPreparationFailed(summary: summary),
@@ -191,6 +219,7 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case let .covertRequestFailed(summary):
+                recordFailureEvent(summary: summary)
                 return handleCovertRuntimeEffects(
                     covertSession.apply(
                         input: .covertRequestFailed(summary: summary),
@@ -245,14 +274,17 @@ extension OpalFusion.Runtime {
                         message,
                         payloadBytes: payload.count
                     )
+                    let effects = translate(
+                        engine.apply(input: .primaryMessage(message), now: now),
+                        now: now
+                    )
+                    updateHandshakeStageFromEngine()
                     runtimeEffects.append(
-                        contentsOf: translate(
-                            engine.apply(input: .primaryMessage(message), now: now),
-                            now: now
-                        )
+                        contentsOf: effects
                     )
                 }
 
+                _ = try frameDecoder.append([])
                 return runtimeEffects
             } catch {
                 if shouldTracePreRoundTraffic {
@@ -383,7 +415,8 @@ extension OpalFusion.Runtime {
             summary: String,
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] {
-            translate(
+            recordFailureEvent(summary: summary)
+            return translate(
                 engine.apply(
                     input: .protocolRejected(summary: summary),
                     now: now
@@ -418,24 +451,61 @@ extension OpalFusion.Runtime {
                 preRoundTrace.lastInboundKind = .serverHello
                 preRoundTrace.lastInboundPayloadBytes = payloadBytes
                 preRoundTrace.sawServerHello = true
+                preRoundTrace.handshakeStage = .awaitingFusionBegin
+                appendDiagnosticEvent(
+                    .init(
+                        kind: .inboundMessage,
+                        summary: "Received ServerHello",
+                        messageKind: "ServerHello",
+                        payloadByteCount: payloadBytes,
+                        handshakeStage: preRoundTrace.handshakeStage
+                    )
+                )
                 Self.logger.debug(
                     "primary preround inbound kind=ServerHello payloadBytes=\(payloadBytes, privacy: .public) tiersCount=\(serverHello.tiers.count, privacy: .public) firstTier=\(Self.describe(serverHello.tiers.first), privacy: .public) numberOfComponents=\(Int(serverHello.numberOfComponents), privacy: .public)"
                 )
             case let .tierStatusUpdate(update):
                 preRoundTrace.lastInboundKind = .tierStatusUpdate
                 preRoundTrace.lastInboundPayloadBytes = payloadBytes
+                appendDiagnosticEvent(
+                    .init(
+                        kind: .inboundMessage,
+                        summary: "Received TierStatusUpdate",
+                        messageKind: "TierStatusUpdate",
+                        payloadByteCount: payloadBytes,
+                        handshakeStage: preRoundTrace.handshakeStage
+                    )
+                )
                 Self.logger.debug(
                     "primary preround inbound kind=TierStatusUpdate payloadBytes=\(payloadBytes, privacy: .public) statusTierCount=\(update.statusesByTier.count, privacy: .public) firstTier=\(Self.describe(update.statusesByTier.keys.sorted().first), privacy: .public)"
                 )
             case let .fusionBegin(fusionBegin):
                 preRoundTrace.lastInboundKind = .fusionBegin
                 preRoundTrace.lastInboundPayloadBytes = payloadBytes
+                appendDiagnosticEvent(
+                    .init(
+                        kind: .inboundMessage,
+                        summary: "Received FusionBegin",
+                        messageKind: "FusionBegin",
+                        payloadByteCount: payloadBytes,
+                        handshakeStage: preRoundTrace.handshakeStage
+                    )
+                )
                 Self.logger.debug(
                     "primary preround inbound kind=FusionBegin payloadBytes=\(payloadBytes, privacy: .public) tier=\(fusionBegin.tier, privacy: .public) covertPort=\(Int(fusionBegin.covertPort), privacy: .public) covertTLS=\(Self.describe(fusionBegin.covertSsl), privacy: .public)"
                 )
             case let .serverFailure(failure):
                 preRoundTrace.lastInboundKind = .serverFailure
                 preRoundTrace.lastInboundPayloadBytes = payloadBytes
+                appendDiagnosticEvent(
+                    .init(
+                        kind: .inboundMessage,
+                        summary: "Received ServerFailure",
+                        messageKind: "ServerFailure",
+                        payloadByteCount: payloadBytes,
+                        handshakeStage: preRoundTrace.handshakeStage
+                    )
+                )
                 Self.logger.debug(
                     "primary preround inbound kind=ServerFailure payloadBytes=\(payloadBytes, privacy: .public) messagePresent=\(failure.message != nil, privacy: .public)"
                 )
@@ -452,11 +522,31 @@ extension OpalFusion.Runtime {
             switch message {
             case let .clientHello(clientHello):
                 preRoundTrace.wroteClientHello = true
+                preRoundTrace.handshakeStage = .awaitingServerHello
+                appendDiagnosticEvent(
+                    .init(
+                        kind: .outboundMessage,
+                        summary: "Sent ClientHello",
+                        messageKind: "ClientHello",
+                        payloadByteCount: payloadBytes,
+                        handshakeStage: preRoundTrace.handshakeStage
+                    )
+                )
                 Self.logger.debug(
                     "primary preround outbound kind=ClientHello payloadBytes=\(payloadBytes, privacy: .public) versionByteCount=\(clientHello.versionBytes.count, privacy: .public) hasGenesisHash=\(clientHello.genesisHash != nil, privacy: .public)"
                 )
             case let .joinPools(joinPools):
                 preRoundTrace.wroteJoinPools = true
+                preRoundTrace.handshakeStage = .awaitingFusionBegin
+                appendDiagnosticEvent(
+                    .init(
+                        kind: .outboundMessage,
+                        summary: "Sent JoinPools",
+                        messageKind: "JoinPools",
+                        payloadByteCount: payloadBytes,
+                        handshakeStage: preRoundTrace.handshakeStage
+                    )
+                )
                 Self.logger.debug(
                     "primary preround outbound kind=JoinPools payloadBytes=\(payloadBytes, privacy: .public) tiersCount=\(joinPools.tiers.count, privacy: .public) firstTier=\(Self.describe(joinPools.tiers.first), privacy: .public) tagCount=\(joinPools.tags.count, privacy: .public)"
                 )
@@ -473,6 +563,53 @@ extension OpalFusion.Runtime {
             }
 
             return String(describing: value)
+        }
+
+        private mutating func recordLifecycleEvent(
+            summary: String,
+            handshakeStage: OpalFusion.Client.Diagnostics.HandshakeStage
+        ) {
+            preRoundTrace.handshakeStage = handshakeStage
+            appendDiagnosticEvent(
+                .init(
+                    kind: .lifecycle,
+                    summary: summary,
+                    handshakeStage: handshakeStage
+                )
+            )
+        }
+
+        private mutating func recordFailureEvent(
+            summary: String
+        ) {
+            appendDiagnosticEvent(
+                .init(
+                    kind: .failure,
+                    summary: summary,
+                    handshakeStage: preRoundTrace.handshakeStage
+                )
+            )
+        }
+
+        private mutating func appendDiagnosticEvent(
+            _ event: OpalFusion.Client.Diagnostics.Event
+        ) {
+            preRoundTrace.recentEvents = OpalFusion.Client.Diagnostics.cappedRecentEvents(
+                preRoundTrace.recentEvents + [event]
+            )
+        }
+
+        private mutating func updateHandshakeStageFromEngine() {
+            switch engine.session.connectionSubstate {
+            case .awaitingServerHello:
+                preRoundTrace.handshakeStage = .awaitingServerHello
+            case .awaitingFusionBegin:
+                preRoundTrace.handshakeStage = .awaitingFusionBegin
+            case .inRound:
+                preRoundTrace.handshakeStage = .inRound
+            case .disconnected, .failed:
+                break
+            }
         }
     }
 }

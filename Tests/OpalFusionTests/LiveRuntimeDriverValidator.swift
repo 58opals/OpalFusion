@@ -88,6 +88,26 @@ struct LiveRuntimeDriverValidator {
         )
     }
 
+    @Test("Runtime configuration rejects covert entry paths with internal whitespace")
+    func validateCovertEntryPathWithInternalWhitespace() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+        let whitespacePathConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: .init(
+                entryPath: "/fusion path",
+                maxPayloadBytes: baseConfiguration.covertChannel.maxPayloadBytes,
+                requestTimeoutMilliseconds: baseConfiguration.covertChannel.requestTimeoutMilliseconds
+            )
+        )
+
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(whitespacePathConfiguration) ==
+                "Covert entry path must not include whitespace"
+        )
+    }
+
     @Test("Runtime configuration rejects covert request timeouts outside Duration range")
     func validateCovertRequestTimeoutRange() {
         let baseConfiguration = PrimaryRuntimeTestFixtures.configuration

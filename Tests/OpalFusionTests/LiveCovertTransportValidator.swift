@@ -334,4 +334,40 @@ struct LiveCovertTransportValidator {
         }
         #expect(await executor.recordedRequests().isEmpty)
     }
+
+    @Test("macOS live covert transport rejects oversized response payloads")
+    func validateOversizedResponsePayloadRejection() async throws {
+        let endpoint = PrimaryRuntimeTestFixtures.covertEndpointContext
+        let executor = RecordedCovertRequestExecutor(
+            responseData: Data(repeating: 0xA0, count: endpoint.maxPayloadBytes + 1)
+        )
+        let transport = OpalFusion.Runtime.LiveCovertTransport(
+            torSocks5: nil,
+            requestExecutor: { session, request in
+                try await executor.execute(session: session, request: request)
+            }
+        )
+        let plan = OpalFusion.Runtime.CovertPreparationPlan(
+            endpoint: endpoint,
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
+        )
+        let request = OpalFusion.Runtime.CovertRequest(
+            endpoint: endpoint,
+            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
+                PrimaryRuntimeTestFixtures.pingMessage
+            ),
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
+        )
+
+        try await transport.prepare(plan)
+
+        do {
+            _ = try await transport.perform(request)
+            Issue.record("Expected oversized covert response payload to fail")
+        } catch let error as OpalFusion.Runtime.LiveTransportError {
+            #expect(error == .covertPayloadTooLarge)
+        }
+    }
 }

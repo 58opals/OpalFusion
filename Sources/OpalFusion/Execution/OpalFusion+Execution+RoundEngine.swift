@@ -985,9 +985,18 @@ extension OpalFusion.Execution {
             _ serverTimeUnixSeconds: UInt64,
             now: OpalFusion.Execution.Instant
         ) -> Bool {
-            let serverTime = OpalFusion.Execution.Instant(unixSeconds: serverTimeUnixSeconds)
-            let absoluteDistance = abs(serverTime.distance(to: now).wholeMilliseconds)
-            return absoluteDistance <= session.baseline.roundTiming.maximumClockDiscrepancy.wholeMilliseconds
+            guard let serverTime = OpalFusion.Execution.Instant(
+                validatingUnixSeconds: serverTimeUnixSeconds
+            ) else {
+                return false
+            }
+            let maximumDistance = session.baseline.roundTiming.maximumClockDiscrepancy
+                .wholeMilliseconds
+            guard maximumDistance >= 0 else {
+                return false
+            }
+            let distance = serverTime.distance(to: now).wholeMilliseconds
+            return distance >= -maximumDistance && distance <= maximumDistance
         }
 
         private func makeRoundIdentifier(

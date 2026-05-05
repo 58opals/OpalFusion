@@ -75,6 +75,34 @@ struct PrimaryFrameValidator {
         }
     }
 
+    @Test("Primary framing rejects empty magic configuration")
+    func validateEmptyMagicConfiguration() {
+        let configuration = OpalFusion.Transport.FrameConfiguration(
+            magicBytes: [],
+            maximumMessageLengthBytes: 10
+        )
+        let encoder = OpalFusion.Wire.PrimaryFrameEncoder(configuration: configuration)
+        var decoder = OpalFusion.Wire.PrimaryFrameDecoder(configuration: configuration)
+
+        do {
+            _ = try encoder.encode(payload: [0x42])
+            Issue.record("Expected empty magic encoder rejection")
+        } catch let error as OpalFusion.Wire.PrimaryFrameError {
+            #expect(error == .invalidMagic([]))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        do {
+            _ = try decoder.append([0x00, 0x00, 0x00, 0x01, 0x42])
+            Issue.record("Expected empty magic decoder rejection")
+        } catch let error as OpalFusion.Wire.PrimaryFrameError {
+            #expect(error == .invalidMagic([]))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test("Primary frame decoder rejects oversized payload declarations")
     func validateOversizedPayload() {
         let configuration = OpalFusion.Transport.BaselineConfiguration.electronCash443.framing

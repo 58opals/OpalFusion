@@ -13,6 +13,8 @@ extension OpalFusion.Runtime {
             let clientState: OpalFusion.Client.State
             let lastError: OpalFusion.Client.Error?
             let lastErrorSummary: String?
+            let diagnostics: OpalFusion.Client.Diagnostics
+            let allowsReconnect: Bool
         }
 
         typealias SnapshotSink = @Sendable (
@@ -50,6 +52,8 @@ extension OpalFusion.Runtime {
         private var transactionFinalizationTask: Task<Void, Never>?
         private var isRunning: Bool
         private var lastEmittedSnapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot?
+        private var lastFailureAllowsReconnect: Bool
+        private var stopRequested: Bool
 
         init(
             configuration: OpalFusion.Client.Configuration,
@@ -124,6 +128,8 @@ extension OpalFusion.Runtime {
             self.transactionFinalizationTask = nil
             self.isRunning = false
             self.lastEmittedSnapshot = nil
+            self.lastFailureAllowsReconnect = false
+            self.stopRequested = false
         }
 
         func start() async {
@@ -131,6 +137,8 @@ extension OpalFusion.Runtime {
                 return
             }
             isRunning = true
+            stopRequested = false
+            lastFailureAllowsReconnect = false
 
             if let summary = OpalFusion.Runtime.validateStartupConfiguration(
                 runtimeSession.engine.session.configuration,
@@ -184,14 +192,20 @@ extension OpalFusion.Runtime {
                 return
             }
 
+            stopRequested = true
             await handle(.stopped)
         }
 
         func snapshot() -> OpalFusion.Runtime.LiveRuntimeDriver.Snapshot {
-            .init(
+            let diagnostics = runtimeSession.diagnostics(
+                activity: diagnosticActivity
+            )
+            return .init(
                 clientState: runtimeSession.clientState,
                 lastError: runtimeSession.lastError,
-                lastErrorSummary: runtimeSession.lastErrorSummary
+                lastErrorSummary: runtimeSession.lastErrorSummary,
+                diagnostics: diagnostics,
+                allowsReconnect: lastFailureAllowsReconnect
             )
         }
 
@@ -274,6 +288,7 @@ extension OpalFusion.Runtime {
         private func handle(
             _ input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
         ) async {
+            let failureAllowsReconnect = canReconnectAfter(input)
             let effects = runtimeSession.apply(
                 input: input,
                 now: await nowProvider()
@@ -302,6 +317,11 @@ extension OpalFusion.Runtime {
             }
 
             if reachedTerminalConnectionState {
+                lastFailureAllowsReconnect = lastFailureAllowsReconnect ||
+                    (
+                        failureAllowsReconnect &&
+                            runtimeSession.lastError == .transportUnavailable
+                    )
                 await emitSnapshotIfNeeded()
                 await tearDownTransports()
                 if shouldProjectPreRoundDisconnect {
@@ -310,6 +330,7 @@ extension OpalFusion.Runtime {
                 return
             }
 
+            lastFailureAllowsReconnect = false
             await emitSnapshotIfNeeded()
         }
 
@@ -472,6 +493,44 @@ extension OpalFusion.Runtime {
                 true
             case .awaitingServerHello, .awaitingFusionBegin, .inRound:
                 false
+            }
+        }
+
+        private var diagnosticActivity: OpalFusion.Client.Diagnostics.Activity {
+            if stopRequested {
+                return .stopped
+            }
+
+            if runtimeSession.lastError != nil {
+                return .failed
+            }
+
+            if runtimeSession.clientState.isConnected {
+                return .running
+            }
+
+            if isRunning {
+                return .connecting
+            }
+
+            return .idle
+        }
+
+        private func canReconnectAfter(
+            _ input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
+        ) -> Bool {
+            guard runtimeSession.engine.round == nil else {
+                return false
+            }
+
+            switch input {
+            case .disconnected, .primaryTransportFailed:
+                return true
+            case .invalidConfiguration, .connected, .stopped, .receivedPrimaryBytes, .covertPrepared,
+                    .covertPreparationFailed, .receivedCovertResponseBytes, .covertRequestFailed,
+                    .participantReservationLoaded, .participantReservationRejected,
+                    .finalizedTransactionLoaded, .transactionFinalizationRejected, .clockAdvanced:
+                return false
             }
         }
 

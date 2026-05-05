@@ -25,6 +25,42 @@ struct CovertRuntimeSessionValidator {
         #expect(session.queuedMessages.isEmpty)
     }
 
+    @Test("Covert runtime clamps huge connect-window deadlines without trapping")
+    func validateHugeConnectWindowDeadline() {
+        var session = PrimaryRuntimeTestFixtures.makeCovertSession()
+        let endpoint = OpalFusion.Runtime.CovertEndpointContext(
+            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
+            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
+            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
+            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
+            entryPath: PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath,
+            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
+            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
+            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
+            connectWindow: .seconds(Int64.max),
+            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
+            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
+            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
+        )
+
+        let effects = session.apply(
+            input: .prepare(endpointContext: endpoint),
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+
+        #expect(
+            effects == [
+                .prepareCovertEndpoint(
+                    plan: .init(
+                        endpoint: endpoint,
+                        startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
+                        deadline: .init(millisecondsSinceUnixEpoch: Int64.max)
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Covert runtime buffers queued work before preparation completes")
     func validateQueuedMessageBuffering() {
         var session = PrimaryRuntimeTestFixtures.makeCovertSession()

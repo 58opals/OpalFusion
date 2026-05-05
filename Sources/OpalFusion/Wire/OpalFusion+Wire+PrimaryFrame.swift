@@ -15,6 +15,9 @@ extension OpalFusion.Wire {
         }
 
         func encode(payload: [UInt8]) throws -> [UInt8] {
+            guard configuration.magicBytes.isEmpty == false else {
+                throw OpalFusion.Wire.PrimaryFrameError.invalidMagic([])
+            }
             guard payload.isEmpty == false else {
                 throw OpalFusion.Wire.PrimaryFrameError.invalidLength(0)
             }
@@ -53,6 +56,9 @@ extension OpalFusion.Wire {
         }
 
         mutating func append(_ incomingBytes: [UInt8]) throws -> [[UInt8]] {
+            guard configuration.magicBytes.isEmpty == false else {
+                throw OpalFusion.Wire.PrimaryFrameError.invalidMagic([])
+            }
             bufferedBytes.append(contentsOf: incomingBytes)
 
             var payloads: [[UInt8]] = []

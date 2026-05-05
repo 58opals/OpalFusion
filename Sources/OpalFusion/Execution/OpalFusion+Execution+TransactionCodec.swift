@@ -57,12 +57,17 @@ extension OpalFusion.Execution {
             }
 
             bytes.append(contentsOf: try CompactSize.encode(outputs.count))
+            var outputTotalSatoshis: UInt64 = 0
             for output in outputs {
                 guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
                     throw OpalFusion.Execution.BCHTransactionError.malformed(
                         "Transaction output amount exceeds the maximum BCH money supply"
                     )
                 }
+                outputTotalSatoshis = try Self.addingOutputAmount(
+                    output.amountSatoshis,
+                    to: outputTotalSatoshis
+                )
 
                 bytes.append(contentsOf: output.amountSatoshis.littleEndianBytes)
                 bytes.append(contentsOf: try CompactSize.encode(output.lockingScript.count))
@@ -118,12 +123,17 @@ extension OpalFusion.Execution {
                 inputs.flatMap { $0.sequence.littleEndianBytes }
             )
             var serializedOutputs = [UInt8]()
+            var outputTotalSatoshis: UInt64 = 0
             for output in outputs {
                 guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
                     throw OpalFusion.Execution.BCHTransactionError.malformed(
                         "Transaction output amount exceeds the maximum BCH money supply"
                     )
                 }
+                outputTotalSatoshis = try Self.addingOutputAmount(
+                    output.amountSatoshis,
+                    to: outputTotalSatoshis
+                )
 
                 serializedOutputs.append(contentsOf: output.amountSatoshis.littleEndianBytes)
                 serializedOutputs.append(
@@ -165,6 +175,11 @@ extension OpalFusion.Execution {
                     "Transaction must contain at least one input"
                 )
             }
+            try Self.validateVectorCount(
+                inputCount,
+                minimumBytesPerElement: 41,
+                remainingByteCount: bytes.count - cursor
+            )
 
             var inputs: [OpalFusion.Execution.BCHTransaction.Input] = []
             inputs.reserveCapacity(inputCount)
@@ -202,9 +217,15 @@ extension OpalFusion.Execution {
                     "Transaction must contain at least one output"
                 )
             }
+            try Self.validateVectorCount(
+                outputCount,
+                minimumBytesPerElement: 9,
+                remainingByteCount: bytes.count - cursor
+            )
 
             var outputs: [OpalFusion.Execution.BCHTransaction.Output] = []
             outputs.reserveCapacity(outputCount)
+            var outputTotalSatoshis: UInt64 = 0
             for _ in 0..<outputCount {
                 let amountSatoshis = try UInt64(
                     littleEndianBytes: readBytes(count: 8, from: bytes, cursor: &cursor)
@@ -214,6 +235,10 @@ extension OpalFusion.Execution {
                         "Transaction output amount exceeds the maximum BCH money supply"
                     )
                 }
+                outputTotalSatoshis = try Self.addingOutputAmount(
+                    amountSatoshis,
+                    to: outputTotalSatoshis
+                )
 
                 let lockingScriptLength = try CompactSize.decode(from: bytes, cursor: &cursor)
                 let lockingScript = try readBytes(
@@ -244,6 +269,32 @@ extension OpalFusion.Execution {
                 outputs: outputs,
                 lockTime: lockTime
             )
+        }
+
+        private static func addingOutputAmount(
+            _ amountSatoshis: UInt64,
+            to totalSatoshis: UInt64
+        ) throws -> UInt64 {
+            let (newTotal, overflow) = totalSatoshis.addingReportingOverflow(amountSatoshis)
+            guard overflow == false,
+                  newTotal <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction output total exceeds the maximum BCH money supply"
+                )
+            }
+            return newTotal
+        }
+
+        private static func validateVectorCount(
+            _ count: Int,
+            minimumBytesPerElement: Int,
+            remainingByteCount: Int
+        ) throws {
+            guard count <= remainingByteCount / minimumBytesPerElement else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Unexpected end of transaction bytes"
+                )
+            }
         }
     }
 }

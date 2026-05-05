@@ -552,6 +552,39 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.clientState.round == nil)
     }
 
+    @Test("Primary runtime fails a malformed trailing frame in the same inbound chunk")
+    func validateMalformedTrailingFrameProjection() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        _ = session.apply(input: .connected, now: PrimaryRuntimeTestFixtures.instant(995))
+
+        let serverHelloFrame = try PrimaryRuntimeTestFixtures.encodeServerFrame(
+            .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+        )
+        let invalidMagic = Array(
+            repeating: UInt8(0xFF),
+            count: PrimaryRuntimeTestFixtures.baseline.framing.magicBytes.count
+        )
+        let trailingMalformedFrame = invalidMagic + [0x00, 0x00, 0x00, 0x01, 0x42]
+
+        let effects = session.apply(
+            input: .receivedPrimaryBytes(serverHelloFrame + trailingMalformedFrame),
+            now: PrimaryRuntimeTestFixtures.instant(996)
+        )
+
+        #expect(effects.count == 1)
+        guard case let .emitHostEvent(roundIdentifier, event) = effects[0] else {
+            Issue.record("Expected host event after trailing malformed frame rejection")
+            return
+        }
+        #expect(roundIdentifier == nil)
+        #expect(event.kind == .failure)
+        #expect(event.phase == .connecting)
+        #expect(event.summary == "Primary wire decode failed")
+        #expect(session.lastError == .protocolIncompatible)
+        #expect(session.lastErrorSummary == "Primary wire decode failed")
+        #expect(session.clientState.round == nil)
+    }
+
     @Test("Primary runtime maps malformed covert response bytes to protocol incompatibility")
     func validateMalformedCovertResponseProjection() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()

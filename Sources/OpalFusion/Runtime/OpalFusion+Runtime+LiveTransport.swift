@@ -502,6 +502,10 @@ extension OpalFusion.Runtime {
             return "Covert entry path must not include leading or trailing whitespace"
         }
 
+        if covertEntryPath.containsWhitespace {
+            return "Covert entry path must not include whitespace"
+        }
+
         if configuration.covertChannel.maxPayloadBytes <= 0 {
             return "Covert max payload bytes must be greater than zero"
         }
@@ -870,6 +874,10 @@ extension OpalFusion.Runtime {
                 throw OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(response.statusCode)
             }
 
+            guard data.count <= request.endpoint.maxPayloadBytes else {
+                throw OpalFusion.Runtime.LiveTransportError.covertPayloadTooLarge
+            }
+
             return [UInt8](data)
         }
 
@@ -902,7 +910,8 @@ extension OpalFusion.Runtime {
             let entryPath = endpoint.entryPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard entryPath.isEmpty == false,
                   entryPath.hasPrefix("/"),
-                  entryPath == endpoint.entryPath else {
+                  entryPath == endpoint.entryPath,
+                  entryPath.containsWhitespace == false else {
                 throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
             }
 

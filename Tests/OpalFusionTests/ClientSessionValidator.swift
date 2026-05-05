@@ -470,6 +470,606 @@ struct ClientSessionValidator {
         await session.stop()
     }
 
+    @Test("Public client session reconnect policy retries connect failure and reports retry diagnostics")
+    func validateReconnectPolicyRetriesConnectFailure() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder(
+            primaryConnectErrors: [
+                NSError(domain: "ClientSessionValidator", code: 10),
+                nil
+            ]
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: Self.fastReconnectPolicy,
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+
+        let retrySnapshot = try await Self.waitForObservedSnapshot(
+            stateObserver
+        ) {
+            $0.diagnostics.activity == .retrying
+        }
+        #expect(retrySnapshot.lastError == .transportUnavailable)
+        #expect(retrySnapshot.diagnostics.retryAttempt == 1)
+        #expect(retrySnapshot.diagnostics.nextRetryDelayMilliseconds == 10)
+        #expect(retrySnapshot.diagnostics.primaryFailureCategory == .transportUnavailable)
+        #expect(retrySnapshot.diagnostics.primaryFailureSummary == "Primary connection failed")
+        #expect(retrySnapshot.diagnostics.recentEvents.contains {
+            $0.kind == .retry &&
+                $0.retryAttempt == 1 &&
+                $0.retryDelayMilliseconds == 10
+        })
+
+        let connectedSnapshot = try await Self.waitForSessionSnapshot(session) {
+            $0.state.isConnected && $0.lastError == nil
+        }
+        #expect(connectedSnapshot.diagnostics.activity == .running)
+        #expect(await transportFactories.primaryCount() == 2)
+
+        await session.stop()
+    }
+
+    @Test("Public client session reconnect policy clamps overflowing delay growth")
+    func validateReconnectPolicyClampsOverflowingDelayGrowth() {
+        let policy = OpalFusion.Client.ReconnectPolicy(
+            initialDelay: .milliseconds(10),
+            maximumDelay: .milliseconds(30),
+            multiplier: Double.greatestFiniteMagnitude,
+            maximumAttempts: nil
+        )
+
+        #expect(policy.delay(forRetryAttempt: 1) == .milliseconds(10))
+        #expect(policy.delay(forRetryAttempt: 2) == .milliseconds(30))
+        #expect(policy.delay(forRetryAttempt: 3) == .milliseconds(30))
+    }
+
+    @Test("Public client session reconnect policy clamps huge configured delays")
+    func validateReconnectPolicyClampsHugeConfiguredDelays() {
+        let policy = OpalFusion.Client.ReconnectPolicy(
+            initialDelay: .seconds(Int64.max),
+            maximumDelay: .seconds(Int64.max),
+            multiplier: 1,
+            maximumAttempts: 1
+        )
+
+        #expect(policy.delay(forRetryAttempt: 1) == .milliseconds(Int.max))
+    }
+
+    @Test("Public client session retries peer EOF after ClientHello with handshake diagnostics")
+    func validateReconnectAfterClientHelloEOFDiagnostics() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: Self.fastReconnectPolicy,
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+        let firstTransport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(firstTransport, count: 1)
+        await firstTransport.finishInbound()
+
+        let retrySnapshot = try await Self.waitForObservedSnapshot(
+            stateObserver
+        ) {
+            $0.diagnostics.activity == .retrying &&
+                $0.diagnostics.handshakeStage == .awaitingServerHello
+        }
+
+        #expect(retrySnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(retrySnapshot.diagnostics.primaryFailureCategory == .transportUnavailable)
+        #expect(retrySnapshot.diagnostics.recentEvents.contains {
+            $0.kind == .outboundMessage &&
+                $0.messageKind == "ClientHello" &&
+                $0.payloadByteCount != nil
+        })
+
+        _ = try await Self.waitForPrimaryTransport(transportFactories, at: 1)
+        #expect(await transportFactories.primaryCount() == 2)
+
+        await session.stop()
+    }
+
+    @Test("Public client session retries peer EOF after ServerHello with handshake diagnostics")
+    func validateReconnectAfterServerHelloEOFDiagnostics() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: Self.fastReconnectPolicy,
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+        let firstTransport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(firstTransport, count: 1)
+        await firstTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await Self.waitForWrittenPayloadCount(firstTransport, count: 2)
+        await firstTransport.finishInbound()
+
+        let retrySnapshot = try await Self.waitForObservedSnapshot(
+            stateObserver
+        ) {
+            $0.diagnostics.activity == .retrying &&
+                $0.diagnostics.handshakeStage == .awaitingFusionBegin
+        }
+
+        #expect(retrySnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(retrySnapshot.diagnostics.recentEvents.contains {
+            $0.kind == .inboundMessage &&
+                $0.messageKind == "ServerHello" &&
+                $0.payloadByteCount != nil
+        })
+        #expect(retrySnapshot.diagnostics.recentEvents.contains {
+            $0.kind == .outboundMessage &&
+                $0.messageKind == "JoinPools" &&
+                $0.payloadByteCount != nil
+        })
+
+        _ = try await Self.waitForPrimaryTransport(transportFactories, at: 1)
+        #expect(await transportFactories.primaryCount() == 2)
+
+        await session.stop()
+    }
+
+    @Test("Public client session does not retry transport loss after FusionBegin creates a round")
+    func validateReconnectPolicyDoesNotRetryAfterRoundExists() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let covertTransport = ScriptedCovertTransport()
+        let nowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: Self.fastReconnectPolicy,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            nowProvider: { await nowProvider.now() },
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { covertTransport }
+        )
+
+        await session.start()
+        let firstTransport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(firstTransport, count: 1)
+
+        await nowProvider.set(unixSeconds: 996)
+        await firstTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await Self.waitForWrittenPayloadCount(firstTransport, count: 2)
+
+        await nowProvider.set(unixSeconds: 1_000)
+        await firstTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
+            )
+        )
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while await covertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        await firstTransport.finishInbound()
+        let terminalSnapshot = try await Self.waitForSessionSnapshot(session) {
+            $0.lastError == .transportUnavailable &&
+                $0.state.isConnected == false
+        }
+        #expect(terminalSnapshot.diagnostics.activity == .failed)
+        #expect(terminalSnapshot.diagnostics.handshakeStage == .inRound)
+
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await transportFactories.primaryCount() == 1)
+        #expect((await session.snapshot()).diagnostics.activity != .retrying)
+
+        await session.stop()
+    }
+
+    @Test("Public client session keeps invalid FusionBegin diagnostics pre-round")
+    func validateInvalidFusionBeginDiagnosticsStayPreRound() async throws {
+        let transportFactories = SessionTransportFactoryRecorder()
+        let nowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let invalidFusionBegin = OpalFusion.ProtocolModel.FusionBegin(
+            tier: PrimaryRuntimeTestFixtures.fusionBegin.tier,
+            covertDomain: PrimaryRuntimeTestFixtures.fusionBegin.covertDomain,
+            covertPort: PrimaryRuntimeTestFixtures.fusionBegin.covertPort,
+            covertSsl: PrimaryRuntimeTestFixtures.fusionBegin.covertSsl,
+            serverTimeUnixSeconds: 1_500
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            reconnectPolicy: Self.fastReconnectPolicy,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            nowProvider: { await nowProvider.now() },
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { ScriptedCovertTransport() }
+        )
+
+        await session.start()
+        let transport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 1)
+
+        await nowProvider.set(unixSeconds: 996)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 2)
+
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .fusionBegin(invalidFusionBegin)
+            )
+        )
+
+        let snapshot = try await Self.waitForSessionSnapshot(session) {
+            $0.lastError == .protocolIncompatible
+        }
+
+        #expect(snapshot.state.round == nil)
+        #expect(snapshot.diagnostics.handshakeStage == .awaitingFusionBegin)
+        #expect(snapshot.diagnostics.activity == .failed)
+        #expect(snapshot.diagnostics.activity != .retrying)
+        #expect(await transportFactories.primaryCount() == 1)
+
+        await session.stop()
+    }
+
+    @Test("Public client session does not retry non-transport terminal failures")
+    func validateReconnectPolicyDoesNotRetryNonTransportFailures() async throws {
+        let invalidConfigurationObserver = RecordedClientStateObserver()
+        let invalidConfigurationFactories = SessionTransportFactoryRecorder()
+        let invalidConfigurationSession = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: "",
+                coordinatorPort: PrimaryRuntimeTestFixtures.configuration.coordinatorPort,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: invalidConfigurationObserver,
+            reconnectPolicy: Self.fastReconnectPolicy,
+            primaryTransportFactory: { await invalidConfigurationFactories.makePrimary() }
+        )
+
+        await invalidConfigurationSession.start()
+        #expect((await invalidConfigurationSession.snapshot()).lastError == .invalidConfiguration)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await invalidConfigurationFactories.primaryCount() == 1)
+        #expect((await invalidConfigurationSession.snapshot()).diagnostics.activity != .retrying)
+        await invalidConfigurationSession.stop()
+
+        let protocolFactories = SessionTransportFactoryRecorder()
+        let protocolSession = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            reconnectPolicy: Self.fastReconnectPolicy,
+            primaryTransportFactory: { await protocolFactories.makePrimary() }
+        )
+        await protocolSession.start()
+        let protocolTransport = try await Self.waitForPrimaryTransport(
+            protocolFactories,
+            at: 0
+        )
+        await protocolTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .tierStatusUpdate(PrimaryRuntimeTestFixtures.tierStatusUpdate)
+            )
+        )
+        _ = try await Self.waitForSessionSnapshot(protocolSession) {
+            $0.lastError == .protocolIncompatible
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await protocolFactories.primaryCount() == 1)
+        await protocolSession.stop()
+
+        let coordinatorFactories = SessionTransportFactoryRecorder()
+        let coordinatorSession = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            reconnectPolicy: Self.fastReconnectPolicy,
+            primaryTransportFactory: { await coordinatorFactories.makePrimary() }
+        )
+        await coordinatorSession.start()
+        let coordinatorTransport = try await Self.waitForPrimaryTransport(
+            coordinatorFactories,
+            at: 0
+        )
+        await coordinatorTransport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverFailure(.init(message: "Rejected"))
+            )
+        )
+        _ = try await Self.waitForSessionSnapshot(coordinatorSession) {
+            $0.lastError == .coordinatorRejected
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await coordinatorFactories.primaryCount() == 1)
+        await coordinatorSession.stop()
+
+        let hostFactories = SessionTransportFactoryRecorder()
+        let hostNowProvider = ScriptedNowProvider(unixSeconds: 995)
+        let hostCovertTransport = ScriptedCovertTransport()
+        let hostReservationSource = BlockingParticipantReservationSource(
+            reservation: .init(
+                inputs: [PrimaryRuntimeTestFixtures.participantInput],
+                outputs: [PrimaryRuntimeTestFixtures.participantOutput]
+            )
+        )
+        let hostSession = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: hostReservationSource,
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            reconnectPolicy: Self.fastReconnectPolicy,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            nowProvider: { await hostNowProvider.now() },
+            primaryTransportFactory: { await hostFactories.makePrimary() },
+            covertTransportFactory: { hostCovertTransport }
+        )
+        await hostSession.start()
+        let hostTransport = try await Self.waitForPrimaryTransport(
+            hostFactories,
+            at: 0
+        )
+        try await Self.advanceToStartRound(
+            hostTransport,
+            nowProvider: hostNowProvider,
+            covertTransport: hostCovertTransport
+        )
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while await hostReservationSource.requestedRounds().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        await hostReservationSource.failReservation(
+            NSError(domain: "ClientSessionValidator", code: 11)
+        )
+        _ = try await Self.waitForSessionSnapshot(hostSession) {
+            $0.lastError == .hostRejected
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await hostFactories.primaryCount() == 1)
+        await hostSession.stop()
+    }
+
+    @Test("Public client session stop cancels a pending reconnect")
+    func validateStopCancelsPendingReconnect() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder(
+            primaryConnectError: NSError(domain: "ClientSessionValidator", code: 12)
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: .init(
+                initialDelay: .seconds(2),
+                maximumDelay: .seconds(2),
+                multiplier: 1,
+                maximumAttempts: nil
+            ),
+            primaryTransportFactory: { await transportFactories.makePrimary() }
+        )
+
+        await session.start()
+        _ = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.diagnostics.activity == .retrying
+        }
+        await session.stop()
+        try await Task.sleep(for: .milliseconds(2_200))
+
+        let stoppedSnapshot = await session.snapshot()
+        #expect(stoppedSnapshot.diagnostics.activity == .stopped)
+        #expect(stoppedSnapshot.diagnostics.retryAttempt == nil)
+        #expect(stoppedSnapshot.diagnostics.nextRetryDelayMilliseconds == nil)
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(stoppedSnapshot.lastErrorSummary == nil)
+        #expect(stoppedSnapshot.state.isConnected == false)
+        #expect(stoppedSnapshot.state.round == nil)
+        #expect(await transportFactories.primaryCount() == 1)
+    }
+
+    @Test("Public client session stop clears pending reconnect handshake diagnostics")
+    func validateStopClearsPendingReconnectHandshakeDiagnostics() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: .init(
+                initialDelay: .seconds(2),
+                maximumDelay: .seconds(2),
+                multiplier: 1,
+                maximumAttempts: nil
+            ),
+            primaryTransportFactory: { await transportFactories.makePrimary() }
+        )
+
+        await session.start()
+        let transport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 1)
+        await transport.finishInbound()
+
+        _ = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.diagnostics.activity == .retrying &&
+                $0.diagnostics.handshakeStage == .awaitingServerHello
+        }
+
+        await session.stop()
+        try await Task.sleep(for: .milliseconds(2_200))
+
+        let stoppedSnapshot = await session.snapshot()
+        #expect(stoppedSnapshot.diagnostics.activity == .stopped)
+        #expect(stoppedSnapshot.diagnostics.handshakeStage == .notStarted)
+        #expect(stoppedSnapshot.diagnostics.retryAttempt == nil)
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(await transportFactories.primaryCount() == 1)
+    }
+
+    @Test("Public client session diagnostics expose sanitized event metadata only")
+    func validateDiagnosticsExposeSanitizedEventMetadata() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: Self.fastReconnectPolicy,
+            primaryTransportFactory: { await transportFactories.makePrimary() }
+        )
+
+        await session.start()
+        let transport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 1)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 2)
+        await transport.finishInbound()
+
+        let retrySnapshot = try await Self.waitForObservedSnapshot(
+            stateObserver
+        ) {
+            $0.diagnostics.activity == .retrying &&
+                $0.diagnostics.recentEvents.contains { $0.messageKind == "ServerHello" }
+        }
+        let events = retrySnapshot.diagnostics.recentEvents
+        #expect(events.allSatisfy { $0.payloadByteCount == nil || $0.payloadByteCount! > 0 })
+        #expect(events.contains { $0.messageKind == "ClientHello" })
+        #expect(events.contains { $0.messageKind == "ServerHello" })
+        #expect(events.allSatisfy { event in
+            event.summary.contains("[") == false &&
+                event.summary.localizedCaseInsensitiveContains("script") == false &&
+                event.summary.localizedCaseInsensitiveContains("publicKey") == false &&
+                event.summary.localizedCaseInsensitiveContains("proof") == false
+        })
+
+        await session.stop()
+    }
+
     @Test("Public client session completes a scripted loopback round and forwards observers")
     func validateScriptedLoopbackRound() async throws {
         let coordinator = try await LoopbackPrimaryCoordinator.start()
@@ -1397,5 +1997,110 @@ struct ClientSessionValidator {
 
         await session.stop()
         await coordinator.stop()
+    }
+}
+
+private extension ClientSessionValidator {
+    static let fastReconnectPolicy = OpalFusion.Client.ReconnectPolicy(
+        initialDelay: .milliseconds(10),
+        maximumDelay: .milliseconds(10),
+        multiplier: 1,
+        maximumAttempts: 3
+    )
+
+    static func waitForObservedSnapshot(
+        _ stateObserver: RecordedClientStateObserver,
+        matching predicate: @escaping @Sendable (
+            OpalFusion.Client.Session.Snapshot
+        ) -> Bool
+    ) async throws -> OpalFusion.Client.Session.Snapshot {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                if let snapshot = await stateObserver.snapshot().last(where: predicate) {
+                    return snapshot
+                }
+
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
+    static func waitForSessionSnapshot(
+        _ session: OpalFusion.Client.Session,
+        matching predicate: @escaping @Sendable (
+            OpalFusion.Client.Session.Snapshot
+        ) -> Bool
+    ) async throws -> OpalFusion.Client.Session.Snapshot {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if predicate(snapshot) {
+                    return snapshot
+                }
+
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
+    static func waitForPrimaryTransport(
+        _ transportFactories: SessionTransportFactoryRecorder,
+        at index: Int
+    ) async throws -> ScriptedPrimaryTransport {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                if let transport = await transportFactories.primaryTransport(at: index) {
+                    return transport
+                }
+
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
+    static func waitForWrittenPayloadCount(
+        _ transport: ScriptedPrimaryTransport,
+        count: Int
+    ) async throws {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while await transport.recordedWrittenPayloads().count < count {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
+    static func advanceToStartRound(
+        _ transport: ScriptedPrimaryTransport,
+        nowProvider: ScriptedNowProvider,
+        covertTransport: ScriptedCovertTransport
+    ) async throws {
+        try await waitForWrittenPayloadCount(transport, count: 1)
+
+        await nowProvider.set(unixSeconds: 996)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await waitForWrittenPayloadCount(transport, count: 2)
+
+        await nowProvider.set(unixSeconds: 1_000)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
+            )
+        )
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while await covertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        await nowProvider.set(unixSeconds: 1_030)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .startRound(PrimaryRuntimeTestFixtures.startRound)
+            )
+        )
     }
 }

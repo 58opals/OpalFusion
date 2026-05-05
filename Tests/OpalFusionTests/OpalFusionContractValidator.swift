@@ -170,12 +170,47 @@ struct OpalFusionContractValidator {
         let snapshot = OpalFusion.Client.Session.Snapshot(
             state: state,
             lastError: .transportUnavailable,
-            lastErrorSummary: "Primary connection failed"
+            lastErrorSummary: "Primary connection failed",
+            diagnostics: .init(
+                activity: .retrying,
+                retryAttempt: 1,
+                nextRetryDelayMilliseconds: 3_000,
+                primaryFailureCategory: .transportUnavailable,
+                primaryFailureSummary: "Primary connection failed",
+                handshakeStage: .awaitingServerHello,
+                recentEvents: [
+                    .init(
+                        kind: .retry,
+                        summary: "Primary reconnect scheduled",
+                        retryAttempt: 1,
+                        retryDelayMilliseconds: 3_000,
+                        handshakeStage: .awaitingServerHello
+                    )
+                ]
+            )
         )
 
         #expect(snapshot.state == state)
         #expect(snapshot.lastError == .transportUnavailable)
         #expect(snapshot.lastErrorSummary == "Primary connection failed")
+        #expect(snapshot.diagnostics.activity == .retrying)
+        #expect(snapshot.diagnostics.retryAttempt == 1)
+        #expect(snapshot.diagnostics.nextRetryDelayMilliseconds == 3_000)
+        #expect(snapshot.diagnostics.primaryFailureCategory == .transportUnavailable)
+        #expect(snapshot.diagnostics.handshakeStage == .awaitingServerHello)
+        #expect(snapshot.diagnostics.recentEvents.count == 1)
+    }
+
+    @Test("Client reconnect policy exposes disabled and wallet defaults")
+    func validateClientReconnectPolicyDefaults() {
+        let disabled = OpalFusion.Client.ReconnectPolicy.disabled
+        #expect(disabled.maximumAttempts == 0)
+
+        let walletDefault = OpalFusion.Client.ReconnectPolicy.walletDefault
+        #expect(walletDefault.initialDelay == .seconds(3))
+        #expect(walletDefault.maximumDelay == .seconds(30))
+        #expect(walletDefault.multiplier == 1.5)
+        #expect(walletDefault.maximumAttempts == nil)
     }
 
     @Test("Client state observer satisfies the public session observation seam")
