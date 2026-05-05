@@ -3,7 +3,7 @@
 actor MutableBoolBox {
     private var storedValue: Bool?
 
-    func set(_ value: Bool) {
+    func update(_ value: Bool) {
         storedValue = value
     }
 

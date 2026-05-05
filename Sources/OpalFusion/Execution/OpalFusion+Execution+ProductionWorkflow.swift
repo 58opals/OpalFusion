@@ -3,37 +3,6 @@
 import Foundation
 import OpalCrypto
 import SwiftProtobuf
-
-extension OpalFusion.Execution.WorkflowContext {
-    static func production(
-        baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443
-    ) -> Self {
-        let workflow = OpalFusion.Execution.ProductionWorkflow(
-            baseline: baseline
-        )
-        return .init(
-            buildPlayerCommit: { round in
-                try workflow.buildPlayerCommit(round: &round)
-            },
-            buildCovertComponentMessages: { round in
-                try workflow.buildCovertComponentMessages(round: &round)
-            },
-            buildTransactionFinalizationProposal: { round in
-                try workflow.buildTransactionFinalizationProposal(round: &round)
-            },
-            buildCovertSignatureMessages: { round in
-                try workflow.buildCovertSignatureMessages(round: &round)
-            },
-            buildMyProofsList: { round in
-                try workflow.buildMyProofsList(round: &round)
-            },
-            buildBlames: { round in
-                try workflow.buildBlames(round: &round)
-            }
-        )
-    }
-}
-
 extension OpalFusion.Execution {
     struct ProductionWorkflow: Sendable {
         let baseline: OpalFusion.Transport.BaselineConfiguration
@@ -493,7 +462,7 @@ extension OpalFusion.Execution {
             }
 
             let serializedComponents = components.map(\.serializedComponent)
-            guard hasDuplicateByteArrays(serializedComponents) == false else {
+            guard Self.hasDuplicateByteArrays(serializedComponents) == false else {
                 throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
                     "Participant reservation produced duplicate components"
                 )
@@ -583,7 +552,7 @@ extension OpalFusion.Execution {
             }
 
             let allCommitmentBytes = try allCommitments.initialCommitments.map(serializeInitialCommitment)
-            guard hasDuplicateByteArrays(allCommitmentBytes) == false else {
+            guard Self.hasDuplicateByteArrays(allCommitmentBytes) == false else {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                     "Coordinator returned duplicate initial commitments"
                 )
@@ -604,7 +573,7 @@ extension OpalFusion.Execution {
                 )
             }
 
-            guard hasDuplicateByteArrays(allComponentBytes) == false else {
+            guard Self.hasDuplicateByteArrays(allComponentBytes) == false else {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                     "Coordinator returned duplicate shared components"
                 )
@@ -1176,9 +1145,9 @@ extension OpalFusion.Execution {
 
         private func parseComponent(
             bytes: [UInt8]
-        ) throws -> Fusion_Component {
+        ) throws -> FusionComponent {
             do {
-                return try Fusion_Component(serializedBytes: Data(bytes))
+                return try FusionComponent(serializedBytes: Data(bytes))
             } catch let error as OpalFusion.Execution.WorkflowFailure {
                 throw error
             } catch {
@@ -1192,7 +1161,7 @@ extension OpalFusion.Execution {
             bytes: [UInt8]
         ) throws -> OpalFusion.Commitment.InitialCommitment {
             do {
-                let message = try Fusion_InitialCommitment(serializedBytes: Data(bytes))
+                let message = try FusionInitialCommitment(serializedBytes: Data(bytes))
                 return .init(
                     saltedComponentHash: message.saltedComponentHash.bytes,
                     amountCommitment: message.amountCommitment.bytes,
@@ -1211,7 +1180,7 @@ extension OpalFusion.Execution {
             bytes: [UInt8]
         ) throws -> OpalFusion.Blame.Proof {
             do {
-                let message = try Fusion_Proof(serializedBytes: Data(bytes))
+                let message = try FusionProof(serializedBytes: Data(bytes))
                 return .init(
                     componentIndex: message.componentIdx,
                     salt: message.salt.bytes,
@@ -1230,18 +1199,18 @@ extension OpalFusion.Execution {
             payload: OpalFusion.Commitment.ComponentPayload,
             saltCommitment: [UInt8]
         ) throws -> [UInt8] {
-            var message = Fusion_Component()
+            var message = FusionComponent()
             message.saltCommitment = Data(saltCommitment)
             switch payload {
             case let .input(inputComponent):
-                var input = Fusion_InputComponent()
+                var input = FusionInputComponent()
                 input.prevTxid = Data(inputComponent.outpointTransactionHash.reversed())
                 input.prevIndex = inputComponent.outpointIndex
                 input.pubkey = Data(inputComponent.publicKey)
                 input.amount = inputComponent.amountSatoshis
                 message.component = .input(input)
             case let .output(outputComponent):
-                var output = Fusion_OutputComponent()
+                var output = FusionOutputComponent()
                 output.scriptpubkey = Data(outputComponent.lockingScript)
                 output.amount = outputComponent.amountSatoshis
                 message.component = .output(output)
@@ -1254,7 +1223,7 @@ extension OpalFusion.Execution {
         private func serializeInitialCommitment(
             _ commitment: OpalFusion.Commitment.InitialCommitment
         ) throws -> [UInt8] {
-            var message = Fusion_InitialCommitment()
+            var message = FusionInitialCommitment()
             message.saltedComponentHash = Data(commitment.saltedComponentHash)
             message.amountCommitment = Data(commitment.amountCommitment)
             message.communicationKey = Data(commitment.communicationPublicKey)
@@ -1266,7 +1235,7 @@ extension OpalFusion.Execution {
             salt: [UInt8],
             pedersenNonce: [UInt8]
         ) throws -> [UInt8] {
-            var message = Fusion_Proof()
+            var message = FusionProof()
             message.componentIdx = componentIndex
             message.salt = Data(salt)
             message.pedersenNonce = Data(pedersenNonce)
@@ -1285,28 +1254,19 @@ extension OpalFusion.Execution {
                 return .unsupportedExecution(summary)
             }
         }
-    }
 
-    struct RelayedProofValidationFailure: Swift.Error, Sendable, Equatable {
-        let reason: String
-    }
-
-    enum ValidatedProof: Sendable, Equatable {
-        case input(OpalFusion.Commitment.InputComponent)
-        case nonInput
+        private static func hasDuplicateByteArrays(_ arrays: [[UInt8]]) -> Bool {
+            var seen = Set<Data>()
+            for array in arrays {
+                if seen.insert(Data(array)).inserted == false {
+                    return true
+                }
+            }
+            return false
+        }
     }
 }
 
 private extension Data {
     var bytes: [UInt8] { Array(self) }
-}
-
-private func hasDuplicateByteArrays(_ arrays: [[UInt8]]) -> Bool {
-    var seen = Set<Data>()
-    for array in arrays {
-        if seen.insert(Data(array)).inserted == false {
-            return true
-        }
-    }
-    return false
 }

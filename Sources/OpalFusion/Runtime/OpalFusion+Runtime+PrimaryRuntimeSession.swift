@@ -4,66 +4,6 @@ import OSLog
 
 extension OpalFusion.Runtime {
     struct PrimaryRuntimeSession: Sendable {
-        struct PreRoundTrace: Sendable, Equatable {
-            enum InboundKind: String, Sendable, Equatable {
-                case serverHello = "ServerHello"
-                case tierStatusUpdate = "TierStatusUpdate"
-                case fusionBegin = "FusionBegin"
-                case serverFailure = "ServerFailure"
-            }
-
-            var lastInboundKind: InboundKind?
-            var lastInboundPayloadBytes: Int?
-            var sawServerHello: Bool
-            var wroteClientHello: Bool
-            var wroteJoinPools: Bool
-            var handshakeStage: OpalFusion.Client.Diagnostics.HandshakeStage
-            var recentEvents: [OpalFusion.Client.Diagnostics.Event]
-
-            init() {
-                self.lastInboundKind = nil
-                self.lastInboundPayloadBytes = nil
-                self.sawServerHello = false
-                self.wroteClientHello = false
-                self.wroteJoinPools = false
-                self.handshakeStage = .notStarted
-                self.recentEvents = []
-            }
-        }
-
-        enum Input: Sendable, Equatable {
-            case invalidConfiguration(summary: String)
-            case connected
-            case disconnected
-            case stopped
-            case primaryTransportFailed(summary: String)
-            case receivedPrimaryBytes([UInt8])
-            case covertPrepared
-            case covertPreparationFailed(summary: String)
-            case receivedCovertResponseBytes([UInt8])
-            case covertRequestFailed(summary: String)
-            case participantReservationLoaded(OpalFusion.Host.ParticipantReservation)
-            case participantReservationRejected
-            case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
-            case transactionFinalizationRejected
-            case clockAdvanced
-        }
-
-        enum Effect: Sendable, Equatable {
-            case writePrimaryBytes([UInt8])
-            case prepareCovertEndpoint(plan: OpalFusion.Runtime.CovertPreparationPlan)
-            case performCovertRequest(request: OpalFusion.Runtime.CovertRequest)
-            case requestParticipantReservation(roundIdentifier: OpalFusion.Round.Identifier)
-            case requestTransactionFinalization(
-                roundIdentifier: OpalFusion.Round.Identifier,
-                proposal: OpalFusion.Host.TransactionFinalizationProposal
-            )
-            case emitHostEvent(
-                roundIdentifier: OpalFusion.Round.Identifier?,
-                event: OpalFusion.Host.Event
-            )
-        }
-
         private static let logger = Logger(
             subsystem: "OpalFusion",
             category: "PrimaryRuntimeSession"

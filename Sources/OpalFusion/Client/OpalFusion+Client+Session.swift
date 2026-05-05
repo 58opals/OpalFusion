@@ -2,47 +2,6 @@
 
 public extension OpalFusion.Client {
     actor Session {
-        public struct Snapshot: Sendable, Equatable {
-            public let state: OpalFusion.Client.State
-            public let lastError: OpalFusion.Client.Error?
-            public let lastErrorSummary: String?
-            public let diagnostics: OpalFusion.Client.Diagnostics
-
-            public init(
-                state: OpalFusion.Client.State = .init(),
-                lastError: OpalFusion.Client.Error? = nil,
-                lastErrorSummary: String? = nil,
-                diagnostics: OpalFusion.Client.Diagnostics = .init()
-            ) {
-                self.state = state
-                self.lastError = lastError
-                self.lastErrorSummary = lastErrorSummary
-                self.diagnostics = diagnostics
-            }
-        }
-
-        private struct Dependencies: Sendable {
-            let workflow: OpalFusion.Execution.WorkflowContext?
-            let baseline: OpalFusion.Transport.BaselineConfiguration
-            let nowProvider: @Sendable () async -> OpalFusion.Execution.Instant
-            let clockTickInterval: Duration
-            let primaryTransportFactory: @Sendable () async -> (any OpalFusion.Runtime.PrimaryTransporting)?
-            let covertTransportFactory: @Sendable () async -> (any OpalFusion.Runtime.CovertTransporting)?
-            let snapshotDeliveryHook: @Sendable (
-                OpalFusion.Client.Session.Snapshot
-            ) async -> Void
-
-            static let defaults = Self(
-                workflow: nil,
-                baseline: .electronCash443,
-                nowProvider: { .now() },
-                clockTickInterval: .milliseconds(250),
-                primaryTransportFactory: { nil },
-                covertTransportFactory: { nil },
-                snapshotDeliveryHook: { _ in }
-            )
-        }
-
         private let configuration: OpalFusion.Client.Configuration
         private let genesisHash: [UInt8]?
         private let joinPools: OpalFusion.ProtocolModel.JoinPools
@@ -51,7 +10,7 @@ public extension OpalFusion.Client {
         private let eventObserver: (any OpalFusion.Host.EventObserver)?
         private let stateObserver: (any OpalFusion.Client.StateObserver)?
         private let reconnectPolicy: OpalFusion.Client.ReconnectPolicy
-        private let dependencies: Dependencies
+        private let dependencies: DependencyContext
         private var runtimeDriver: OpalFusion.Runtime.LiveRuntimeDriver?
         private var runtimeDriverGeneration: Int
         private var isActive: Bool

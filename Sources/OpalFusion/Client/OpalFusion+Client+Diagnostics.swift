@@ -3,60 +3,6 @@
 public extension OpalFusion.Client {
     struct Diagnostics: Sendable, Equatable {
         public static let recentEventLimit = 12
-
-        public enum Activity: String, Sendable, Equatable {
-            case idle
-            case connecting
-            case running
-            case retrying
-            case failed
-            case stopped
-        }
-
-        public enum HandshakeStage: String, Sendable, Equatable {
-            case notStarted
-            case awaitingServerHello
-            case awaitingFusionBegin
-            case inRound
-            case terminal
-        }
-
-        public struct Event: Sendable, Equatable {
-            public enum Kind: String, Sendable, Equatable {
-                case lifecycle
-                case outboundMessage
-                case inboundMessage
-                case retry
-                case failure
-            }
-
-            public let kind: Kind
-            public let summary: String
-            public let messageKind: String?
-            public let payloadByteCount: Int?
-            public let retryAttempt: Int?
-            public let retryDelayMilliseconds: Int?
-            public let handshakeStage: OpalFusion.Client.Diagnostics.HandshakeStage
-
-            public init(
-                kind: Kind,
-                summary: String,
-                messageKind: String? = nil,
-                payloadByteCount: Int? = nil,
-                retryAttempt: Int? = nil,
-                retryDelayMilliseconds: Int? = nil,
-                handshakeStage: OpalFusion.Client.Diagnostics.HandshakeStage = .notStarted
-            ) {
-                self.kind = kind
-                self.summary = summary
-                self.messageKind = messageKind
-                self.payloadByteCount = payloadByteCount
-                self.retryAttempt = retryAttempt
-                self.retryDelayMilliseconds = retryDelayMilliseconds
-                self.handshakeStage = handshakeStage
-            }
-        }
-
         public let activity: Activity
         public let retryAttempt: Int?
         public let nextRetryDelayMilliseconds: Int?

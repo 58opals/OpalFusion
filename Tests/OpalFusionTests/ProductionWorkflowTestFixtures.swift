@@ -123,11 +123,11 @@ enum ProductionWorkflowTestFixtures {
         let pedersenNonce = [UInt8](repeating: 0x77, count: 32)
         let amountSatoshis: UInt64 = 60_000
 
-        var component = Fusion_Component()
+        var component = FusionComponent()
         component.saltCommitment = Data(
             OpalFusion.Execution.ProtocolPrimitives.sha256(salt)
         )
-        var input = Fusion_InputComponent()
+        var input = FusionInputComponent()
         input.prevTxid = Data([UInt8](repeating: 0xCC, count: 32).reversed())
         input.prevIndex = 2
         input.pubkey = Data(inputPublicKey)
@@ -170,7 +170,7 @@ enum ProductionWorkflowTestFixtures {
         pedersenNonce: [UInt8],
         recipientPublicKey: [UInt8]
     ) throws -> [UInt8] {
-        var proof = Fusion_Proof()
+        var proof = FusionProof()
         proof.componentIdx = UInt32(componentIndex)
         proof.salt = Data(salt)
         proof.pedersenNonce = Data(pedersenNonce)

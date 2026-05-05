@@ -35,8 +35,8 @@ struct CovertMessageCodecValidator {
         let signaturePayload = try OpalFusion.Wire.CovertMessageEncoder()
             .encode(PrimaryRuntimeTestFixtures.signatureMessage)
 
-        let componentEnvelope = try Fusion_CovertMessage(serializedBytes: componentPayload)
-        let signatureEnvelope = try Fusion_CovertMessage(serializedBytes: signaturePayload)
+        let componentEnvelope = try FusionCovertMessage(serializedBytes: componentPayload)
+        let signatureEnvelope = try FusionCovertMessage(serializedBytes: signaturePayload)
 
         guard case let .component(component)? = componentEnvelope.msg else {
             Issue.record("Expected covert component envelope")

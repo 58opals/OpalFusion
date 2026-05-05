@@ -139,7 +139,7 @@ struct LivePrimaryTransportValidator {
     @Test("Live primary transport preserves startup waiting errors across restart-triggered cancellation")
     func validateWaitingCancellationPreservesUnderlyingError() async throws {
         let underlyingError = NWError.posix(.ECONNRESET)
-        let factory = ScriptedNetworkPrimaryConnectionFactory(
+        let factory = ScriptedNetworkPrimaryConnectionFixture(
             startStates: [.waiting(underlyingError)],
             restartStates: [.cancelled]
         )
@@ -175,7 +175,7 @@ struct LivePrimaryTransportValidator {
     @Test("Live primary transport cancels the underlying connection after terminal startup failure")
     func validateTerminalStartupFailureCancelsConnection() async throws {
         let underlyingError = NWError.posix(.ECONNRESET)
-        let factory = ScriptedNetworkPrimaryConnectionFactory(
+        let factory = ScriptedNetworkPrimaryConnectionFixture(
             startStates: [.failed(underlyingError)]
         )
         let transport = OpalFusion.Runtime.LivePrimaryTransport(
@@ -204,7 +204,7 @@ struct LivePrimaryTransportValidator {
 
     @Test("Live primary transport keeps explicit close cancellation after a stored waiting error")
     func validateExplicitCloseKeepsGenericCancellation() async throws {
-        let factory = ScriptedNetworkPrimaryConnectionFactory(
+        let factory = ScriptedNetworkPrimaryConnectionFixture(
             startStates: [.waiting(NWError.posix(.ECONNRESET))]
         )
         let transport = OpalFusion.Runtime.LivePrimaryTransport(

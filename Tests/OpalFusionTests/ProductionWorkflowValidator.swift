@@ -387,9 +387,9 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = Fusion_Component()
+        var component = FusionComponent()
         component.saltCommitment = Data([0xA0])
-        var output = Fusion_OutputComponent()
+        var output = FusionOutputComponent()
         output.scriptpubkey = Data([0x51])
         output.amount = OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis + 1
         component.component = .output(output)
@@ -423,9 +423,9 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = Fusion_Component()
+        var component = FusionComponent()
         component.saltCommitment = Data([0xD0])
-        var output = Fusion_OutputComponent()
+        var output = FusionOutputComponent()
         output.scriptpubkey = Data([0x51])
         output.amount = 1
         component.component = .output(output)
@@ -459,7 +459,7 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var extraComponent = Fusion_Component()
+        var extraComponent = FusionComponent()
         extraComponent.saltCommitment = Data([0xE0])
         extraComponent.component = .blank(.init())
 
@@ -486,9 +486,9 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = Fusion_Component()
+        var component = FusionComponent()
         component.saltCommitment = Data([0xB0])
-        var input = Fusion_InputComponent()
+        var input = FusionInputComponent()
         input.prevTxid = Data([UInt8](repeating: 0xCC, count: 32).reversed())
         input.prevIndex = 2
         input.pubkey = Data([UInt8](arrayLiteral: 0x02) + [UInt8](repeating: 0x00, count: 32))
@@ -529,9 +529,9 @@ struct ProductionWorkflowValidator {
             return
         }
 
-        var component = Fusion_Component()
+        var component = FusionComponent()
         component.saltCommitment = Data([0xC0])
-        var input = Fusion_InputComponent()
+        var input = FusionInputComponent()
         input.prevTxid = Data([UInt8](repeating: 0xCC, count: 31))
         input.prevIndex = 2
         input.pubkey = Data(publicKey)
@@ -594,7 +594,7 @@ struct ProductionWorkflowValidator {
                 rawRepresentation: Data(extraInputComponent.communicationPrivateKey)
             )
         )
-        let parsedProof = try Fusion_Proof(serializedBytes: decryptedProof.message)
+        let parsedProof = try FusionProof(serializedBytes: decryptedProof.message)
         #expect(sharedRoundMaterial.myComponentIndices.contains(Int(parsedProof.componentIdx)))
 
         let destinationComponent = playerCommitMaterial.componentsByCommitmentOrder[0]

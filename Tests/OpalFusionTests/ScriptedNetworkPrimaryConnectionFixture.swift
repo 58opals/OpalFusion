@@ -1,9 +1,9 @@
-// ScriptedNetworkPrimaryConnectionFactory.swift
+// ScriptedNetworkPrimaryConnectionFixture.swift
 
 @testable import OpalFusion
 import Network
 
-struct ScriptedNetworkPrimaryConnectionFactory: Sendable {
+struct ScriptedNetworkPrimaryConnectionFixture: Sendable {
     let connection: ScriptedNetworkPrimaryConnection
 
     init(

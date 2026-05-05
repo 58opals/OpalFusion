@@ -63,7 +63,7 @@ struct PrimaryMessageCodecValidator {
     func validateGeneratedCompatibilityCases() throws {
         let encoder = OpalFusion.Wire.PrimaryMessageEncoder()
 
-        let clientHelloEnvelope = try Fusion_ClientMessage(
+        let clientHelloEnvelope = try FusionClientMessage(
             serializedBytes: encoder.encode(.clientHello(PrimaryRuntimeTestFixtures.clientHello))
         )
         guard case let .clienthello(clientHello)? = clientHelloEnvelope.msg else {
@@ -77,7 +77,7 @@ struct PrimaryMessageCodecValidator {
                 == (PrimaryRuntimeTestFixtures.clientHello.genesisHash ?? [])
         )
 
-        let serverHelloEnvelope = try Fusion_ServerMessage(
+        let serverHelloEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
         )
         guard case let .serverhello(serverHello)? = serverHelloEnvelope.msg else {
@@ -91,7 +91,7 @@ struct PrimaryMessageCodecValidator {
                 == (PrimaryRuntimeTestFixtures.serverHello.donationAddress ?? "")
         )
 
-        let fusionBeginEnvelope = try Fusion_ServerMessage(
+        let fusionBeginEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
         )
         guard case let .fusionbegin(fusionBegin)? = fusionBeginEnvelope.msg else {
@@ -105,7 +105,7 @@ struct PrimaryMessageCodecValidator {
         )
         #expect(fusionBegin.covertPort == PrimaryRuntimeTestFixtures.fusionBegin.covertPort)
 
-        let startRoundEnvelope = try Fusion_ServerMessage(
+        let startRoundEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.startRound(PrimaryRuntimeTestFixtures.startRound))
         )
         guard case let .startround(startRound)? = startRoundEnvelope.msg else {
@@ -118,7 +118,7 @@ struct PrimaryMessageCodecValidator {
                 == PrimaryRuntimeTestFixtures.startRound.blindNoncePoints
         )
 
-        let commitmentsEnvelope = try Fusion_ServerMessage(
+        let commitmentsEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
         )
         guard case let .allcommitments(allCommitments)? = commitmentsEnvelope.msg else {
@@ -126,7 +126,7 @@ struct PrimaryMessageCodecValidator {
             return
         }
         #expect(allCommitments.initialCommitments.count == 1)
-        let nestedCommitment = try Fusion_InitialCommitment(
+        let nestedCommitment = try FusionInitialCommitment(
             serializedBytes: allCommitments.initialCommitments[0]
         )
         #expect(
@@ -134,7 +134,7 @@ struct PrimaryMessageCodecValidator {
                 == PrimaryRuntimeTestFixtures.initialCommitment.communicationPublicKey
         )
 
-        let fusionResultEnvelope = try Fusion_ServerMessage(
+        let fusionResultEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
         )
         guard case let .fusionresult(fusionResult)? = fusionResultEnvelope.msg else {
@@ -147,7 +147,7 @@ struct PrimaryMessageCodecValidator {
                 == PrimaryRuntimeTestFixtures.successResult.transactionSignatures
         )
 
-        let proofsEnvelope = try Fusion_ServerMessage(
+        let proofsEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.theirProofsList(PrimaryRuntimeTestFixtures.theirProofsList))
         )
         guard case let .theirproofslist(theirProofsList)? = proofsEnvelope.msg else {
@@ -160,7 +160,7 @@ struct PrimaryMessageCodecValidator {
                 == PrimaryRuntimeTestFixtures.theirProofsList.proofs[0].encryptedProof
         )
 
-        let restartEnvelope = try Fusion_ServerMessage(
+        let restartEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.restartRound(.init()))
         )
         guard case .restartround? = restartEnvelope.msg else {
@@ -168,7 +168,7 @@ struct PrimaryMessageCodecValidator {
             return
         }
 
-        let errorEnvelope = try Fusion_ServerMessage(
+        let errorEnvelope = try FusionServerMessage(
             serializedBytes: encoder.encode(.serverFailure(PrimaryRuntimeTestFixtures.serverFailure))
         )
         guard case let .error(error)? = errorEnvelope.msg else {

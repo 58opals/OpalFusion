@@ -3,63 +3,8 @@
 import Foundation
 import Network
 import Security
-
-private actor LoopbackPrimaryTLSMaterialCache {
-    private var materialResult: Result<
-        LoopbackPrimaryTLSTestFixture.Material,
-        LiveRuntimeTestSupportError
-    >?
-
-    func trustAnchorCertificateDERs() throws -> [Data] {
-        [try material().certificateDER]
-    }
-
-    func makeListenerParameters() throws -> NWParameters {
-        let tlsOptions = NWProtocolTLS.Options()
-        sec_protocol_options_set_local_identity(
-            tlsOptions.securityProtocolOptions,
-            try material().localIdentity
-        )
-
-        return NWParameters(
-            tls: tlsOptions,
-            tcp: NWProtocolTCP.Options()
-        )
-    }
-
-    private func material() throws -> LoopbackPrimaryTLSTestFixture.Material {
-        if let materialResult {
-            switch materialResult {
-            case let .success(material):
-                return material
-            case let .failure(error):
-                throw error
-            }
-        }
-
-        let result: Result<LoopbackPrimaryTLSTestFixture.Material, LiveRuntimeTestSupportError>
-        do {
-            result = .success(try LoopbackPrimaryTLSTestFixture.makeMaterial())
-        } catch let error as LiveRuntimeTestSupportError {
-            result = .failure(error)
-        } catch {
-            result = .failure(
-                .invalidTLSFixture("TLS loopback material generation failed: \(error)")
-            )
-        }
-
-        materialResult = result
-        switch result {
-        case let .success(material):
-            return material
-        case let .failure(error):
-            throw error
-        }
-    }
-}
-
 enum LoopbackPrimaryTLSTestFixture {
-    fileprivate typealias Material = (
+    typealias Material = (
         certificateDER: Data,
         localIdentity: sec_identity_t
     )
@@ -76,7 +21,7 @@ enum LoopbackPrimaryTLSTestFixture {
         try await materialCache.makeListenerParameters()
     }
 
-    fileprivate static func makeMaterial() throws -> Material {
+    static func makeMaterial() throws -> Material {
         let cleanupDirectory = try prepareServerFiles()
         let keyURL = cleanupDirectory.appendingPathComponent("localhost.key.pem")
         let certificateURL = cleanupDirectory.appendingPathComponent("localhost.cert.pem")

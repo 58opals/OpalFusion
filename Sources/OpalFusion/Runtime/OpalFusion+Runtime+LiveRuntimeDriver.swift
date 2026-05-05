@@ -8,15 +8,6 @@ extension OpalFusion.Runtime {
             subsystem: "OpalFusion",
             category: "LiveRuntimeDriver"
         )
-
-        struct Snapshot: Sendable, Equatable {
-            let clientState: OpalFusion.Client.State
-            let lastError: OpalFusion.Client.Error?
-            let lastErrorSummary: String?
-            let diagnostics: OpalFusion.Client.Diagnostics
-            let allowsReconnect: Bool
-        }
-
         typealias SnapshotSink = @Sendable (
             OpalFusion.Runtime.LiveRuntimeDriver.Snapshot
         ) async -> Void
@@ -24,10 +15,10 @@ extension OpalFusion.Runtime {
             OpalFusion.Round.Identifier?,
             OpalFusion.Host.Event
         ) async -> Void
-        typealias PrimaryTransportFactory = @Sendable (
+        typealias PrimaryTransportBuilder = @Sendable (
             OpalFusion.Client.Configuration
         ) async -> any OpalFusion.Runtime.PrimaryTransporting
-        typealias CovertTransportFactory = @Sendable (
+        typealias CovertTransportBuilder = @Sendable (
             OpalFusion.Client.Configuration
         ) async -> any OpalFusion.Runtime.CovertTransporting
 
@@ -38,8 +29,8 @@ extension OpalFusion.Runtime {
         private let eventObserver: (any OpalFusion.Host.EventObserver)?
         private let hostEventSink: HostEventSink
         private let snapshotSink: SnapshotSink
-        private let primaryTransportFactory: PrimaryTransportFactory
-        private let covertTransportFactory: CovertTransportFactory
+        private let primaryTransportFactory: PrimaryTransportBuilder
+        private let covertTransportFactory: CovertTransportBuilder
         private var primaryTransport: (any OpalFusion.Runtime.PrimaryTransporting)?
         private var covertTransport: (any OpalFusion.Runtime.CovertTransporting)?
         private let nowProvider: @Sendable () async -> OpalFusion.Execution.Instant
@@ -70,8 +61,8 @@ extension OpalFusion.Runtime {
                 .now()
             },
             clockTickInterval: Duration = .milliseconds(250),
-            primaryTransportFactory: PrimaryTransportFactory? = nil,
-            covertTransportFactory: CovertTransportFactory? = nil,
+            primaryTransportFactory: PrimaryTransportBuilder? = nil,
+            covertTransportFactory: CovertTransportBuilder? = nil,
             primaryTransport: (any OpalFusion.Runtime.PrimaryTransporting)? = nil,
             covertTransport: (any OpalFusion.Runtime.CovertTransporting)? = nil
         ) {

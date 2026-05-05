@@ -1,27 +1,9 @@
-// OpalFusion+Execution+TransactionCodec.swift
+// OpalFusion+Execution+BCHTransaction.swift
 
 import Foundation
 
 extension OpalFusion.Execution {
-    enum BCHTransactionError: Swift.Error, Sendable, Equatable {
-        case malformed(String)
-        case templateMismatch(String)
-        case unsupportedInput(String)
-    }
-
     struct BCHTransaction: Sendable, Equatable {
-        struct Input: Sendable, Equatable {
-            var previousTransactionHashLittleEndian: [UInt8]
-            var previousOutputIndex: UInt32
-            var unlockingScript: [UInt8]
-            var sequence: UInt32
-        }
-
-        struct Output: Sendable, Equatable {
-            var amountSatoshis: UInt64
-            var lockingScript: [UInt8]
-        }
-
         var version: Int32
         var inputs: [OpalFusion.Execution.BCHTransaction.Input]
         var outputs: [OpalFusion.Execution.BCHTransaction.Output]
@@ -42,7 +24,7 @@ extension OpalFusion.Execution {
 
             var bytes = [UInt8]()
             bytes.append(contentsOf: version.littleEndianBytes)
-            bytes.append(contentsOf: try CompactSize.encode(inputs.count))
+            bytes.append(contentsOf: try Self.encodeCompactSize(inputs.count))
             for input in inputs {
                 guard input.previousTransactionHashLittleEndian.count == 32 else {
                     throw OpalFusion.Execution.BCHTransactionError.malformed(
@@ -51,12 +33,12 @@ extension OpalFusion.Execution {
                 }
                 bytes.append(contentsOf: input.previousTransactionHashLittleEndian)
                 bytes.append(contentsOf: input.previousOutputIndex.littleEndianBytes)
-                bytes.append(contentsOf: try CompactSize.encode(input.unlockingScript.count))
+                bytes.append(contentsOf: try Self.encodeCompactSize(input.unlockingScript.count))
                 bytes.append(contentsOf: input.unlockingScript)
                 bytes.append(contentsOf: input.sequence.littleEndianBytes)
             }
 
-            bytes.append(contentsOf: try CompactSize.encode(outputs.count))
+            bytes.append(contentsOf: try Self.encodeCompactSize(outputs.count))
             var outputTotalSatoshis: UInt64 = 0
             for output in outputs {
                 guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
@@ -70,7 +52,7 @@ extension OpalFusion.Execution {
                 )
 
                 bytes.append(contentsOf: output.amountSatoshis.littleEndianBytes)
-                bytes.append(contentsOf: try CompactSize.encode(output.lockingScript.count))
+                bytes.append(contentsOf: try Self.encodeCompactSize(output.lockingScript.count))
                 bytes.append(contentsOf: output.lockingScript)
             }
             bytes.append(contentsOf: lockTime.littleEndianBytes)
@@ -137,7 +119,7 @@ extension OpalFusion.Execution {
 
                 serializedOutputs.append(contentsOf: output.amountSatoshis.littleEndianBytes)
                 serializedOutputs.append(
-                    contentsOf: try CompactSize.encode(output.lockingScript.count)
+                    contentsOf: try Self.encodeCompactSize(output.lockingScript.count)
                 )
                 serializedOutputs.append(contentsOf: output.lockingScript)
             }
@@ -151,7 +133,7 @@ extension OpalFusion.Execution {
             preimage.append(contentsOf: hashSequence)
             preimage.append(contentsOf: input.previousTransactionHashLittleEndian)
             preimage.append(contentsOf: input.previousOutputIndex.littleEndianBytes)
-            preimage.append(contentsOf: try CompactSize.encode(lockingScript.count))
+            preimage.append(contentsOf: try Self.encodeCompactSize(lockingScript.count))
             preimage.append(contentsOf: lockingScript)
             preimage.append(contentsOf: amountSatoshis.littleEndianBytes)
             preimage.append(contentsOf: input.sequence.littleEndianBytes)
@@ -166,10 +148,10 @@ extension OpalFusion.Execution {
         ) throws -> OpalFusion.Execution.BCHTransaction {
             var cursor = 0
             let version = try Int32(
-                littleEndianBytes: readBytes(count: 4, from: bytes, cursor: &cursor)
+                littleEndianBytes: Self.readBytes(count: 4, from: bytes, cursor: &cursor)
             )
 
-            let inputCount = try CompactSize.decode(from: bytes, cursor: &cursor)
+            let inputCount = try Self.decodeCompactSize(from: bytes, cursor: &cursor)
             guard inputCount > 0 else {
                 throw OpalFusion.Execution.BCHTransactionError.malformed(
                     "Transaction must contain at least one input"
@@ -184,22 +166,22 @@ extension OpalFusion.Execution {
             var inputs: [OpalFusion.Execution.BCHTransaction.Input] = []
             inputs.reserveCapacity(inputCount)
             for _ in 0..<inputCount {
-                let previousTransactionHashLittleEndian = try readBytes(
+                let previousTransactionHashLittleEndian = try Self.readBytes(
                     count: 32,
                     from: bytes,
                     cursor: &cursor
                 )
                 let previousOutputIndex = try UInt32(
-                    littleEndianBytes: readBytes(count: 4, from: bytes, cursor: &cursor)
+                    littleEndianBytes: Self.readBytes(count: 4, from: bytes, cursor: &cursor)
                 )
-                let unlockingScriptLength = try CompactSize.decode(from: bytes, cursor: &cursor)
-                let unlockingScript = try readBytes(
+                let unlockingScriptLength = try Self.decodeCompactSize(from: bytes, cursor: &cursor)
+                let unlockingScript = try Self.readBytes(
                     count: unlockingScriptLength,
                     from: bytes,
                     cursor: &cursor
                 )
                 let sequence = try UInt32(
-                    littleEndianBytes: readBytes(count: 4, from: bytes, cursor: &cursor)
+                    littleEndianBytes: Self.readBytes(count: 4, from: bytes, cursor: &cursor)
                 )
                 inputs.append(
                     .init(
@@ -211,7 +193,7 @@ extension OpalFusion.Execution {
                 )
             }
 
-            let outputCount = try CompactSize.decode(from: bytes, cursor: &cursor)
+            let outputCount = try Self.decodeCompactSize(from: bytes, cursor: &cursor)
             guard outputCount > 0 else {
                 throw OpalFusion.Execution.BCHTransactionError.malformed(
                     "Transaction must contain at least one output"
@@ -228,7 +210,7 @@ extension OpalFusion.Execution {
             var outputTotalSatoshis: UInt64 = 0
             for _ in 0..<outputCount {
                 let amountSatoshis = try UInt64(
-                    littleEndianBytes: readBytes(count: 8, from: bytes, cursor: &cursor)
+                    littleEndianBytes: Self.readBytes(count: 8, from: bytes, cursor: &cursor)
                 )
                 guard amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
                     throw OpalFusion.Execution.BCHTransactionError.malformed(
@@ -240,8 +222,8 @@ extension OpalFusion.Execution {
                     to: outputTotalSatoshis
                 )
 
-                let lockingScriptLength = try CompactSize.decode(from: bytes, cursor: &cursor)
-                let lockingScript = try readBytes(
+                let lockingScriptLength = try Self.decodeCompactSize(from: bytes, cursor: &cursor)
+                let lockingScript = try Self.readBytes(
                     count: lockingScriptLength,
                     from: bytes,
                     cursor: &cursor
@@ -255,7 +237,7 @@ extension OpalFusion.Execution {
             }
 
             let lockTime = try UInt32(
-                littleEndianBytes: readBytes(count: 4, from: bytes, cursor: &cursor)
+                littleEndianBytes: Self.readBytes(count: 4, from: bytes, cursor: &cursor)
             )
             guard cursor == bytes.count else {
                 throw OpalFusion.Execution.BCHTransactionError.malformed(
@@ -269,6 +251,87 @@ extension OpalFusion.Execution {
                 outputs: outputs,
                 lockTime: lockTime
             )
+        }
+
+        private static func encodeCompactSize(_ value: Int) throws -> [UInt8] {
+        guard value >= 0 else {
+        throw OpalFusion.Execution.BCHTransactionError.malformed(
+        "CompactSize value must be non-negative"
+        )
+        }
+        if value < 0xFD {
+        return [UInt8(value)]
+        }
+        if value <= Int(UInt16.max) {
+        return [0xFD] + UInt16(value).littleEndianBytes
+        }
+        if value <= Int(UInt32.max) {
+        return [0xFE] + UInt32(value).littleEndianBytes
+        }
+        return [0xFF] + UInt64(value).littleEndianBytes
+        }
+
+        private static func decodeCompactSize(
+        from bytes: [UInt8],
+        cursor: inout Int
+        ) throws -> Int {
+        let prefix = try Self.readBytes(count: 1, from: bytes, cursor: &cursor)[0]
+        switch prefix {
+        case 0x00...0xFC:
+        return Int(prefix)
+        case 0xFD:
+        let value = try UInt16(
+        littleEndianBytes: Self.readBytes(count: 2, from: bytes, cursor: &cursor)
+        )
+        guard value >= 0xFD else {
+        throw OpalFusion.Execution.BCHTransactionError.malformed(
+        "CompactSize value used a non-canonical encoding"
+        )
+        }
+        return Int(value)
+        case 0xFE:
+        let value = try UInt32(
+        littleEndianBytes: Self.readBytes(count: 4, from: bytes, cursor: &cursor)
+        )
+        guard value > UInt32(UInt16.max) else {
+        throw OpalFusion.Execution.BCHTransactionError.malformed(
+        "CompactSize value used a non-canonical encoding"
+        )
+        }
+        return Int(value)
+        default:
+        let value = try UInt64(
+        littleEndianBytes: Self.readBytes(count: 8, from: bytes, cursor: &cursor)
+        )
+        guard value > UInt64(UInt32.max) else {
+        throw OpalFusion.Execution.BCHTransactionError.malformed(
+        "CompactSize value used a non-canonical encoding"
+        )
+        }
+        guard value <= UInt64(Int.max) else {
+        throw OpalFusion.Execution.BCHTransactionError.malformed(
+        "CompactSize value exceeded the supported range"
+        )
+        }
+        return Int(value)
+        }
+        }
+
+        private static func readBytes(
+        count: Int,
+        from bytes: [UInt8],
+        cursor: inout Int
+        ) throws -> [UInt8] {
+        guard count >= 0,
+        cursor >= 0,
+        cursor <= bytes.count,
+        count <= bytes.count - cursor else {
+        throw OpalFusion.Execution.BCHTransactionError.malformed(
+        "Unexpected end of transaction bytes"
+        )
+        }
+        defer { cursor += count }
+        return Array(bytes[cursor..<(cursor + count)])
         }
 
         private static func addingOutputAmount(
@@ -298,90 +361,6 @@ extension OpalFusion.Execution {
         }
     }
 }
-
-private enum CompactSize {
-    static func encode(_ value: Int) throws -> [UInt8] {
-        guard value >= 0 else {
-            throw OpalFusion.Execution.BCHTransactionError.malformed(
-                "CompactSize value must be non-negative"
-            )
-        }
-        if value < 0xFD {
-            return [UInt8(value)]
-        }
-        if value <= Int(UInt16.max) {
-            return [0xFD] + UInt16(value).littleEndianBytes
-        }
-        if value <= Int(UInt32.max) {
-            return [0xFE] + UInt32(value).littleEndianBytes
-        }
-        return [0xFF] + UInt64(value).littleEndianBytes
-    }
-
-    static func decode(
-        from bytes: [UInt8],
-        cursor: inout Int
-    ) throws -> Int {
-        let prefix = try readBytes(count: 1, from: bytes, cursor: &cursor)[0]
-        switch prefix {
-        case 0x00...0xFC:
-            return Int(prefix)
-        case 0xFD:
-            let value = try UInt16(
-                littleEndianBytes: readBytes(count: 2, from: bytes, cursor: &cursor)
-            )
-            guard value >= 0xFD else {
-                throw OpalFusion.Execution.BCHTransactionError.malformed(
-                    "CompactSize value used a non-canonical encoding"
-                )
-            }
-            return Int(value)
-        case 0xFE:
-            let value = try UInt32(
-                littleEndianBytes: readBytes(count: 4, from: bytes, cursor: &cursor)
-            )
-            guard value > UInt32(UInt16.max) else {
-                throw OpalFusion.Execution.BCHTransactionError.malformed(
-                    "CompactSize value used a non-canonical encoding"
-                )
-            }
-            return Int(value)
-        default:
-            let value = try UInt64(
-                littleEndianBytes: readBytes(count: 8, from: bytes, cursor: &cursor)
-            )
-            guard value > UInt64(UInt32.max) else {
-                throw OpalFusion.Execution.BCHTransactionError.malformed(
-                    "CompactSize value used a non-canonical encoding"
-                )
-            }
-            guard value <= UInt64(Int.max) else {
-                throw OpalFusion.Execution.BCHTransactionError.malformed(
-                    "CompactSize value exceeded the supported range"
-                )
-            }
-            return Int(value)
-        }
-    }
-}
-
-private func readBytes(
-    count: Int,
-    from bytes: [UInt8],
-    cursor: inout Int
-) throws -> [UInt8] {
-    guard count >= 0,
-          cursor >= 0,
-          cursor <= bytes.count,
-          count <= bytes.count - cursor else {
-        throw OpalFusion.Execution.BCHTransactionError.malformed(
-            "Unexpected end of transaction bytes"
-        )
-    }
-    defer { cursor += count }
-    return Array(bytes[cursor..<(cursor + count)])
-}
-
 private extension Int32 {
     var littleEndianBytes: [UInt8] {
         withUnsafeBytes(of: self.littleEndian) { Array($0) }

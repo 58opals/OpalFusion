@@ -2,38 +2,6 @@
 
 extension OpalFusion.Execution {
     struct RoundEngine: Sendable {
-        enum Input: Sendable, Equatable {
-            case configurationRejected(summary: String)
-            case primaryConnected
-            case primaryDisconnected
-            case stopped
-            case primaryTransportFailed(summary: String)
-            case covertTransportFailed(summary: String)
-            case protocolRejected(summary: String)
-            case primaryMessage(OpalFusion.ProtocolModel.ServerMessage)
-            case covertResponse(OpalFusion.ProtocolModel.CovertResponse)
-            case participantReservationLoaded(OpalFusion.Host.ParticipantReservation)
-            case participantReservationRejected
-            case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
-            case transactionFinalizationRejected
-            case clockAdvanced
-        }
-
-        enum Effect: Sendable, Equatable {
-            case sendPrimary(OpalFusion.ProtocolModel.ClientMessage)
-            case prepareCovert(OpalFusion.Runtime.CovertEndpointContext)
-            case submitCovert(OpalFusion.ProtocolModel.CovertMessage)
-            case requestParticipantReservation(roundIdentifier: OpalFusion.Round.Identifier)
-            case requestTransactionFinalization(
-                roundIdentifier: OpalFusion.Round.Identifier,
-                proposal: OpalFusion.Host.TransactionFinalizationProposal
-            )
-            case emitHostEvent(
-                roundIdentifier: OpalFusion.Round.Identifier?,
-                event: OpalFusion.Host.Event
-            )
-        }
-
         private(set) var session: OpalFusion.Execution.SessionContext
         private(set) var round: OpalFusion.Execution.RoundContext?
         let workflow: OpalFusion.Execution.WorkflowContext

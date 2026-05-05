@@ -1,65 +1,7 @@
 // OpalFusion+Runtime+CovertRuntimeSession.swift
 
 extension OpalFusion.Runtime {
-    struct CovertEndpointContext: Sendable, Equatable {
-        let roundIdentifier: OpalFusion.Round.Identifier?
-        let host: String
-        let port: UInt32
-        let requiresTLS: Bool?
-        let entryPath: String
-        let maxPayloadBytes: Int
-        let requestTimeoutMilliseconds: UInt64
-        let connectTimeout: Duration
-        let connectWindow: Duration
-        let submitTimeout: Duration
-        let submitWindow: Duration
-        let spareConnectionCount: Int
-    }
-
-    struct CovertPreparationPlan: Sendable, Equatable {
-        let endpoint: OpalFusion.Runtime.CovertEndpointContext
-        let startedAt: OpalFusion.Execution.Instant
-        let deadline: OpalFusion.Execution.Instant
-    }
-
-    struct CovertRequest: Sendable, Equatable {
-        let endpoint: OpalFusion.Runtime.CovertEndpointContext
-        let payload: [UInt8]
-        let startedAt: OpalFusion.Execution.Instant
-        let deadline: OpalFusion.Execution.Instant
-    }
-
-    enum CovertRuntimeSubstate: String, Sendable, Equatable {
-        case idle
-        case preparing
-        case prepared
-    }
-
     struct CovertRuntimeSession: Sendable {
-        enum Input: Sendable, Equatable {
-            case prepare(endpointContext: OpalFusion.Runtime.CovertEndpointContext)
-            case enqueue(message: OpalFusion.ProtocolModel.CovertMessage)
-            case covertPrepared
-            case covertPreparationFailed(summary: String)
-            case covertResponseBytesReceived([UInt8])
-            case covertRequestFailed(summary: String)
-            case clockAdvanced
-            case reset
-        }
-
-        enum Effect: Sendable, Equatable {
-            case prepareCovertEndpoint(plan: OpalFusion.Runtime.CovertPreparationPlan)
-            case performCovertRequest(request: OpalFusion.Runtime.CovertRequest)
-            case deliverCovertResponse(OpalFusion.ProtocolModel.CovertResponse)
-            case emitProtocolFailure(summary: String)
-            case emitTransportFailure(summary: String)
-        }
-
-        private struct OutstandingRequest: Sendable, Equatable {
-            let request: OpalFusion.Runtime.CovertRequest
-            let message: OpalFusion.ProtocolModel.CovertMessage
-        }
-
         private(set) var endpointContext: OpalFusion.Runtime.CovertEndpointContext?
         private(set) var substate: OpalFusion.Runtime.CovertRuntimeSubstate
         private(set) var preparationPlan: OpalFusion.Runtime.CovertPreparationPlan?
