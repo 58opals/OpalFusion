@@ -21,6 +21,7 @@ It exists to isolate coordinator connectivity, covert transport, round-state han
 - `OpalBase` owns app-facing orchestration, wallet policy, and product-facing integration.
 - `SwiftFulcrum` owns Fulcrum transport responsibilities.
 - The current package support contract is `macOS 26` only; the live covert transport and Tor SOCKS5 runtime path are macOS-only in this first slice.
+- Coordinator host, coordinator port, primary-channel TLS policy, Tor SOCKS5 settings, join tiers, pool tags, and product retry policy are app-owned inputs. OpalFusion validates and consumes them, but does not provide production coordinator defaults.
 
 ### Non-goals
 
@@ -206,6 +207,7 @@ Current scaffold alignment:
 - `Error` remains intentionally coarse and still maps configuration, transport, host, protocol, and round-completion outcomes into a stable public surface.
 - `Session` is the conservative public activation wrapper over the internal live runtime.
 - `Session.Snapshot` exposes the current coarse `State` plus the last surfaced `Error`.
+- `Session.Snapshot.lastErrorSummary` is a sanitized diagnostic string for app logging and support flows. It must not expose raw operating-system, transport, or coordinator error text to user-facing surfaces.
 - `StateObserver` is the public async seam for session-wide state transitions, including pre-round connection failures and terminal outcomes.
 - The current real Electron Cash proof target is session-level eventual success rather than first-round success, so a blame/restart attempt may be followed by a later successful round inside one session.
 
@@ -246,6 +248,7 @@ Current scaffold alignment:
 
 - `CovertChannelConfiguration` models entry path, payload sizing, and request timeout.
 - `TorSocks5Configuration` models proxy host, port, and remote hostname resolution behavior.
+- Tor SOCKS5 applies to the covert HTTP(S) transport path only. The primary coordinator connection stays direct unless a future product requirement explicitly asks for coordinator-over-Tor.
 
 ### `OpalFusion.Host`
 
@@ -302,8 +305,12 @@ Current scaffold alignment:
 ### OpalFusion-Specific Required Behavior
 
 - Validate configuration before opening the primary connection.
+- Validate the optional genesis hash and requested join-pool tiers/tags before opening the primary connection.
 - Keep the public state model coarse and stable even if internal state is more detailed.
 - Surface host rejection distinctly from coordinator rejection.
+- Surface coordinator rejection without exposing raw coordinator failure text.
+- Treat explicit `stop()` as an idempotent, non-error terminal session action. Unexpected primary EOF or transport failure remains a transport failure.
+- Keep public diagnostics and OSLog public fields privacy-safe; raw OS, TLS, socket, and coordinator errors must not become public summaries.
 - Keep reusable Bitcoin Cash cryptography outside this package when it belongs in `OpalCrypto`.
 - Avoid dependency cycles into downstream app-facing packages.
 - Fail unsupported local input/signing forms deterministically and early, rather than letting them surface late in the round after deeper execution work has already proceeded.
@@ -318,6 +325,7 @@ The implementation phase should preserve at least these top-level outcome catego
 - host rejected
 - protocol rejected or incompatible
 - round failed and entered blame handling
+- unresolved blame terminal outcome
 - round completed successfully
 - not yet implemented or unsupported path
 
@@ -329,6 +337,20 @@ The implementation phase should preserve at least these top-level outcome catego
 - Protocol incompatibility.
 - Transport failure that prevents round completion.
 - Blame-capable round failure.
+- Explicit app-requested stop, which is non-error and clears nonterminal round state.
+
+### App-Facing Runtime Contract
+
+Wallet and OpalBase should consume OpalFusion through `OpalFusion.Client.Session` with app-owned configuration:
+
+- Supported platform: macOS 26 for the live runtime in this first slice.
+- Required configuration: non-empty coordinator host, nonzero coordinator port, explicit primary TLS flag, valid covert entry path, positive covert payload and timeout settings, optional valid Tor SOCKS5 host/port, optional 32-byte BCH genesis hash, and non-empty positive unique join-pool tiers.
+- Optional pool tags must have a non-empty identifier and positive limit.
+- Primary TLS follows `coordinatorRequiresTLS`; covert HTTP(S) follows `FusionBegin.covert_ssl`; Tor SOCKS5 is used only by covert HTTP(S) requests.
+- Primary transport may retry transient Network.framework waiting states before startup failure, but TLS failures are terminal. Product-level coordinator retry cadence remains app-owned.
+- Terminal round statuses are `success`, `coordinatorRejected`, `hostRejected`, `protocolIncompatible`, `transportFailed`, and `blameRequired`.
+- Public user-safe error categories are `invalidConfiguration`, `transportUnavailable`, `coordinatorRejected`, `hostRejected`, `protocolIncompatible`, `blameRequired`, and `notImplemented`.
+- `lastErrorSummary` and host event summaries are sanitized integration diagnostics, not raw coordinator or OS error text.
 
 ## 7. Current Pilot Status
 

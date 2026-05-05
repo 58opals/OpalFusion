@@ -111,6 +111,50 @@ struct LiveCovertTransportValidator {
         #expect(proxyConfiguration.proxyPort == Int(torSocks5.port))
     }
 
+    @Test("macOS live covert transport rejects responses without HTTP metadata")
+    func validateNonHTTPResponseRejection() async throws {
+        let transport = OpalFusion.Runtime.LiveCovertTransport(
+            torSocks5: nil,
+            requestExecutor: { _, request in
+                guard let url = request.url else {
+                    throw LiveRuntimeTestSupportError.inboundStreamClosed
+                }
+                return (
+                    Data(),
+                    URLResponse(
+                        url: url,
+                        mimeType: nil,
+                        expectedContentLength: 0,
+                        textEncodingName: nil
+                    )
+                )
+            }
+        )
+        let endpoint = PrimaryRuntimeTestFixtures.covertEndpointContext
+        let plan = OpalFusion.Runtime.CovertPreparationPlan(
+            endpoint: endpoint,
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
+        )
+        let request = OpalFusion.Runtime.CovertRequest(
+            endpoint: endpoint,
+            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
+                PrimaryRuntimeTestFixtures.pingMessage
+            ),
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
+        )
+
+        try await transport.prepare(plan)
+
+        do {
+            _ = try await transport.perform(request)
+            Issue.record("Expected non-HTTP covert response to fail")
+        } catch let error as OpalFusion.Runtime.LiveTransportError {
+            #expect(error == .invalidHTTPResponse)
+        }
+    }
+
     @Test("macOS live covert transport rejects out-of-range endpoint ports before request execution")
     func validateOutOfRangeEndpointPortRejection() async throws {
         let executor = RecordedCovertRequestExecutor(responseData: Data())

@@ -340,6 +340,44 @@ struct RoundEngineScriptedValidator {
         #expect(engine.session.latestServerHello == Self.serverHello)
     }
 
+    @Test("Round engine maps unresolved blame handling to a distinct terminal outcome")
+    func validateUnresolvedBlameTerminalOutcome() {
+        var engine = Self.makeEngine()
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+
+        Self.driveToSignatureSubmission(engine: &engine)
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.failureResult)),
+            now: Self.instant(1_055)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.theirProofsList(Self.theirProofsList)),
+            now: Self.instant(1_056)
+        )
+
+        let timeoutEffects = engine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_116)
+        )
+
+        #expect(engine.session.lastError == .blameRequired)
+        #expect(engine.session.lastErrorSummary == "Blame handling did not complete")
+        #expect(engine.clientState.round?.completionStatus == .blameRequired)
+        #expect(
+            timeoutEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Blame handling did not complete",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Round engine preserves a pre-round server rejection over later transport failure noise")
     func validateServerFailurePrecedenceOverTransportFailure() {
         var engine = Self.makeEngine()
@@ -352,10 +390,10 @@ struct RoundEngineScriptedValidator {
             now: Self.instant(996)
         )
 
-        let rejectionSummary = "Coordinator rejected JoinPools"
+        let rejectionSummary = "Coordinator rejected the current flow"
         let rejectionEffects = engine.apply(
             input: .primaryMessage(
-                .serverFailure(.init(message: rejectionSummary))
+                .serverFailure(.init(message: "Coordinator rejected JoinPools"))
             ),
             now: Self.instant(997)
         )
@@ -377,7 +415,7 @@ struct RoundEngineScriptedValidator {
 
         let transportEffects = engine.apply(
             input: .primaryTransportFailed(
-                summary: "Primary read failed: primaryConnectionCancelled"
+                summary: "Primary read failed"
             ),
             now: Self.instant(998)
         )
@@ -385,6 +423,47 @@ struct RoundEngineScriptedValidator {
         #expect(engine.session.lastError == .coordinatorRejected)
         #expect(engine.session.lastErrorSummary == rejectionSummary)
         #expect(engine.clientState.isConnected == false)
+    }
+
+    @Test("Round engine rejects impossible ServerHello excess fee ranges")
+    func validateServerHelloExcessFeeRange() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(
+            input: .primaryConnected,
+            now: Self.instant(995)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .serverHello(
+                    .init(
+                        tiers: Self.serverHello.tiers,
+                        numberOfComponents: Self.serverHello.numberOfComponents,
+                        componentFeeRateSatoshisPerKb: Self.serverHello.componentFeeRateSatoshisPerKb,
+                        minimumExcessFeeSatoshis: 501,
+                        maximumExcessFeeSatoshis: 500,
+                        donationAddress: Self.serverHello.donationAddress
+                    )
+                )
+            ),
+            now: Self.instant(996)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.session.latestServerHello == nil)
+        #expect(engine.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "ServerHello excess fee range was invalid"
+                    )
+                )
+            ]
+        )
     }
 
     @Test("Round engine owns timing semantics and validates server clock skew")
@@ -507,6 +586,131 @@ struct RoundEngineScriptedValidator {
                         kind: .failure,
                         phase: .connecting,
                         summary: "FusionBegin tier was not requested"
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects FusionBegin covert ports outside the supported range")
+    func validateFusionBeginCovertPortRange() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .fusionBegin(
+                    .init(
+                        tier: Self.fusionBegin.tier,
+                        covertDomain: Self.fusionBegin.covertDomain,
+                        covertPort: 0,
+                        covertSsl: Self.fusionBegin.covertSsl,
+                        serverTimeUnixSeconds: Self.fusionBegin.serverTimeUnixSeconds
+                    )
+                )
+            ),
+            now: Self.instant(1_000)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "FusionBegin covert port was outside the supported range"
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects invalid FusionBegin covert domains")
+    func validateFusionBeginCovertDomain() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .fusionBegin(
+                    .init(
+                        tier: Self.fusionBegin.tier,
+                        covertDomain: "covert example.org",
+                        covertPort: Self.fusionBegin.covertPort,
+                        covertSsl: Self.fusionBegin.covertSsl,
+                        serverTimeUnixSeconds: Self.fusionBegin.serverTimeUnixSeconds
+                    )
+                )
+            ),
+            now: Self.instant(1_000)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "FusionBegin covert domain was invalid"
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects StartRound blind nonce count mismatches")
+    func validateStartRoundBlindNonceCount() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .startRound(
+                    .init(
+                        roundPublicKey: Self.startRound.roundPublicKey,
+                        blindNoncePoints: [[0x01, 0x02]],
+                        serverTimeUnixSeconds: Self.startRound.serverTimeUnixSeconds
+                    )
+                )
+            ),
+            now: Self.instant(1_030)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.round?.substate == .terminal)
+        #expect(engine.round?.completionStatus == .protocolIncompatible)
+        #expect(engine.clientState.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "StartRound blind nonce count did not match ServerHello component count",
+                        isTerminal: true
                     )
                 )
             ]
@@ -827,7 +1031,7 @@ private extension RoundEngineScriptedValidator {
     static var startRound: OpalFusion.ProtocolModel.StartRound {
         .init(
             roundPublicKey: [0xAA, 0xBB],
-            blindNoncePoints: [[0x01, 0x02]],
+            blindNoncePoints: [[0x01, 0x02], [0x03, 0x04], [0x05, 0x06], [0x07, 0x08]],
             serverTimeUnixSeconds: 1_030
         )
     }

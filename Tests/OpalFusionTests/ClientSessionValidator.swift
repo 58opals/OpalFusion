@@ -79,7 +79,7 @@ struct ClientSessionValidator {
 
         let snapshot = await session.snapshot()
         #expect(snapshot.lastError == .transportUnavailable)
-        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+        #expect(snapshot.lastErrorSummary == "Primary connection failed")
         #expect(snapshot.state.isConnected == false)
         #expect(await transportFactories.primaryCount() == 1)
 
@@ -87,7 +87,7 @@ struct ClientSessionValidator {
         #expect(observedSnapshots.contains(snapshot))
         #expect(observedSnapshots.contains {
             $0.lastError == .transportUnavailable &&
-                $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
+                $0.lastErrorSummary == "Primary connection failed"
         })
 
         await session.stop()
@@ -126,14 +126,14 @@ struct ClientSessionValidator {
 
         let snapshot = await session.snapshot()
         #expect(snapshot.lastError == .transportUnavailable)
-        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+        #expect(snapshot.lastErrorSummary == "Primary connection failed")
         #expect(snapshot.state.isConnected == false)
 
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains(snapshot))
         #expect(observedSnapshots.contains {
             $0.lastError == .transportUnavailable &&
-                $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
+                $0.lastErrorSummary == "Primary connection failed"
         })
 
         await session.stop()
@@ -243,10 +243,10 @@ struct ClientSessionValidator {
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
-        #expect(stoppedSnapshot.lastError == .transportUnavailable)
-        #expect(stoppedSnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(stoppedSnapshot.lastErrorSummary == nil)
         #expect(stoppedSnapshot.state.isConnected == false)
-        #expect(stoppedSnapshot.state.round == runningSnapshot.state.round)
+        #expect(stoppedSnapshot.state.round == nil)
 
         let observedSnapshotsAfterStop = await stateObserver.snapshot()
         #expect(observedSnapshotsAfterStop.last == stoppedSnapshot)
@@ -309,7 +309,7 @@ struct ClientSessionValidator {
 
         let failedSnapshot = await session.snapshot()
         #expect(failedSnapshot.lastError == .transportUnavailable)
-        #expect(failedSnapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+        #expect(failedSnapshot.lastErrorSummary == "Primary connection failed")
 
         await session.stop()
         await session.start()
@@ -331,7 +331,7 @@ struct ClientSessionValidator {
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains {
             $0.lastError == .transportUnavailable &&
-                $0.lastErrorSummary?.hasPrefix("Primary connect failed:") == true
+                $0.lastErrorSummary == "Primary connection failed"
         })
         #expect(
             observedSnapshots.contains(
@@ -343,6 +343,129 @@ struct ClientSessionValidator {
             )
         )
         #expect(observedSnapshots.contains(restartedSnapshot))
+
+        await session.stop()
+    }
+
+    @Test("Public client session can retry start after a terminal start failure")
+    func validateStartRetryAfterConnectFailure() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder(
+            primaryConnectErrors: [
+                NSError(domain: "ClientSessionValidator", code: 8),
+                nil
+            ]
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+
+        let failedSnapshot = await session.snapshot()
+        #expect(failedSnapshot.lastError == .transportUnavailable)
+        #expect(failedSnapshot.lastErrorSummary == "Primary connection failed")
+        #expect(failedSnapshot.state.isConnected == false)
+
+        await session.start()
+
+        let restartedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.isConnected {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(restartedSnapshot.lastError == nil)
+        #expect(restartedSnapshot.lastErrorSummary == nil)
+        #expect(await transportFactories.primaryCount() == 2)
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(observedSnapshots.contains(failedSnapshot))
+        #expect(observedSnapshots.contains(restartedSnapshot))
+
+        await session.stop()
+    }
+
+    @Test("Public client session can retry start after an async primary failure")
+    func validateStartRetryAfterAsyncPrimaryFailure() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+        let runningSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.isConnected {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(runningSnapshot.lastError == nil)
+
+        guard let firstTransport = await transportFactories.primaryTransport(at: 0) else {
+            Issue.record("Expected first primary transport")
+            return
+        }
+        await firstTransport.finishInbound(
+            throwing: NSError(domain: "ClientSessionValidator", code: 9)
+        )
+
+        let failedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.lastError == .transportUnavailable {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(failedSnapshot.lastErrorSummary == "Primary read failed")
+        #expect(failedSnapshot.state.isConnected == false)
+
+        await session.start()
+
+        let restartedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                let snapshot = await session.snapshot()
+                if snapshot.state.isConnected && snapshot.lastError == nil {
+                    return snapshot
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(restartedSnapshot.lastErrorSummary == nil)
+        #expect(await transportFactories.primaryCount() == 2)
 
         await session.stop()
     }
@@ -1055,7 +1178,7 @@ struct ClientSessionValidator {
             clockTickInterval: .milliseconds(100),
             covertTransportFactory: { covertTransport },
             snapshotDeliveryHook: { snapshot in
-                if ClientSessionValidatorSupport.isUnsupportedReservationConnectedTerminalSnapshot(snapshot) {
+                if ClientSessionValidatorSupport.isUnsupportedReservationTerminalSnapshot(snapshot) {
                     await snapshotDeliveryGate.block(snapshot)
                 }
             }
@@ -1082,7 +1205,7 @@ struct ClientSessionValidator {
         let blockedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             try await snapshotDeliveryGate.waitForBlockedSnapshot()
         }
-        #expect(ClientSessionValidatorSupport.isUnsupportedReservationConnectedTerminalSnapshot(blockedSnapshot))
+        #expect(ClientSessionValidatorSupport.isUnsupportedReservationTerminalSnapshot(blockedSnapshot))
 
         let polledSnapshot = await session.snapshot()
         #expect(polledSnapshot.lastError == .notImplemented)
@@ -1090,7 +1213,7 @@ struct ClientSessionValidator {
         #expect(
             (await stateObserver.snapshot()).contains(
                 where: ClientSessionValidatorSupport
-                    .isUnsupportedReservationConnectedTerminalSnapshot
+                    .isUnsupportedReservationTerminalSnapshot
             ) == false
         )
 
@@ -1101,7 +1224,7 @@ struct ClientSessionValidator {
                 let observedSnapshots = await stateObserver.snapshot()
                 if observedSnapshots.filter(
                     ClientSessionValidatorSupport
-                        .isUnsupportedReservationConnectedTerminalSnapshot
+                        .isUnsupportedReservationTerminalSnapshot
                 ).count == 1 {
                     return observedSnapshots
                 }
@@ -1112,7 +1235,7 @@ struct ClientSessionValidator {
         #expect(
             observedSnapshots.filter(
                 ClientSessionValidatorSupport
-                    .isUnsupportedReservationConnectedTerminalSnapshot
+                    .isUnsupportedReservationTerminalSnapshot
             ).count == 1
         )
 

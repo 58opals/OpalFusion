@@ -170,12 +170,12 @@ struct OpalFusionContractValidator {
         let snapshot = OpalFusion.Client.Session.Snapshot(
             state: state,
             lastError: .transportUnavailable,
-            lastErrorSummary: "Primary connect failed: connection reset"
+            lastErrorSummary: "Primary connection failed"
         )
 
         #expect(snapshot.state == state)
         #expect(snapshot.lastError == .transportUnavailable)
-        #expect(snapshot.lastErrorSummary == "Primary connect failed: connection reset")
+        #expect(snapshot.lastErrorSummary == "Primary connection failed")
     }
 
     @Test("Client state observer satisfies the public session observation seam")

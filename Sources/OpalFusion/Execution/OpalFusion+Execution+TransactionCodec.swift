@@ -319,7 +319,10 @@ private func readBytes(
     from bytes: [UInt8],
     cursor: inout Int
 ) throws -> [UInt8] {
-    guard cursor + count <= bytes.count else {
+    guard count >= 0,
+          cursor >= 0,
+          cursor <= bytes.count,
+          count <= bytes.count - cursor else {
         throw OpalFusion.Execution.BCHTransactionError.malformed(
             "Unexpected end of transaction bytes"
         )

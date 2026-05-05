@@ -49,6 +49,7 @@ public extension OpalFusion.Client {
         private let stateObserver: (any OpalFusion.Client.StateObserver)?
         private let dependencies: Dependencies
         private var runtimeDriver: OpalFusion.Runtime.LiveRuntimeDriver?
+        private var runtimeDriverGeneration: Int
         private var lastEmittedSnapshot: OpalFusion.Client.Session.Snapshot
 
         public init(
@@ -69,6 +70,7 @@ public extension OpalFusion.Client {
             self.stateObserver = stateObserver
             self.dependencies = .defaults
             self.runtimeDriver = nil
+            self.runtimeDriverGeneration = 0
             self.lastEmittedSnapshot = .init()
         }
 
@@ -109,6 +111,7 @@ public extension OpalFusion.Client {
                 snapshotDeliveryHook: snapshotDeliveryHook
             )
             self.runtimeDriver = nil
+            self.runtimeDriverGeneration = 0
             self.lastEmittedSnapshot = .init()
         }
 
@@ -119,11 +122,25 @@ public extension OpalFusion.Client {
 
             await updateSnapshotIfNeeded(.init())
 
-            let runtimeDriver = await makeRuntimeDriver()
+            runtimeDriverGeneration += 1
+            let runtimeDriverGeneration = self.runtimeDriverGeneration
+            let runtimeDriver = await makeRuntimeDriver(
+                generation: runtimeDriverGeneration
+            )
             self.runtimeDriver = runtimeDriver
 
             await runtimeDriver.start()
-            await updateSnapshotIfNeeded(.init(await runtimeDriver.snapshot()))
+            let snapshot = OpalFusion.Client.Session.Snapshot(
+                await runtimeDriver.snapshot()
+            )
+            await updateSnapshotIfNeeded(snapshot)
+
+            if snapshot.state.isConnected == false,
+               snapshot.lastError != nil,
+               self.runtimeDriver === runtimeDriver,
+               self.runtimeDriverGeneration == runtimeDriverGeneration {
+                self.runtimeDriver = nil
+            }
         }
 
         public func stop() async {
@@ -133,6 +150,7 @@ public extension OpalFusion.Client {
 
             await runtimeDriver.stop()
             self.runtimeDriver = nil
+            runtimeDriverGeneration += 1
         }
 
         public func snapshot() async -> OpalFusion.Client.Session.Snapshot {
@@ -145,7 +163,9 @@ public extension OpalFusion.Client {
             return lastEmittedSnapshot
         }
 
-        private func makeRuntimeDriver() async -> OpalFusion.Runtime.LiveRuntimeDriver {
+        private func makeRuntimeDriver(
+            generation: Int
+        ) async -> OpalFusion.Runtime.LiveRuntimeDriver {
             let primaryTransport = await dependencies.primaryTransportFactory()
             let covertTransport = await dependencies.covertTransportFactory()
             return OpalFusion.Runtime.LiveRuntimeDriver(
@@ -157,7 +177,7 @@ public extension OpalFusion.Client {
                 transactionAssembler: transactionAssembler,
                 eventObserver: eventObserver,
                 snapshotSink: { snapshot in
-                    await self.receive(snapshot)
+                    await self.receive(snapshot, generation: generation)
                 },
                 baseline: dependencies.baseline,
                 nowProvider: dependencies.nowProvider,
@@ -168,11 +188,21 @@ public extension OpalFusion.Client {
         }
 
         private func receive(
-            _ snapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot
+            _ snapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot,
+            generation: Int
         ) async {
+            guard generation == runtimeDriverGeneration else {
+                return
+            }
+
             let sessionSnapshot = OpalFusion.Client.Session.Snapshot(snapshot)
             await dependencies.snapshotDeliveryHook(sessionSnapshot)
             await updateSnapshotIfNeeded(sessionSnapshot)
+
+            if sessionSnapshot.state.isConnected == false,
+               sessionSnapshot.lastError != nil {
+                runtimeDriver = nil
+            }
         }
 
         private func updateSnapshotIfNeeded(

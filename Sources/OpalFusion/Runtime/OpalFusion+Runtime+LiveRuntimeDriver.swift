@@ -132,8 +132,10 @@ extension OpalFusion.Runtime {
             }
             isRunning = true
 
-            if let summary = OpalFusion.Runtime.validateConfiguration(
-                runtimeSession.engine.session.configuration
+            if let summary = OpalFusion.Runtime.validateStartupConfiguration(
+                runtimeSession.engine.session.configuration,
+                genesisHash: runtimeSession.engine.session.genesisHash,
+                joinPools: runtimeSession.engine.session.joinPools
             ) {
                 await handle(.invalidConfiguration(summary: summary))
                 await tearDownTransports()
@@ -165,13 +167,12 @@ extension OpalFusion.Runtime {
                     startClockLoop()
                 }
             } catch {
-                let summary = "Primary connect failed: \(String(describing: error))"
                 Self.logger.debug(
-                    "primary connect failure summary=\(summary, privacy: .public)"
+                    "primary connect failure summary=\(String(describing: error), privacy: .private)"
                 )
                 await handle(
                     .primaryTransportFailed(
-                        summary: summary
+                        summary: "Primary connection failed"
                     )
                 )
                 await tearDownTransports()
@@ -180,13 +181,10 @@ extension OpalFusion.Runtime {
 
         func stop() async {
             guard isRunning else {
-                if runtimeSession.clientState.isConnected {
-                    await handle(.disconnected)
-                }
                 return
             }
 
-            await handle(.disconnected)
+            await handle(.stopped)
         }
 
         func snapshot() -> OpalFusion.Runtime.LiveRuntimeDriver.Snapshot {
@@ -216,13 +214,12 @@ extension OpalFusion.Runtime {
                           Self.shouldIgnorePrimaryReadTermination(error) == false else {
                         return
                     }
-                    let summary = "Primary read failed: \(String(describing: error))"
                     Self.logger.debug(
-                        "primary read failure summary=\(summary, privacy: .public)"
+                        "primary read failure summary=\(String(describing: error), privacy: .private)"
                     )
                     await self.handle(
                         .primaryTransportFailed(
-                            summary: summary
+                            summary: "Primary read failed"
                         )
                     )
                 }
@@ -333,13 +330,12 @@ extension OpalFusion.Runtime {
                     try await primaryTransport.write(bytes)
                     runtimeSession.recordWrittenPrimaryFrame(bytes)
                 } catch {
-                    let summary = "Primary write failed: \(String(describing: error))"
                     Self.logger.debug(
-                        "primary write failure summary=\(summary, privacy: .public)"
+                        "primary write failure summary=\(String(describing: error), privacy: .private)"
                     )
                     await handle(
                         .primaryTransportFailed(
-                            summary: summary
+                            summary: "Primary write failed"
                         )
                     )
                 }
@@ -360,7 +356,7 @@ extension OpalFusion.Runtime {
                             return
                         }
                         await self.handleCovertPreparationFailureIfCurrent(
-                            summary: "Covert endpoint preparation failed: \(String(describing: error))",
+                            summary: "Covert endpoint preparation failed",
                             plan: plan
                         )
                     }
@@ -385,7 +381,7 @@ extension OpalFusion.Runtime {
                             return
                         }
                         await self.handleCovertRequestFailureIfCurrent(
-                            summary: "Covert request failed: \(String(describing: error))",
+                            summary: "Covert request failed",
                             request: request
                         )
                     }

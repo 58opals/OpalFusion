@@ -110,7 +110,7 @@ struct CovertRuntimeSessionValidator {
             Issue.record("Expected protocol failure after malformed covert response")
             return
         }
-        #expect(summary.hasPrefix("Covert response decode failed:"))
+        #expect(summary == "Covert response decode failed")
         #expect(session.outstandingRequest == nil)
     }
 
@@ -141,7 +141,7 @@ struct CovertRuntimeSessionValidator {
             Issue.record("Expected protocol failure after malformed covert response")
             return
         }
-        #expect(summary.hasPrefix("Covert response decode failed:"))
+        #expect(summary == "Covert response decode failed")
         #expect(session.substate == .idle)
         #expect(session.endpointContext == nil)
         #expect(session.preparationPlan == nil)
@@ -419,6 +419,48 @@ struct CovertRuntimeSessionValidator {
         #expect(
             timeoutEffects == [
                 .emitTransportFailure(summary: "Covert request timed out")
+            ]
+        )
+        #expect(session.substate == .idle)
+        #expect(session.endpointContext == nil)
+        #expect(session.preparationPlan == nil)
+        #expect(session.queuedMessages.isEmpty)
+        #expect(session.outstandingRequest == nil)
+    }
+
+    @Test("Covert runtime clears prepared endpoint after oversized payload failure")
+    func validateOversizedPayloadFailureClearsPreparedState() {
+        var session = PrimaryRuntimeTestFixtures.makeCovertSession()
+        let endpoint = OpalFusion.Runtime.CovertEndpointContext(
+            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
+            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
+            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
+            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
+            entryPath: PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath,
+            maxPayloadBytes: 1,
+            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
+            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
+            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
+            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
+            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
+            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
+        )
+        _ = session.apply(
+            input: .prepare(endpointContext: endpoint),
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+        _ = session.apply(input: .covertPrepared, now: PrimaryRuntimeTestFixtures.instant(1_001))
+
+        let effects = session.apply(
+            input: .enqueue(message: PrimaryRuntimeTestFixtures.pingMessage),
+            now: PrimaryRuntimeTestFixtures.instant(1_002)
+        )
+
+        #expect(
+            effects == [
+                .emitProtocolFailure(
+                    summary: "Covert payload exceeded the configured size limit"
+                )
             ]
         )
         #expect(session.substate == .idle)

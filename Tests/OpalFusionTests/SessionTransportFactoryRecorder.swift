@@ -39,4 +39,12 @@ actor SessionTransportFactoryRecorder {
     func primaryCount() -> Int {
         primaryTransports.count
     }
+
+    func primaryTransport(at index: Int) -> ScriptedPrimaryTransport? {
+        guard primaryTransports.indices.contains(index) else {
+            return nil
+        }
+
+        return primaryTransports[index]
+    }
 }

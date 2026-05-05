@@ -29,7 +29,7 @@ enum PrimaryRuntimeTestFixtures {
 
     static let clientHello = OpalFusion.ProtocolModel.ClientHello(
         versionBytes: baseline.protocolIdentity.versionBytes,
-        genesisHash: [0xAA, 0xBB, 0xCC]
+        genesisHash: [UInt8](repeating: 0xAA, count: 32)
     )
 
     static let serverHello = OpalFusion.ProtocolModel.ServerHello(
@@ -62,7 +62,7 @@ enum PrimaryRuntimeTestFixtures {
 
     static let startRound = OpalFusion.ProtocolModel.StartRound(
         roundPublicKey: [0xAA, 0xBB],
-        blindNoncePoints: [[0x01, 0x02], [0x03, 0x04]],
+        blindNoncePoints: [[0x01, 0x02], [0x03, 0x04], [0x05, 0x06], [0x07, 0x08]],
         serverTimeUnixSeconds: 1_030
     )
 

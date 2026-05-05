@@ -36,6 +36,28 @@ struct PrimaryFrameValidator {
         #expect(decoder.bufferedBytes.isEmpty)
     }
 
+    @Test("Primary frame decoder returns valid leading payload before trailing malformed frame")
+    func validateValidPayloadBeforeTrailingMalformedFrame() throws {
+        let configuration = OpalFusion.Transport.BaselineConfiguration.electronCash443.framing
+        let encoder = OpalFusion.Wire.PrimaryFrameEncoder(configuration: configuration)
+        var decoder = OpalFusion.Wire.PrimaryFrameDecoder(configuration: configuration)
+        let payload: [UInt8] = [0x01, 0x02, 0x03]
+        let validFrame = try encoder.encode(payload: payload)
+        let invalidMagic = Array(repeating: UInt8(0xFF), count: configuration.magicBytes.count)
+        let trailingMalformedFrame = invalidMagic + [0x00, 0x00, 0x00, 0x01, 0x42]
+
+        #expect(try decoder.append(validFrame + trailingMalformedFrame) == [payload])
+
+        do {
+            _ = try decoder.append([])
+            Issue.record("Expected trailing invalid magic rejection")
+        } catch let error as OpalFusion.Wire.PrimaryFrameError {
+            #expect(error == .invalidMagic(invalidMagic))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test("Primary frame decoder rejects invalid magic")
     func validateInvalidMagic() {
         let configuration = OpalFusion.Transport.BaselineConfiguration.electronCash443.framing

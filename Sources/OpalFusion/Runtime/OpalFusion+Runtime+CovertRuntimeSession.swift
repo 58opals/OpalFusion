@@ -190,7 +190,7 @@ extension OpalFusion.Runtime {
                 reset()
                 return [
                     .emitProtocolFailure(
-                        summary: "Covert response decode failed: \(String(describing: error))"
+                        summary: "Covert response decode failed"
                     )
                 ]
             }
@@ -226,11 +226,9 @@ extension OpalFusion.Runtime {
                 return []
             }
             guard let endpointContext else {
-                return [
-                    .emitProtocolFailure(
-                        summary: "Covert request was queued before an endpoint was configured"
-                    )
-                ]
+                return protocolFailure(
+                    summary: "Covert request was queued before an endpoint was configured"
+                )
             }
 
             let message = queuedMessages.removeFirst()
@@ -238,11 +236,9 @@ extension OpalFusion.Runtime {
             do {
                 let payload = try messageEncoder.encode(message)
                 guard payload.count <= endpointContext.maxPayloadBytes else {
-                    return [
-                        .emitProtocolFailure(
-                            summary: "Covert payload exceeded the configured size limit"
-                        )
-                    ]
+                    return protocolFailure(
+                        summary: "Covert payload exceeded the configured size limit"
+                    )
                 }
 
                 let deadline = now.advanced(by: effectiveSubmitTimeout(for: endpointContext))
@@ -262,12 +258,15 @@ extension OpalFusion.Runtime {
 
                 return [.performCovertRequest(request: request)]
             } catch {
-                return [
-                    .emitProtocolFailure(
-                        summary: "Covert request encode failed: \(String(describing: error))"
-                    )
-                ]
+                return protocolFailure(summary: "Covert request encode failed")
             }
+        }
+
+        private mutating func protocolFailure(
+            summary: String
+        ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
+            reset()
+            return [.emitProtocolFailure(summary: summary)]
         }
 
         private mutating func reset() {
@@ -282,8 +281,12 @@ extension OpalFusion.Runtime {
         private func effectiveSubmitTimeout(
             for endpointContext: OpalFusion.Runtime.CovertEndpointContext
         ) -> Duration {
+            let requestTimeoutMilliseconds = min(
+                endpointContext.requestTimeoutMilliseconds,
+                UInt64(Int64.max)
+            )
             let configuredTimeout = Duration.milliseconds(
-                Int64(endpointContext.requestTimeoutMilliseconds)
+                Int64(requestTimeoutMilliseconds)
             )
             return configuredTimeout.wholeMilliseconds <= endpointContext.submitTimeout.wholeMilliseconds
                 ? configuredTimeout

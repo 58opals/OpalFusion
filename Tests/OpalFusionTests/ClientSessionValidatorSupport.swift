@@ -3,12 +3,12 @@
 @testable import OpalFusion
 
 enum ClientSessionValidatorSupport {
-    static func isUnsupportedReservationConnectedTerminalSnapshot(
+    static func isUnsupportedReservationTerminalSnapshot(
         _ snapshot: OpalFusion.Client.Session.Snapshot
     ) -> Bool {
         snapshot.lastError == .notImplemented &&
             snapshot.state.round?.completionStatus == .hostRejected &&
-            snapshot.state.isConnected
+            snapshot.state.isConnected == false
     }
 
     static func makeTrustedTLSPrimaryTransport(

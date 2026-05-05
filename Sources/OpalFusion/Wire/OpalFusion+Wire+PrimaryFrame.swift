@@ -61,6 +61,9 @@ extension OpalFusion.Wire {
             while bufferedBytes.count >= headerLength {
                 let magic = Array(bufferedBytes.prefix(configuration.magicBytes.count))
                 guard magic == configuration.magicBytes else {
+                    if payloads.isEmpty == false {
+                        return payloads
+                    }
                     throw OpalFusion.Wire.PrimaryFrameError.invalidMagic(magic)
                 }
 
@@ -68,9 +71,15 @@ extension OpalFusion.Wire {
                     from: bufferedBytes[configuration.magicBytes.count..<headerLength]
                 )
                 guard payloadLength > 0 else {
+                    if payloads.isEmpty == false {
+                        return payloads
+                    }
                     throw OpalFusion.Wire.PrimaryFrameError.invalidLength(payloadLength)
                 }
                 guard payloadLength <= configuration.maximumMessageLengthBytes else {
+                    if payloads.isEmpty == false {
+                        return payloads
+                    }
                     throw OpalFusion.Wire.PrimaryFrameError.payloadTooLarge(payloadLength)
                 }
 

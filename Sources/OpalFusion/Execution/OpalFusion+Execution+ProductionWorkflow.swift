@@ -105,7 +105,7 @@ extension OpalFusion.Execution {
                 }
             } catch {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                    "Blind signature finalization failed: \(String(describing: error))"
+                    "Blind signature finalization failed"
                 )
             }
 
@@ -193,7 +193,7 @@ extension OpalFusion.Execution {
                     )
                 } catch {
                     throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                        "Proof encryption failed: \(String(describing: error))"
+                        "Proof encryption failed"
                     )
                 }
             }
@@ -424,7 +424,7 @@ extension OpalFusion.Execution {
                         amountSatoshis: input.amountSatoshis
                     )
                 )
-                let fee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                let fee = try checkedComponentFee(
                     sizeBytes: OpalFusion.Execution.ProtocolPrimitives.inputSize(for: publicKey),
                     feeRateSatoshisPerKb: feeRateSatoshisPerKb
                 )
@@ -460,17 +460,24 @@ extension OpalFusion.Execution {
                         amountSatoshis: output.amountSatoshis
                     )
                 )
-                let fee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                let fee = try checkedComponentFee(
                     sizeBytes: OpalFusion.Execution.ProtocolPrimitives.outputSize(
                         for: output.lockingScriptBytes
                     ),
                     feeRateSatoshisPerKb: feeRateSatoshisPerKb
                 )
+                let amount = Int64(output.amountSatoshis)
+                let signedFee = Int64(fee)
+                guard signedFee <= Int64.max - amount else {
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Coordinator component fee rate was too large"
+                    )
+                }
                 components.append(
                     try buildComponentMaterial(
                         originalSlot: reservation.inputs.count + index,
                         payload: componentPayload,
-                        contributionSatoshis: -(Int64(output.amountSatoshis) + Int64(fee))
+                        contributionSatoshis: -(amount + signedFee)
                     )
                 )
             }
@@ -537,7 +544,7 @@ extension OpalFusion.Execution {
                 }
             } catch {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                    "Blind signature request construction failed: \(String(describing: error))"
+                    "Blind signature request construction failed"
                 )
             }
 
@@ -672,7 +679,7 @@ extension OpalFusion.Execution {
                 pedersenCommitment = try pedersenSetup.commit(amount: contributionSatoshis)
             } catch {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                    "Pedersen commitment construction failed: \(String(describing: error))"
+                    "Pedersen commitment construction failed"
                 )
             }
             let communicationPrivateKey: OpalCrypto.Secp256k1.PrivateKey
@@ -683,7 +690,7 @@ extension OpalFusion.Execution {
                     .derivePublicKey(from: communicationPrivateKey)
             } catch {
                 throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(
-                    "Communication key generation failed: \(String(describing: error))"
+                    "Communication key generation failed"
                 )
             }
 
@@ -890,7 +897,7 @@ extension OpalFusion.Execution {
                 )
             } catch {
                 throw OpalFusion.Execution.BCHTransactionError.templateMismatch(
-                    "Finalized transaction signature verification failed: \(String(describing: error))"
+                    "Finalized transaction signature verification failed"
                 )
             }
             guard isValid else {
@@ -998,7 +1005,7 @@ extension OpalFusion.Execution {
                 )
             }
 
-            let contribution = contributionForComponent(
+            let contribution = try contributionForComponent(
                 component.payload,
                 feeRateSatoshisPerKb: feeRateSatoshisPerKb
             )
@@ -1033,10 +1040,10 @@ extension OpalFusion.Execution {
         private func contributionForComponent(
             _ payload: OpalFusion.Commitment.ComponentPayload,
             feeRateSatoshisPerKb: UInt64
-        ) -> Int64 {
+        ) throws -> Int64 {
             switch payload {
             case let .input(inputComponent):
-                let fee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                let fee = try checkedProofComponentFee(
                     sizeBytes: OpalFusion.Execution.ProtocolPrimitives.inputSize(
                         for: inputComponent.publicKey
                     ),
@@ -1044,16 +1051,55 @@ extension OpalFusion.Execution {
                 )
                 return Int64(inputComponent.amountSatoshis) - Int64(fee)
             case let .output(outputComponent):
-                let fee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                let fee = try checkedProofComponentFee(
                     sizeBytes: OpalFusion.Execution.ProtocolPrimitives.outputSize(
                         for: outputComponent.lockingScript
                     ),
                     feeRateSatoshisPerKb: feeRateSatoshisPerKb
                 )
-                return -(Int64(outputComponent.amountSatoshis) + Int64(fee))
+                let amount = Int64(outputComponent.amountSatoshis)
+                let signedFee = Int64(fee)
+                guard signedFee <= Int64.max - amount else {
+                    throw OpalFusion.Execution.RelayedProofValidationFailure(
+                        reason: "component fee rate too large"
+                    )
+                }
+                return -(amount + signedFee)
             case .blank:
                 return 0
             }
+        }
+
+        private func checkedComponentFee(
+            sizeBytes: Int,
+            feeRateSatoshisPerKb: UInt64
+        ) throws -> UInt64 {
+            let fee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                sizeBytes: sizeBytes,
+                feeRateSatoshisPerKb: feeRateSatoshisPerKb
+            )
+            guard fee <= UInt64(Int64.max) else {
+                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                    "Coordinator component fee rate was too large"
+                )
+            }
+            return fee
+        }
+
+        private func checkedProofComponentFee(
+            sizeBytes: Int,
+            feeRateSatoshisPerKb: UInt64
+        ) throws -> UInt64 {
+            let fee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                sizeBytes: sizeBytes,
+                feeRateSatoshisPerKb: feeRateSatoshisPerKb
+            )
+            guard fee <= UInt64(Int64.max) else {
+                throw OpalFusion.Execution.RelayedProofValidationFailure(
+                    reason: "component fee rate too large"
+                )
+            }
+            return fee
         }
 
         private func decodeComponent(
@@ -1137,7 +1183,7 @@ extension OpalFusion.Execution {
                 throw error
             } catch {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                    "Component decode failed: \(String(describing: error))"
+                    "Component decode failed"
                 )
             }
         }
@@ -1156,7 +1202,7 @@ extension OpalFusion.Execution {
                 throw error
             } catch {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                    "Initial commitment decode failed: \(String(describing: error))"
+                    "Initial commitment decode failed"
                 )
             }
         }

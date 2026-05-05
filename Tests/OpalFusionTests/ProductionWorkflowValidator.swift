@@ -230,6 +230,64 @@ struct ProductionWorkflowValidator {
         }
     }
 
+    @Test("Production workflow rejects coordinator fee rates that exceed safe arithmetic range")
+    func validateCoordinatorFeeRateOverflowRejection() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let startRound = scenario.round.startRound
+        let identifier = scenario.round.identifier
+        let participantReservation = scenario.round.participantReservation
+        let serverHello = OpalFusion.ProtocolModel.ServerHello(
+            tiers: scenario.serverHello.tiers,
+            numberOfComponents: scenario.serverHello.numberOfComponents,
+            componentFeeRateSatoshisPerKb: UInt64.max,
+            minimumExcessFeeSatoshis: scenario.serverHello.minimumExcessFeeSatoshis,
+            maximumExcessFeeSatoshis: scenario.serverHello.maximumExcessFeeSatoshis,
+            donationAddress: scenario.serverHello.donationAddress
+        )
+        scenario.round = .init(
+            fusionBegin: scenario.fusionBegin,
+            serverHello: serverHello,
+            deadlines: scenario.round.deadlines
+        )
+        scenario.round.startRound = startRound
+        scenario.round.identifier = identifier
+        scenario.round.participantReservation = participantReservation
+
+        do {
+            _ = try scenario.workflow.buildPlayerCommit(round: &scenario.round)
+            Issue.record("Expected impossible coordinator fee rate to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .protocolValidationFailed(
+                    "Coordinator component fee rate was too large"
+                )
+            )
+        }
+    }
+
+    @Test("Production workflow encodes long session-hash script pushes with PUSHDATA opcodes")
+    func validateLongSessionHashScriptPushEncoding() {
+        let longLokad = [UInt8](repeating: 0xAA, count: 76)
+        let longSessionHash = [UInt8](repeating: 0xBB, count: 76)
+        let baseline = OpalFusion.Transport.BaselineConfiguration(
+            protocolIdentity: .init(
+                versionBytes: [0x01],
+                fusionLokadId: longLokad,
+                minimumOutputAmountSatoshis: 10_000
+            ),
+            framing: ProductionWorkflowTestFixtures.baseline.framing,
+            covertTiming: ProductionWorkflowTestFixtures.baseline.covertTiming,
+            roundTiming: ProductionWorkflowTestFixtures.baseline.roundTiming
+        )
+
+        let script = OpalFusion.Execution.ProtocolPrimitives.makeSessionHashLockingScript(
+            sessionHash: longSessionHash,
+            baseline: baseline
+        )
+
+        #expect(script == [0x6A, 0x4C, 76] + longLokad + [0x4C, 76] + longSessionHash)
+    }
+
     @Test("Production workflow derives the unsigned template and extracts local signatures")
     func validateTransactionTemplateAndSignatureExtraction() async throws {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()

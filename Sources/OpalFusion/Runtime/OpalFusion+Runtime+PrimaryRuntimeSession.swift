@@ -31,6 +31,7 @@ extension OpalFusion.Runtime {
             case invalidConfiguration(summary: String)
             case connected
             case disconnected
+            case stopped
             case primaryTransportFailed(summary: String)
             case receivedPrimaryBytes([UInt8])
             case covertPrepared
@@ -131,7 +132,7 @@ extension OpalFusion.Runtime {
                 )
             } catch {
                 Self.logger.debug(
-                    "primary preround outbound decode failed framedBytes=\(bytes.count, privacy: .public) summary=\(String(describing: error), privacy: .public)"
+                    "primary preround outbound decode failed framedBytes=\(bytes.count, privacy: .public) summary=\(String(describing: error), privacy: .private)"
                 )
             }
         }
@@ -154,6 +155,11 @@ extension OpalFusion.Runtime {
             case .disconnected:
                 return translate(
                     engine.apply(input: .primaryDisconnected, now: now),
+                    now: now
+                )
+            case .stopped:
+                return translate(
+                    engine.apply(input: .stopped, now: now),
                     now: now
                 )
             case let .primaryTransportFailed(summary):
@@ -251,11 +257,11 @@ extension OpalFusion.Runtime {
             } catch {
                 if shouldTracePreRoundTraffic {
                     Self.logger.debug(
-                        "primary preround inbound decode failed chunkBytes=\(bytes.count, privacy: .public) summary=\(String(describing: error), privacy: .public)"
+                        "primary preround inbound decode failed chunkBytes=\(bytes.count, privacy: .public) summary=\(String(describing: error), privacy: .private)"
                     )
                 }
                 return protocolFailureEffects(
-                    summary: "Primary wire decode failed: \(String(describing: error))",
+                    summary: "Primary wire decode failed",
                     now: now
                 )
             }
@@ -276,7 +282,7 @@ extension OpalFusion.Runtime {
                         runtimeEffects.append(.writePrimaryBytes(framed))
                     } catch {
                         return runtimeEffects + protocolFailureEffects(
-                            summary: "Primary wire encode failed: \(String(describing: error))",
+                            summary: "Primary wire encode failed",
                             now: now
                         )
                     }

@@ -545,10 +545,10 @@ struct PrimaryRuntimeSessionValidator {
         #expect(roundIdentifier == nil)
         #expect(event.kind == .failure)
         #expect(event.phase == .connecting)
-        #expect(event.summary.hasPrefix("Primary wire decode failed:"))
+        #expect(event.summary == "Primary wire decode failed")
         #expect(event.isTerminal == false)
         #expect(session.lastError == .protocolIncompatible)
-        #expect(session.lastErrorSummary?.hasPrefix("Primary wire decode failed:") == true)
+        #expect(session.lastErrorSummary == "Primary wire decode failed")
         #expect(session.clientState.round == nil)
     }
 
@@ -575,10 +575,10 @@ struct PrimaryRuntimeSessionValidator {
         #expect(roundIdentifier == PrimaryRuntimeTestFixtures.roundIdentifier)
         #expect(event.kind == .failure)
         #expect(event.phase == .completed)
-        #expect(event.summary.hasPrefix("Covert response decode failed:"))
+        #expect(event.summary == "Covert response decode failed")
         #expect(event.isTerminal)
         #expect(session.lastError == .protocolIncompatible)
-        #expect(session.lastErrorSummary?.hasPrefix("Covert response decode failed:") == true)
+        #expect(session.lastErrorSummary == "Covert response decode failed")
         #expect(session.clientState.round?.completionStatus == .protocolIncompatible)
     }
 

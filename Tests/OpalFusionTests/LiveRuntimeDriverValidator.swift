@@ -37,6 +37,37 @@ struct LiveRuntimeDriverValidator {
         )
     }
 
+    @Test("Runtime configuration rejects host names with internal whitespace")
+    func validateHostNamesWithInternalWhitespace() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+
+        let coordinatorConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: "fusion example.org",
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(coordinatorConfiguration) ==
+                "Coordinator host must not include whitespace"
+        )
+
+        let torConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel,
+            torSocks5: .init(
+                host: "127.0.0. 1",
+                port: 9050
+            )
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(torConfiguration) ==
+                "Tor SOCKS5 host must not include whitespace"
+        )
+    }
+
     @Test("Runtime configuration rejects covert entry paths with surrounding whitespace")
     func validateCovertEntryPathWithSurroundingWhitespace() {
         let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
@@ -54,6 +85,26 @@ struct LiveRuntimeDriverValidator {
         #expect(
             OpalFusion.Runtime.validateConfiguration(paddedPathConfiguration) ==
                 "Covert entry path must not include leading or trailing whitespace"
+        )
+    }
+
+    @Test("Runtime configuration rejects covert request timeouts outside Duration range")
+    func validateCovertRequestTimeoutRange() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+        let oversizedTimeoutConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: .init(
+                entryPath: baseConfiguration.covertChannel.entryPath,
+                maxPayloadBytes: baseConfiguration.covertChannel.maxPayloadBytes,
+                requestTimeoutMilliseconds: UInt64(Int64.max) + 1
+            )
+        )
+
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(oversizedTimeoutConfiguration) ==
+                "Covert request timeout must fit the supported duration range"
         )
     }
 
@@ -113,6 +164,132 @@ struct LiveRuntimeDriverValidator {
         )
     }
 
+    @Test("Live runtime driver rejects invalid genesis hashes before transport connect")
+    func validateGenesisHashStartupValidation() async throws {
+        let primaryTransport = ScriptedPrimaryTransport()
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: [0x00],
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantReservationSource: DelayedParticipantReservationSource(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        await driver.start()
+
+        let snapshot = await driver.snapshot()
+        #expect(snapshot.lastError == .invalidConfiguration)
+        #expect(snapshot.lastErrorSummary == "Genesis hash must be 32 bytes")
+        #expect(snapshot.clientState.isConnected == false)
+        #expect(await primaryTransport.recordedConnectCallCount() == 0)
+    }
+
+    @Test("Live runtime driver rejects invalid join-pool requests before transport connect")
+    func validateJoinPoolStartupValidation() async throws {
+        let primaryTransport = ScriptedPrimaryTransport()
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: .init(tiers: [], tags: []),
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantReservationSource: DelayedParticipantReservationSource(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        await driver.start()
+
+        let snapshot = await driver.snapshot()
+        #expect(snapshot.lastError == .invalidConfiguration)
+        #expect(snapshot.lastErrorSummary == "Join pool tiers must not be empty")
+        #expect(snapshot.clientState.isConnected == false)
+        #expect(await primaryTransport.recordedConnectCallCount() == 0)
+
+        #expect(
+            OpalFusion.Runtime.validateStartupConfiguration(
+                PrimaryRuntimeTestFixtures.configuration,
+                genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+                joinPools: .init(tiers: [0], tags: [])
+            ) == "Join pool tiers must be greater than zero"
+        )
+        #expect(
+            OpalFusion.Runtime.validateStartupConfiguration(
+                PrimaryRuntimeTestFixtures.configuration,
+                genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+                joinPools: .init(tiers: [10_000, 10_000], tags: [])
+            ) == "Join pool tiers must not contain duplicates"
+        )
+        #expect(
+            OpalFusion.Runtime.validateStartupConfiguration(
+                PrimaryRuntimeTestFixtures.configuration,
+                genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+                joinPools: .init(
+                    tiers: [10_000],
+                    tags: [.init(identifier: [], limit: 1)]
+                )
+            ) == "Join pool tags must include an identifier"
+        )
+        #expect(
+            OpalFusion.Runtime.validateStartupConfiguration(
+                PrimaryRuntimeTestFixtures.configuration,
+                genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+                joinPools: .init(
+                    tiers: [10_000],
+                    tags: [.init(identifier: [0x01], limit: 0)]
+                )
+            ) == "Join pool tag limits must be greater than zero"
+        )
+    }
+
+    @Test("Live runtime driver rejects duplicate join-pool tag identifiers before transport connect")
+    func validateDuplicateJoinPoolTagStartupValidation() async throws {
+        let primaryTransport = ScriptedPrimaryTransport()
+        let duplicateTag = OpalFusion.ProtocolModel.PoolTag(
+            identifier: [0x01, 0x02],
+            limit: 1
+        )
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: .init(
+                tiers: [10_000],
+                tags: [
+                    duplicateTag,
+                    .init(identifier: duplicateTag.identifier, limit: 2)
+                ]
+            ),
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantReservationSource: DelayedParticipantReservationSource(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        await driver.start()
+
+        let snapshot = await driver.snapshot()
+        #expect(snapshot.lastError == .invalidConfiguration)
+        #expect(snapshot.lastErrorSummary == "Join pool tags must not contain duplicate identifiers")
+        #expect(snapshot.clientState.isConnected == false)
+        #expect(await primaryTransport.recordedConnectCallCount() == 0)
+    }
+
     @Test("Live runtime driver maps primary connect failure to transport unavailable")
     func validatePrimaryConnectFailureProjection() async throws {
         let primaryTransport = ScriptedPrimaryTransport(
@@ -144,7 +321,7 @@ struct LiveRuntimeDriverValidator {
 
         let snapshot = await driver.snapshot()
         #expect(snapshot.lastError == .transportUnavailable)
-        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+        #expect(snapshot.lastErrorSummary == "Primary connection failed")
         #expect(snapshot.clientState.isConnected == false)
 
         let events = await eventSink.snapshot()
@@ -155,7 +332,7 @@ struct LiveRuntimeDriverValidator {
         #expect(event.roundIdentifier == nil)
         #expect(event.event.kind == .failure)
         #expect(event.event.phase == .connecting)
-        #expect(event.event.summary.hasPrefix("Primary connect failed:"))
+        #expect(event.event.summary == "Primary connection failed")
     }
 
     @Test("Live runtime driver keeps a pending primary connect alive past the startup clock tick")
@@ -205,6 +382,41 @@ struct LiveRuntimeDriverValidator {
         await driver.stop()
     }
 
+    @Test("Live runtime driver treats explicit stop as a non-error terminal state")
+    func validateExplicitStopIsNonErrorTerminalState() async throws {
+        let primaryTransport = ScriptedPrimaryTransport()
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantReservationSource: DelayedParticipantReservationSource(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        await driver.start()
+        let runningSnapshot = await driver.snapshot()
+        #expect(runningSnapshot.clientState.isConnected)
+        #expect(runningSnapshot.lastError == nil)
+        #expect(runningSnapshot.lastErrorSummary == nil)
+
+        await driver.stop()
+        await driver.stop()
+
+        let stoppedSnapshot = await driver.snapshot()
+        #expect(stoppedSnapshot.clientState.isConnected == false)
+        #expect(stoppedSnapshot.clientState.round == nil)
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(stoppedSnapshot.lastErrorSummary == nil)
+        #expect(await primaryTransport.recordedCloseCallCount() == 1)
+    }
+
     @Test("Live runtime driver defers startup teardown until a real connect failure arrives")
     func validatePendingPrimaryConnectTearsDownOnlyAfterRealFailure() async throws {
         let connectError = NSError(domain: "LiveRuntimeDriverValidator", code: 3)
@@ -251,7 +463,7 @@ struct LiveRuntimeDriverValidator {
         let failedSnapshot = await driver.snapshot()
         #expect(failedSnapshot.clientState.isConnected == false)
         #expect(failedSnapshot.lastError == .transportUnavailable)
-        #expect(failedSnapshot.lastErrorSummary?.hasPrefix("Primary connect failed:") == true)
+        #expect(failedSnapshot.lastErrorSummary == "Primary connection failed")
         #expect(await primaryTransport.recordedCloseCallCount() == 1)
         #expect(await primaryTransport.hasPendingConnect == false)
 
@@ -263,13 +475,13 @@ struct LiveRuntimeDriverValidator {
         #expect(event.roundIdentifier == nil)
         #expect(event.event.kind == .failure)
         #expect(event.event.phase == .connecting)
-        #expect(event.event.summary.hasPrefix("Primary connect failed:"))
+        #expect(event.event.summary == "Primary connection failed")
     }
 
     @Test("Live runtime driver preserves startup waiting errors when cancellation follows restart")
     func validateStartupWaitingCancellationPreservesUnderlyingErrorProjection() async throws {
         let underlyingError = NWError.posix(.ECONNRESET)
-        let expectedSummary = "Primary connect failed: \(String(describing: underlyingError))"
+        let expectedSummary = "Primary connection failed"
         let eventSink = RecordedHostEventSink()
         let factory = ScriptedNetworkPrimaryConnectionFactory(
             startStates: [.waiting(underlyingError)],
@@ -357,13 +569,13 @@ struct LiveRuntimeDriverValidator {
 
         let snapshot = await driver.snapshot()
         #expect(snapshot.lastError == .transportUnavailable)
-        #expect(snapshot.lastErrorSummary?.hasPrefix("Primary write failed:") == true)
+        #expect(snapshot.lastErrorSummary == "Primary write failed")
 
         let events = await eventSink.snapshot()
         #expect(events.count == 1)
         #expect(events[0].roundIdentifier == nil)
         #expect(events[0].event.kind == .failure)
-        #expect(events[0].event.summary.hasPrefix("Primary write failed:"))
+        #expect(events[0].event.summary == "Primary write failed")
         #expect(events.contains { $0.event.summary == "Primary channel connected; sending ClientHello" } == false)
     }
 
@@ -516,7 +728,7 @@ struct LiveRuntimeDriverValidator {
     func validatePreRoundServerFailurePreservesCoordinatorSummary() async throws {
         let coordinator = try await LoopbackPrimaryCoordinator.start()
         let eventSink = RecordedHostEventSink()
-        let rejectionSummary = "Coordinator rejected JoinPools"
+        let rejectionSummary = "Coordinator rejected the current flow"
         let driver = OpalFusion.Runtime.LiveRuntimeDriver(
             configuration: .init(
                 coordinatorHost: "127.0.0.1",
@@ -554,7 +766,7 @@ struct LiveRuntimeDriverValidator {
         )
 
         try await coordinator.send(
-            .serverFailure(.init(message: rejectionSummary))
+            .serverFailure(.init(message: "Coordinator rejected JoinPools"))
         )
         await coordinator.closeConnection()
 
@@ -1175,29 +1387,22 @@ struct LiveRuntimeDriverValidator {
         let stoppedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
             while true {
                 let snapshot = await driver.snapshot()
-                if snapshot.lastError == .transportUnavailable &&
-                    snapshot.lastErrorSummary == "Primary channel disconnected" &&
+                if snapshot.lastError == nil &&
+                    snapshot.lastErrorSummary == nil &&
                     snapshot.clientState.isConnected == false {
                     return snapshot
                 }
                 try await Task.sleep(for: .milliseconds(10))
             }
         }
-        #expect(stoppedSnapshot.lastError == .transportUnavailable)
-        #expect(stoppedSnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(stoppedSnapshot.lastErrorSummary == nil)
         #expect(stoppedSnapshot.clientState.isConnected == false)
+        #expect(stoppedSnapshot.clientState.round == nil)
         #expect(await covertTransport.recordedResetCount() > 0)
 
-        let eventsAfterStop = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
-            while true {
-                let events = await eventSink.snapshot()
-                if events.last?.event.summary == "Primary channel disconnected" {
-                    return events
-                }
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-        #expect(eventsAfterStop.last?.event.summary == "Primary channel disconnected")
+        let eventsAfterStop = await eventSink.snapshot()
+        #expect(eventsAfterStop.contains { $0.event.summary == "Primary channel disconnected" } == false)
 
         await covertTransport.releasePerform(
             response: try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
@@ -1289,9 +1494,10 @@ struct LiveRuntimeDriverValidator {
 
         await driver.stop()
         let stoppedSnapshot = await driver.snapshot()
-        #expect(stoppedSnapshot.lastError == .transportUnavailable)
-        #expect(stoppedSnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(stoppedSnapshot.lastErrorSummary == nil)
         #expect(stoppedSnapshot.clientState.isConnected == false)
+        #expect(stoppedSnapshot.clientState.round == nil)
 
         await participantReservationSource.releaseReservation()
         try await Task.sleep(for: .milliseconds(100))
@@ -1301,7 +1507,7 @@ struct LiveRuntimeDriverValidator {
         #expect(await primaryTransport.recordedWrittenPayloads().count == 2)
 
         let events = await eventSink.snapshot()
-        #expect(events.last?.event.summary == "Primary channel disconnected")
+        #expect(events.contains { $0.event.summary == "Primary channel disconnected" } == false)
         #expect(events.contains { $0.event.summary == "Submitting player commitments and blind requests" } == false)
     }
 
@@ -1414,9 +1620,10 @@ struct LiveRuntimeDriverValidator {
 
         await driver.stop()
         let stoppedSnapshot = await driver.snapshot()
-        #expect(stoppedSnapshot.lastError == .transportUnavailable)
-        #expect(stoppedSnapshot.lastErrorSummary == "Primary channel disconnected")
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(stoppedSnapshot.lastErrorSummary == nil)
         #expect(stoppedSnapshot.clientState.isConnected == false)
+        #expect(stoppedSnapshot.clientState.round == nil)
 
         await transactionAssembler.releaseTransaction()
         try await Task.sleep(for: .milliseconds(100))
@@ -1426,7 +1633,7 @@ struct LiveRuntimeDriverValidator {
         #expect(await covertTransport.recordedRequests().count == 1)
 
         let events = await eventSink.snapshot()
-        #expect(events.last?.event.summary == "Primary channel disconnected")
+        #expect(events.contains { $0.event.summary == "Primary channel disconnected" } == false)
         #expect(events.contains { $0.event.summary == "Transaction finalized; waiting for signature window" } == false)
         #expect(events.contains { $0.event.summary == "Submitting covert transaction signatures" } == false)
     }

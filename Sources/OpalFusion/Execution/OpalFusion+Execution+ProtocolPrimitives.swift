@@ -96,7 +96,22 @@ extension OpalFusion.Execution {
             sizeBytes: Int,
             feeRateSatoshisPerKb: UInt64
         ) -> UInt64 {
-            ((UInt64(sizeBytes) * feeRateSatoshisPerKb) + 999) / 1_000
+            guard sizeBytes >= 0 else {
+                return UInt64.max
+            }
+
+            let product = UInt64(sizeBytes)
+                .multipliedReportingOverflow(by: feeRateSatoshisPerKb)
+            guard product.overflow == false else {
+                return UInt64.max
+            }
+
+            let rounded = product.partialValue.addingReportingOverflow(999)
+            guard rounded.overflow == false else {
+                return UInt64.max
+            }
+
+            return rounded.partialValue / 1_000
         }
 
         static func dustLimit(lockingScriptLength: Int) -> UInt64 {
@@ -176,13 +191,31 @@ extension OpalFusion.Execution {
 
             let lokad = baseline.protocolIdentity.fusionLokadId
             if lokad.isEmpty == false {
-                script.append(UInt8(lokad.count))
-                script.append(contentsOf: lokad)
+                appendPushData(lokad, to: &script)
             }
 
-            script.append(UInt8(sessionHash.count))
-            script.append(contentsOf: sessionHash)
+            appendPushData(sessionHash, to: &script)
             return script
+        }
+
+        private static func appendPushData(
+            _ bytes: [UInt8],
+            to script: inout [UInt8]
+        ) {
+            if bytes.count <= 75 {
+                script.append(UInt8(bytes.count))
+            } else if bytes.count <= Int(UInt8.max) {
+                script.append(0x4C)
+                script.append(UInt8(bytes.count))
+            } else if bytes.count <= Int(UInt16.max) {
+                script.append(0x4D)
+                script.append(contentsOf: UInt16(bytes.count).littleEndianBytes)
+            } else {
+                script.append(0x4E)
+                script.append(contentsOf: UInt32(bytes.count).littleEndianBytes)
+            }
+
+            script.append(contentsOf: bytes)
         }
 
         static func randPosition(
@@ -318,9 +351,19 @@ private struct Scalar256 {
     }
 }
 
+private extension UInt16 {
+    var littleEndianBytes: [UInt8] {
+        withUnsafeBytes(of: self.littleEndian) { Array($0) }
+    }
+}
+
 private extension UInt32 {
     var bigEndianBytes: [UInt8] {
         withUnsafeBytes(of: self.bigEndian) { Array($0) }
+    }
+
+    var littleEndianBytes: [UInt8] {
+        withUnsafeBytes(of: self.littleEndian) { Array($0) }
     }
 }
 

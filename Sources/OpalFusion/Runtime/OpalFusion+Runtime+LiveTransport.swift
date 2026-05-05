@@ -397,10 +397,10 @@ extension OpalFusion.Runtime {
                 "preparing"
             case .ready:
                 "ready"
-            case let .waiting(error):
-                "waiting(\(String(describing: error)))"
-            case let .failed(error):
-                "failed(\(String(describing: error)))"
+            case .waiting:
+                "waiting"
+            case .failed:
+                "failed"
             case .cancelled:
                 "cancelled"
             @unknown default:
@@ -443,6 +443,7 @@ extension OpalFusion.Runtime {
         case covertEndpointNotPrepared
         case malformedCovertURL
         case covertPayloadTooLarge
+        case invalidHTTPResponse
         case unexpectedHTTPStatus(Int)
 
         var errorDescription: String? {
@@ -461,6 +462,8 @@ extension OpalFusion.Runtime {
                 "Covert request URL could not be constructed"
             case .covertPayloadTooLarge:
                 "Covert request payload exceeded the configured size limit"
+            case .invalidHTTPResponse:
+                "Covert request did not receive an HTTP response"
             case let .unexpectedHTTPStatus(statusCode):
                 "Covert request failed with HTTP status \(statusCode)"
             }
@@ -478,6 +481,10 @@ extension OpalFusion.Runtime {
 
         if coordinatorHost != configuration.coordinatorHost {
             return "Coordinator host must not include leading or trailing whitespace"
+        }
+
+        if coordinatorHost.containsWhitespace {
+            return "Coordinator host must not include whitespace"
         }
 
         if configuration.coordinatorPort == 0 {
@@ -503,6 +510,10 @@ extension OpalFusion.Runtime {
             return "Covert request timeout must be greater than zero"
         }
 
+        if configuration.covertChannel.requestTimeoutMilliseconds > UInt64(Int64.max) {
+            return "Covert request timeout must fit the supported duration range"
+        }
+
         if let torSocks5 = configuration.torSocks5 {
             let torSocks5Host = torSocks5.host.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -514,8 +525,55 @@ extension OpalFusion.Runtime {
                 return "Tor SOCKS5 host must not include leading or trailing whitespace"
             }
 
+            if torSocks5Host.containsWhitespace {
+                return "Tor SOCKS5 host must not include whitespace"
+            }
+
             if torSocks5.port == 0 {
                 return "Tor SOCKS5 port must be greater than zero"
+            }
+        }
+
+        return nil
+    }
+
+    static func validateStartupConfiguration(
+        _ configuration: OpalFusion.Client.Configuration,
+        genesisHash: [UInt8]?,
+        joinPools: OpalFusion.ProtocolModel.JoinPools
+    ) -> String? {
+        if let summary = validateConfiguration(configuration) {
+            return summary
+        }
+
+        if let genesisHash, genesisHash.count != 32 {
+            return "Genesis hash must be 32 bytes"
+        }
+
+        if joinPools.tiers.isEmpty {
+            return "Join pool tiers must not be empty"
+        }
+
+        if joinPools.tiers.contains(0) {
+            return "Join pool tiers must be greater than zero"
+        }
+
+        if Set(joinPools.tiers).count != joinPools.tiers.count {
+            return "Join pool tiers must not contain duplicates"
+        }
+
+        var poolTagIdentifiers: Set<[UInt8]> = []
+        for tag in joinPools.tags {
+            if tag.identifier.isEmpty {
+                return "Join pool tags must include an identifier"
+            }
+
+            if poolTagIdentifiers.insert(tag.identifier).inserted == false {
+                return "Join pool tags must not contain duplicate identifiers"
+            }
+
+            if tag.limit == 0 {
+                return "Join pool tag limits must be greater than zero"
             }
         }
 
@@ -643,7 +701,7 @@ extension OpalFusion.Runtime {
                     Self.logger.debug("primary state transition state=ready")
                 case let .waiting(error):
                     Self.logger.debug(
-                        "primary state waiting error=\(String(describing: error), privacy: .public)"
+                        "primary state waiting error=\(String(describing: error), privacy: .private)"
                     )
                 case let .received(data):
                     Self.logger.debug(
@@ -657,7 +715,7 @@ extension OpalFusion.Runtime {
                     return
                 case let .failed(error):
                     Self.logger.debug(
-                        "primary terminal failure error=\(String(describing: error), privacy: .public)"
+                        "primary terminal failure error=\(String(describing: error), privacy: .private)"
                     )
                     inboundStream.finish(throwing: error)
                     clearConnectionIfCurrent(connectionID)
@@ -804,8 +862,11 @@ extension OpalFusion.Runtime {
 
             let (data, response) = try await requestExecutor(session, urlRequest)
 
-            if let response = response as? HTTPURLResponse,
-               (200 ..< 300).contains(response.statusCode) == false {
+            guard let response = response as? HTTPURLResponse else {
+                throw OpalFusion.Runtime.LiveTransportError.invalidHTTPResponse
+            }
+
+            if (200 ..< 300).contains(response.statusCode) == false {
                 throw OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(response.statusCode)
             }
 
@@ -876,6 +937,14 @@ extension OpalFusion.Runtime {
         ) -> TimeInterval {
             let milliseconds = max(duration.wholeMilliseconds, minimumMilliseconds)
             return TimeInterval(milliseconds) / 1_000
+        }
+    }
+}
+
+private extension String {
+    var containsWhitespace: Bool {
+        unicodeScalars.contains {
+            CharacterSet.whitespacesAndNewlines.contains($0)
         }
     }
 }

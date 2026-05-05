@@ -6,6 +6,7 @@ extension OpalFusion.Execution {
             case configurationRejected(summary: String)
             case primaryConnected
             case primaryDisconnected
+            case stopped
             case primaryTransportFailed(summary: String)
             case covertTransportFailed(summary: String)
             case protocolRejected(summary: String)
@@ -76,6 +77,8 @@ extension OpalFusion.Execution {
                 return handlePrimaryConnected()
             case .primaryDisconnected:
                 return handlePrimaryDisconnected()
+            case .stopped:
+                return handleStopped()
             case let .primaryTransportFailed(summary):
                 if session.connectionSubstate == .failed {
                     session.isConnected = false
@@ -259,6 +262,19 @@ extension OpalFusion.Execution {
             ]
         }
 
+        private mutating func handleStopped() -> [OpalFusion.Execution.RoundEngine.Effect] {
+            session.isConnected = false
+            session.connectionSubstate = .disconnected
+            session.lastError = nil
+            session.lastErrorSummary = nil
+
+            if round?.substate != .terminal {
+                round = nil
+            }
+
+            return []
+        }
+
         private mutating func handlePrimaryMessage(
             _ message: OpalFusion.ProtocolModel.ServerMessage,
             now: OpalFusion.Execution.Instant
@@ -278,6 +294,12 @@ extension OpalFusion.Execution {
                         return failBeforeRound(
                             error: .protocolIncompatible,
                             summary: "Unexpected message before ServerHello"
+                        )
+                    }
+                    guard serverHello.minimumExcessFeeSatoshis <= serverHello.maximumExcessFeeSatoshis else {
+                        return failBeforeRound(
+                            error: .protocolIncompatible,
+                            summary: "ServerHello excess fee range was invalid"
                         )
                     }
 
@@ -309,6 +331,18 @@ extension OpalFusion.Execution {
                             return failBeforeRound(
                                 error: .protocolIncompatible,
                                 summary: "FusionBegin tier was not requested"
+                            )
+                        }
+                        guard (1 ... UInt32(UInt16.max)).contains(fusionBegin.covertPort) else {
+                            return failBeforeRound(
+                                error: .protocolIncompatible,
+                                summary: "FusionBegin covert port was outside the supported range"
+                            )
+                        }
+                        guard isValidCovertDomain(fusionBegin.covertDomain) else {
+                            return failBeforeRound(
+                                error: .protocolIncompatible,
+                                summary: "FusionBegin covert domain was invalid"
                             )
                         }
                         guard isServerTimeAcceptable(fusionBegin.serverTimeUnixSeconds, now: now) else {
@@ -366,6 +400,13 @@ extension OpalFusion.Execution {
                         completionStatus: .protocolIncompatible,
                         clientError: .protocolIncompatible,
                         summary: "StartRound server time exceeded the allowed clock skew"
+                    )
+                }
+                guard startRound.blindNoncePoints.count == Int(round.serverHello.numberOfComponents) else {
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: "StartRound blind nonce count did not match ServerHello component count"
                     )
                 }
 
@@ -824,9 +865,9 @@ extension OpalFusion.Execution {
                 if let blameVerifyDeadline = round.deadlines.blameVerifyDeadline,
                    now > blameVerifyDeadline {
                     return failRound(
-                        completionStatus: .transportFailed,
-                        clientError: .transportUnavailable,
-                        summary: "Blame handling exceeded the allowed deadline"
+                        completionStatus: .blameRequired,
+                        clientError: .blameRequired,
+                        summary: "Blame handling did not complete"
                     )
                 }
             case .terminal:
@@ -839,7 +880,7 @@ extension OpalFusion.Execution {
         private mutating func failForServerFailure(
             _ failure: OpalFusion.ProtocolModel.ServerFailure
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
-            let summary = failure.message ?? "Coordinator rejected the current flow"
+            let summary = "Coordinator rejected the current flow"
 
             if round?.identifier != nil {
                 return failRound(
@@ -869,7 +910,7 @@ extension OpalFusion.Execution {
             return failRound(
                 completionStatus: .hostRejected,
                 clientError: .notImplemented,
-                summary: "Execution materialization failed: \(String(describing: error))"
+                summary: "Execution materialization failed"
             )
         }
 
@@ -906,6 +947,7 @@ extension OpalFusion.Execution {
             round.substate = .terminal
             round.completionStatus = completionStatus
             self.round = round
+            session.isConnected = false
             session.lastError = clientError
             session.lastErrorSummary = summary
             session.connectionSubstate = .failed
@@ -976,6 +1018,13 @@ extension OpalFusion.Execution {
                 submitWindow: session.baseline.covertTiming.submitWindow,
                 spareConnectionCount: session.baseline.covertTiming.spareConnectionCount
             )
+        }
+
+        private func isValidCovertDomain(
+            _ domain: String
+        ) -> Bool {
+            domain.isEmpty == false &&
+                domain.unicodeScalars.contains { $0.properties.isWhitespace } == false
         }
     }
 }

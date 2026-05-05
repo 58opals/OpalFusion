@@ -99,6 +99,29 @@ struct TransactionCodecValidator {
         }
     }
 
+    @Test("BCH transaction parser rejects oversized CompactSize lengths without trapping")
+    func validateOversizedCompactSizeLengthRejection() throws {
+        let oversizedLengthBytes = withUnsafeBytes(of: UInt64(Int.max).littleEndian) {
+            Array($0)
+        }
+        let transactionBytes =
+            [UInt8](arrayLiteral: 0x01, 0x00, 0x00, 0x00)
+            + [0x01]
+            + [UInt8](repeating: 0x00, count: 32)
+            + [0x00, 0x00, 0x00, 0x00]
+            + [0xFF]
+            + oversizedLengthBytes
+
+        do {
+            _ = try OpalFusion.Execution.BCHTransaction.parse(transactionBytes)
+            Issue.record("Expected oversized unlocking script length to fail")
+        } catch let error as OpalFusion.Execution.BCHTransactionError {
+            #expect(
+                error == .malformed("Unexpected end of transaction bytes")
+            )
+        }
+    }
+
     @Test("BCH transaction serializer rejects zero input and zero output transactions")
     func validateZeroCountTransactionSerializationRejection() throws {
         let output = OpalFusion.Execution.BCHTransaction.Output(
