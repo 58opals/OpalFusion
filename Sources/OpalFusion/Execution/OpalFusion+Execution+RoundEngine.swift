@@ -1044,11 +1044,7 @@ extension OpalFusion.Execution {
                 return false
             }
 
-            var components = URLComponents()
-            components.scheme = "https"
-            components.host = domain
-            components.path = "/"
-            return components.url?.host != nil
+            return OpalFusion.Runtime.isValidHostName(domain)
         }
     }
 }

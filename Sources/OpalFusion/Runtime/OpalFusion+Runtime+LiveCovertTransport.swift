@@ -113,7 +113,7 @@ extension OpalFusion.Runtime {
         private func makeURL(
             for endpoint: OpalFusion.Runtime.CovertEndpointContext
         ) throws -> URL {
-            guard endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            guard OpalFusion.Runtime.isValidHostName(endpoint.host) else {
                 throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
             }
 

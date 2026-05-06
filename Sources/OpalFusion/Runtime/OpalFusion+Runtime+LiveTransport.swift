@@ -90,7 +90,7 @@ extension OpalFusion.Runtime {
         return nil
     }
 
-    private static func isValidHostName(_ host: String) -> Bool {
+    static func isValidHostName(_ host: String) -> Bool {
         switch NWEndpoint.Host(host) {
         case .ipv4, .ipv6:
             return true
@@ -100,10 +100,45 @@ extension OpalFusion.Runtime {
                 host.contains(":") == false &&
                 host.contains("[") == false &&
                 host.contains("]") == false &&
-                host.contains("@") == false
+                host.contains("@") == false &&
+                isValidDNSName(name)
         @unknown default:
             return false
         }
+    }
+
+    private static func isValidDNSName(_ name: String) -> Bool {
+        let normalizedName = name.hasSuffix(".") ? name.dropLast() : Substring(name)
+        guard normalizedName.isEmpty == false,
+              normalizedName.utf8.count <= 253 else {
+            return false
+        }
+
+        return normalizedName.split(
+            separator: ".",
+            omittingEmptySubsequences: false
+        ).allSatisfy(isValidDNSLabel)
+    }
+
+    private static func isValidDNSLabel(_ label: Substring) -> Bool {
+        guard label.isEmpty == false,
+              label.utf8.count <= 63,
+              let first = label.utf8.first,
+              let last = label.utf8.last,
+              isASCIIAlphanumeric(first),
+              isASCIIAlphanumeric(last) else {
+            return false
+        }
+
+        return label.utf8.allSatisfy { byte in
+            isASCIIAlphanumeric(byte) || byte == UInt8(ascii: "-")
+        }
+    }
+
+    private static func isASCIIAlphanumeric(_ byte: UInt8) -> Bool {
+        (UInt8(ascii: "0") ... UInt8(ascii: "9")).contains(byte) ||
+            (UInt8(ascii: "A") ... UInt8(ascii: "Z")).contains(byte) ||
+            (UInt8(ascii: "a") ... UInt8(ascii: "z")).contains(byte)
     }
 
     static func validateStartupConfiguration(

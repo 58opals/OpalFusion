@@ -196,6 +196,7 @@ extension OpalFusion.Runtime {
                 lastError: runtimeSession.lastError,
                 lastErrorSummary: runtimeSession.lastErrorSummary,
                 diagnostics: diagnostics,
+                coordinatorStatus: runtimeSession.coordinatorStatus,
                 allowsReconnect: lastFailureAllowsReconnect
             )
         }

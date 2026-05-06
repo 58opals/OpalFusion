@@ -99,6 +99,37 @@ struct LiveRuntimeDriverValidator {
         )
     }
 
+    @Test("Runtime configuration rejects malformed DNS host labels")
+    func validateMalformedDNSHostLabels() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+
+        let coordinatorConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: "-fusion.example.org",
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(coordinatorConfiguration) ==
+                "Coordinator host must be a valid host name"
+        )
+
+        let torConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel,
+            torSocks5: .init(
+                host: "127.0.0.-1",
+                port: 9050
+            )
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(torConfiguration) ==
+                "Tor SOCKS5 host must be a valid host name"
+        )
+    }
+
     @Test("Runtime configuration accepts raw IPv6 host literals")
     func validateRawIPv6HostNames() {
         let baseConfiguration = PrimaryRuntimeTestFixtures.configuration

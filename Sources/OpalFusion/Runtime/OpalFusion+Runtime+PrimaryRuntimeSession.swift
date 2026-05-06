@@ -64,6 +64,15 @@ extension OpalFusion.Runtime {
             )
         }
 
+        var coordinatorStatus: OpalFusion.Client.Session.Snapshot.CoordinatorStatus {
+            .init(
+                updateSequence: preRoundTrace.updateSequence,
+                latestInboundMessageKind: preRoundTrace.lastInboundKind?.rawValue,
+                latestInboundPayloadByteCount: preRoundTrace.lastInboundPayloadBytes,
+                queueStatus: requestedTierQueueStatus
+            )
+        }
+
         mutating func recordWrittenPrimaryFrame(_ bytes: [UInt8]) {
             guard shouldTracePreRoundTraffic else {
                 return
@@ -218,6 +227,7 @@ extension OpalFusion.Runtime {
                         engine.apply(input: .primaryMessage(message), now: now),
                         now: now
                     )
+                    recordAcceptedPreRoundInboundMessage(message)
                     updateHandshakeStageFromEngine()
                     runtimeEffects.append(
                         contentsOf: effects
@@ -378,6 +388,28 @@ extension OpalFusion.Runtime {
             }
         }
 
+        private var requestedTierQueueStatus: OpalFusion.Client.Session.Snapshot.CoordinatorStatus.QueueStatus? {
+            guard let latestTierStatus = engine.session.latestTierStatus else {
+                return nil
+            }
+
+            for tierSatoshis in engine.session.joinPools.tiers {
+                guard let tierStatus = latestTierStatus.statusesByTier[tierSatoshis] else {
+                    continue
+                }
+
+                return .init(
+                    tierSatoshis: tierSatoshis,
+                    players: tierStatus.playerCount,
+                    minPlayers: tierStatus.minimumPlayerCount,
+                    maxPlayers: tierStatus.maximumPlayerCount,
+                    timeRemaining: tierStatus.timeRemainingSeconds
+                )
+            }
+
+            return nil
+        }
+
         private mutating func logPreRoundInboundMessage(
             _ message: OpalFusion.ProtocolModel.ServerMessage,
             payloadBytes: Int
@@ -386,12 +418,12 @@ extension OpalFusion.Runtime {
                 return
             }
 
+            preRoundTrace.updateSequence += 1
+            preRoundTrace.lastInboundKind = .init(message: message)
+            preRoundTrace.lastInboundPayloadBytes = payloadBytes
+
             switch message {
             case let .serverHello(serverHello):
-                preRoundTrace.lastInboundKind = .serverHello
-                preRoundTrace.lastInboundPayloadBytes = payloadBytes
-                preRoundTrace.sawServerHello = true
-                preRoundTrace.handshakeStage = .awaitingFusionBegin
                 appendDiagnosticEvent(
                     .init(
                         kind: .inboundMessage,
@@ -405,8 +437,6 @@ extension OpalFusion.Runtime {
                     "primary preround inbound kind=ServerHello payloadBytes=\(payloadBytes, privacy: .public) tiersCount=\(serverHello.tiers.count, privacy: .public) firstTier=\(Self.describe(serverHello.tiers.first), privacy: .public) numberOfComponents=\(Int(serverHello.numberOfComponents), privacy: .public)"
                 )
             case let .tierStatusUpdate(update):
-                preRoundTrace.lastInboundKind = .tierStatusUpdate
-                preRoundTrace.lastInboundPayloadBytes = payloadBytes
                 appendDiagnosticEvent(
                     .init(
                         kind: .inboundMessage,
@@ -420,8 +450,6 @@ extension OpalFusion.Runtime {
                     "primary preround inbound kind=TierStatusUpdate payloadBytes=\(payloadBytes, privacy: .public) statusTierCount=\(update.statusesByTier.count, privacy: .public) firstTier=\(Self.describe(update.statusesByTier.keys.sorted().first), privacy: .public)"
                 )
             case let .fusionBegin(fusionBegin):
-                preRoundTrace.lastInboundKind = .fusionBegin
-                preRoundTrace.lastInboundPayloadBytes = payloadBytes
                 appendDiagnosticEvent(
                     .init(
                         kind: .inboundMessage,
@@ -435,8 +463,6 @@ extension OpalFusion.Runtime {
                     "primary preround inbound kind=FusionBegin payloadBytes=\(payloadBytes, privacy: .public) tier=\(fusionBegin.tier, privacy: .public) covertPort=\(Int(fusionBegin.covertPort), privacy: .public) covertTLS=\(Self.describe(fusionBegin.covertSsl), privacy: .public)"
                 )
             case let .serverFailure(failure):
-                preRoundTrace.lastInboundKind = .serverFailure
-                preRoundTrace.lastInboundPayloadBytes = payloadBytes
                 appendDiagnosticEvent(
                     .init(
                         kind: .inboundMessage,
@@ -453,6 +479,17 @@ extension OpalFusion.Runtime {
                     .fusionResult, .theirProofsList, .restartRound:
                 break
             }
+        }
+
+        private mutating func recordAcceptedPreRoundInboundMessage(
+            _ message: OpalFusion.ProtocolModel.ServerMessage
+        ) {
+            guard case .serverHello = message,
+                  engine.session.connectionSubstate == .awaitingFusionBegin else {
+                return
+            }
+
+            preRoundTrace.sawServerHello = true
         }
 
         private mutating func logPreRoundOutboundMessage(

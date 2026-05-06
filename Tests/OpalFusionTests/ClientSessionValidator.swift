@@ -834,6 +834,139 @@ struct ClientSessionValidator {
         await session.stop()
     }
 
+    @Test("Public client session keeps invalid ServerHello diagnostics at server hello stage")
+    func validateInvalidServerHelloDiagnosticsStayAtServerHelloStage() async throws {
+        let transportFactories = SessionTransportFactoryRecorder()
+        let invalidServerHello = OpalFusion.ProtocolModel.ServerHello(
+            tiers: PrimaryRuntimeTestFixtures.serverHello.tiers,
+            numberOfComponents: 0,
+            componentFeeRateSatoshisPerKb: PrimaryRuntimeTestFixtures.serverHello
+                .componentFeeRateSatoshisPerKb,
+            minimumExcessFeeSatoshis: PrimaryRuntimeTestFixtures.serverHello
+                .minimumExcessFeeSatoshis,
+            maximumExcessFeeSatoshis: PrimaryRuntimeTestFixtures.serverHello
+                .maximumExcessFeeSatoshis,
+            donationAddress: PrimaryRuntimeTestFixtures.serverHello.donationAddress
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { ScriptedCovertTransport() }
+        )
+
+        await session.start()
+        let transport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 1)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(invalidServerHello)
+            )
+        )
+
+        let snapshot = try await Self.waitForSessionSnapshot(session) {
+            $0.lastError == .protocolIncompatible
+        }
+
+        #expect(snapshot.state.round == nil)
+        #expect(snapshot.diagnostics.handshakeStage == .awaitingServerHello)
+        #expect(snapshot.diagnostics.activity == .failed)
+        #expect(await transportFactories.primaryCount() == 1)
+
+        await session.stop()
+    }
+
+    @Test("Public client session exposes repeated TierStatusUpdate coordinator snapshots")
+    func validateCoordinatorStatusAdvancesForRepeatedTierStatusUpdate() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let nowProvider = ScriptedInstantClock(unixSeconds: 995)
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            nowProvider: { await nowProvider.now() },
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { ScriptedCovertTransport() }
+        )
+        let tierStatusMessage = OpalFusion.ProtocolModel.ServerMessage.tierStatusUpdate(
+            PrimaryRuntimeTestFixtures.tierStatusUpdate
+        )
+        let tierStatusFrame = try PrimaryRuntimeTestFixtures.encodeServerFrame(
+            tierStatusMessage
+        )
+        let tierStatusPayloadByteCount = try PrimaryRuntimeTestFixtures.encodeServerPayload(
+            tierStatusMessage
+        ).count
+        let expectedQueueStatus = OpalFusion.Client.Session.Snapshot.CoordinatorStatus
+            .QueueStatus(
+                tierSatoshis: 10_000,
+                players: 3,
+                minPlayers: 2,
+                maxPlayers: 8,
+                timeRemaining: 17
+            )
+
+        await session.start()
+        let transport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 1)
+
+        await nowProvider.update(unixSeconds: 996)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 2)
+
+        await transport.yieldInboundBytes(tierStatusFrame)
+        let firstStatusSnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.coordinatorStatus.updateSequence == 2
+        }
+
+        await transport.yieldInboundBytes(tierStatusFrame)
+        let repeatedStatusSnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.coordinatorStatus.updateSequence == 3
+        }
+
+        #expect(firstStatusSnapshot.coordinatorStatus.latestInboundMessageKind == "TierStatusUpdate")
+        #expect(
+            firstStatusSnapshot.coordinatorStatus.latestInboundPayloadByteCount
+                == tierStatusPayloadByteCount
+        )
+        #expect(firstStatusSnapshot.coordinatorStatus.queueStatus == expectedQueueStatus)
+        #expect(repeatedStatusSnapshot.coordinatorStatus.latestInboundMessageKind == "TierStatusUpdate")
+        #expect(
+            repeatedStatusSnapshot.coordinatorStatus.latestInboundPayloadByteCount
+                == tierStatusPayloadByteCount
+        )
+        #expect(repeatedStatusSnapshot.coordinatorStatus.queueStatus == expectedQueueStatus)
+
+        await session.stop()
+    }
+
     @Test("Public client session does not retry non-transport terminal failures")
     func validateReconnectPolicyDoesNotRetryNonTransportFailures() async throws {
         let invalidConfigurationObserver = RecordedClientStateObserver()
@@ -1064,6 +1197,63 @@ struct ClientSessionValidator {
         #expect(stoppedSnapshot.diagnostics.handshakeStage == .notStarted)
         #expect(stoppedSnapshot.diagnostics.retryAttempt == nil)
         #expect(stoppedSnapshot.lastError == nil)
+        #expect(await transportFactories.primaryCount() == 1)
+    }
+
+    @Test("Public client session stop preserves pending reconnect coordinator status")
+    func validateStopPreservesPendingReconnectCoordinatorStatus() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: .init(
+                initialDelay: .seconds(2),
+                maximumDelay: .seconds(2),
+                multiplier: 1,
+                maximumAttempts: nil
+            ),
+            primaryTransportFactory: { await transportFactories.makePrimary() }
+        )
+
+        await session.start()
+        let transport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 1)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+            )
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 2)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .tierStatusUpdate(PrimaryRuntimeTestFixtures.tierStatusUpdate)
+            )
+        )
+        await transport.finishInbound()
+
+        let retrySnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.diagnostics.activity == .retrying &&
+                $0.coordinatorStatus.latestInboundMessageKind == "TierStatusUpdate"
+        }
+
+        await session.stop()
+        try await Task.sleep(for: .milliseconds(2_200))
+
+        let stoppedSnapshot = await session.snapshot()
+        #expect(stoppedSnapshot.diagnostics.activity == .stopped)
+        #expect(stoppedSnapshot.coordinatorStatus == retrySnapshot.coordinatorStatus)
         #expect(await transportFactories.primaryCount() == 1)
     }
 

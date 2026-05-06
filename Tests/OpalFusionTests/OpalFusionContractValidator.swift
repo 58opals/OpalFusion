@@ -167,6 +167,18 @@ struct OpalFusionContractValidator {
                 completionStatus: .success
             )
         )
+        let coordinatorStatus = OpalFusion.Client.Session.Snapshot.CoordinatorStatus(
+            updateSequence: 2,
+            latestInboundMessageKind: "TierStatusUpdate",
+            latestInboundPayloadByteCount: 24,
+            queueStatus: .init(
+                tierSatoshis: 10_000,
+                players: 3,
+                minPlayers: 2,
+                maxPlayers: 8,
+                timeRemaining: 17
+            )
+        )
         let snapshot = OpalFusion.Client.Session.Snapshot(
             state: state,
             lastError: .transportUnavailable,
@@ -187,7 +199,8 @@ struct OpalFusionContractValidator {
                         handshakeStage: .awaitingServerHello
                     )
                 ]
-            )
+            ),
+            coordinatorStatus: coordinatorStatus
         )
 
         #expect(snapshot.state == state)
@@ -199,6 +212,7 @@ struct OpalFusionContractValidator {
         #expect(snapshot.diagnostics.primaryFailureCategory == .transportUnavailable)
         #expect(snapshot.diagnostics.handshakeStage == .awaitingServerHello)
         #expect(snapshot.diagnostics.recentEvents.count == 1)
+        #expect(snapshot.coordinatorStatus == coordinatorStatus)
     }
 
     @Test("Client reconnect policy exposes disabled and wallet defaults")

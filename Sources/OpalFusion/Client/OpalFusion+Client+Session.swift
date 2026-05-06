@@ -125,7 +125,8 @@ public extension OpalFusion.Client {
                             .withoutFailure()
                             .withRetry(attempt: nil, delay: nil)
                             .withHandshakeStage(.notStarted)
-                            .withActivity(.stopped)
+                            .withActivity(.stopped),
+                        coordinatorStatus: lastEmittedSnapshot.coordinatorStatus
                     )
                 )
                 return
@@ -319,7 +320,8 @@ private extension OpalFusion.Client.Session.Snapshot {
             state: snapshot.clientState,
             lastError: snapshot.lastError,
             lastErrorSummary: snapshot.lastErrorSummary,
-            diagnostics: snapshot.diagnostics
+            diagnostics: snapshot.diagnostics,
+            coordinatorStatus: snapshot.coordinatorStatus
         )
     }
 
@@ -330,7 +332,8 @@ private extension OpalFusion.Client.Session.Snapshot {
             state: state,
             lastError: lastError,
             lastErrorSummary: lastErrorSummary,
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            coordinatorStatus: coordinatorStatus
         )
     }
 }
