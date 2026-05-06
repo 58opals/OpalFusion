@@ -74,6 +74,11 @@ extension OpalFusion.Execution {
             amountSatoshis: UInt64,
             sighashType: UInt32 = 0x41
         ) throws -> [UInt8] {
+            guard sighashType == 0x41 else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Unsupported BCH signature hash type"
+                )
+            }
             guard inputs.indices.contains(inputIndex) else {
                 throw OpalFusion.Execution.BCHTransactionError.malformed(
                     "Transaction input index \(inputIndex) is out of bounds"

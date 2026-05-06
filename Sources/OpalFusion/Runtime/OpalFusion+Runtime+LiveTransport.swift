@@ -24,6 +24,10 @@ extension OpalFusion.Runtime {
             return "Coordinator host must not include whitespace"
         }
 
+        if isValidHostName(coordinatorHost) == false {
+            return "Coordinator host must be a valid host name"
+        }
+
         if configuration.coordinatorPort == 0 {
             return "Coordinator port must be greater than zero"
         }
@@ -70,6 +74,10 @@ extension OpalFusion.Runtime {
                 return "Tor SOCKS5 host must not include whitespace"
             }
 
+            if isValidHostName(torSocks5Host) == false {
+                return "Tor SOCKS5 host must be a valid host name"
+            }
+
             if torSocks5.port == 0 {
                 return "Tor SOCKS5 port must be greater than zero"
             }
@@ -80,6 +88,22 @@ extension OpalFusion.Runtime {
         }
 
         return nil
+    }
+
+    private static func isValidHostName(_ host: String) -> Bool {
+        switch NWEndpoint.Host(host) {
+        case .ipv4, .ipv6:
+            return true
+        case let .name(name, _):
+            return name == host &&
+                host.contains("/") == false &&
+                host.contains(":") == false &&
+                host.contains("[") == false &&
+                host.contains("]") == false &&
+                host.contains("@") == false
+        @unknown default:
+            return false
+        }
     }
 
     static func validateStartupConfiguration(

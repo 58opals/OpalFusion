@@ -409,6 +409,42 @@ struct TransactionCodecValidator {
         }
     }
 
+    @Test("BCH transaction signature hash rejects unsupported sighash types")
+    func validateSignatureHashRejectsUnsupportedSighashType() throws {
+        let transaction = OpalFusion.Execution.BCHTransaction(
+            version: 1,
+            inputs: [
+                .init(
+                    previousTransactionHashLittleEndian: [UInt8](repeating: 0x00, count: 32),
+                    previousOutputIndex: 0,
+                    unlockingScript: [],
+                    sequence: 0xFFFF_FFFF
+                )
+            ],
+            outputs: [
+                .init(
+                    amountSatoshis: 1_000,
+                    lockingScript: [0x51]
+                )
+            ],
+            lockTime: 0
+        )
+
+        do {
+            _ = try transaction.signatureHash(
+                forInputAt: 0,
+                lockingScript: [0x51],
+                amountSatoshis: 1_000,
+                sighashType: 0x43
+            )
+            Issue.record("Expected unsupported sighash type to fail")
+        } catch let error as OpalFusion.Execution.BCHTransactionError {
+            #expect(
+                error == .malformed("Unsupported BCH signature hash type")
+            )
+        }
+    }
+
     @Test("BCH transaction signature hash rejects impossible output amounts")
     func validateSignatureHashRejectsImpossibleOutputAmount() throws {
         let transaction = OpalFusion.Execution.BCHTransaction(

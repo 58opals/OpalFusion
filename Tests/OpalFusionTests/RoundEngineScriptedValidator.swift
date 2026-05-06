@@ -390,10 +390,10 @@ struct RoundEngineScriptedValidator {
             now: Self.instant(996)
         )
 
-        let rejectionSummary = "Coordinator rejected the current flow"
+        let rejectionSummary = "Coordinator rejected JoinPools"
         let rejectionEffects = engine.apply(
             input: .primaryMessage(
-                .serverFailure(.init(message: "Coordinator rejected JoinPools"))
+                .serverFailure(.init(message: rejectionSummary))
             ),
             now: Self.instant(997)
         )
@@ -460,6 +460,47 @@ struct RoundEngineScriptedValidator {
                         kind: .failure,
                         phase: .connecting,
                         summary: "ServerHello excess fee range was invalid"
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects ServerHello messages without components")
+    func validateServerHelloComponentCount() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(
+            input: .primaryConnected,
+            now: Self.instant(995)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(
+                .serverHello(
+                    .init(
+                        tiers: Self.serverHello.tiers,
+                        numberOfComponents: 0,
+                        componentFeeRateSatoshisPerKb: Self.serverHello.componentFeeRateSatoshisPerKb,
+                        minimumExcessFeeSatoshis: Self.serverHello.minimumExcessFeeSatoshis,
+                        maximumExcessFeeSatoshis: Self.serverHello.maximumExcessFeeSatoshis,
+                        donationAddress: Self.serverHello.donationAddress
+                    )
+                )
+            ),
+            now: Self.instant(996)
+        )
+
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.session.latestServerHello == nil)
+        #expect(engine.round == nil)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .connecting,
+                        summary: "ServerHello component count was invalid"
                     )
                 )
             ]
@@ -687,7 +728,7 @@ struct RoundEngineScriptedValidator {
                 .fusionBegin(
                     .init(
                         tier: Self.fusionBegin.tier,
-                        covertDomain: "covert example.org",
+                        covertDomain: "https://covert.example.org",
                         covertPort: Self.fusionBegin.covertPort,
                         covertSsl: Self.fusionBegin.covertSsl,
                         serverTimeUnixSeconds: Self.fusionBegin.serverTimeUnixSeconds

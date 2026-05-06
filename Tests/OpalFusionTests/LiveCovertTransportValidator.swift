@@ -367,7 +367,11 @@ struct LiveCovertTransportValidator {
             _ = try await transport.perform(request)
             Issue.record("Expected oversized covert response payload to fail")
         } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .covertPayloadTooLarge)
+            #expect(error == .covertResponsePayloadTooLarge)
+            #expect(
+                error.localizedDescription ==
+                    "Covert response payload exceeded the configured size limit"
+            )
         }
     }
 }

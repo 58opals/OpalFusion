@@ -447,7 +447,7 @@ extension OpalFusion.Runtime {
                     )
                 )
                 Self.logger.debug(
-                    "primary preround inbound kind=ServerFailure payloadBytes=\(payloadBytes, privacy: .public) messagePresent=\(failure.message != nil, privacy: .public)"
+                    "primary preround inbound kind=ServerFailure payloadBytes=\(payloadBytes, privacy: .public) messagePresent=\(failure.message != nil, privacy: .public) messageCharacters=\(failure.message?.count ?? 0, privacy: .public) message=\(Self.describe(failure.message), privacy: .private)"
                 )
             case .startRound, .blindSignatureResponses, .allCommitments, .shareCovertComponents,
                     .fusionResult, .theirProofsList, .restartRound:

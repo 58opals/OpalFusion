@@ -89,7 +89,7 @@ extension OpalFusion.Runtime {
             }
 
             guard data.count <= request.endpoint.maxPayloadBytes else {
-                throw OpalFusion.Runtime.LiveTransportError.covertPayloadTooLarge
+                throw OpalFusion.Runtime.LiveTransportError.covertResponsePayloadTooLarge
             }
 
             return [UInt8](data)

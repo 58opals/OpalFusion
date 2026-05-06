@@ -15,6 +15,7 @@ extension OpalFusion.Runtime {
         case covertEndpointNotPrepared
         case malformedCovertURL
         case covertPayloadTooLarge
+        case covertResponsePayloadTooLarge
         case invalidHTTPResponse
         case unexpectedHTTPStatus(Int)
 
@@ -34,6 +35,8 @@ extension OpalFusion.Runtime {
                 "Covert request URL could not be constructed"
             case .covertPayloadTooLarge:
                 "Covert request payload exceeded the configured size limit"
+            case .covertResponsePayloadTooLarge:
+                "Covert response payload exceeded the configured size limit"
             case .invalidHTTPResponse:
                 "Covert request did not receive an HTTP response"
             case let .unexpectedHTTPStatus(statusCode):

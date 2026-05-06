@@ -68,6 +68,62 @@ struct LiveRuntimeDriverValidator {
         )
     }
 
+    @Test("Runtime configuration rejects URL-shaped host names")
+    func validateURLShapedHostNames() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+
+        let coordinatorConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: "https://fusion.example.org",
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(coordinatorConfiguration) ==
+                "Coordinator host must be a valid host name"
+        )
+
+        let torConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel,
+            torSocks5: .init(
+                host: "socks5://127.0.0.1",
+                port: 9050
+            )
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(torConfiguration) ==
+                "Tor SOCKS5 host must be a valid host name"
+        )
+    }
+
+    @Test("Runtime configuration accepts raw IPv6 host literals")
+    func validateRawIPv6HostNames() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+
+        let coordinatorConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: "::1",
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel
+        )
+        #expect(OpalFusion.Runtime.validateConfiguration(coordinatorConfiguration) == nil)
+
+        let torConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: baseConfiguration.covertChannel,
+            torSocks5: .init(
+                host: "::1",
+                port: 9050
+            )
+        )
+        #expect(OpalFusion.Runtime.validateConfiguration(torConfiguration) == nil)
+    }
+
     @Test("Runtime configuration rejects unsupported local Tor hostname resolution")
     func validateTorSocks5LocalHostnameResolution() {
         let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
@@ -769,7 +825,7 @@ struct LiveRuntimeDriverValidator {
     func validatePreRoundServerFailurePreservesCoordinatorSummary() async throws {
         let coordinator = try await LoopbackPrimaryCoordinator.start()
         let eventSink = RecordedHostEventSink()
-        let rejectionSummary = "Coordinator rejected the current flow"
+        let rejectionSummary = "Coordinator rejected JoinPools"
         let driver = OpalFusion.Runtime.LiveRuntimeDriver(
             configuration: .init(
                 coordinatorHost: "127.0.0.1",
@@ -806,9 +862,7 @@ struct LiveRuntimeDriverValidator {
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
-        try await coordinator.send(
-            .serverFailure(.init(message: "Coordinator rejected JoinPools"))
-        )
+        try await coordinator.send(.serverFailure(.init(message: rejectionSummary)))
         await coordinator.closeConnection()
 
         let snapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {

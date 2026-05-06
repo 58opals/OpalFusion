@@ -103,8 +103,14 @@ extension OpalFusion.Execution {
             round: inout OpalFusion.Execution.RoundContext
         ) throws -> OpalFusion.Host.TransactionFinalizationProposal {
             let sharedMaterial = try ensureSharedRoundMaterial(round: &round)
+            let unsignedTransactionBytes: [UInt8]
+            do {
+                unsignedTransactionBytes = try sharedMaterial.transactionTemplate.serialized()
+            } catch let error as OpalFusion.Execution.BCHTransactionError {
+                throw mapTransactionError(error)
+            }
             return .init(
-                unsignedTransactionBytes: try sharedMaterial.transactionTemplate.serialized(),
+                unsignedTransactionBytes: unsignedTransactionBytes,
                 sessionHash: sharedMaterial.sessionHash,
                 expectedInputCount: sharedMaterial.transactionTemplate.inputs.count,
                 expectedOutputCount: sharedMaterial.transactionTemplate.outputs.count,
@@ -487,6 +493,22 @@ extension OpalFusion.Execution {
                 throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
                     "Participant reservation produced an excess fee outside the coordinator range"
                 )
+            }
+            guard OpalFusion.Execution.ProtocolPrimitives.isCompressedSecp256k1PublicKey(
+                startRound.roundPublicKey
+            ) else {
+                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                    "StartRound round public key must be a valid compressed public key"
+                )
+            }
+            for (index, blindNoncePoint) in startRound.blindNoncePoints.enumerated() {
+                guard OpalFusion.Execution.ProtocolPrimitives.isCompressedSecp256k1PublicKey(
+                    blindNoncePoint
+                ) else {
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "StartRound blind nonce point at index \(index) must be a valid compressed public key"
+                    )
+                }
             }
 
             let blindRequests: [OpalCrypto.BlindSignature.Request]
@@ -1076,6 +1098,12 @@ extension OpalFusion.Execution {
             componentIndex: Int
         ) throws -> OpalFusion.Execution.DecodedComponent {
             let message = try parseComponent(bytes: bytes)
+            guard message.saltCommitment.count == 32 else {
+                throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                    "Shared component at index \(componentIndex) salt commitment must be 32 bytes"
+                )
+            }
+
             let payload: OpalFusion.Commitment.ComponentPayload
             switch message.component {
             case let .input(input):

@@ -1,5 +1,7 @@
 // OpalFusion+Execution+RoundEngine.swift
 
+import Foundation
+
 extension OpalFusion.Execution {
     struct RoundEngine: Sendable {
         private(set) var session: OpalFusion.Execution.SessionContext
@@ -262,6 +264,12 @@ extension OpalFusion.Execution {
                         return failBeforeRound(
                             error: .protocolIncompatible,
                             summary: "Unexpected message before ServerHello"
+                        )
+                    }
+                    guard serverHello.numberOfComponents > 0 else {
+                        return failBeforeRound(
+                            error: .protocolIncompatible,
+                            summary: "ServerHello component count was invalid"
                         )
                     }
                     guard serverHello.minimumExcessFeeSatoshis <= serverHello.maximumExcessFeeSatoshis else {
@@ -868,7 +876,7 @@ extension OpalFusion.Execution {
         private mutating func failForServerFailure(
             _ failure: OpalFusion.ProtocolModel.ServerFailure
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
-            let summary = "Coordinator rejected the current flow"
+            let summary = serverFailureSummary(failure)
 
             if round?.identifier != nil {
                 return failRound(
@@ -882,6 +890,17 @@ extension OpalFusion.Execution {
                 error: .coordinatorRejected,
                 summary: summary
             )
+        }
+
+        private func serverFailureSummary(
+            _ failure: OpalFusion.ProtocolModel.ServerFailure
+        ) -> String {
+            guard let message = failure.message,
+                  message.contains(where: { $0.isWhitespace == false }) else {
+                return "Coordinator rejected the current flow"
+            }
+
+            return message
         }
 
         private mutating func failForWorkflowFailure(
@@ -1020,8 +1039,16 @@ extension OpalFusion.Execution {
         private func isValidCovertDomain(
             _ domain: String
         ) -> Bool {
-            domain.isEmpty == false &&
-                domain.unicodeScalars.contains { $0.properties.isWhitespace } == false
+            guard domain.isEmpty == false,
+                  domain.hasWhitespace == false else {
+                return false
+            }
+
+            var components = URLComponents()
+            components.scheme = "https"
+            components.host = domain
+            components.path = "/"
+            return components.url?.host != nil
         }
     }
 }

@@ -93,6 +93,56 @@ struct ClientSessionValidator {
         await session.stop()
     }
 
+    @Test("Public client session preserves pre-round coordinator rejection messages")
+    func validatePreRoundServerFailureMessageProjection() async throws {
+        let rejectionMessage = "This server is on a different chain, please switch servers"
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder()
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+
+        let transport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 0
+        )
+        try await Self.waitForWrittenPayloadCount(transport, count: 1)
+        await transport.yieldInboundBytes(
+            try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                .serverFailure(.init(message: rejectionMessage))
+            )
+        )
+
+        let snapshot = try await Self.waitForSessionSnapshot(session) {
+            $0.lastError == .coordinatorRejected &&
+                $0.lastErrorSummary == rejectionMessage &&
+                $0.state.isConnected == false
+        }
+        #expect(snapshot.state.round == nil)
+        #expect(snapshot.diagnostics.activity == .failed)
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(observedSnapshots.contains {
+            $0.lastError == .coordinatorRejected &&
+                $0.lastErrorSummary == rejectionMessage
+        })
+
+        await session.stop()
+    }
+
     @Test("Public client session surfaces TLS connect failures through primary diagnostics")
     func validateTLSConnectFailureProjection() async throws {
         let coordinator = try await LoopbackPrimaryCoordinator.start(requiresTLS: true)

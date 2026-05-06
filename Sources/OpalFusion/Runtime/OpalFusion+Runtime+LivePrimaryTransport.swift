@@ -112,8 +112,11 @@ extension OpalFusion.Runtime {
                 return
             }
 
-            await connection.cancel()
             let eventTask = self.eventTask
+            self.connection = nil
+            self.eventTask = nil
+
+            await connection.cancel()
             _ = await eventTask?.result
         }
 
