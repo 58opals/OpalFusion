@@ -72,7 +72,7 @@ struct RoundEngineScriptedValidator {
         )
         #expect(
             startRoundEffects == [
-                .requestParticipantReservation(roundIdentifier: roundIdentifier),
+                .requestParticipantReservation(context: Self.participantReservationContext),
                 .emitHostEvent(
                     roundIdentifier: roundIdentifier,
                     event: .init(
@@ -245,6 +245,126 @@ struct RoundEngineScriptedValidator {
         )
     }
 
+    @Test("Round engine validates shared components even when signatures are skipped")
+    func validateSkipSignaturesStillValidatesSharedComponents() {
+        var engine = OpalFusion.Execution.RoundEngine(
+            configuration: Self.configuration,
+            genesisHash: [0xAA, 0xBB, 0xCC],
+            joinPools: Self.joinPools,
+            workflow: .init(
+                buildPlayerCommit: { _ in Self.playerCommit },
+                buildCovertComponentMessages: { _ in [Self.covertComponentMessage] },
+                buildTransactionFinalizationProposal: { _ in
+                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                        "Shared component validation failed"
+                    )
+                },
+                buildCovertSignatureMessages: { _ in [Self.signatureMessage] },
+                buildMyProofsList: { _ in Self.myProofsList },
+                buildBlames: { _ in Self.blames }
+            )
+        )
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+        let skipSharedComponents = OpalFusion.ProtocolModel.ShareCovertComponents(
+            serializedComponents: Self.sharedComponents.serializedComponents,
+            skipSignatures: true,
+            sessionHash: Self.sharedComponents.sessionHash
+        )
+
+        Self.driveThroughStartRound(engine: &engine)
+        _ = engine.apply(
+            input: .participantReservationLoaded(Self.participantReservation),
+            now: Self.instant(1_031)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.blindSignatureResponses(Self.blindSignatureResponses)),
+            now: Self.instant(1_032)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.allCommitments(Self.allCommitments)),
+            now: Self.instant(1_034)
+        )
+        _ = engine.apply(input: .clockAdvanced, now: Self.instant(1_035))
+
+        let sharedEffects = engine.apply(
+            input: .primaryMessage(.shareCovertComponents(skipSharedComponents)),
+            now: Self.instant(1_040)
+        )
+
+        #expect(engine.clientState.round?.completionStatus == .protocolIncompatible)
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(
+            sharedEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Shared component validation failed",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects duplicate skipped-signature results after blame begins")
+    func validateSkipSignatureResultCannotOverwriteBlame() {
+        var engine = Self.makeEngine()
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+        let skipSharedComponents = OpalFusion.ProtocolModel.ShareCovertComponents(
+            serializedComponents: Self.sharedComponents.serializedComponents,
+            skipSignatures: true,
+            sessionHash: Self.sharedComponents.sessionHash
+        )
+
+        Self.driveThroughStartRound(engine: &engine)
+        _ = engine.apply(
+            input: .participantReservationLoaded(Self.participantReservation),
+            now: Self.instant(1_031)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.blindSignatureResponses(Self.blindSignatureResponses)),
+            now: Self.instant(1_032)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.allCommitments(Self.allCommitments)),
+            now: Self.instant(1_034)
+        )
+        _ = engine.apply(input: .clockAdvanced, now: Self.instant(1_035))
+        _ = engine.apply(
+            input: .primaryMessage(.shareCovertComponents(skipSharedComponents)),
+            now: Self.instant(1_040)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.failureResult)),
+            now: Self.instant(1_041)
+        )
+        #expect(engine.clientState.round?.phase == .blame)
+        #expect(engine.clientState.round?.completionStatus == nil)
+
+        let lateResultEffects = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.successResult)),
+            now: Self.instant(1_042)
+        )
+
+        #expect(engine.clientState.round?.completionStatus == .protocolIncompatible)
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(
+            lateResultEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "FusionResult arrived out of order",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Scripted round engine supports blame handling and restart continuation")
     func validateBlameAndRestartFlow() {
         var engine = Self.makeEngine()
@@ -411,7 +531,7 @@ struct RoundEngineScriptedValidator {
         )
         #expect(engine.session.lastError == .coordinatorRejected)
         #expect(engine.session.lastErrorSummary == rejectionSummary)
-        #expect(engine.clientState.isConnected == true)
+        #expect(engine.clientState.isConnected == false)
 
         let transportEffects = engine.apply(
             input: .primaryTransportFailed(
@@ -566,6 +686,58 @@ struct RoundEngineScriptedValidator {
             ]
         )
 
+        var timeoutEngine = Self.makeEngine()
+        Self.driveThroughStartRound(engine: &timeoutEngine)
+        let lateReservationEffects = timeoutEngine.apply(
+            input: .participantReservationLoaded(Self.participantReservation),
+            now: Self.instant(1_034)
+        )
+        #expect(timeoutEngine.clientState.round?.phase == .completed)
+        #expect(timeoutEngine.clientState.round?.completionStatus == .transportFailed)
+        #expect(
+            lateReservationEffects == [
+                .emitHostEvent(
+                    roundIdentifier: OpalFusion.Round.Identifier(rawValue: "aabb"),
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Commitment deadline elapsed before PlayerCommit submission",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine times out pending participant reservation at commitment deadline")
+    func validatePendingReservationTimesOutAtCommitmentDeadline() {
+        var engine = Self.makeEngine()
+        Self.driveThroughStartRound(engine: &engine)
+
+        let timeoutEffects = engine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_034)
+        )
+
+        #expect(engine.clientState.round?.phase == .completed)
+        #expect(engine.clientState.round?.completionStatus == .transportFailed)
+        #expect(
+            timeoutEffects == [
+                .emitHostEvent(
+                    roundIdentifier: OpalFusion.Round.Identifier(rawValue: "aabb"),
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Commitment deadline elapsed before PlayerCommit submission",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine preserves covert component timeout after PlayerCommit")
+    func validateCovertComponentTimeoutAfterPlayerCommit() {
         var timeoutEngine = Self.makeEngine()
         Self.driveThroughStartRound(engine: &timeoutEngine)
         _ = timeoutEngine.apply(
@@ -1330,6 +1502,17 @@ private extension RoundEngineScriptedValidator {
             roundPublicKey: [0xAA, 0xBB],
             blindNoncePoints: [[0x01, 0x02], [0x03, 0x04], [0x05, 0x06], [0x07, 0x08]],
             serverTimeUnixSeconds: 1_030
+        )
+    }
+
+    static var participantReservationContext: OpalFusion.Host.ParticipantReservationContext {
+        .init(
+            roundIdentifier: .init(rawValue: "aabb"),
+            tierSatoshis: fusionBegin.tier,
+            numberOfComponents: serverHello.numberOfComponents,
+            componentFeeRateSatoshisPerKb: serverHello.componentFeeRateSatoshisPerKb,
+            minimumExcessFeeSatoshis: serverHello.minimumExcessFeeSatoshis,
+            maximumExcessFeeSatoshis: serverHello.maximumExcessFeeSatoshis
         )
     }
 

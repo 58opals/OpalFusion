@@ -288,9 +288,9 @@ extension OpalFusion.Runtime {
                             now: now
                         )
                     )
-                case let .requestParticipantReservation(roundIdentifier):
+                case let .requestParticipantReservation(context):
                     runtimeEffects.append(
-                        .requestParticipantReservation(roundIdentifier: roundIdentifier)
+                        .requestParticipantReservation(context: context)
                     )
                 case let .requestTransactionFinalization(roundIdentifier, proposal):
                     runtimeEffects.append(

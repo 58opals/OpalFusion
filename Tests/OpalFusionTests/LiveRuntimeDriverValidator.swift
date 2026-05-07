@@ -1037,6 +1037,10 @@ struct LiveRuntimeDriverValidator {
         #expect(snapshot.clientState.round?.phase == .completed)
         #expect(snapshot.clientState.round?.completionStatus == .success)
         #expect(await participantReservationSource.requestedRounds() == [PrimaryRuntimeTestFixtures.roundIdentifier])
+        #expect(
+            await participantReservationSource.requestedContexts()
+                == [PrimaryRuntimeTestFixtures.participantReservationContext]
+        )
         #expect(await transactionAssembler.requestedRounds() == [PrimaryRuntimeTestFixtures.roundIdentifier])
 
         let events = await eventSink.snapshot()

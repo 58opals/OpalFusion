@@ -115,6 +115,66 @@ struct OpalFusionContractValidator {
         #expect(assembledTransaction == finalizedTransaction)
     }
 
+    @Test("Participant reservation context preserves coordinator round constraints")
+    func validateParticipantReservationContextConstruction() {
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "round-ctx")
+        let context = OpalFusion.Host.ParticipantReservationContext(
+            roundIdentifier: roundIdentifier,
+            tierSatoshis: 10_000,
+            numberOfComponents: 4,
+            componentFeeRateSatoshisPerKb: 1_250,
+            minimumExcessFeeSatoshis: 200,
+            maximumExcessFeeSatoshis: 500
+        )
+
+        #expect(context.roundIdentifier == roundIdentifier)
+        #expect(context.tierSatoshis == 10_000)
+        #expect(context.numberOfComponents == 4)
+        #expect(context.componentFeeRateSatoshisPerKb == 1_250)
+        #expect(context.minimumExcessFeeSatoshis == 200)
+        #expect(context.maximumExcessFeeSatoshis == 500)
+    }
+
+    @Test("Round-identifier reservation sources work through the context default")
+    func validateParticipantReservationContextDefaultSourceCompatibility() async throws {
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "round-default")
+        let reservation = OpalFusion.Host.ParticipantReservation(
+            inputs: [
+                .init(
+                    outpointTransactionHashBytes: [0xBA, 0x5E],
+                    outpointIndex: 1,
+                    amountSatoshis: 30_000,
+                    lockingScriptBytes: [0x51]
+                )
+            ],
+            outputs: [
+                .init(
+                    lockingScriptBytes: [0x76, 0xA9, 0x14, 0x02, 0x88, 0xAC],
+                    amountSatoshis: 29_000
+                )
+            ]
+        )
+        let context = OpalFusion.Host.ParticipantReservationContext(
+            roundIdentifier: roundIdentifier,
+            tierSatoshis: 10_000,
+            numberOfComponents: 4,
+            componentFeeRateSatoshisPerKb: 1_000,
+            minimumExcessFeeSatoshis: 200,
+            maximumExcessFeeSatoshis: 500
+        )
+        let source = RoundIdentifierOnlyParticipantReservationSource(
+            reservation: reservation
+        )
+        let participantReservationSource: any OpalFusion.Host.ParticipantReservationSource = source
+
+        let loadedReservation = try await participantReservationSource.participantReservation(
+            for: context
+        )
+
+        #expect(loadedReservation == reservation)
+        #expect(await source.requestedRounds() == [roundIdentifier])
+    }
+
     @Test("Participant input preserves the additive optional public key")
     func validateParticipantInputPublicKeyConstruction() {
         let legacyInput = OpalFusion.Host.ParticipantInput(
@@ -240,5 +300,27 @@ struct OpalFusionContractValidator {
         #expect(snapshot.state.isConnected)
         #expect(snapshot.lastError == nil)
         #expect(snapshot.lastErrorSummary == nil)
+    }
+}
+
+private actor RoundIdentifierOnlyParticipantReservationSource: OpalFusion.Host.ParticipantReservationSource {
+    private let reservation: OpalFusion.Host.ParticipantReservation
+    private var roundIdentifiers: [OpalFusion.Round.Identifier] = []
+
+    init(
+        reservation: OpalFusion.Host.ParticipantReservation
+    ) {
+        self.reservation = reservation
+    }
+
+    func participantReservation(
+        for roundIdentifier: OpalFusion.Round.Identifier
+    ) async throws -> OpalFusion.Host.ParticipantReservation {
+        roundIdentifiers.append(roundIdentifier)
+        return reservation
+    }
+
+    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+        roundIdentifiers
     }
 }

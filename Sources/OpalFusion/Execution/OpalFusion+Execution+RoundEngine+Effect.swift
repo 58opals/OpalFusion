@@ -5,7 +5,7 @@ extension OpalFusion.Execution.RoundEngine {
         case sendPrimary(OpalFusion.ProtocolModel.ClientMessage)
         case prepareCovert(OpalFusion.Runtime.CovertEndpointContext)
         case submitCovert(OpalFusion.ProtocolModel.CovertMessage)
-        case requestParticipantReservation(roundIdentifier: OpalFusion.Round.Identifier)
+        case requestParticipantReservation(context: OpalFusion.Host.ParticipantReservationContext)
         case requestTransactionFinalization(
             roundIdentifier: OpalFusion.Round.Identifier,
             proposal: OpalFusion.Host.TransactionFinalizationProposal

@@ -39,7 +39,7 @@ Opal Fusion now has broad typed protocol and domain modeling, pinned transport/t
 - `OpalFusion.Client.Configuration`, `OpalFusion.Client.State`, `OpalFusion.Client.Error`, `OpalFusion.Client.Session`, and `OpalFusion.Client.StateObserver`
 - `OpalFusion.Round.Identifier`, `OpalFusion.Round.Phase`, and `OpalFusion.Round.State`
 - `OpalFusion.Transport.CovertChannelConfiguration` and `OpalFusion.Transport.TorSocks5Configuration`
-- `OpalFusion.Host.ParticipantInput`, `OpalFusion.Host.ParticipantOutput`, and `OpalFusion.Host.ParticipantReservation`
+- `OpalFusion.Host.ParticipantInput`, `OpalFusion.Host.ParticipantOutput`, `OpalFusion.Host.ParticipantReservation`, and `OpalFusion.Host.ParticipantReservationContext`
 - `OpalFusion.Host.ParticipantReservationSource`, `OpalFusion.Host.TransactionAssembler`, and `OpalFusion.Host.EventObserver`
 - public model namespaces for `OpalFusion.Commitment`, `OpalFusion.BlindSignature`, and `OpalFusion.Blame`
 

@@ -377,9 +377,10 @@ private extension Int32 {
                 "Expected 4 bytes for Int32"
             )
         }
-        self = littleEndianBytes.enumerated().reduce(0) { partial, element in
-            partial | (Int32(element.element) << (8 * element.offset))
+        let bitPattern = littleEndianBytes.enumerated().reduce(UInt32(0)) { partial, element in
+            partial | (UInt32(element.element) << (8 * element.offset))
         }
+        self = Int32(bitPattern: bitPattern)
     }
 }
 

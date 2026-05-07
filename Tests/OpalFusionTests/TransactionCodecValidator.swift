@@ -4,6 +4,26 @@
 import Testing
 
 struct TransactionCodecValidator {
+    @Test("BCH transaction parser preserves signed version bit patterns")
+    func validateSignedVersionBitPatternParsing() throws {
+        let transactionBytes =
+            [UInt8](arrayLiteral: 0xFF, 0xFF, 0xFF, 0xFF)
+            + [0x01]
+            + [UInt8](repeating: 0x00, count: 32)
+            + [0x00, 0x00, 0x00, 0x00]
+            + [0x00]
+            + [0xFF, 0xFF, 0xFF, 0xFF]
+            + [0x01]
+            + [UInt8](repeating: 0x00, count: 8)
+            + [0x00]
+            + [0x00, 0x00, 0x00, 0x00]
+
+        let transaction = try OpalFusion.Execution.BCHTransaction.parse(transactionBytes)
+
+        #expect(transaction.version == -1)
+        #expect(try transaction.serialized() == transactionBytes)
+    }
+
     @Test("BCH transaction parser rejects non-canonical CompactSize encodings")
     func validateNonCanonicalCompactSizeRejection() throws {
         let transactionBytes =

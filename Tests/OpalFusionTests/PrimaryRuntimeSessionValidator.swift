@@ -149,7 +149,7 @@ struct PrimaryRuntimeSessionValidator {
         #expect(
             requestEffects == [
                 .requestParticipantReservation(
-                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier
+                    context: PrimaryRuntimeTestFixtures.participantReservationContext
                 ),
                 .emitHostEvent(
                     roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
@@ -256,7 +256,7 @@ struct PrimaryRuntimeSessionValidator {
         #expect(
             startRoundEffects == [
                 .requestParticipantReservation(
-                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier
+                    context: PrimaryRuntimeTestFixtures.participantReservationContext
                 ),
                 .emitHostEvent(
                     roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
@@ -549,6 +549,7 @@ struct PrimaryRuntimeSessionValidator {
         #expect(event.isTerminal == false)
         #expect(session.lastError == .protocolIncompatible)
         #expect(session.lastErrorSummary == "Primary wire decode failed")
+        #expect(session.clientState.isConnected == false)
         #expect(session.clientState.round == nil)
     }
 
@@ -582,6 +583,7 @@ struct PrimaryRuntimeSessionValidator {
         #expect(event.summary == "Primary wire decode failed")
         #expect(session.lastError == .protocolIncompatible)
         #expect(session.lastErrorSummary == "Primary wire decode failed")
+        #expect(session.clientState.isConnected == false)
         #expect(session.clientState.round == nil)
     }
 

@@ -66,6 +66,15 @@ enum PrimaryRuntimeTestFixtures {
         serverTimeUnixSeconds: 1_030
     )
 
+    static let participantReservationContext = OpalFusion.Host.ParticipantReservationContext(
+        roundIdentifier: roundIdentifier,
+        tierSatoshis: fusionBegin.tier,
+        numberOfComponents: serverHello.numberOfComponents,
+        componentFeeRateSatoshisPerKb: serverHello.componentFeeRateSatoshisPerKb,
+        minimumExcessFeeSatoshis: serverHello.minimumExcessFeeSatoshis,
+        maximumExcessFeeSatoshis: serverHello.maximumExcessFeeSatoshis
+    )
+
     static let participantInput = OpalFusion.Host.ParticipantInput(
         outpointTransactionHashBytes: [0x10, 0x11],
         outpointIndex: 0,

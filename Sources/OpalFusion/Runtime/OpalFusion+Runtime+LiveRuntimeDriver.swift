@@ -399,13 +399,14 @@ extension OpalFusion.Runtime {
                         )
                     }
                 }
-            case let .requestParticipantReservation(roundIdentifier):
+            case let .requestParticipantReservation(context):
                 let participantReservationSource = self.participantReservationSource
+                let roundIdentifier = context.roundIdentifier
                 participantReservationTask?.cancel()
                 participantReservationTask = Task { [participantReservationSource] in
                     do {
                         let reservation = try await participantReservationSource.participantReservation(
-                            for: roundIdentifier
+                            for: context
                         )
                         guard Task.isCancelled == false else {
                             return

@@ -5,7 +5,7 @@ extension OpalFusion.Runtime.PrimaryRuntimeSession {
         case writePrimaryBytes([UInt8])
         case prepareCovertEndpoint(plan: OpalFusion.Runtime.CovertPreparationPlan)
         case performCovertRequest(request: OpalFusion.Runtime.CovertRequest)
-        case requestParticipantReservation(roundIdentifier: OpalFusion.Round.Identifier)
+        case requestParticipantReservation(context: OpalFusion.Host.ParticipantReservationContext)
         case requestTransactionFinalization(
             roundIdentifier: OpalFusion.Round.Identifier,
             proposal: OpalFusion.Host.TransactionFinalizationProposal

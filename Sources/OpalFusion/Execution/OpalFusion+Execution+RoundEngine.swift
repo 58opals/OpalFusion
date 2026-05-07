@@ -105,7 +105,7 @@ extension OpalFusion.Execution {
             case let .covertResponse(response):
                 return handleCovertResponse(response)
             case let .participantReservationLoaded(reservation):
-                return handleParticipantReservationLoaded(reservation)
+                return handleParticipantReservationLoaded(reservation, now: now)
             case .participantReservationRejected:
                 if round?.substate == .terminal {
                     return []
@@ -406,8 +406,15 @@ extension OpalFusion.Execution {
                     )
                 }
 
+                let roundIdentifier = makeRoundIdentifier(from: startRound.roundPublicKey)
+                let reservationContext = makeParticipantReservationContext(
+                    roundIdentifier: roundIdentifier,
+                    fusionBegin: round.fusionBegin,
+                    serverHello: round.serverHello
+                )
+
                 round.startRound = startRound
-                round.identifier = makeRoundIdentifier(from: startRound.roundPublicKey)
+                round.identifier = roundIdentifier
                 round.deadlines = round.deadlines.withStartRound(
                     startRound,
                     timing: session.baseline.roundTiming
@@ -416,7 +423,7 @@ extension OpalFusion.Execution {
                 self.round = round
 
                 return [
-                    .requestParticipantReservation(roundIdentifier: round.identifier!),
+                    .requestParticipantReservation(context: reservationContext),
                     hostEvent(
                         roundIdentifier: round.identifier,
                         kind: .status,
@@ -482,6 +489,11 @@ extension OpalFusion.Execution {
                 round.sharedComponents = sharedComponents
 
                 if sharedComponents.skipSignatures == true {
+                    do {
+                        _ = try workflow.buildTransactionFinalizationProposal(&round)
+                    } catch {
+                        return failForWorkflowFailure(error)
+                    }
                     round.substate = .awaitingResult
                     self.round = round
                     return [
@@ -517,8 +529,7 @@ extension OpalFusion.Execution {
                 ]
             case let .fusionResult(result):
                 guard round.substate == .submittingSignatures ||
-                        round.substate == .awaitingResult ||
-                        round.sharedComponents?.skipSignatures == true else {
+                        round.substate == .awaitingResult else {
                     return failRound(
                         completionStatus: .protocolIncompatible,
                         clientError: .protocolIncompatible,
@@ -657,7 +668,8 @@ extension OpalFusion.Execution {
         }
 
         private mutating func handleParticipantReservationLoaded(
-            _ reservation: OpalFusion.Host.ParticipantReservation
+            _ reservation: OpalFusion.Host.ParticipantReservation,
+            now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
             if round?.substate == .terminal {
                 return []
@@ -668,6 +680,14 @@ extension OpalFusion.Execution {
                     completionStatus: .protocolIncompatible,
                     clientError: .protocolIncompatible,
                     summary: "Participant reservation arrived out of order"
+                )
+            }
+            if let commitmentsDeadline = round.deadlines.commitmentsDeadline,
+               now > commitmentsDeadline {
+                return failRound(
+                    completionStatus: .transportFailed,
+                    clientError: .transportUnavailable,
+                    summary: "Commitment deadline elapsed before PlayerCommit submission"
                 )
             }
 
@@ -838,7 +858,16 @@ extension OpalFusion.Execution {
                         summary: "Warmup expired before StartRound arrived"
                     )
                 }
-            case .collectingInputs, .awaitingBlindSignatures, .awaitingAllCommitments, .awaitingCovertComponentWindow:
+            case .collectingInputs:
+                if let commitmentsDeadline = round.deadlines.commitmentsDeadline,
+                   now > commitmentsDeadline {
+                    return failRound(
+                        completionStatus: .transportFailed,
+                        clientError: .transportUnavailable,
+                        summary: "Commitment deadline elapsed before PlayerCommit submission"
+                    )
+                }
+            case .awaitingBlindSignatures, .awaitingAllCommitments, .awaitingCovertComponentWindow:
                 if let covertComponentsDeadline = round.deadlines.covertComponentsDeadline,
                    now > covertComponentsDeadline {
                     return failRound(
@@ -926,6 +955,7 @@ extension OpalFusion.Execution {
             summary: String
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
             round = nil
+            session.isConnected = false
             session.lastError = error
             session.lastErrorSummary = summary
             session.connectionSubstate = .failed
@@ -1015,6 +1045,21 @@ extension OpalFusion.Execution {
                 partialResult.append(hexDigits[Int(byte & 0x0F)])
             }
             return .init(rawValue: hex)
+        }
+
+        private func makeParticipantReservationContext(
+            roundIdentifier: OpalFusion.Round.Identifier,
+            fusionBegin: OpalFusion.ProtocolModel.FusionBegin,
+            serverHello: OpalFusion.ProtocolModel.ServerHello
+        ) -> OpalFusion.Host.ParticipantReservationContext {
+            .init(
+                roundIdentifier: roundIdentifier,
+                tierSatoshis: fusionBegin.tier,
+                numberOfComponents: serverHello.numberOfComponents,
+                componentFeeRateSatoshisPerKb: serverHello.componentFeeRateSatoshisPerKb,
+                minimumExcessFeeSatoshis: serverHello.minimumExcessFeeSatoshis,
+                maximumExcessFeeSatoshis: serverHello.maximumExcessFeeSatoshis
+            )
         }
 
         private func makeCovertEndpointContext(

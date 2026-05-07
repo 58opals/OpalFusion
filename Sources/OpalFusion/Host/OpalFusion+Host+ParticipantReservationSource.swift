@@ -6,5 +6,17 @@ public extension OpalFusion.Host {
         func participantReservation(
             for roundIdentifier: OpalFusion.Round.Identifier
         ) async throws -> OpalFusion.Host.ParticipantReservation
+
+        func participantReservation(
+            for context: OpalFusion.Host.ParticipantReservationContext
+        ) async throws -> OpalFusion.Host.ParticipantReservation
+    }
+}
+
+public extension OpalFusion.Host.ParticipantReservationSource {
+    func participantReservation(
+        for context: OpalFusion.Host.ParticipantReservationContext
+    ) async throws -> OpalFusion.Host.ParticipantReservation {
+        try await participantReservation(for: context.roundIdentifier)
     }
 }

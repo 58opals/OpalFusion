@@ -125,7 +125,7 @@ This section defines the required external behavior. Internal implementation str
    - round public key
    - blind nonce points
    - server time
-2. Gather reserved participant inputs from the host boundary.
+2. Gather reserved participant inputs from the host boundary using the round identifier, selected tier, component count, component fee rate, and excess-fee bounds.
 3. Build the player's initial commitments and blind signature requests.
 4. Send `PlayerCommit` before the upstream commitment deadline.
 
@@ -260,10 +260,10 @@ Responsibilities:
 
 Current scaffold alignment:
 
-- `ParticipantReservationSource` supplies a round-scoped `ParticipantReservation`.
+- `ParticipantReservationSource` supplies a `ParticipantReservation` from a round-scoped `ParticipantReservationContext`.
 - `TransactionAssembler` finalizes a transaction from a round-scoped proposal.
 - `EventObserver` receives round-scoped events.
-- `ParticipantInput`, `ParticipantOutput`, `ParticipantReservation`, `TransactionFinalizationProposal`, `FinalizedTransaction`, and `Event` provide the current host-facing value surface.
+- `ParticipantInput`, `ParticipantOutput`, `ParticipantReservation`, `ParticipantReservationContext`, `TransactionFinalizationProposal`, `FinalizedTransaction`, and `Event` provide the current host-facing value surface.
 
 OpalFusion-specific choice:
 
