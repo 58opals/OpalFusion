@@ -183,8 +183,8 @@ public extension OpalFusion.Client {
         private func makeRuntimeDriver(
             generation: Int
         ) async -> OpalFusion.Runtime.LiveRuntimeDriver {
-            let primaryTransport = await dependencies.primaryTransportFactory()
-            let covertTransport = await dependencies.covertTransportFactory()
+            let primaryTransportFactory = dependencies.primaryTransportFactory
+            let covertTransportFactory = dependencies.covertTransportFactory
             return OpalFusion.Runtime.LiveRuntimeDriver(
                 configuration: configuration,
                 genesisHash: genesisHash,
@@ -199,8 +199,26 @@ public extension OpalFusion.Client {
                 baseline: dependencies.baseline,
                 nowProvider: dependencies.nowProvider,
                 clockTickInterval: dependencies.clockTickInterval,
-                primaryTransport: primaryTransport,
-                covertTransport: covertTransport
+                primaryTransportFactory: { configuration in
+                    if let primaryTransport = await primaryTransportFactory() {
+                        return primaryTransport
+                    }
+
+                    return OpalFusion.Runtime.LivePrimaryTransport(
+                        host: configuration.coordinatorHost,
+                        port: configuration.coordinatorPort,
+                        requiresTLS: configuration.coordinatorRequiresTLS
+                    )
+                },
+                covertTransportFactory: { configuration in
+                    if let covertTransport = await covertTransportFactory() {
+                        return covertTransport
+                    }
+
+                    return OpalFusion.Runtime.LiveCovertTransport(
+                        torSocks5: configuration.torSocks5
+                    )
+                }
             )
         }
 

@@ -38,9 +38,16 @@ extension Duration {
         fromAttoseconds attoseconds: Int64
     ) -> Int64 {
         let attosecondsPerMillisecond: Int64 = 1_000_000_000_000_000
-        guard attoseconds > 0 else {
-            return attoseconds / attosecondsPerMillisecond
+        guard attoseconds >= 0 else {
+            let quotient = attoseconds / attosecondsPerMillisecond
+            let remainder = attoseconds % attosecondsPerMillisecond
+            return remainder == 0 ? quotient : quotient - 1
         }
+
+        guard attoseconds > 0 else {
+            return 0
+        }
+
         return (attoseconds + attosecondsPerMillisecond - 1) / attosecondsPerMillisecond
     }
 }

@@ -440,11 +440,22 @@ extension OpalFusion.Runtime {
                             transaction,
                             roundIdentifier: roundIdentifier
                         )
+                    } catch let failure as OpalFusion.Host.TransactionFinalizationFailure {
+                        guard Task.isCancelled == false else {
+                            return
+                        }
+                        await self.handleTransactionFinalizationRejectedIfCurrent(
+                            failure,
+                            roundIdentifier: roundIdentifier
+                        )
                     } catch {
                         guard Task.isCancelled == false else {
                             return
                         }
                         await self.handleTransactionFinalizationRejectedIfCurrent(
+                            .transactionAssemblyFailed(
+                                summary: "Host transaction finalization failed"
+                            ),
                             roundIdentifier: roundIdentifier
                         )
                     }
@@ -626,6 +637,7 @@ extension OpalFusion.Runtime {
         }
 
         private func handleTransactionFinalizationRejectedIfCurrent(
+            _ failure: OpalFusion.Host.TransactionFinalizationFailure,
             roundIdentifier: OpalFusion.Round.Identifier
         ) async {
             guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
@@ -635,7 +647,7 @@ extension OpalFusion.Runtime {
                 return
             }
 
-            await handle(.transactionFinalizationRejected)
+            await handle(.transactionFinalizationRejected(failure))
         }
 
         private func isHostOperationCurrent(

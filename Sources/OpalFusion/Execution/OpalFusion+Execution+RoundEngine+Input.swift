@@ -14,7 +14,7 @@ extension OpalFusion.Execution.RoundEngine {
         case participantReservationLoaded(OpalFusion.Host.ParticipantReservation)
         case participantReservationRejected
         case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
-        case transactionFinalizationRejected
+        case transactionFinalizationRejected(OpalFusion.Host.TransactionFinalizationFailure)
         case clockAdvanced
     }
 }

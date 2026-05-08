@@ -598,6 +598,14 @@ struct ClientSessionValidator {
         #expect(policy.delay(forRetryAttempt: 1) == .milliseconds(Int.max))
     }
 
+    @Test("Public client session reconnect policy detects negative sub-millisecond delays")
+    func validateReconnectPolicyDetectsNegativeSubmillisecondDelays() {
+        #expect(Duration.nanoseconds(-1).opalFusionMillisecondsRoundedUp == -1)
+        #expect(Duration.microseconds(-1).opalFusionMillisecondsRoundedUp == -1)
+        #expect(Duration.milliseconds(-1).opalFusionMillisecondsRoundedUp == -1)
+        #expect(Duration.nanoseconds(1).opalFusionMillisecondsRoundedUp == 1)
+    }
+
     @Test("Public client session retries peer EOF after ClientHello with handshake diagnostics")
     func validateReconnectAfterClientHelloEOFDiagnostics() async throws {
         let stateObserver = RecordedClientStateObserver()
@@ -993,7 +1001,7 @@ struct ClientSessionValidator {
         await invalidConfigurationSession.start()
         #expect((await invalidConfigurationSession.snapshot()).lastError == .invalidConfiguration)
         try await Task.sleep(for: .milliseconds(50))
-        #expect(await invalidConfigurationFactories.primaryCount() == 1)
+        #expect(await invalidConfigurationFactories.primaryCount() == 0)
         #expect((await invalidConfigurationSession.snapshot()).diagnostics.activity != .retrying)
         await invalidConfigurationSession.stop()
 

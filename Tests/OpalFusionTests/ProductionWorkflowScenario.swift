@@ -8,9 +8,13 @@ struct ProductionWorkflowScenario {
     let serverHello: OpalFusion.ProtocolModel.ServerHello
     let fusionBegin: OpalFusion.ProtocolModel.FusionBegin
     let reservation: OpalFusion.Host.ParticipantReservation
-    let participantInputPrivateKey: [UInt8]
+    let participantInputPrivateKeys: [[UInt8]]
     var blindCoordinator: BlindSigningCoordinator
     var round: OpalFusion.Execution.RoundContext
+
+    var participantInputPrivateKey: [UInt8] {
+        participantInputPrivateKeys[0]
+    }
 
     var startRound: OpalFusion.ProtocolModel.StartRound {
         round.startRound!

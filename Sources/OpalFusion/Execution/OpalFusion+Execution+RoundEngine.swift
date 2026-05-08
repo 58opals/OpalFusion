@@ -117,14 +117,14 @@ extension OpalFusion.Execution {
                 )
             case let .finalizedTransactionLoaded(transaction):
                 return handleFinalizedTransactionLoaded(transaction, now: now)
-            case .transactionFinalizationRejected:
+            case let .transactionFinalizationRejected(failure):
                 if round?.substate == .terminal {
                     return []
                 }
                 return failRound(
-                    completionStatus: .hostRejected,
-                    clientError: .hostRejected,
-                    summary: "Host rejected transaction finalization"
+                    completionStatus: failure.completionStatus,
+                    clientError: failure.clientError,
+                    summary: failure.summary
                 )
             case .clockAdvanced:
                 return handleClockAdvanced(now: now)
@@ -477,8 +477,7 @@ extension OpalFusion.Execution {
                 return effects
             case let .shareCovertComponents(sharedComponents):
                 guard round.substate == .submittingCovertComponents ||
-                        round.substate == .awaitingSharedComponents ||
-                        round.substate == .awaitingCovertComponentWindow else {
+                        round.substate == .awaitingSharedComponents else {
                     return failRound(
                         completionStatus: .protocolIncompatible,
                         clientError: .protocolIncompatible,
@@ -726,6 +725,24 @@ extension OpalFusion.Execution {
                     completionStatus: .protocolIncompatible,
                     clientError: .protocolIncompatible,
                     summary: "Finalized transaction arrived out of order"
+                )
+            }
+
+            if let conclusionTimeout = round.deadlines.conclusionTimeout,
+               now > conclusionTimeout {
+                return failRound(
+                    completionStatus: .transportFailed,
+                    clientError: .transportUnavailable,
+                    summary: "Round conclusion timeout elapsed"
+                )
+            }
+
+            if let signaturesDeadline = round.deadlines.signaturesDeadline,
+               now > signaturesDeadline {
+                return failRound(
+                    completionStatus: .transportFailed,
+                    clientError: .transportUnavailable,
+                    summary: "Signature deadline elapsed before submission"
                 )
             }
 

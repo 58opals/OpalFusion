@@ -115,6 +115,25 @@ struct OpalFusionContractValidator {
         #expect(assembledTransaction == finalizedTransaction)
     }
 
+    @Test("Host transaction finalization failures preserve typed public mappings")
+    func validateTransactionFinalizationFailureConstruction() {
+        let assemblyFailure = OpalFusion.Host.TransactionFinalizationFailure
+            .transactionAssemblyFailed(summary: "Assembler could not build the transaction")
+        let matchingAssemblyFailure = OpalFusion.Host.TransactionFinalizationFailure
+            .transactionAssemblyFailed(summary: "Assembler could not build the transaction")
+        let policyFailure = OpalFusion.Host.TransactionFinalizationFailure
+            .hostPolicyRejected(summary: "Host policy rejected the transaction")
+
+        #expect(assemblyFailure == matchingAssemblyFailure)
+        #expect(assemblyFailure != policyFailure)
+        #expect(assemblyFailure.summary == "Assembler could not build the transaction")
+        #expect(assemblyFailure.clientError == .notImplemented)
+        #expect(assemblyFailure.completionStatus == .hostRejected)
+        #expect(policyFailure.summary == "Host policy rejected the transaction")
+        #expect(policyFailure.clientError == .hostRejected)
+        #expect(policyFailure.completionStatus == .hostRejected)
+    }
+
     @Test("Participant reservation context preserves coordinator round constraints")
     func validateParticipantReservationContextConstruction() {
         let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "round-ctx")

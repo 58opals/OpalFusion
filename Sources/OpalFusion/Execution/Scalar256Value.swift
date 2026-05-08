@@ -40,7 +40,11 @@ struct Scalar256Value {
         let other = try Scalar256Value(bytes32: bytes)
         let (sum, carried) = adding(other)
         if carried {
-            return sum.adding(Scalar256Value.twoTo256MinusOrder).sum
+            let folded = sum.adding(Scalar256Value.twoTo256MinusOrder).sum
+            if folded.compare(to: .order) != .orderedAscending {
+                return folded.subtracting(.order)
+            }
+            return folded
         }
         if sum.compare(to: .order) != .orderedAscending {
             return sum.subtracting(.order)

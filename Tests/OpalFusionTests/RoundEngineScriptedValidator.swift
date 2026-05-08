@@ -365,6 +365,91 @@ struct RoundEngineScriptedValidator {
         )
     }
 
+    @Test("Round engine rejects shared components before local covert submission")
+    func validateSharedComponentsBeforeCovertSubmissionFails() {
+        var engine = Self.makeEngine()
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+
+        Self.driveThroughStartRound(engine: &engine)
+        _ = engine.apply(
+            input: .participantReservationLoaded(Self.participantReservation),
+            now: Self.instant(1_031)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.blindSignatureResponses(Self.blindSignatureResponses)),
+            now: Self.instant(1_032)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.allCommitments(Self.allCommitments)),
+            now: Self.instant(1_034)
+        )
+
+        let sharedEffects = engine.apply(
+            input: .primaryMessage(.shareCovertComponents(Self.sharedComponents)),
+            now: Self.instant(1_034)
+        )
+
+        #expect(engine.clientState.round?.completionStatus == .protocolIncompatible)
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(
+            sharedEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Shared components arrived out of order",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine rejects late finalized transactions before signature extraction")
+    func validateLateFinalizedTransactionDoesNotBuildSignatures() {
+        var engine = OpalFusion.Execution.RoundEngine(
+            configuration: Self.configuration,
+            genesisHash: [0xAA, 0xBB, 0xCC],
+            joinPools: Self.joinPools,
+            workflow: .init(
+                buildPlayerCommit: { _ in Self.playerCommit },
+                buildCovertComponentMessages: { _ in [Self.covertComponentMessage] },
+                buildTransactionFinalizationProposal: { _ in Self.transactionProposal },
+                buildCovertSignatureMessages: { _ in
+                    Issue.record("Signature messages must not be built after the signature deadline")
+                    return [Self.signatureMessage]
+                },
+                buildMyProofsList: { _ in Self.myProofsList },
+                buildBlames: { _ in Self.blames }
+            )
+        )
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+
+        Self.driveToSharedComponents(engine: &engine)
+
+        let finalizedEffects = engine.apply(
+            input: .finalizedTransactionLoaded(Self.finalizedTransaction),
+            now: Self.instant(1_061)
+        )
+
+        #expect(engine.clientState.round?.completionStatus == .transportFailed)
+        #expect(engine.session.lastError == .transportUnavailable)
+        #expect(
+            finalizedEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Signature deadline elapsed before submission",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Scripted round engine supports blame handling and restart continuation")
     func validateBlameAndRestartFlow() {
         var engine = Self.makeEngine()
@@ -1349,13 +1434,77 @@ struct RoundEngineScriptedValidator {
         #expect(engine.clientState.round?.completionStatus == .success)
 
         let rejectionEffects = engine.apply(
-            input: .transactionFinalizationRejected,
+            input: .transactionFinalizationRejected(
+                .hostPolicyRejected(summary: "Late host policy rejection")
+            ),
             now: Self.instant(1_062)
         )
 
         #expect(rejectionEffects.isEmpty)
         #expect(engine.clientState.round?.completionStatus == .success)
         #expect(engine.session.lastError == nil)
+    }
+
+    @Test("Round engine maps transaction assembly failures to not implemented")
+    func validateTransactionAssemblyFailureMapping() {
+        var engine = Self.makeEngine()
+        Self.driveToSharedComponents(engine: &engine)
+        let summary = "Assembler could not produce a finalized transaction"
+
+        let effects = engine.apply(
+            input: .transactionFinalizationRejected(
+                .transactionAssemblyFailed(summary: summary)
+            ),
+            now: Self.instant(1_042)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: Self.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: summary,
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(engine.session.lastError == .notImplemented)
+        #expect(engine.session.lastErrorSummary == summary)
+        #expect(engine.clientState.round?.completionStatus == .hostRejected)
+    }
+
+    @Test("Round engine maps host policy finalization failures to host rejected")
+    func validateHostPolicyFinalizationFailureMapping() {
+        var engine = Self.makeEngine()
+        Self.driveToSharedComponents(engine: &engine)
+        let summary = "Host policy rejected coordinator input order"
+
+        let effects = engine.apply(
+            input: .transactionFinalizationRejected(
+                .hostPolicyRejected(summary: summary)
+            ),
+            now: Self.instant(1_042)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: Self.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: summary,
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(engine.session.lastError == .hostRejected)
+        #expect(engine.session.lastErrorSummary == summary)
+        #expect(engine.clientState.round?.completionStatus == .hostRejected)
     }
 
     @Test("Round engine preserves terminal success after participant reservation rejection noise")
@@ -1444,6 +1593,10 @@ struct RoundEngineScriptedValidator {
 }
 
 private extension RoundEngineScriptedValidator {
+    static var roundIdentifier: OpalFusion.Round.Identifier {
+        .init(rawValue: "aabb")
+    }
+
     static var configuration: OpalFusion.Client.Configuration {
         .init(
             coordinatorHost: "fusion.example.org",
@@ -1507,7 +1660,7 @@ private extension RoundEngineScriptedValidator {
 
     static var participantReservationContext: OpalFusion.Host.ParticipantReservationContext {
         .init(
-            roundIdentifier: .init(rawValue: "aabb"),
+            roundIdentifier: roundIdentifier,
             tierSatoshis: fusionBegin.tier,
             numberOfComponents: serverHello.numberOfComponents,
             componentFeeRateSatoshisPerKb: serverHello.componentFeeRateSatoshisPerKb,

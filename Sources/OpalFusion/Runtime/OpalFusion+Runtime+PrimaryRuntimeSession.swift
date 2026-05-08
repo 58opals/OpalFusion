@@ -191,9 +191,9 @@ extension OpalFusion.Runtime {
                     engine.apply(input: .finalizedTransactionLoaded(transaction), now: now),
                     now: now
                 )
-            case .transactionFinalizationRejected:
+            case let .transactionFinalizationRejected(failure):
                 return translate(
-                    engine.apply(input: .transactionFinalizationRejected, now: now),
+                    engine.apply(input: .transactionFinalizationRejected(failure), now: now),
                     now: now
                 )
             case .clockAdvanced:

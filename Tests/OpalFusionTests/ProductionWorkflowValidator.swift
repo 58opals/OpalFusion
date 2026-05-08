@@ -48,6 +48,21 @@ struct ProductionWorkflowValidator {
         )
     }
 
+    @Test("Production workflow reduces Pedersen nonce sums after carry folding")
+    func validatePedersenNonceSumReducesFoldedCarry() throws {
+        var orderMinusOne = Scalar256Value.order.bytes32
+        orderMinusOne[31] -= 1
+        let maximumNonce = [UInt8](repeating: 0xFF, count: 32)
+        var expected = Scalar256Value.twoTo256MinusOrder.bytes32
+        expected[31] -= 2
+
+        let sum = try OpalFusion.Execution.ProtocolPrimitives.sumNoncesModOrder(
+            [orderMinusOne, maximumNonce]
+        )
+
+        #expect(sum == expected)
+    }
+
     @Test("Production workflow rejects invalid StartRound signing keys")
     func validateStartRoundRejectsInvalidBlindSigningKeys() throws {
         let invalidCompressedPublicKey = [UInt8](arrayLiteral: 0x02)
@@ -446,6 +461,86 @@ struct ProductionWorkflowValidator {
                 )
             )
         }
+    }
+
+    @Test("Production workflow preserves coordinator input order when extracting local signatures")
+    func validateTransactionTemplatePreservesCoordinatorInputOrder() async throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeTwoInputScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+        _ = try await scenario.buildBlindSignatureResponses(for: playerCommit)
+        _ = try scenario.workflow.buildCovertComponentMessages(round: &scenario.round)
+
+        guard let material = scenario.round.executionMaterial.playerCommitMaterial else {
+            Issue.record("Expected player-commit material to be cached in round context")
+            return
+        }
+        let componentsByOriginalSlot = Dictionary(
+            uniqueKeysWithValues: material.componentsByCommitmentOrder.map {
+                ($0.originalSlot, $0)
+            }
+        )
+        guard let firstReservationInputComponent = componentsByOriginalSlot[0],
+              let secondReservationInputComponent = componentsByOriginalSlot[1],
+              let outputComponent = componentsByOriginalSlot[2],
+              let blankComponent = componentsByOriginalSlot[3] else {
+            Issue.record("Expected two inputs, one output, and one blank component")
+            return
+        }
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments,
+            serializedComponents: [
+                secondReservationInputComponent.serializedComponent,
+                firstReservationInputComponent.serializedComponent,
+                outputComponent.serializedComponent,
+                blankComponent.serializedComponent,
+            ]
+        )
+
+        let proposal = try scenario.workflow.buildTransactionFinalizationProposal(
+            round: &scenario.round
+        )
+        let unsignedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
+            proposal.unsignedTransactionBytes
+        )
+
+        #expect(unsignedTransaction.inputs.count == 2)
+        #expect(
+            unsignedTransaction.inputs[0].previousTransactionHashLittleEndian ==
+                Array(scenario.reservation.inputs[1].outpointTransactionHashBytes.reversed())
+        )
+        #expect(
+            unsignedTransaction.inputs[1].previousTransactionHashLittleEndian ==
+                Array(scenario.reservation.inputs[0].outpointTransactionHashBytes.reversed())
+        )
+
+        let signingResult = try ProductionWorkflowTestFixtures.makeSignedFinalizedTransaction(
+            proposal: proposal,
+            participantInputs: scenario.reservation.inputs,
+            participantInputPrivateKeys: scenario.participantInputPrivateKeys
+        )
+        scenario.round.finalizedTransaction = signingResult.transaction
+
+        let signatureMessages = try scenario.workflow.buildCovertSignatureMessages(
+            round: &scenario.round
+        )
+        var signaturePayloads: [OpalFusion.ProtocolModel.CovertTransactionSignature] = []
+        for message in signatureMessages {
+            guard case let .transactionSignature(payload) = message else {
+                Issue.record("Expected a covert transaction signature message")
+                return
+            }
+            signaturePayloads.append(payload)
+        }
+
+        #expect(signaturePayloads.map(\.inputIndex) == [UInt32(1), UInt32(0)])
+        #expect(
+            signaturePayloads.map(\.transactionSignature)
+                == signingResult.signaturesByReservationInputIndex
+        )
+        #expect(
+            signingResult.transactionInputIndicesByReservationInputIndex == [1, 0]
+        )
     }
 
     @Test("Production workflow rejects shared output components above the BCH money supply")

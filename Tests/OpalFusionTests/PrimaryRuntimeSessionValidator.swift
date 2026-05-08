@@ -522,6 +522,84 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.clientState.round?.completionStatus == .hostRejected)
     }
 
+    @Test("Primary runtime maps transaction assembly finalization failures")
+    func validateTransactionAssemblyFinalizationFailureMapping() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveToAwaitingSharedComponents(session: &session)
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_040)
+        )
+        let summary = "Assembler could not produce a finalized transaction"
+
+        let effects = session.apply(
+            input: .transactionFinalizationRejected(
+                .transactionAssemblyFailed(summary: summary)
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_042)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: summary,
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(session.lastError == .notImplemented)
+        #expect(session.lastErrorSummary == summary)
+        #expect(session.clientState.round?.completionStatus == .hostRejected)
+    }
+
+    @Test("Primary runtime maps host policy finalization failures")
+    func validateHostPolicyFinalizationFailureMapping() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveToAwaitingSharedComponents(session: &session)
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_040)
+        )
+        let summary = "Host policy rejected coordinator input order"
+
+        let effects = session.apply(
+            input: .transactionFinalizationRejected(
+                .hostPolicyRejected(summary: summary)
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_042)
+        )
+
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: summary,
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+        #expect(session.lastError == .hostRejected)
+        #expect(session.lastErrorSummary == summary)
+        #expect(session.clientState.round?.completionStatus == .hostRejected)
+    }
+
     @Test("Primary runtime maps malformed primary payloads to protocol incompatibility")
     func validateMalformedPayloadProjection() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()
