@@ -80,15 +80,15 @@ extension OpalFusion.Execution {
 
             round.executionMaterial.finalizedBlindSignatures = finalizedBlindSignatures
 
-            var messages = Array<OpalFusion.ProtocolModel.CovertMessage?>(
-                repeating: nil,
-                count: material.componentsByCommitmentOrder.count
-            )
-            for (component, blindSignature) in zip(
+            return zip(
                 material.componentsByCommitmentOrder,
                 finalizedBlindSignatures
-            ) {
-                messages[component.originalSlot] = .component(
+            )
+            .sorted { lhs, rhs in
+                lhs.0.originalSlot < rhs.0.originalSlot
+            }
+            .map { component, blindSignature in
+                .component(
                     .init(
                         roundPublicKey: startRound.roundPublicKey,
                         signature: blindSignature,
@@ -96,7 +96,6 @@ extension OpalFusion.Execution {
                     )
                 )
             }
-            return messages.compactMap { $0 }
         }
 
         func buildTransactionFinalizationProposal(

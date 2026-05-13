@@ -25,26 +25,26 @@ extension OpalFusion.Wire {
             while bufferedBytes.count >= headerLength {
                 let magic = Array(bufferedBytes.prefix(configuration.magicBytes.count))
                 guard magic == configuration.magicBytes else {
-                    if payloads.isEmpty == false {
-                        return payloads
-                    }
-                    throw OpalFusion.Wire.PrimaryFrameError.invalidMagic(magic)
+                    return try finishOrThrow(
+                        payloads,
+                        error: .invalidMagic(magic)
+                    )
                 }
 
                 let payloadLength = Self.parseLength(
                     from: bufferedBytes[configuration.magicBytes.count..<headerLength]
                 )
                 guard payloadLength > 0 else {
-                    if payloads.isEmpty == false {
-                        return payloads
-                    }
-                    throw OpalFusion.Wire.PrimaryFrameError.invalidLength(payloadLength)
+                    return try finishOrThrow(
+                        payloads,
+                        error: .invalidLength(payloadLength)
+                    )
                 }
                 guard payloadLength <= configuration.maximumMessageLengthBytes else {
-                    if payloads.isEmpty == false {
-                        return payloads
-                    }
-                    throw OpalFusion.Wire.PrimaryFrameError.payloadTooLarge(payloadLength)
+                    return try finishOrThrow(
+                        payloads,
+                        error: .payloadTooLarge(payloadLength)
+                    )
                 }
 
                 let frameLength = headerLength + payloadLength
@@ -57,6 +57,17 @@ extension OpalFusion.Wire {
             }
 
             return payloads
+        }
+
+        private func finishOrThrow(
+            _ payloads: [[UInt8]],
+            error: OpalFusion.Wire.PrimaryFrameError
+        ) throws -> [[UInt8]] {
+            guard payloads.isEmpty else {
+                return payloads
+            }
+
+            throw error
         }
 
         private static func parseLength(

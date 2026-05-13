@@ -9,7 +9,6 @@ extension OpalFusion.Runtime {
         private(set) var outstandingRequest: OpalFusion.Runtime.CovertRequest?
         private let messageEncoder: OpalFusion.Wire.CovertMessageEncoder
         private let messageDecoder: OpalFusion.Wire.CovertMessageDecoder
-        private var outstanding: OutstandingRequest?
 
         init() {
             self.endpointContext = nil
@@ -19,7 +18,6 @@ extension OpalFusion.Runtime {
             self.outstandingRequest = nil
             self.messageEncoder = .init()
             self.messageDecoder = .init()
-            self.outstanding = nil
         }
 
         mutating func apply(
@@ -60,7 +58,6 @@ extension OpalFusion.Runtime {
             self.endpointContext = endpointContext
             self.substate = .preparing
             self.queuedMessages = []
-            self.outstanding = nil
             self.outstandingRequest = nil
 
             let plan = OpalFusion.Runtime.CovertPreparationPlan(
@@ -95,7 +92,7 @@ extension OpalFusion.Runtime {
             _ bytes: [UInt8],
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
-            guard let outstanding else {
+            guard let outstandingRequest else {
                 reset()
                 return [
                     .emitProtocolFailure(
@@ -104,14 +101,13 @@ extension OpalFusion.Runtime {
                 ]
             }
 
-            if now > outstanding.request.deadline {
+            if now > outstandingRequest.deadline {
                 return transportFailure(summary: "Covert request timed out")
             }
 
             do {
                 let response = try messageDecoder.decodeResponse(bytes)
-                self.outstanding = nil
-                outstandingRequest = nil
+                self.outstandingRequest = nil
 
                 if case .serverFailure = response {
                     reset()
@@ -140,7 +136,7 @@ extension OpalFusion.Runtime {
                 return transportFailure(summary: "Covert endpoint preparation timed out")
             }
 
-            if let outstanding, now > outstanding.request.deadline {
+            if let outstandingRequest, now > outstandingRequest.deadline {
                 return transportFailure(summary: "Covert request timed out")
             }
 
@@ -150,7 +146,7 @@ extension OpalFusion.Runtime {
         private mutating func maybeDispatchNextRequest(
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
-            guard outstanding == nil, substate == .prepared else {
+            guard outstandingRequest == nil, substate == .prepared else {
                 return []
             }
             guard queuedMessages.isEmpty == false else {
@@ -179,12 +175,7 @@ extension OpalFusion.Runtime {
                     startedAt: now,
                     deadline: deadline
                 )
-                let outstanding = OutstandingRequest(
-                    request: request,
-                    message: message
-                )
 
-                self.outstanding = outstanding
                 self.outstandingRequest = request
 
                 return [.performCovertRequest(request: request)]
@@ -212,7 +203,6 @@ extension OpalFusion.Runtime {
             substate = .idle
             preparationPlan = nil
             queuedMessages = []
-            outstanding = nil
             outstandingRequest = nil
         }
 

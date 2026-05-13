@@ -59,45 +59,21 @@ extension OpalFusion.Execution {
                     session.connectionSubstate = .disconnected
                     return []
                 }
-                if round?.identifier != nil {
-                    return failRound(
-                        completionStatus: .transportFailed,
-                        clientError: .transportUnavailable,
-                        summary: summary
-                    )
-                }
-                return failBeforeRound(
-                    error: .transportUnavailable,
+                return failActiveFlow(
+                    completionStatus: .transportFailed,
+                    clientError: .transportUnavailable,
                     summary: summary
                 )
             case let .covertTransportFailed(summary):
-                if round?.substate == .terminal {
-                    return []
-                }
-                if round?.identifier != nil {
-                    return failRound(
-                        completionStatus: .transportFailed,
-                        clientError: .transportUnavailable,
-                        summary: summary
-                    )
-                }
-                return failBeforeRound(
-                    error: .transportUnavailable,
+                return failActiveFlow(
+                    completionStatus: .transportFailed,
+                    clientError: .transportUnavailable,
                     summary: summary
                 )
             case let .protocolRejected(summary):
-                if round?.substate == .terminal {
-                    return []
-                }
-                if round?.identifier != nil {
-                    return failRound(
-                        completionStatus: .protocolIncompatible,
-                        clientError: .protocolIncompatible,
-                        summary: summary
-                    )
-                }
-                return failBeforeRound(
-                    error: .protocolIncompatible,
+                return failActiveFlow(
+                    completionStatus: .protocolIncompatible,
+                    clientError: .protocolIncompatible,
                     summary: summary
                 )
             case let .primaryMessage(message):
@@ -1018,6 +994,29 @@ extension OpalFusion.Execution {
                     summary: summary
                 )
             ]
+        }
+
+        private mutating func failActiveFlow(
+            completionStatus: OpalFusion.Round.CompletionStatus,
+            clientError: OpalFusion.Client.Error,
+            summary: String
+        ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            if round?.substate == .terminal {
+                return []
+            }
+
+            guard round?.identifier != nil else {
+                return failBeforeRound(
+                    error: clientError,
+                    summary: summary
+                )
+            }
+
+            return failRound(
+                completionStatus: completionStatus,
+                clientError: clientError,
+                summary: summary
+            )
         }
 
         private mutating func failRound(

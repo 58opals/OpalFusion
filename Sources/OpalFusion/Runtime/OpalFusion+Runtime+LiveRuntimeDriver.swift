@@ -416,16 +416,19 @@ extension OpalFusion.Runtime {
                         guard Task.isCancelled == false else {
                             return
                         }
-                        await self.handleParticipantReservationLoadedIfCurrent(
-                            reservation,
-                            roundIdentifier: roundIdentifier
+                        await self.handleHostOperationIfCurrent(
+                            roundIdentifier: roundIdentifier,
+                            staleOperation: "participant reservation",
+                            input: .participantReservationLoaded(reservation)
                         )
                     } catch {
                         guard Task.isCancelled == false else {
                             return
                         }
-                        await self.handleParticipantReservationRejectedIfCurrent(
-                            roundIdentifier: roundIdentifier
+                        await self.handleHostOperationIfCurrent(
+                            roundIdentifier: roundIdentifier,
+                            staleOperation: "participant reservation rejection",
+                            input: .participantReservationRejected
                         )
                     }
                 }
@@ -441,27 +444,32 @@ extension OpalFusion.Runtime {
                         guard Task.isCancelled == false else {
                             return
                         }
-                        await self.handleFinalizedTransactionLoadedIfCurrent(
-                            transaction,
-                            roundIdentifier: roundIdentifier
+                        await self.handleHostOperationIfCurrent(
+                            roundIdentifier: roundIdentifier,
+                            staleOperation: "transaction finalization",
+                            input: .finalizedTransactionLoaded(transaction)
                         )
                     } catch let failure as OpalFusion.Host.TransactionFinalizationFailure {
                         guard Task.isCancelled == false else {
                             return
                         }
-                        await self.handleTransactionFinalizationRejectedIfCurrent(
-                            failure,
-                            roundIdentifier: roundIdentifier
+                        await self.handleHostOperationIfCurrent(
+                            roundIdentifier: roundIdentifier,
+                            staleOperation: "transaction finalization rejection",
+                            input: .transactionFinalizationRejected(failure)
                         )
                     } catch {
                         guard Task.isCancelled == false else {
                             return
                         }
-                        await self.handleTransactionFinalizationRejectedIfCurrent(
-                            .transactionAssemblyFailed(
-                                summary: "Host transaction finalization failed"
-                            ),
-                            roundIdentifier: roundIdentifier
+                        await self.handleHostOperationIfCurrent(
+                            roundIdentifier: roundIdentifier,
+                            staleOperation: "transaction finalization rejection",
+                            input: .transactionFinalizationRejected(
+                                .transactionAssemblyFailed(
+                                    summary: "Host transaction finalization failed"
+                                )
+                            )
                         )
                     }
                 }
@@ -600,69 +608,19 @@ extension OpalFusion.Runtime {
             await handle(.covertRequestFailed(summary: summary))
         }
 
-        private func handleParticipantReservationLoadedIfCurrent(
-            _ reservation: OpalFusion.Host.ParticipantReservation,
-            roundIdentifier: OpalFusion.Round.Identifier
+        private func handleHostOperationIfCurrent(
+            roundIdentifier: OpalFusion.Round.Identifier,
+            staleOperation: String,
+            input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
         ) async {
-            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
-                Self.logger.debug(
-                    "stale participant reservation ignored round=\(roundIdentifier.rawValue, privacy: .public)"
-                )
-                return
-            }
-
-            await handle(.participantReservationLoaded(reservation))
-        }
-
-        private func handleParticipantReservationRejectedIfCurrent(
-            roundIdentifier: OpalFusion.Round.Identifier
-        ) async {
-            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
-                Self.logger.debug(
-                    "stale participant reservation rejection ignored round=\(roundIdentifier.rawValue, privacy: .public)"
-                )
-                return
-            }
-
-            await handle(.participantReservationRejected)
-        }
-
-        private func handleFinalizedTransactionLoadedIfCurrent(
-            _ transaction: OpalFusion.Host.FinalizedTransaction,
-            roundIdentifier: OpalFusion.Round.Identifier
-        ) async {
-            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
-                Self.logger.debug(
-                    "stale transaction finalization ignored round=\(roundIdentifier.rawValue, privacy: .public)"
-                )
-                return
-            }
-
-            await handle(.finalizedTransactionLoaded(transaction))
-        }
-
-        private func handleTransactionFinalizationRejectedIfCurrent(
-            _ failure: OpalFusion.Host.TransactionFinalizationFailure,
-            roundIdentifier: OpalFusion.Round.Identifier
-        ) async {
-            guard isHostOperationCurrent(roundIdentifier: roundIdentifier) else {
-                Self.logger.debug(
-                    "stale transaction finalization rejection ignored round=\(roundIdentifier.rawValue, privacy: .public)"
-                )
-                return
-            }
-
-            await handle(.transactionFinalizationRejected(failure))
-        }
-
-        private func isHostOperationCurrent(
-            roundIdentifier: OpalFusion.Round.Identifier
-        ) -> Bool {
             guard runtimeSession.engine.round?.identifier == roundIdentifier else {
-                return false
+                Self.logger.debug(
+                    "stale \(staleOperation, privacy: .public) ignored round=\(roundIdentifier.rawValue, privacy: .public)"
+                )
+                return
             }
 
-            return true
+            await handle(input)
         }
 
         private func emitSnapshotIfNeeded() async {
