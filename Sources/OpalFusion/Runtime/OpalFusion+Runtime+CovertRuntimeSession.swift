@@ -30,18 +30,21 @@ extension OpalFusion.Runtime {
             case let .prepare(endpointContext):
                 return handlePrepare(endpointContext: endpointContext, now: now)
             case let .enqueue(message):
+                guard endpointContext != nil else {
+                    return protocolFailure(
+                        summary: "Covert request was queued before an endpoint was configured"
+                    )
+                }
                 queuedMessages.append(message)
                 return maybeDispatchNextRequest(now: now)
             case .covertPrepared:
                 return handleCovertPrepared(now: now)
             case let .covertPreparationFailed(summary):
-                reset()
-                return [.emitTransportFailure(summary: summary)]
+                return transportFailure(summary: summary)
             case let .covertResponseBytesReceived(bytes):
                 return handleCovertResponseBytes(bytes, now: now)
             case let .covertRequestFailed(summary):
-                reset()
-                return [.emitTransportFailure(summary: summary)]
+                return transportFailure(summary: summary)
             case .clockAdvanced:
                 return handleClockAdvanced(now: now)
             case .reset:
@@ -74,18 +77,13 @@ extension OpalFusion.Runtime {
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
             guard endpointContext != nil, let preparationPlan else {
-                return [
-                    .emitProtocolFailure(
-                        summary: "Covert preparation completed before an endpoint was configured"
-                    )
-                ]
+                return protocolFailure(
+                    summary: "Covert preparation completed before an endpoint was configured"
+                )
             }
 
             if now > preparationPlan.deadline {
-                reset()
-                return [
-                    .emitTransportFailure(summary: "Covert endpoint preparation timed out")
-                ]
+                return transportFailure(summary: "Covert endpoint preparation timed out")
             }
 
             substate = .prepared
@@ -107,10 +105,7 @@ extension OpalFusion.Runtime {
             }
 
             if now > outstanding.request.deadline {
-                reset()
-                return [
-                    .emitTransportFailure(summary: "Covert request timed out")
-                ]
+                return transportFailure(summary: "Covert request timed out")
             }
 
             do {
@@ -142,17 +137,11 @@ extension OpalFusion.Runtime {
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
             if let plan = preparationPlan, now > plan.deadline {
-                reset()
-                return [
-                    .emitTransportFailure(summary: "Covert endpoint preparation timed out")
-                ]
+                return transportFailure(summary: "Covert endpoint preparation timed out")
             }
 
             if let outstanding, now > outstanding.request.deadline {
-                reset()
-                return [
-                    .emitTransportFailure(summary: "Covert request timed out")
-                ]
+                return transportFailure(summary: "Covert request timed out")
             }
 
             return []
@@ -211,6 +200,13 @@ extension OpalFusion.Runtime {
             return [.emitProtocolFailure(summary: summary)]
         }
 
+        private mutating func transportFailure(
+            summary: String
+        ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
+            reset()
+            return [.emitTransportFailure(summary: summary)]
+        }
+
         private mutating func reset() {
             endpointContext = nil
             substate = .idle
@@ -230,9 +226,11 @@ extension OpalFusion.Runtime {
             let configuredTimeout = Duration.milliseconds(
                 Int64(requestTimeoutMilliseconds)
             )
-            return configuredTimeout.wholeMilliseconds <= endpointContext.submitTimeout.wholeMilliseconds
-                ? configuredTimeout
-                : endpointContext.submitTimeout
+            return min(
+                configuredTimeout,
+                endpointContext.submitTimeout,
+                endpointContext.submitWindow
+            )
         }
     }
 }

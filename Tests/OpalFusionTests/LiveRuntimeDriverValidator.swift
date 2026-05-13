@@ -216,6 +216,40 @@ struct LiveRuntimeDriverValidator {
         )
     }
 
+    @Test("Runtime configuration rejects covert entry paths with query or fragment delimiters")
+    func validateCovertEntryPathWithQueryOrFragmentDelimiter() {
+        let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
+        let queryPathConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: .init(
+                entryPath: "\(baseConfiguration.covertChannel.entryPath)?round=1",
+                maxPayloadBytes: baseConfiguration.covertChannel.maxPayloadBytes,
+                requestTimeoutMilliseconds: baseConfiguration.covertChannel.requestTimeoutMilliseconds
+            )
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(queryPathConfiguration) ==
+                "Covert entry path must not include query or fragment delimiters"
+        )
+
+        let fragmentPathConfiguration = OpalFusion.Client.Configuration(
+            coordinatorHost: baseConfiguration.coordinatorHost,
+            coordinatorPort: baseConfiguration.coordinatorPort,
+            coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
+            covertChannel: .init(
+                entryPath: "\(baseConfiguration.covertChannel.entryPath)#round",
+                maxPayloadBytes: baseConfiguration.covertChannel.maxPayloadBytes,
+                requestTimeoutMilliseconds: baseConfiguration.covertChannel.requestTimeoutMilliseconds
+            )
+        )
+        #expect(
+            OpalFusion.Runtime.validateConfiguration(fragmentPathConfiguration) ==
+                "Covert entry path must not include query or fragment delimiters"
+        )
+    }
+
     @Test("Runtime configuration rejects covert request timeouts outside Duration range")
     func validateCovertRequestTimeoutRange() {
         let baseConfiguration = PrimaryRuntimeTestFixtures.configuration
@@ -351,6 +385,18 @@ struct LiveRuntimeDriverValidator {
                 genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
                 joinPools: .init(tiers: [0], tags: [])
             ) == "Join pool tiers must be greater than zero"
+        )
+        #expect(
+            OpalFusion.Runtime.validateStartupConfiguration(
+                PrimaryRuntimeTestFixtures.configuration,
+                genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+                joinPools: .init(
+                    tiers: [
+                        OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis + 1
+                    ],
+                    tags: []
+                )
+            ) == "Join pool tiers must not exceed the maximum BCH money supply"
         )
         #expect(
             OpalFusion.Runtime.validateStartupConfiguration(
@@ -606,6 +652,42 @@ struct LiveRuntimeDriverValidator {
         #expect(event.event.summary == "Primary connection failed")
     }
 
+    @Test("Live runtime driver stops a pending primary connect without surfacing cancellation as failure")
+    func validatePendingPrimaryConnectStopIsNonErrorTerminalState() async throws {
+        let primaryTransport = ScriptedPrimaryTransport(blocksConnect: true)
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantReservationSource: DelayedParticipantReservationSource(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        let startTask = Task {
+            await driver.start()
+        }
+
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await primaryTransport.hasPendingConnect)
+
+        await driver.stop()
+        await startTask.value
+
+        let snapshot = await driver.snapshot()
+        #expect(snapshot.clientState.isConnected == false)
+        #expect(snapshot.lastError == nil)
+        #expect(snapshot.lastErrorSummary == nil)
+        #expect(await primaryTransport.recordedCloseCallCount() == 1)
+        #expect(await primaryTransport.hasPendingConnect == false)
+    }
+
     @Test("Live runtime driver preserves startup waiting errors when cancellation follows restart")
     func validateStartupWaitingCancellationPreservesUnderlyingErrorProjection() async throws {
         let underlyingError = NWError.posix(.ECONNRESET)
@@ -772,7 +854,7 @@ struct LiveRuntimeDriverValidator {
 
         #expect(snapshot.lastError == nil)
         #expect(snapshot.lastErrorSummary == nil)
-        #expect(await observedRequiresTLS.value() == true)
+        #expect(await observedRequiresTLS.value == true)
 
         let events = await eventSink.snapshot()
         #expect(events.contains { $0.event.summary == "Primary channel connected; sending ClientHello" })

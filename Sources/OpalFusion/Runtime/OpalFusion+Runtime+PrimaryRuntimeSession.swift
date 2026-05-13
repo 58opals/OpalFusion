@@ -123,7 +123,7 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case .disconnected:
-                recordFailureEvent(summary: "Primary channel disconnected")
+                recordFailureEventUnlessRoundIsTerminal(summary: "Primary channel disconnected")
                 return translate(
                     engine.apply(input: .primaryDisconnected, now: now),
                     now: now
@@ -138,7 +138,7 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case let .primaryTransportFailed(summary):
-                recordFailureEvent(summary: summary)
+                recordFailureEventUnlessRoundIsTerminal(summary: summary)
                 return translate(
                     engine.apply(input: .primaryTransportFailed(summary: summary), now: now),
                     now: now
@@ -151,7 +151,7 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case let .covertPreparationFailed(summary):
-                recordFailureEvent(summary: summary)
+                recordFailureEventUnlessRoundIsTerminal(summary: summary)
                 return handleCovertRuntimeEffects(
                     covertSession.apply(
                         input: .covertPreparationFailed(summary: summary),
@@ -168,7 +168,7 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case let .covertRequestFailed(summary):
-                recordFailureEvent(summary: summary)
+                recordFailureEventUnlessRoundIsTerminal(summary: summary)
                 return handleCovertRuntimeEffects(
                     covertSession.apply(
                         input: .covertRequestFailed(summary: summary),
@@ -365,7 +365,7 @@ extension OpalFusion.Runtime {
             summary: String,
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] {
-            recordFailureEvent(summary: summary)
+            recordFailureEventUnlessRoundIsTerminal(summary: summary)
             return translate(
                 engine.apply(
                     input: .protocolRejected(summary: summary),
@@ -388,7 +388,7 @@ extension OpalFusion.Runtime {
             }
         }
 
-        private var requestedTierQueueStatus: OpalFusion.Client.Session.Snapshot.CoordinatorStatus.QueueStatus? {
+        private var requestedTierQueueStatus: OpalFusion.Client.Session.Snapshot.CoordinatorStatus.TierQueue? {
             guard let latestTierStatus = engine.session.latestTierStatus else {
                 return nil
             }
@@ -566,6 +566,16 @@ extension OpalFusion.Runtime {
                     handshakeStage: preRoundTrace.handshakeStage
                 )
             )
+        }
+
+        private mutating func recordFailureEventUnlessRoundIsTerminal(
+            summary: String
+        ) {
+            guard engine.round?.substate != .terminal else {
+                return
+            }
+
+            recordFailureEvent(summary: summary)
         }
 
         private mutating func appendDiagnosticEvent(

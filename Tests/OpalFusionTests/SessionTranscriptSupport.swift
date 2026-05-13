@@ -102,7 +102,7 @@ enum SessionTranscriptSupport {
         return .init(rawValue: hex)
     }
 
-    static func containsSubsequence<T: Equatable>(
+    static func hasSubsequence<T: Equatable>(
         _ sequence: [T],
         subsequence: [T]
     ) -> Bool {

@@ -11,14 +11,14 @@ actor LoopbackPrimaryTLSMaterialCache {
     >?
 
     func trustAnchorCertificateDERs() throws -> [Data] {
-        [try material().certificateDER]
+        [try loadMaterial().certificateDER]
     }
 
     func makeListenerParameters() throws -> NWParameters {
         let tlsOptions = NWProtocolTLS.Options()
         sec_protocol_options_set_local_identity(
             tlsOptions.securityProtocolOptions,
-            try material().localIdentity
+            try loadMaterial().localIdentity
         )
 
         return NWParameters(
@@ -27,7 +27,7 @@ actor LoopbackPrimaryTLSMaterialCache {
         )
     }
 
-    private func material() throws -> LoopbackPrimaryTLSTestFixture.Material {
+    private func loadMaterial() throws -> LoopbackPrimaryTLSTestFixture.Material {
         if let materialResult {
             switch materialResult {
             case let .success(material):

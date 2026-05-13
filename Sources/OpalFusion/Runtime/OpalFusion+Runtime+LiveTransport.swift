@@ -10,41 +10,19 @@ extension OpalFusion.Runtime {
     static func validateConfiguration(
         _ configuration: OpalFusion.Client.Configuration
     ) -> String? {
-        let coordinatorHost = configuration.coordinatorHost.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if coordinatorHost.isEmpty {
-            return "Coordinator host must not be empty"
-        }
-
-        if coordinatorHost != configuration.coordinatorHost {
-            return "Coordinator host must not include leading or trailing whitespace"
-        }
-
-        if coordinatorHost.hasWhitespace {
-            return "Coordinator host must not include whitespace"
-        }
-
-        if isValidHostName(coordinatorHost) == false {
-            return "Coordinator host must be a valid host name"
+        if let summary = validateHostNameField(
+            configuration.coordinatorHost,
+            label: "Coordinator host"
+        ) {
+            return summary
         }
 
         if configuration.coordinatorPort == 0 {
             return "Coordinator port must be greater than zero"
         }
 
-        let covertEntryPath = configuration.covertChannel.entryPath
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if covertEntryPath.isEmpty || covertEntryPath.hasPrefix("/") == false {
-            return "Covert entry path must start with /"
-        }
-
-        if covertEntryPath != configuration.covertChannel.entryPath {
-            return "Covert entry path must not include leading or trailing whitespace"
-        }
-
-        if covertEntryPath.hasWhitespace {
-            return "Covert entry path must not include whitespace"
+        if let summary = validateCovertEntryPath(configuration.covertChannel.entryPath) {
+            return summary
         }
 
         if configuration.covertChannel.maxPayloadBytes <= 0 {
@@ -60,22 +38,11 @@ extension OpalFusion.Runtime {
         }
 
         if let torSocks5 = configuration.torSocks5 {
-            let torSocks5Host = torSocks5.host.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if torSocks5Host.isEmpty {
-                return "Tor SOCKS5 host must not be empty"
-            }
-
-            if torSocks5Host != torSocks5.host {
-                return "Tor SOCKS5 host must not include leading or trailing whitespace"
-            }
-
-            if torSocks5Host.hasWhitespace {
-                return "Tor SOCKS5 host must not include whitespace"
-            }
-
-            if isValidHostName(torSocks5Host) == false {
-                return "Tor SOCKS5 host must be a valid host name"
+            if let summary = validateHostNameField(
+                torSocks5.host,
+                label: "Tor SOCKS5 host"
+            ) {
+                return summary
             }
 
             if torSocks5.port == 0 {
@@ -85,6 +52,53 @@ extension OpalFusion.Runtime {
             if torSocks5.resolvesCoordinatorHostNameRemotely == false {
                 return "Tor SOCKS5 remote hostname resolution must be enabled"
             }
+        }
+
+        return nil
+    }
+
+    static func validateCovertEntryPath(_ entryPath: String) -> String? {
+        let trimmedEntryPath = entryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedEntryPath.isEmpty || trimmedEntryPath.hasPrefix("/") == false {
+            return "Covert entry path must start with /"
+        }
+
+        if trimmedEntryPath != entryPath {
+            return "Covert entry path must not include leading or trailing whitespace"
+        }
+
+        if trimmedEntryPath.hasWhitespace {
+            return "Covert entry path must not include whitespace"
+        }
+
+        if trimmedEntryPath.contains("?") || trimmedEntryPath.contains("#") {
+            return "Covert entry path must not include query or fragment delimiters"
+        }
+
+        return nil
+    }
+
+    private static func validateHostNameField(
+        _ host: String,
+        label: String
+    ) -> String? {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedHost.isEmpty {
+            return "\(label) must not be empty"
+        }
+
+        if trimmedHost != host {
+            return "\(label) must not include leading or trailing whitespace"
+        }
+
+        if trimmedHost.hasWhitespace {
+            return "\(label) must not include whitespace"
+        }
+
+        if isValidHostName(trimmedHost) == false {
+            return "\(label) must be a valid host name"
         }
 
         return nil
@@ -160,6 +174,10 @@ extension OpalFusion.Runtime {
 
         if joinPools.tiers.contains(0) {
             return "Join pool tiers must be greater than zero"
+        }
+
+        if joinPools.tiers.contains(where: { $0 > OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis }) {
+            return "Join pool tiers must not exceed the maximum BCH money supply"
         }
 
         if Set(joinPools.tiers).count != joinPools.tiers.count {

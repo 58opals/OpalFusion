@@ -439,6 +439,14 @@ extension OpalFusion.Execution {
                         summary: "Blind signature responses arrived out of order"
                     )
                 }
+                guard let playerCommit = round.playerCommit,
+                      responses.responses.count == playerCommit.blindSignatureRequests.count else {
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: "Blind signature response count did not match PlayerCommit request count"
+                    )
+                }
 
                 round.blindSignatureResponses = responses
                 round.substate = .awaitingAllCommitments
@@ -458,6 +466,23 @@ extension OpalFusion.Execution {
                         completionStatus: .protocolIncompatible,
                         clientError: .protocolIncompatible,
                         summary: "AllCommitments arrived out of order"
+                    )
+                }
+                guard let playerCommit = round.playerCommit,
+                      playerCommit.initialCommitments.allSatisfy({
+                          allCommitments.initialCommitments.contains($0)
+                      }) else {
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: "AllCommitments omitted a local commitment"
+                    )
+                }
+                guard Self.hasDuplicateInitialCommitments(allCommitments.initialCommitments) == false else {
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: "AllCommitments contained duplicate commitments"
                     )
                 }
 
@@ -538,6 +563,15 @@ extension OpalFusion.Execution {
 
                 round.fusionResult = result
                 if result.isSuccess {
+                    if round.sharedComponents?.skipSignatures == true {
+                        self.round = round
+                        return failRound(
+                            completionStatus: .protocolIncompatible,
+                            clientError: .protocolIncompatible,
+                            summary: "FusionResult reported success after signatures were skipped"
+                        )
+                    }
+
                     round.substate = .terminal
                     round.completionStatus = .success
                     self.round = round
@@ -1107,6 +1141,22 @@ extension OpalFusion.Execution {
             }
 
             return OpalFusion.Runtime.isValidHostName(domain)
+        }
+
+        private static func hasDuplicateInitialCommitments(
+            _ commitments: [OpalFusion.Commitment.InitialCommitment]
+        ) -> Bool {
+            for index in commitments.indices {
+                guard index < commitments.index(before: commitments.endIndex) else {
+                    continue
+                }
+
+                if commitments[commitments.index(after: index)...].contains(commitments[index]) {
+                    return true
+                }
+            }
+
+            return false
         }
     }
 }

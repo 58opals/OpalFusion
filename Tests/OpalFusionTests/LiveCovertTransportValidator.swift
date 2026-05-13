@@ -347,6 +347,54 @@ struct LiveCovertTransportValidator {
         #expect(await executor.recordedRequests().isEmpty)
     }
 
+    @Test("macOS live covert transport rejects endpoint paths with query delimiters before request execution")
+    func validateEndpointPathQueryDelimiterRejection() async throws {
+        let executor = RecordedCovertRequestExecutor(responseData: Data())
+        let transport = OpalFusion.Runtime.LiveCovertTransport(
+            torSocks5: nil,
+            requestExecutor: { session, request in
+                try await executor.execute(session: session, request: request)
+            }
+        )
+        let invalidEndpoint = OpalFusion.Runtime.CovertEndpointContext(
+            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
+            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
+            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
+            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
+            entryPath: "\(PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath)?round=1",
+            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
+            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
+            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
+            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
+            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
+            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
+            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
+        )
+        let plan = OpalFusion.Runtime.CovertPreparationPlan(
+            endpoint: invalidEndpoint,
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
+        )
+        let request = OpalFusion.Runtime.CovertRequest(
+            endpoint: invalidEndpoint,
+            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
+                PrimaryRuntimeTestFixtures.pingMessage
+            ),
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
+        )
+
+        try await transport.prepare(plan)
+
+        do {
+            _ = try await transport.perform(request)
+            Issue.record("Expected covert endpoint query delimiter to fail")
+        } catch let error as OpalFusion.Runtime.LiveTransportError {
+            #expect(error == .malformedCovertURL)
+        }
+        #expect(await executor.recordedRequests().isEmpty)
+    }
+
     @Test("macOS live covert transport rejects oversized payloads before request execution")
     func validateOversizedPayloadRejection() async throws {
         let executor = RecordedCovertRequestExecutor(responseData: Data())

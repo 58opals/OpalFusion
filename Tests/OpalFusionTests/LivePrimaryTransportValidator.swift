@@ -243,7 +243,7 @@ struct LivePrimaryTransportValidator {
     func validateCloseClearsPendingConnectBeforeReconnect() async throws {
         let pendingConnection = BlockingStartPrimaryConnection()
         let readyConnection = ReadyPrimaryConnection()
-        let factory = SequentialPrimaryConnectionFactory(
+        let factory = SequentialPrimaryConnectionBuilder(
             connections: [
                 pendingConnection,
                 readyConnection
@@ -311,95 +311,5 @@ struct LivePrimaryTransportValidator {
             tlsTrustAnchorCertificateDERs: try await LoopbackPrimaryTLSTestFixture
                 .trustAnchorCertificateDERs()
         )
-    }
-}
-
-private final class SequentialPrimaryConnectionFactory: @unchecked Sendable {
-    private let lock = NSLock()
-    private var connections: [any OpalFusion.Runtime.PrimaryConnectioning]
-
-    init(connections: [any OpalFusion.Runtime.PrimaryConnectioning]) {
-        self.connections = connections
-    }
-
-    func make(
-        host _: String,
-        port _: UInt16,
-        parameters _: NWParameters
-    ) -> any OpalFusion.Runtime.PrimaryConnectioning {
-        lock.lock()
-        defer {
-            lock.unlock()
-        }
-        return connections.removeFirst()
-    }
-}
-
-private actor BlockingStartPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning {
-    private var connectContinuation: CheckedContinuation<
-        AsyncStream<OpalFusion.Runtime.PrimaryConnectionEvent>,
-        Error
-    >?
-    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func connect(
-        restartDelay _: Duration
-    ) async throws -> AsyncStream<OpalFusion.Runtime.PrimaryConnectionEvent> {
-        try await withCheckedThrowingContinuation { continuation in
-            connectContinuation = continuation
-            let waiters = startedWaiters
-            startedWaiters.removeAll()
-            for waiter in waiters {
-                waiter.resume()
-            }
-        }
-    }
-
-    func send(content _: Data?) async throws {
-        throw OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
-    }
-
-    func cancel() async {}
-
-    func waitUntilConnectStarted() async {
-        guard connectContinuation == nil else {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            if connectContinuation == nil {
-                startedWaiters.append(continuation)
-            } else {
-                continuation.resume()
-            }
-        }
-    }
-
-    func failConnect(_ error: Error) {
-        connectContinuation?.resume(throwing: error)
-        connectContinuation = nil
-    }
-}
-
-private actor ReadyPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning {
-    private var eventContinuation: AsyncStream<
-        OpalFusion.Runtime.PrimaryConnectionEvent
-    >.Continuation?
-
-    func connect(
-        restartDelay _: Duration
-    ) async throws -> AsyncStream<OpalFusion.Runtime.PrimaryConnectionEvent> {
-        AsyncStream(bufferingPolicy: .unbounded) { continuation in
-            eventContinuation = continuation
-            continuation.yield(.ready)
-        }
-    }
-
-    func send(content _: Data?) async throws {}
-
-    func cancel() async {
-        eventContinuation?.yield(.cancelled)
-        eventContinuation?.finish()
-        eventContinuation = nil
     }
 }

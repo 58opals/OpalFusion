@@ -3,7 +3,7 @@
 public extension OpalFusion.Client.Session {
     struct Snapshot: Sendable, Equatable {
         public struct CoordinatorStatus: Sendable, Equatable {
-            public struct QueueStatus: Sendable, Equatable {
+            public struct TierQueue: Sendable, Equatable {
                 public let tierSatoshis: UInt64
                 public let players: UInt32?
                 public let minPlayers: UInt32?
@@ -25,16 +25,22 @@ public extension OpalFusion.Client.Session {
                 }
             }
 
+            @available(*, deprecated, renamed: "TierQueue")
+            public typealias TierQueueStatus = TierQueue
+
+            @available(*, deprecated, renamed: "TierQueue")
+            public typealias QueueStatus = TierQueue
+
             public let updateSequence: UInt64
             public let latestInboundMessageKind: String?
             public let latestInboundPayloadByteCount: Int?
-            public let queueStatus: QueueStatus?
+            public let queueStatus: TierQueue?
 
             public init(
                 updateSequence: UInt64 = 0,
                 latestInboundMessageKind: String? = nil,
                 latestInboundPayloadByteCount: Int? = nil,
-                queueStatus: QueueStatus? = nil
+                queueStatus: TierQueue? = nil
             ) {
                 self.updateSequence = updateSequence
                 self.latestInboundMessageKind = latestInboundMessageKind

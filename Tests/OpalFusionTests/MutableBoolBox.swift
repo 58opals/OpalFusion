@@ -7,7 +7,7 @@ actor MutableBoolBox {
         storedValue = value
     }
 
-    func value() -> Bool? {
+    var value: Bool? {
         storedValue
     }
 }

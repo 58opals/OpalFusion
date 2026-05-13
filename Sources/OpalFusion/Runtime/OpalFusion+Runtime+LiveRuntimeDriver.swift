@@ -166,6 +166,11 @@ extension OpalFusion.Runtime {
                     startClockLoop()
                 }
             } catch {
+                if stopRequested,
+                   Self.shouldIgnorePrimaryTransportCancellation(error) {
+                    return
+                }
+
                 Self.logger.debug(
                     "primary connect failure summary=\(String(describing: error), privacy: .private)"
                 )
@@ -217,7 +222,7 @@ extension OpalFusion.Runtime {
                     await self.handle(.disconnected)
                 } catch {
                     guard Task.isCancelled == false,
-                          Self.shouldIgnorePrimaryReadTermination(error) == false else {
+                          Self.shouldIgnorePrimaryTransportCancellation(error) == false else {
                         return
                     }
                     Self.logger.debug(
@@ -232,7 +237,7 @@ extension OpalFusion.Runtime {
             }
         }
 
-        private static func shouldIgnorePrimaryReadTermination(
+        private static func shouldIgnorePrimaryTransportCancellation(
             _ error: Error
         ) -> Bool {
             if error is CancellationError {

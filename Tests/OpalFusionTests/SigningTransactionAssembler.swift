@@ -107,7 +107,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
             participantInputPublicKey
         ) ?? ([0x41] + signature + [0x41] + [0x21] + participantInputPublicKey)
 
-        transaction = transaction.settingUnlockingScript(unlockingScript, at: inputIndex)
+        transaction = try transaction.settingUnlockingScript(unlockingScript, at: inputIndex)
         return (
             .init(transactionBytes: try transaction.serialized()),
             signature

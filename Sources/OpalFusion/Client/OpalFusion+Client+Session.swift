@@ -116,25 +116,14 @@ public extension OpalFusion.Client {
 
             guard let runtimeDriver else {
                 runtimeDriverGeneration += 1
-                await updateSnapshotIfNeeded(
-                    .init(
-                        state: .init(),
-                        lastError: nil,
-                        lastErrorSummary: nil,
-                        diagnostics: lastEmittedSnapshot.diagnostics
-                            .withoutFailure()
-                            .withRetry(attempt: nil, delay: nil)
-                            .withHandshakeStage(.notStarted)
-                            .withActivity(.stopped),
-                        coordinatorStatus: lastEmittedSnapshot.coordinatorStatus
-                    )
-                )
+                await updateSnapshotIfNeeded(stoppedSnapshot())
                 return
             }
 
             await runtimeDriver.stop()
             self.runtimeDriver = nil
             runtimeDriverGeneration += 1
+            await updateSnapshotIfNeeded(stoppedSnapshot())
         }
 
         public func snapshot() async -> OpalFusion.Client.Session.Snapshot {
@@ -160,8 +149,7 @@ public extension OpalFusion.Client {
             self.runtimeDriver = runtimeDriver
 
             await runtimeDriver.start()
-            guard self.runtimeDriver === runtimeDriver,
-                  self.runtimeDriverGeneration == runtimeDriverGeneration else {
+            guard isCurrentRuntimeDriver(runtimeDriver, generation: runtimeDriverGeneration) else {
                 return
             }
 
@@ -171,8 +159,7 @@ public extension OpalFusion.Client {
 
             if snapshot.state.isConnected == false,
                snapshot.lastError != nil,
-               self.runtimeDriver === runtimeDriver,
-               self.runtimeDriverGeneration == runtimeDriverGeneration {
+               isCurrentRuntimeDriver(runtimeDriver, generation: runtimeDriverGeneration) {
                 await completeCurrentDriverAfterFailure(
                     snapshot: runtimeSnapshot,
                     generation: runtimeDriverGeneration
@@ -226,13 +213,19 @@ public extension OpalFusion.Client {
             _ snapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot,
             generation: Int
         ) async {
-            guard generation == runtimeDriverGeneration else {
+            guard isCurrentGeneration(generation) else {
                 return
             }
 
             let sessionSnapshot = OpalFusion.Client.Session.Snapshot(snapshot)
             await dependencies.snapshotDeliveryHook(sessionSnapshot)
+            guard isCurrentGeneration(generation) else {
+                return
+            }
             await updateSnapshotIfNeeded(sessionSnapshot)
+            guard isCurrentGeneration(generation) else {
+                return
+            }
 
             if sessionSnapshot.state.isConnected == false,
                sessionSnapshot.lastError != nil {
@@ -247,7 +240,7 @@ public extension OpalFusion.Client {
             snapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot,
             generation: Int
         ) async {
-            guard generation == runtimeDriverGeneration,
+            guard isCurrentGeneration(generation),
                   runtimeDriver != nil else {
                 return
             }
@@ -311,7 +304,7 @@ public extension OpalFusion.Client {
             generation: Int
         ) async {
             guard isActive,
-                  generation == runtimeDriverGeneration else {
+                  isCurrentGeneration(generation) else {
                 return
             }
 
@@ -319,9 +312,39 @@ public extension OpalFusion.Client {
             await startRuntimeDriver()
         }
 
+        private func isCurrentRuntimeDriver(
+            _ runtimeDriver: OpalFusion.Runtime.LiveRuntimeDriver,
+            generation: Int
+        ) -> Bool {
+            self.runtimeDriver === runtimeDriver && isCurrentGeneration(generation)
+        }
+
+        private func isCurrentGeneration(_ generation: Int) -> Bool {
+            generation == runtimeDriverGeneration
+        }
+
+        private func stoppedSnapshot() -> OpalFusion.Client.Session.Snapshot {
+            .init(
+                state: .init(),
+                lastError: nil,
+                lastErrorSummary: nil,
+                diagnostics: lastEmittedSnapshot.diagnostics
+                    .withoutFailure()
+                    .withRetry(attempt: nil, delay: nil)
+                    .withHandshakeStage(.notStarted)
+                    .withActivity(.stopped),
+                coordinatorStatus: lastEmittedSnapshot.coordinatorStatus
+            )
+        }
+
         private func updateSnapshotIfNeeded(
             _ snapshot: OpalFusion.Client.Session.Snapshot
         ) async {
+            if snapshot.state.isConnected,
+               snapshot.lastError == nil {
+                retryAttempt = 0
+            }
+
             guard snapshot != lastEmittedSnapshot else {
                 return
             }

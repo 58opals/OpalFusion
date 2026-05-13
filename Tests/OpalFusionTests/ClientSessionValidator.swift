@@ -572,6 +572,64 @@ struct ClientSessionValidator {
         await session.stop()
     }
 
+    @Test("Public client session resets reconnect attempts after a successful reconnect")
+    func validateReconnectAttemptResetsAfterSuccessfulReconnect() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder(
+            primaryConnectErrors: [
+                NSError(domain: "ClientSessionValidator", code: 14),
+                nil,
+                nil,
+            ]
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: .init(
+                initialDelay: .milliseconds(10),
+                maximumDelay: .milliseconds(40),
+                multiplier: 2,
+                maximumAttempts: 3
+            ),
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+        _ = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.diagnostics.activity == .retrying &&
+                $0.diagnostics.retryAttempt == 1
+        }
+
+        let reconnectedTransport = try await Self.waitForPrimaryTransport(
+            transportFactories,
+            at: 1
+        )
+        _ = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.state.isConnected && $0.lastError == nil
+        }
+        try await Self.waitForWrittenPayloadCount(reconnectedTransport, count: 1)
+        await reconnectedTransport.finishInbound()
+
+        let secondRetrySnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.diagnostics.activity == .retrying &&
+                $0.lastErrorSummary == "Primary channel disconnected"
+        }
+
+        #expect(secondRetrySnapshot.diagnostics.retryAttempt == 1)
+        #expect(secondRetrySnapshot.diagnostics.nextRetryDelayMilliseconds == 10)
+
+        await session.stop()
+    }
+
     @Test("Public client session reconnect policy clamps overflowing delay growth")
     func validateReconnectPolicyClampsOverflowingDelayGrowth() {
         let policy = OpalFusion.Client.ReconnectPolicy(
@@ -926,7 +984,7 @@ struct ClientSessionValidator {
             tierStatusMessage
         ).count
         let expectedQueueStatus = OpalFusion.Client.Session.Snapshot.CoordinatorStatus
-            .QueueStatus(
+            .TierQueue(
                 tierSatoshis: 10_000,
                 players: 3,
                 minPlayers: 2,
@@ -1849,7 +1907,7 @@ struct ClientSessionValidator {
             }
         )
         #expect(
-            SessionTranscriptSupport.containsSubsequence(
+            SessionTranscriptSupport.hasSubsequence(
                 transcript.roundEvents.map(\.event.summary),
                 subsequence: [
                     "Round result requires blame handling",
@@ -2088,6 +2146,94 @@ struct ClientSessionValidator {
         )
 
         await session.stop()
+        await coordinator.stop()
+    }
+
+    @Test("Public client session drops stale snapshots after stop advances the driver generation")
+    func validateStopDropsBlockedStaleSnapshotDelivery() async throws {
+        let scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let coordinator = try await LoopbackPrimaryCoordinator.start()
+        let covertTransport = ScriptedCovertTransport()
+        let stateObserver = RecordedClientStateObserver()
+        let eventObserver = RecordedRoundEventObserver()
+        let snapshotDeliveryGate = SessionSnapshotDeliveryGate()
+        let unsupportedInput = OpalFusion.Host.ParticipantInput(
+            outpointTransactionHashBytes: scenario.reservation.inputs[0].outpointTransactionHashBytes,
+            outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+            amountSatoshis: scenario.reservation.inputs[0].amountSatoshis,
+            lockingScriptBytes: [0x51],
+            publicKey: scenario.reservation.inputs[0].publicKey
+        )
+        let participantReservationSource = DelayedParticipantReservationSource(
+            participantInputs: [unsupportedInput],
+            participantOutputs: scenario.reservation.outputs,
+            delay: .milliseconds(10)
+        )
+        let transactionAssembler = DelayedTransactionAssembler(
+            finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction,
+            delay: .milliseconds(10)
+        )
+        let nowProvider = ScriptedInstantClock(unixSeconds: 995)
+        let session = OpalFusion.Client.Session(
+            configuration: .init(
+                coordinatorHost: "127.0.0.1",
+                coordinatorPort: await coordinator.port,
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            ),
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: participantReservationSource,
+            transactionAssembler: transactionAssembler,
+            eventObserver: eventObserver,
+            stateObserver: stateObserver,
+            nowProvider: { await nowProvider.now() },
+            clockTickInterval: .milliseconds(100),
+            covertTransportFactory: { covertTransport },
+            snapshotDeliveryHook: { snapshot in
+                if ClientSessionValidatorSupport.isUnsupportedReservationTerminalSnapshot(snapshot) {
+                    await snapshotDeliveryGate.block(snapshot)
+                }
+            }
+        )
+
+        await session.start()
+        _ = try await coordinator.nextClientMessage()
+
+        await nowProvider.update(unixSeconds: 996)
+        try await coordinator.send(.serverHello(scenario.serverHello))
+        _ = try await coordinator.nextClientMessage()
+
+        await nowProvider.update(unixSeconds: 1_000)
+        try await coordinator.send(.fusionBegin(scenario.fusionBegin))
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while await covertTransport.recordedPreparationPlans().isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        await nowProvider.update(unixSeconds: 1_030)
+        try await coordinator.send(.startRound(scenario.startRound))
+
+        let blockedSnapshot = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            try await snapshotDeliveryGate.waitForBlockedSnapshot()
+        }
+        #expect(ClientSessionValidatorSupport.isUnsupportedReservationTerminalSnapshot(blockedSnapshot))
+
+        await session.stop()
+        await snapshotDeliveryGate.release()
+        try await Task.sleep(for: .milliseconds(50))
+
+        let observedSnapshots = await stateObserver.snapshot()
+        #expect(
+            observedSnapshots.contains(
+                where: ClientSessionValidatorSupport
+                    .isUnsupportedReservationTerminalSnapshot
+            ) == false
+        )
+        let stoppedSnapshot = await session.snapshot()
+        #expect(stoppedSnapshot.lastError == nil)
+        #expect(stoppedSnapshot.state.isConnected == false)
+
         await coordinator.stop()
     }
 

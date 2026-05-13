@@ -43,12 +43,9 @@ extension OpalFusion.Runtime {
             configuration.timeoutIntervalForResource = timeoutSeconds
             configuration.waitsForConnectivity = false
 
-            if let proxyConfiguration = makeProxyConfiguration() {
-                configuration.connectionProxyDictionary = proxyConfiguration
-                self.proxyConfiguration = proxyConfiguration
-            } else {
-                self.proxyConfiguration = nil
-            }
+            let proxyConfiguration = makeProxyConfiguration()
+            configuration.connectionProxyDictionary = proxyConfiguration
+            self.proxyConfiguration = proxyConfiguration
 
             session?.invalidateAndCancel()
             session = sessionFactory(configuration)
@@ -121,11 +118,7 @@ extension OpalFusion.Runtime {
                 throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
             }
 
-            let entryPath = endpoint.entryPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard entryPath.isEmpty == false,
-                  entryPath.hasPrefix("/"),
-                  entryPath == endpoint.entryPath,
-                  entryPath.hasWhitespace == false else {
+            guard OpalFusion.Runtime.validateCovertEntryPath(endpoint.entryPath) == nil else {
                 throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
             }
 
@@ -133,7 +126,7 @@ extension OpalFusion.Runtime {
             components.scheme = endpoint.requiresTLS == true ? "https" : "http"
             components.host = endpoint.host
             components.port = Int(endpoint.port)
-            components.path = entryPath
+            components.path = endpoint.entryPath
 
             guard let url = components.url else {
                 throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL

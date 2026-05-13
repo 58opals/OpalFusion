@@ -465,6 +465,37 @@ struct TransactionCodecValidator {
         }
     }
 
+    @Test("BCH transaction unlocking script setter rejects out-of-bounds input indices")
+    func validateUnlockingScriptSetterRejectsOutOfBoundsInput() throws {
+        let transaction = OpalFusion.Execution.BCHTransaction(
+            version: 1,
+            inputs: [
+                .init(
+                    previousTransactionHashLittleEndian: [UInt8](repeating: 0x00, count: 32),
+                    previousOutputIndex: 0,
+                    unlockingScript: [],
+                    sequence: 0xFFFF_FFFF
+                )
+            ],
+            outputs: [
+                .init(
+                    amountSatoshis: 1_000,
+                    lockingScript: [0x51]
+                )
+            ],
+            lockTime: 0
+        )
+
+        do {
+            _ = try transaction.settingUnlockingScript([0x51], at: 1)
+            Issue.record("Expected out-of-bounds unlocking script input index to fail")
+        } catch let error as OpalFusion.Execution.BCHTransactionError {
+            #expect(
+                error == .malformed("Transaction input index 1 is out of bounds")
+            )
+        }
+    }
+
     @Test("BCH transaction signature hash rejects impossible output amounts")
     func validateSignatureHashRejectsImpossibleOutputAmount() throws {
         let transaction = OpalFusion.Execution.BCHTransaction(

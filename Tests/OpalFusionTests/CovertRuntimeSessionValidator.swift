@@ -79,6 +79,26 @@ struct CovertRuntimeSessionValidator {
         #expect(session.outstandingRequest == nil)
     }
 
+    @Test("Covert runtime rejects queued work before endpoint preparation")
+    func validateQueuedMessageBeforePreparationFails() {
+        var session = PrimaryRuntimeTestFixtures.makeCovertSession()
+
+        let effects = session.apply(
+            input: .enqueue(message: PrimaryRuntimeTestFixtures.covertComponentMessage),
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+
+        #expect(
+            effects == [
+                .emitProtocolFailure(
+                    summary: "Covert request was queued before an endpoint was configured"
+                )
+            ]
+        )
+        #expect(session.queuedMessages.isEmpty)
+        #expect(session.substate == .idle)
+    }
+
     @Test("Covert runtime decodes successful scripted acknowledgements")
     func validateAcknowledgementDecode() throws {
         var session = PrimaryRuntimeTestFixtures.makeCovertSession()
@@ -121,6 +141,72 @@ struct CovertRuntimeSessionValidator {
             ]
         )
         #expect(session.outstandingRequest == nil)
+    }
+
+    @Test("Covert runtime clears prepared endpoint after duplicate preparation callback")
+    func validateDuplicatePreparationCallbackClearsPreparedState() {
+        var session = PrimaryRuntimeTestFixtures.makeCovertSession()
+        _ = session.apply(
+            input: .prepare(endpointContext: PrimaryRuntimeTestFixtures.covertEndpointContext),
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+        _ = session.apply(input: .covertPrepared, now: PrimaryRuntimeTestFixtures.instant(1_001))
+
+        let effects = session.apply(
+            input: .covertPrepared,
+            now: PrimaryRuntimeTestFixtures.instant(1_002)
+        )
+
+        #expect(
+            effects == [
+                .emitProtocolFailure(
+                    summary: "Covert preparation completed before an endpoint was configured"
+                )
+            ]
+        )
+        #expect(session.substate == .idle)
+        #expect(session.endpointContext == nil)
+        #expect(session.preparationPlan == nil)
+        #expect(session.queuedMessages.isEmpty)
+        #expect(session.outstandingRequest == nil)
+    }
+
+    @Test("Covert runtime caps request deadlines to the submit window")
+    func validateRequestDeadlineDoesNotExceedSubmitWindow() throws {
+        var session = PrimaryRuntimeTestFixtures.makeCovertSession()
+        let endpoint = OpalFusion.Runtime.CovertEndpointContext(
+            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
+            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
+            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
+            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
+            entryPath: PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath,
+            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
+            requestTimeoutMilliseconds: 10_000,
+            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
+            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
+            submitTimeout: .seconds(10),
+            submitWindow: .seconds(5),
+            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
+        )
+        _ = session.apply(
+            input: .prepare(endpointContext: endpoint),
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+        _ = session.apply(
+            input: .enqueue(message: PrimaryRuntimeTestFixtures.covertComponentMessage),
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+
+        let effects = session.apply(
+            input: .covertPrepared,
+            now: PrimaryRuntimeTestFixtures.instant(1_000)
+        )
+
+        guard case let .performCovertRequest(request)? = effects.first else {
+            Issue.record("Expected covert request dispatch")
+            return
+        }
+        #expect(request.deadline == PrimaryRuntimeTestFixtures.instant(1_005))
     }
 
     @Test("Covert runtime surfaces malformed response bytes as protocol failure")

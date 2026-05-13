@@ -330,7 +330,7 @@ enum ProductionWorkflowTestFixtures {
             publicKey: participantInputPublicKey
         )
 
-        transaction = transaction.settingUnlockingScript(unlockingScript, at: 0)
+        transaction = try transaction.settingUnlockingScript(unlockingScript, at: 0)
         return .init(
             transaction: .init(transactionBytes: try transaction.serialized()),
             signature: signature
@@ -391,7 +391,7 @@ enum ProductionWorkflowTestFixtures {
                 ).rawRepresentation
             )
 
-            transaction = transaction.settingUnlockingScript(
+            transaction = try transaction.settingUnlockingScript(
                 standardP2PKHUnlockingScript(
                     signature: signature,
                     publicKey: participantInputPublicKey

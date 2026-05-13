@@ -792,6 +792,49 @@ struct ProductionWorkflowValidator {
         }
     }
 
+    @Test("Production workflow rejects duplicate shared input outpoints")
+    func validateSharedInputComponentRejectsDuplicateOutpoint() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+
+        guard let publicKey = scenario.reservation.inputs[0].publicKey else {
+            Issue.record("Expected fixture public key")
+            return
+        }
+
+        var component = FusionComponent()
+        component.saltCommitment = Self.saltCommitment(0xC8)
+        var input = FusionInputComponent()
+        input.prevTxid = Data(scenario.reservation.inputs[0].outpointTransactionHashBytes.reversed())
+        input.prevIndex = scenario.reservation.inputs[0].outpointIndex
+        input.pubkey = Data(publicKey)
+        input.amount = scenario.reservation.inputs[0].amountSatoshis
+        component.component = .input(input)
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments + [
+                .init(
+                    saltedComponentHash: [0xC9],
+                    amountCommitment: [0xCA],
+                    communicationPublicKey: [0xCB]
+                )
+            ],
+            serializedComponents: scenario.localSerializedComponents()
+                + [try Array(component.serializedData())]
+        )
+
+        do {
+            _ = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
+            Issue.record("Expected duplicate shared input outpoint to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .protocolValidationFailed(
+                    "Coordinator returned duplicate input outpoints"
+                )
+            )
+        }
+    }
+
     @Test("Production workflow generates decryptable proofs and blame outputs")
     func validateProofGenerationAndBlameMaterialization() throws {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()

@@ -371,6 +371,44 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.covertSession.outstandingRequest == nil)
     }
 
+    @Test("Primary runtime does not record failure diagnostics after terminal success")
+    func validateTerminalSuccessIgnoresFailureDiagnosticsNoise() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveToAwaitingResult(session: &session)
+        _ = session.apply(
+            input: .receivedPrimaryBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .fusionResult(PrimaryRuntimeTestFixtures.successResult)
+                )
+            ),
+            now: PrimaryRuntimeTestFixtures.instant(1_055)
+        )
+        let diagnosticsBeforeNoise = session.diagnostics(activity: .running)
+
+        let effects = session.apply(
+            input: .primaryTransportFailed(summary: "Primary read failed"),
+            now: PrimaryRuntimeTestFixtures.instant(1_056)
+        )
+
+        #expect(effects.isEmpty)
+        #expect(session.lastError == nil)
+        #expect(
+            session.clientState.round == .init(
+                identifier: PrimaryRuntimeTestFixtures.roundIdentifier,
+                completionStatus: .success
+            )
+        )
+        #expect(
+            session.diagnostics(activity: .running).recentEvents
+                == diagnosticsBeforeNoise.recentEvents
+        )
+        #expect(
+            session.diagnostics(activity: .running).recentEvents.contains {
+                $0.kind == .failure && $0.summary == "Primary read failed"
+            } == false
+        )
+    }
+
     @Test("Primary runtime maps host rejection to the existing coarse public failure surface")
     func validateHostRejectionProjection() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()

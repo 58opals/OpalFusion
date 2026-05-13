@@ -39,22 +39,7 @@ extension OpalFusion.Execution {
             }
 
             bytes.append(contentsOf: try Self.encodeCompactSize(outputs.count))
-            var outputTotalSatoshis: UInt64 = 0
-            for output in outputs {
-                guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
-                    throw OpalFusion.Execution.BCHTransactionError.malformed(
-                        "Transaction output amount exceeds the maximum BCH money supply"
-                    )
-                }
-                outputTotalSatoshis = try Self.addingOutputAmount(
-                    output.amountSatoshis,
-                    to: outputTotalSatoshis
-                )
-
-                bytes.append(contentsOf: output.amountSatoshis.littleEndianBytes)
-                bytes.append(contentsOf: try Self.encodeCompactSize(output.lockingScript.count))
-                bytes.append(contentsOf: output.lockingScript)
-            }
+            bytes.append(contentsOf: try serializedOutputs())
             bytes.append(contentsOf: lockTime.littleEndianBytes)
             return bytes
         }
@@ -62,7 +47,12 @@ extension OpalFusion.Execution {
         func settingUnlockingScript(
             _ unlockingScript: [UInt8],
             at inputIndex: Int
-        ) -> OpalFusion.Execution.BCHTransaction {
+        ) throws -> OpalFusion.Execution.BCHTransaction {
+            guard inputs.indices.contains(inputIndex) else {
+                throw OpalFusion.Execution.BCHTransactionError.malformed(
+                    "Transaction input index \(inputIndex) is out of bounds"
+                )
+            }
             var copy = self
             copy.inputs[inputIndex].unlockingScript = unlockingScript
             return copy
@@ -109,27 +99,8 @@ extension OpalFusion.Execution {
             let hashSequence = OpalFusion.Execution.ProtocolPrimitives.hash256(
                 inputs.flatMap { $0.sequence.littleEndianBytes }
             )
-            var serializedOutputs = [UInt8]()
-            var outputTotalSatoshis: UInt64 = 0
-            for output in outputs {
-                guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
-                    throw OpalFusion.Execution.BCHTransactionError.malformed(
-                        "Transaction output amount exceeds the maximum BCH money supply"
-                    )
-                }
-                outputTotalSatoshis = try Self.addingOutputAmount(
-                    output.amountSatoshis,
-                    to: outputTotalSatoshis
-                )
-
-                serializedOutputs.append(contentsOf: output.amountSatoshis.littleEndianBytes)
-                serializedOutputs.append(
-                    contentsOf: try Self.encodeCompactSize(output.lockingScript.count)
-                )
-                serializedOutputs.append(contentsOf: output.lockingScript)
-            }
             let hashOutputs = OpalFusion.Execution.ProtocolPrimitives.hash256(
-                serializedOutputs
+                try serializedOutputs()
             )
             let input = inputs[inputIndex]
             var preimage = [UInt8]()
@@ -256,6 +227,27 @@ extension OpalFusion.Execution {
                 outputs: outputs,
                 lockTime: lockTime
             )
+        }
+
+        private func serializedOutputs() throws -> [UInt8] {
+            var bytes = [UInt8]()
+            var outputTotalSatoshis: UInt64 = 0
+            for output in outputs {
+                guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                    throw OpalFusion.Execution.BCHTransactionError.malformed(
+                        "Transaction output amount exceeds the maximum BCH money supply"
+                    )
+                }
+                outputTotalSatoshis = try Self.addingOutputAmount(
+                    output.amountSatoshis,
+                    to: outputTotalSatoshis
+                )
+
+                bytes.append(contentsOf: output.amountSatoshis.littleEndianBytes)
+                bytes.append(contentsOf: try Self.encodeCompactSize(output.lockingScript.count))
+                bytes.append(contentsOf: output.lockingScript)
+            }
+            return bytes
         }
 
         private static func encodeCompactSize(_ value: Int) throws -> [UInt8] {

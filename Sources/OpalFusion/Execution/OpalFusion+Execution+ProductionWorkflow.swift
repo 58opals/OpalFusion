@@ -726,10 +726,17 @@ extension OpalFusion.Execution {
                 )
             ]
             var inputComponentIndices: [Int] = []
+            var inputOutpoints = Set<InputOutpoint>()
 
             for (componentIndex, component) in decodedComponents.enumerated() {
                 switch component.payload {
                 case let .input(inputComponent):
+                    guard inputOutpoints.insert(.init(inputComponent)).inserted else {
+                        throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                            "Coordinator returned duplicate input outpoints"
+                        )
+                    }
+
                     inputs.append(
                         .init(
                             previousTransactionHashLittleEndian: Array(
@@ -1291,6 +1298,16 @@ extension OpalFusion.Execution {
                 }
             }
             return false
+        }
+
+        private struct InputOutpoint: Hashable {
+            let transactionHash: [UInt8]
+            let index: UInt32
+
+            init(_ inputComponent: OpalFusion.Commitment.InputComponent) {
+                self.transactionHash = inputComponent.outpointTransactionHash
+                self.index = inputComponent.outpointIndex
+            }
         }
     }
 }

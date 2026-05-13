@@ -82,14 +82,14 @@ struct ElectronCashInteropValidator {
         )
 
         #expect(
-            SessionTranscriptSupport.containsSubsequence(
+            SessionTranscriptSupport.hasSubsequence(
                 transcript.clientMessageKinds,
                 subsequence: ["clientHello", "joinPools", "playerCommit"]
             )
         )
 
         #expect(
-            SessionTranscriptSupport.containsSubsequence(
+            SessionTranscriptSupport.hasSubsequence(
                 transcript.serverMessageKinds,
                 subsequence: [
                     "fusionBegin",
@@ -102,7 +102,7 @@ struct ElectronCashInteropValidator {
         )
 
         #expect(
-            SessionTranscriptSupport.containsSubsequence(
+            SessionTranscriptSupport.hasSubsequence(
                 transcript.covertMessageKinds,
                 subsequence: ["component", "transactionSignature"]
             )
@@ -136,7 +136,7 @@ struct ElectronCashInteropValidator {
 
         let observedEventSummaries = transcript.roundEvents.map(\.event.summary)
         #expect(
-            SessionTranscriptSupport.containsSubsequence(
+            SessionTranscriptSupport.hasSubsequence(
                 observedEventSummaries,
                 subsequence: [
                     "StartRound received; collecting reserved inputs and outputs",
