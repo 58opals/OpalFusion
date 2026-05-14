@@ -540,14 +540,11 @@ extension OpalFusion.Runtime {
                 return false
             }
 
-            switch input {
+            return switch input {
             case .disconnected, .primaryTransportFailed:
-                return true
-            case .invalidConfiguration, .connected, .stopped, .receivedPrimaryBytes, .covertPrepared,
-                    .covertPreparationFailed, .receivedCovertResponseBytes, .covertRequestFailed,
-                    .participantReservationLoaded, .participantReservationRejected,
-                    .finalizedTransactionLoaded, .transactionFinalizationRejected, .clockAdvanced:
-                return false
+                true
+            default:
+                false
             }
         }
 

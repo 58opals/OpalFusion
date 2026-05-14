@@ -229,6 +229,41 @@ struct ProductionWorkflowValidator {
                 )
             )
         }
+
+        do {
+            var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+            let input = scenario.reservation.inputs[0]
+            let inputFee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                sizeBytes: OpalFusion.Execution.ProtocolPrimitives.inputSize(
+                    for: input.publicKey ?? []
+                ),
+                feeRateSatoshisPerKb: scenario.serverHello.componentFeeRateSatoshisPerKb
+            )
+            let outputFee = OpalFusion.Execution.ProtocolPrimitives.componentFee(
+                sizeBytes: OpalFusion.Execution.ProtocolPrimitives.outputSize(
+                    for: scenario.reservation.outputs[0].lockingScriptBytes
+                ),
+                feeRateSatoshisPerKb: scenario.serverHello.componentFeeRateSatoshisPerKb
+            )
+            let outputAmount = (input.amountSatoshis * 2) - (inputFee * 2) - outputFee - 250
+            scenario.round.participantReservation = .init(
+                inputs: [input, input],
+                outputs: [
+                    .init(
+                        lockingScriptBytes: scenario.reservation.outputs[0].lockingScriptBytes,
+                        amountSatoshis: outputAmount
+                    )
+                ]
+            )
+            _ = try scenario.workflow.buildPlayerCommit(round: &scenario.round)
+            Issue.record("Expected duplicate participant input outpoint to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .invalidParticipantReservation(
+                    "Participant reservation contains duplicate input outpoints"
+                )
+            )
+        }
     }
 
     @Test("Production workflow rejects compressed-length participant keys that are not curve points")

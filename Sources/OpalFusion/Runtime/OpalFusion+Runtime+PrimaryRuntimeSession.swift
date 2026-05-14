@@ -109,40 +109,25 @@ extension OpalFusion.Runtime {
             switch input {
             case let .invalidConfiguration(summary):
                 recordFailureEvent(summary: summary)
-                return translate(
-                    engine.apply(input: .configurationRejected(summary: summary), now: now),
-                    now: now
-                )
+                return translateEngineInput(.configurationRejected(summary: summary), now: now)
             case .connected:
                 recordLifecycleEvent(
                     summary: "Primary channel connected",
                     handshakeStage: .awaitingServerHello
                 )
-                return translate(
-                    engine.apply(input: .primaryConnected, now: now),
-                    now: now
-                )
+                return translateEngineInput(.primaryConnected, now: now)
             case .disconnected:
                 recordFailureEventUnlessRoundIsTerminal(summary: "Primary channel disconnected")
-                return translate(
-                    engine.apply(input: .primaryDisconnected, now: now),
-                    now: now
-                )
+                return translateEngineInput(.primaryDisconnected, now: now)
             case .stopped:
                 recordLifecycleEvent(
                     summary: "Session stopped",
                     handshakeStage: .notStarted
                 )
-                return translate(
-                    engine.apply(input: .stopped, now: now),
-                    now: now
-                )
+                return translateEngineInput(.stopped, now: now)
             case let .primaryTransportFailed(summary):
                 recordFailureEventUnlessRoundIsTerminal(summary: summary)
-                return translate(
-                    engine.apply(input: .primaryTransportFailed(summary: summary), now: now),
-                    now: now
-                )
+                return translateEngineInput(.primaryTransportFailed(summary: summary), now: now)
             case let .receivedPrimaryBytes(bytes):
                 return handleReceivedPrimaryBytes(bytes, now: now)
             case .covertPrepared:
@@ -177,34 +162,19 @@ extension OpalFusion.Runtime {
                     now: now
                 )
             case let .participantReservationLoaded(reservation):
-                return translate(
-                    engine.apply(input: .participantReservationLoaded(reservation), now: now),
-                    now: now
-                )
+                return translateEngineInput(.participantReservationLoaded(reservation), now: now)
             case .participantReservationRejected:
-                return translate(
-                    engine.apply(input: .participantReservationRejected, now: now),
-                    now: now
-                )
+                return translateEngineInput(.participantReservationRejected, now: now)
             case let .finalizedTransactionLoaded(transaction):
-                return translate(
-                    engine.apply(input: .finalizedTransactionLoaded(transaction), now: now),
-                    now: now
-                )
+                return translateEngineInput(.finalizedTransactionLoaded(transaction), now: now)
             case let .transactionFinalizationRejected(failure):
-                return translate(
-                    engine.apply(input: .transactionFinalizationRejected(failure), now: now),
-                    now: now
-                )
+                return translateEngineInput(.transactionFinalizationRejected(failure), now: now)
             case .clockAdvanced:
                 var runtimeEffects = handleCovertRuntimeEffects(
                     covertSession.apply(input: .clockAdvanced, now: now),
                     now: now
                 )
-                runtimeEffects.append(contentsOf: translate(
-                    engine.apply(input: .clockAdvanced, now: now),
-                    now: now
-                ))
+                runtimeEffects.append(contentsOf: translateEngineInput(.clockAdvanced, now: now))
                 return runtimeEffects
             }
         }
@@ -223,12 +193,12 @@ extension OpalFusion.Runtime {
                         message,
                         payloadBytes: payload.count
                     )
-                    let effects = translate(
-                        engine.apply(input: .primaryMessage(message), now: now),
-                        now: now
-                    )
+                    let effects = translateEngineInput(.primaryMessage(message), now: now)
                     recordAcceptedPreRoundInboundMessage(message)
                     updateHandshakeStageFromEngine()
+                    if engine.session.connectionSubstate == .failed {
+                        return effects
+                    }
                     runtimeEffects.append(
                         contentsOf: effects
                     )
@@ -316,6 +286,16 @@ extension OpalFusion.Runtime {
             return runtimeEffects
         }
 
+        private mutating func translateEngineInput(
+            _ input: OpalFusion.Execution.RoundEngine.Input,
+            now: OpalFusion.Execution.Instant
+        ) -> [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] {
+            translate(
+                engine.apply(input: input, now: now),
+                now: now
+            )
+        }
+
         private mutating func handleCovertRuntimeEffects(
             _ covertEffects: [OpalFusion.Runtime.CovertRuntimeSession.Effect],
             now: OpalFusion.Execution.Instant
@@ -330,30 +310,15 @@ extension OpalFusion.Runtime {
                     runtimeEffects.append(.performCovertRequest(request: request))
                 case let .deliverCovertResponse(response):
                     runtimeEffects.append(
-                        contentsOf: translate(
-                            engine.apply(input: .covertResponse(response), now: now),
-                            now: now
-                        )
+                        contentsOf: translateEngineInput(.covertResponse(response), now: now)
                     )
                 case let .emitProtocolFailure(summary):
                     runtimeEffects.append(
-                        contentsOf: translate(
-                            engine.apply(
-                                input: .protocolRejected(summary: summary),
-                                now: now
-                            ),
-                            now: now
-                        )
+                        contentsOf: translateEngineInput(.protocolRejected(summary: summary), now: now)
                     )
                 case let .emitTransportFailure(summary):
                     runtimeEffects.append(
-                        contentsOf: translate(
-                            engine.apply(
-                                input: .covertTransportFailed(summary: summary),
-                                now: now
-                            ),
-                            now: now
-                        )
+                        contentsOf: translateEngineInput(.covertTransportFailed(summary: summary), now: now)
                     )
                 }
             }
@@ -366,13 +331,7 @@ extension OpalFusion.Runtime {
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.PrimaryRuntimeSession.Effect] {
             recordFailureEventUnlessRoundIsTerminal(summary: summary)
-            return translate(
-                engine.apply(
-                    input: .protocolRejected(summary: summary),
-                    now: now
-                ),
-                now: now
-            )
+            return translateEngineInput(.protocolRejected(summary: summary), now: now)
         }
 
         private var shouldTracePreRoundTraffic: Bool {

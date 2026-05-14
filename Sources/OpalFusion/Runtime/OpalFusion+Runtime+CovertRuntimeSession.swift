@@ -7,6 +7,7 @@ extension OpalFusion.Runtime {
         private(set) var preparationPlan: OpalFusion.Runtime.CovertPreparationPlan?
         private(set) var queuedMessages: [OpalFusion.ProtocolModel.CovertMessage]
         private(set) var outstandingRequest: OpalFusion.Runtime.CovertRequest?
+        private var submitWindowDeadline: OpalFusion.Execution.Instant?
         private let messageEncoder: OpalFusion.Wire.CovertMessageEncoder
         private let messageDecoder: OpalFusion.Wire.CovertMessageDecoder
 
@@ -16,6 +17,7 @@ extension OpalFusion.Runtime {
             self.preparationPlan = nil
             self.queuedMessages = []
             self.outstandingRequest = nil
+            self.submitWindowDeadline = nil
             self.messageEncoder = .init()
             self.messageDecoder = .init()
         }
@@ -28,10 +30,13 @@ extension OpalFusion.Runtime {
             case let .prepare(endpointContext):
                 return handlePrepare(endpointContext: endpointContext, now: now)
             case let .enqueue(message):
-                guard endpointContext != nil else {
+                guard let endpointContext else {
                     return protocolFailure(
                         summary: "Covert request was queued before an endpoint was configured"
                     )
+                }
+                if submitWindowDeadline == nil {
+                    submitWindowDeadline = now.advanced(by: endpointContext.submitWindow)
                 }
                 queuedMessages.append(message)
                 return maybeDispatchNextRequest(now: now)
@@ -59,11 +64,15 @@ extension OpalFusion.Runtime {
             self.substate = .preparing
             self.queuedMessages = []
             self.outstandingRequest = nil
+            self.submitWindowDeadline = nil
 
+            let preparationDeadline = now.advanced(
+                by: effectiveConnectTimeout(for: endpointContext)
+            )
             let plan = OpalFusion.Runtime.CovertPreparationPlan(
                 endpoint: endpointContext,
                 startedAt: now,
-                deadline: now.advanced(by: endpointContext.connectWindow)
+                deadline: preparationDeadline
             )
             self.preparationPlan = plan
 
@@ -114,11 +123,13 @@ extension OpalFusion.Runtime {
                     return [.deliverCovertResponse(response)]
                 }
 
-                var effects: [OpalFusion.Runtime.CovertRuntimeSession.Effect] = [
-                    .deliverCovertResponse(response)
-                ]
-                effects.append(contentsOf: maybeDispatchNextRequest(now: now))
-                return effects
+                let dispatchEffects = maybeDispatchNextRequest(now: now)
+                guard dispatchEffects.isEmpty else {
+                    return dispatchEffects
+                }
+
+                submitWindowDeadline = nil
+                return [.deliverCovertResponse(response)]
             } catch {
                 reset()
                 return [
@@ -134,6 +145,12 @@ extension OpalFusion.Runtime {
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
             if let plan = preparationPlan, now > plan.deadline {
                 return transportFailure(summary: "Covert endpoint preparation timed out")
+            }
+
+            if queuedMessages.isEmpty == false,
+               let submitWindowDeadline,
+               now > submitWindowDeadline {
+                return transportFailure(summary: "Covert request timed out")
             }
 
             if let outstandingRequest, now > outstandingRequest.deadline {
@@ -168,7 +185,15 @@ extension OpalFusion.Runtime {
                     )
                 }
 
-                let deadline = now.advanced(by: effectiveSubmitTimeout(for: endpointContext))
+                let submitWindowDeadline = submitWindowDeadline
+                    ?? now.advanced(by: endpointContext.submitWindow)
+                self.submitWindowDeadline = submitWindowDeadline
+                guard now <= submitWindowDeadline else {
+                    return transportFailure(summary: "Covert request timed out")
+                }
+
+                let requestDeadline = now.advanced(by: effectiveRequestTimeout(for: endpointContext))
+                let deadline = min(requestDeadline, submitWindowDeadline)
                 let request = OpalFusion.Runtime.CovertRequest(
                     endpoint: endpointContext,
                     payload: payload,
@@ -204,9 +229,10 @@ extension OpalFusion.Runtime {
             preparationPlan = nil
             queuedMessages = []
             outstandingRequest = nil
+            submitWindowDeadline = nil
         }
 
-        private func effectiveSubmitTimeout(
+        private func effectiveRequestTimeout(
             for endpointContext: OpalFusion.Runtime.CovertEndpointContext
         ) -> Duration {
             let requestTimeoutMilliseconds = min(
@@ -218,8 +244,16 @@ extension OpalFusion.Runtime {
             )
             return min(
                 configuredTimeout,
-                endpointContext.submitTimeout,
-                endpointContext.submitWindow
+                endpointContext.submitTimeout
+            )
+        }
+
+        private func effectiveConnectTimeout(
+            for endpointContext: OpalFusion.Runtime.CovertEndpointContext
+        ) -> Duration {
+            min(
+                endpointContext.connectTimeout,
+                endpointContext.connectWindow
             )
         }
     }

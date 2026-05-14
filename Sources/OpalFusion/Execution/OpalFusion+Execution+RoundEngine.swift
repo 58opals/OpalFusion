@@ -656,7 +656,10 @@ extension OpalFusion.Execution {
             switch response {
             case .acknowledgement:
                 guard var round else {
-                    return []
+                    return failBeforeRound(
+                        error: .protocolIncompatible,
+                        summary: "Covert acknowledgement arrived out of order"
+                    )
                 }
 
                 switch round.substate {
@@ -667,7 +670,11 @@ extension OpalFusion.Execution {
                     round.substate = .awaitingResult
                     self.round = round
                 default:
-                    break
+                    return failRound(
+                        completionStatus: .protocolIncompatible,
+                        clientError: .protocolIncompatible,
+                        summary: "Covert acknowledgement arrived out of order"
+                    )
                 }
 
                 return []
@@ -982,10 +989,7 @@ extension OpalFusion.Execution {
             summary: String
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
             round = nil
-            session.isConnected = false
-            session.lastError = error
-            session.lastErrorSummary = summary
-            session.connectionSubstate = .failed
+            recordSessionFailure(error: error, summary: summary)
             return [
                 hostEvent(
                     roundIdentifier: nil,
@@ -1034,10 +1038,7 @@ extension OpalFusion.Execution {
             round.substate = .terminal
             round.completionStatus = completionStatus
             self.round = round
-            session.isConnected = false
-            session.lastError = clientError
-            session.lastErrorSummary = summary
-            session.connectionSubstate = .failed
+            recordSessionFailure(error: clientError, summary: summary)
 
             return [
                 hostEvent(
@@ -1048,6 +1049,16 @@ extension OpalFusion.Execution {
                     isTerminal: true
                 )
             ]
+        }
+
+        private mutating func recordSessionFailure(
+            error: OpalFusion.Client.Error,
+            summary: String
+        ) {
+            session.isConnected = false
+            session.lastError = error
+            session.lastErrorSummary = summary
+            session.connectionSubstate = .failed
         }
 
         private func hostEvent(

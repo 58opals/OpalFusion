@@ -572,6 +572,53 @@ struct ClientSessionValidator {
         await session.stop()
     }
 
+    @Test("Public client session reconnect policy allows immediate finite retry")
+    func validateReconnectPolicyAllowsImmediateFiniteRetry() async throws {
+        let stateObserver = RecordedClientStateObserver()
+        let transportFactories = SessionTransportFactoryRecorder(
+            primaryConnectErrors: [
+                NSError(domain: "ClientSessionValidator", code: 15),
+                nil
+            ]
+        )
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            participantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            stateObserver: stateObserver,
+            reconnectPolicy: .init(
+                initialDelay: .zero,
+                maximumDelay: .zero,
+                multiplier: 1,
+                maximumAttempts: 2
+            ),
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+
+        let retrySnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.diagnostics.activity == .retrying &&
+                $0.diagnostics.retryAttempt == 1
+        }
+        #expect(retrySnapshot.diagnostics.nextRetryDelayMilliseconds == 0)
+
+        let connectedSnapshot = try await Self.waitForSessionSnapshot(session) {
+            $0.state.isConnected && $0.lastError == nil
+        }
+        #expect(connectedSnapshot.diagnostics.activity == .running)
+        #expect(await transportFactories.primaryCount() == 2)
+
+        await session.stop()
+    }
+
     @Test("Public client session resets reconnect attempts after a successful reconnect")
     func validateReconnectAttemptResetsAfterSuccessfulReconnect() async throws {
         let stateObserver = RecordedClientStateObserver()
@@ -654,6 +701,18 @@ struct ClientSessionValidator {
         )
 
         #expect(policy.delay(forRetryAttempt: 1) == .milliseconds(Int.max))
+    }
+
+    @Test("Public client session reconnect policy disables unbounded zero-delay retry loops")
+    func validateReconnectPolicyDisablesUnboundedImmediateRetryLoop() {
+        let policy = OpalFusion.Client.ReconnectPolicy(
+            initialDelay: .zero,
+            maximumDelay: .zero,
+            multiplier: 1,
+            maximumAttempts: nil
+        )
+
+        #expect(policy.delay(forRetryAttempt: 1) == nil)
     }
 
     @Test("Public client session reconnect policy detects negative sub-millisecond delays")

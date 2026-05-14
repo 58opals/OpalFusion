@@ -703,6 +703,37 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.clientState.round == nil)
     }
 
+    @Test("Primary runtime drops earlier effects when a later frame in the same chunk fails")
+    func validateLaterFrameFailureSuppressesEarlierChunkEffects() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession()
+        try PrimaryRuntimeTestFixtures.driveThroughWarmup(session: &session)
+        let startRoundFrame = try PrimaryRuntimeTestFixtures.encodeServerFrame(
+            .startRound(PrimaryRuntimeTestFixtures.startRound)
+        )
+        let blindResponsesFrame = try PrimaryRuntimeTestFixtures.encodeServerFrame(
+            .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
+        )
+
+        let effects = session.apply(
+            input: .receivedPrimaryBytes(startRoundFrame + blindResponsesFrame),
+            now: PrimaryRuntimeTestFixtures.instant(1_030)
+        )
+
+        #expect(effects.count == 1)
+        guard case let .emitHostEvent(roundIdentifier, event) = effects[0] else {
+            Issue.record("Expected host event after out-of-order frame rejection")
+            return
+        }
+        #expect(roundIdentifier == PrimaryRuntimeTestFixtures.roundIdentifier)
+        #expect(event.kind == .failure)
+        #expect(event.phase == .completed)
+        #expect(event.summary == "Blind signature responses arrived out of order")
+        #expect(event.isTerminal)
+        #expect(session.lastError == .protocolIncompatible)
+        #expect(session.lastErrorSummary == "Blind signature responses arrived out of order")
+        #expect(session.clientState.round?.completionStatus == .protocolIncompatible)
+    }
+
     @Test("Primary runtime maps malformed covert response bytes to protocol incompatibility")
     func validateMalformedCovertResponseProjection() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()

@@ -55,16 +55,15 @@ public extension OpalFusion.Client {
 }
 
 extension OpalFusion.Client.ReconnectPolicy {
-    var isEnabled: Bool {
-        maximumAttempts != 0 &&
-            initialDelay.opalFusionMillisecondsRoundedUp > 0 &&
-            maximumDelay.opalFusionMillisecondsRoundedUp > 0
-    }
-
     func delay(
         forRetryAttempt attempt: Int
     ) -> Duration? {
-        guard isEnabled, attempt > 0 else {
+        guard maximumAttempts != 0, attempt > 0 else {
+            return nil
+        }
+
+        let initialMilliseconds = initialDelay.opalFusionMillisecondsRoundedUp
+        guard maximumAttempts != nil || initialMilliseconds > 0 else {
             return nil
         }
 
@@ -72,7 +71,6 @@ extension OpalFusion.Client.ReconnectPolicy {
             return nil
         }
 
-        let initialMilliseconds = initialDelay.opalFusionMillisecondsRoundedUp
         let maximumMilliseconds = maximumDelay.opalFusionMillisecondsRoundedUp
         let multiplierExponent = Double(attempt - 1)
         let scaledMilliseconds = Double(initialMilliseconds) * pow(multiplier, multiplierExponent)

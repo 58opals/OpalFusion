@@ -376,8 +376,14 @@ extension OpalFusion.Execution {
             let feeRateSatoshisPerKb = round.serverHello.componentFeeRateSatoshisPerKb
             var components: [OpalFusion.Execution.LocalComponentMaterial] = []
             components.reserveCapacity(numberOfComponents)
+            var reservationInputOutpoints = Set<InputOutpoint>()
 
             for (index, input) in reservation.inputs.enumerated() {
+                guard reservationInputOutpoints.insert(.init(input)).inserted else {
+                    throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
+                        "Participant reservation contains duplicate input outpoints"
+                    )
+                }
                 guard input.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
                     throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
                         "Participant input at index \(index) exceeds the maximum BCH money supply"
@@ -1302,6 +1308,11 @@ extension OpalFusion.Execution {
         private struct InputOutpoint: Hashable {
             let transactionHash: [UInt8]
             let index: UInt32
+
+            init(_ input: OpalFusion.Host.ParticipantInput) {
+                self.transactionHash = input.outpointTransactionHashBytes
+                self.index = input.outpointIndex
+            }
 
             init(_ inputComponent: OpalFusion.Commitment.InputComponent) {
                 self.transactionHash = inputComponent.outpointTransactionHash

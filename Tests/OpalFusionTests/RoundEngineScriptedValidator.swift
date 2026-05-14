@@ -575,6 +575,47 @@ struct RoundEngineScriptedValidator {
         )
     }
 
+    @Test("Round engine rejects covert acknowledgements before local covert submission")
+    func validateCovertAcknowledgementBeforeSubmissionFails() {
+        var engine = Self.makeEngine()
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+
+        Self.driveThroughStartRound(engine: &engine)
+        _ = engine.apply(
+            input: .participantReservationLoaded(Self.participantReservation),
+            now: Self.instant(1_031)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.blindSignatureResponses(Self.blindSignatureResponses)),
+            now: Self.instant(1_032)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.allCommitments(Self.allCommitments)),
+            now: Self.instant(1_034)
+        )
+
+        let acknowledgementEffects = engine.apply(
+            input: .covertResponse(.acknowledgement(.init())),
+            now: Self.instant(1_034)
+        )
+
+        #expect(engine.clientState.round?.completionStatus == .protocolIncompatible)
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(
+            acknowledgementEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Covert acknowledgement arrived out of order",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Round engine rejects late finalized transactions before signature extraction")
     func validateLateFinalizedTransactionDoesNotBuildSignatures() {
         var engine = OpalFusion.Execution.RoundEngine(
