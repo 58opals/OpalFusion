@@ -14,7 +14,7 @@ This bootstrap keeps the package intentionally narrow:
 
 ## Current Status
 
-- Class `D` dual-remote package scaffold.
+- Initial public package scaffold.
 - Minimal public `OpalFusion` namespace and host boundary only.
 - No external package dependencies yet.
 - Real interop work, protocol message models, and `OpalCrypto` wiring come later.
