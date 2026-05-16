@@ -306,8 +306,8 @@ struct OpalFusionDiagnosticsValidator {
                 ),
                 fields: [
                     OpalFusionDiagnostics.makeOperationField("covert_request")
-                ] + OpalFusionDiagnostics.makeErrorFields(for: 
-                    OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(503)
+                ] + OpalFusionDiagnostics.makeErrorFields(
+                    for: OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(503)
                 )
             )
             _ = session.apply(
@@ -335,8 +335,8 @@ struct OpalFusionDiagnosticsValidator {
                 category: OpalFusion.Diagnostics.Categories.transport,
                 fields: [
                     OpalFusionDiagnostics.makeOperationField("primary_read")
-                ] + OpalFusionDiagnostics.makeErrorFields(for: 
-                    OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
+                ] + OpalFusionDiagnostics.makeErrorFields(
+                    for: OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
                 )
             )
             _ = session.apply(
