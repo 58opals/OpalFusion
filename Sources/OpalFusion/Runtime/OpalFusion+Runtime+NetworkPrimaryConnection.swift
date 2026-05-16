@@ -133,9 +133,9 @@ extension OpalFusion.Runtime {
         ) async {
             OpalFusionDiagnostics.record(
                 Self.makeDiagnosticsEvent(for: state),
-                category: OpalFusionDiagnostics.Category.transport,
+                category: OpalFusion.Diagnostics.Categories.transport,
                 fields: [
-                    OpalFusionDiagnostics.operationField("primary_network_state"),
+                    OpalFusionDiagnostics.makeOperationField("primary_network_state"),
                     OpalFusionDiagnostics.publicField("phase", Self.describe(state))
                 ] + Self.errorFields(for: state)
             )
@@ -378,17 +378,17 @@ extension OpalFusion.Runtime {
         ) -> OpalFusion.Diagnostics.Event {
             switch state {
             case .ready:
-                OpalFusionDiagnostics.Event.primaryConnectionReady
+                OpalFusion.Diagnostics.Events.primaryConnectionReady
             case .waiting:
-                OpalFusionDiagnostics.Event.primaryConnectionWaiting
+                OpalFusion.Diagnostics.Events.primaryConnectionWaiting
             case .cancelled:
-                OpalFusionDiagnostics.Event.primaryConnectionCancelled
+                OpalFusion.Diagnostics.Events.primaryConnectionCancelled
             case .failed:
-                OpalFusionDiagnostics.Event.transportError
+                OpalFusion.Diagnostics.Events.transportError
             case .setup, .preparing:
-                OpalFusionDiagnostics.Event.primaryConnectionPreparing
+                OpalFusion.Diagnostics.Events.primaryConnectionPreparing
             @unknown default:
-                OpalFusionDiagnostics.Event.transportError
+                OpalFusion.Diagnostics.Events.transportError
             }
         }
 
@@ -397,7 +397,7 @@ extension OpalFusion.Runtime {
         ) -> [OpalFusionDiagnostics.Field] {
             switch state {
             case let .waiting(error), let .failed(error):
-                OpalFusionDiagnostics.errorFields(error)
+                OpalFusionDiagnostics.makeErrorFields(for: error)
             default:
                 []
             }

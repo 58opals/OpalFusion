@@ -7,6 +7,7 @@ extension OpalFusion.Runtime.PrimaryRuntimeSession {
         case disconnected
         case stopped
         case primaryTransportFailed(summary: String)
+        case diagnosedPrimaryTransportFailed(summary: String)
         case receivedPrimaryBytes([UInt8])
         case covertPrepared
         case covertPreparationFailed(summary: String)

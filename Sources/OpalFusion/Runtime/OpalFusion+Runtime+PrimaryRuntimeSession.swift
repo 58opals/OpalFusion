@@ -78,10 +78,10 @@ extension OpalFusion.Runtime {
                 let payloads = try frameDecoder.append(bytes)
                 guard payloads.count == 1 else {
                     OpalFusionDiagnostics.record(
-                        OpalFusionDiagnostics.Event.primaryMessageDecodeFailed,
-                        category: OpalFusionDiagnostics.Category.primary,
+                        OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed,
+                        category: OpalFusion.Diagnostics.Categories.primary,
                         fields: [
-                            OpalFusionDiagnostics.operationField("primary_preround_outbound_decode"),
+                            OpalFusionDiagnostics.makeOperationField("primary_preround_outbound_decode"),
                             OpalFusionDiagnostics.frameByteCountField(bytes.count),
                             OpalFusionDiagnostics.publicField(
                                 "error_code",
@@ -99,12 +99,12 @@ extension OpalFusion.Runtime {
                 )
             } catch {
                 OpalFusionDiagnostics.record(
-                    OpalFusionDiagnostics.Event.primaryMessageDecodeFailed,
-                    category: OpalFusionDiagnostics.Category.primary,
+                    OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed,
+                    category: OpalFusion.Diagnostics.Categories.primary,
                     fields: [
-                        OpalFusionDiagnostics.operationField("primary_preround_outbound_decode"),
+                        OpalFusionDiagnostics.makeOperationField("primary_preround_outbound_decode"),
                         OpalFusionDiagnostics.frameByteCountField(bytes.count)
-                    ] + OpalFusionDiagnostics.errorFields(error)
+                    ] + OpalFusionDiagnostics.makeErrorFields(for: error)
                 )
             }
         }
@@ -137,6 +137,12 @@ extension OpalFusion.Runtime {
                 return translateEngineInput(.stopped, now: now)
             case let .primaryTransportFailed(summary):
                 recordFailureEventUnlessRoundIsTerminal(summary: summary)
+                return translateEngineInput(.primaryTransportFailed(summary: summary), now: now)
+            case let .diagnosedPrimaryTransportFailed(summary):
+                recordFailureEventUnlessRoundIsTerminal(
+                    summary: summary,
+                    recordDiagnostics: false
+                )
                 return translateEngineInput(.primaryTransportFailed(summary: summary), now: now)
             case let .receivedPrimaryBytes(bytes):
                 return handleReceivedPrimaryBytes(bytes, now: now)
@@ -219,12 +225,12 @@ extension OpalFusion.Runtime {
             } catch {
                 if shouldTracePreRoundTraffic {
                     OpalFusionDiagnostics.record(
-                        OpalFusionDiagnostics.Event.primaryMessageDecodeFailed,
-                        category: OpalFusionDiagnostics.Category.primary,
+                        OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed,
+                        category: OpalFusion.Diagnostics.Categories.primary,
                         fields: [
-                            OpalFusionDiagnostics.operationField("primary_inbound_decode"),
+                            OpalFusionDiagnostics.makeOperationField("primary_inbound_decode"),
                             OpalFusionDiagnostics.frameByteCountField(bytes.count)
-                        ] + OpalFusionDiagnostics.errorFields(error)
+                        ] + OpalFusionDiagnostics.makeErrorFields(for: error)
                     )
                 }
                 return protocolFailureEffects(
@@ -249,17 +255,17 @@ extension OpalFusion.Runtime {
                         runtimeEffects.append(.writePrimaryBytes(framed))
                     } catch {
                         OpalFusionDiagnostics.record(
-                            OpalFusionDiagnostics.Event.primaryMessageEncodeFailed,
-                            category: OpalFusionDiagnostics.Category.primary,
+                            OpalFusion.Diagnostics.Events.primaryMessageEncodeFailed,
+                            category: OpalFusion.Diagnostics.Categories.primary,
                             traceID: OpalFusionDiagnostics.makeTraceID(
                                 for: engine.round?.identifier
                             ),
                             fields: [
-                                OpalFusionDiagnostics.operationField("primary_message_encode"),
+                                OpalFusionDiagnostics.makeOperationField("primary_message_encode"),
                                 OpalFusionDiagnostics.messageKindField(
-                                    OpalFusionDiagnostics.messageKind(for: message)
+                                    OpalFusionDiagnostics.makeMessageKind(for: message)
                                 )
-                            ] + OpalFusionDiagnostics.errorFields(error)
+                            ] + OpalFusionDiagnostics.makeErrorFields(for: error)
                         )
                         return runtimeEffects + protocolFailureEffects(
                             summary: "Primary wire encode failed",
@@ -463,7 +469,7 @@ extension OpalFusion.Runtime {
                     )
                 )
                 var fields = [
-                    OpalFusionDiagnostics.operationField("primary_message_receive"),
+                    OpalFusionDiagnostics.makeOperationField("primary_message_receive"),
                     OpalFusionDiagnostics.messageKindField("ServerFailure"),
                     OpalFusionDiagnostics.payloadByteCountField(payloadBytes)
                 ]
@@ -471,8 +477,8 @@ extension OpalFusion.Runtime {
                     fields.append(OpalFusionDiagnostics.privateField("error_message", message))
                 }
                 OpalFusionDiagnostics.record(
-                    OpalFusionDiagnostics.Event.primaryMessageReceived,
-                    category: OpalFusionDiagnostics.Category.primary,
+                    OpalFusion.Diagnostics.Events.primaryMessageReceived,
+                    category: OpalFusion.Diagnostics.Categories.primary,
                     fields: fields
                 )
             case .startRound, .blindSignatureResponses, .allCommitments, .shareCovertComponents,
@@ -540,10 +546,10 @@ extension OpalFusion.Runtime {
         ) {
             preRoundTrace.handshakeStage = handshakeStage
             OpalFusionDiagnostics.record(
-                OpalFusionDiagnostics.Event.handshakePhaseChanged,
-                category: OpalFusionDiagnostics.Category.primary,
+                OpalFusion.Diagnostics.Events.handshakePhaseChanged,
+                category: OpalFusion.Diagnostics.Categories.primary,
                 fields: [
-                    OpalFusionDiagnostics.operationField("handshake"),
+                    OpalFusionDiagnostics.makeOperationField("handshake"),
                     OpalFusionDiagnostics.publicField(
                         "phase",
                         handshakeStage.rawValue
@@ -561,20 +567,21 @@ extension OpalFusion.Runtime {
 
         private mutating func recordFailureEvent(
             summary: String,
-            errorCode: String = OpalFusion.Diagnostics.ErrorCodes.transportUnavailable
+            errorCode: String = OpalFusion.Diagnostics.ErrorCodes.transportUnavailable,
+            recordDiagnostics: Bool = true
         ) {
-            OpalFusionDiagnostics.record(
-                OpalFusionDiagnostics.Event.transportError,
-                category: OpalFusionDiagnostics.Category.transport,
-                fields: [
-                    OpalFusionDiagnostics.operationField("primary_runtime"),
-                    OpalFusionDiagnostics.publicField(
-                        "error_code",
-                        errorCode
-                    ),
-                    OpalFusionDiagnostics.privateField("error_message", summary)
-                ]
-            )
+            if recordDiagnostics {
+                OpalFusionDiagnostics.record(
+                    OpalFusion.Diagnostics.Events.transportError,
+                    category: OpalFusion.Diagnostics.Categories.transport,
+                    fields: [
+                        OpalFusionDiagnostics.makeOperationField("primary_runtime")
+                    ] + OpalFusionDiagnostics.makeSanitizedSummaryFields(
+                        errorCode: errorCode,
+                        summary: summary
+                    )
+                )
+            }
             appendDiagnosticEvent(
                 .init(
                     kind: .failure,
@@ -585,13 +592,17 @@ extension OpalFusion.Runtime {
         }
 
         private mutating func recordFailureEventUnlessRoundIsTerminal(
-            summary: String
+            summary: String,
+            recordDiagnostics: Bool = true
         ) {
             guard engine.round?.substate != .terminal else {
                 return
             }
 
-            recordFailureEvent(summary: summary)
+            recordFailureEvent(
+                summary: summary,
+                recordDiagnostics: recordDiagnostics
+            )
         }
 
         private mutating func appendDiagnosticEvent(
@@ -620,7 +631,7 @@ extension OpalFusion.Runtime {
             payloadBytes: Int
         ) {
             recordPrimaryMessage(
-                OpalFusionDiagnostics.Event.primaryMessageReceived,
+                OpalFusion.Diagnostics.Events.primaryMessageReceived,
                 operation: "primary_message_receive",
                 messageKind: messageKind,
                 payloadBytes: payloadBytes
@@ -632,7 +643,7 @@ extension OpalFusion.Runtime {
             payloadBytes: Int
         ) {
             recordPrimaryMessage(
-                OpalFusionDiagnostics.Event.primaryMessageSent,
+                OpalFusion.Diagnostics.Events.primaryMessageSent,
                 operation: "primary_message_send",
                 messageKind: messageKind,
                 payloadBytes: payloadBytes
@@ -647,9 +658,9 @@ extension OpalFusion.Runtime {
         ) {
             OpalFusionDiagnostics.record(
                 event,
-                category: OpalFusionDiagnostics.Category.primary,
+                category: OpalFusion.Diagnostics.Categories.primary,
                 fields: [
-                    OpalFusionDiagnostics.operationField(operation),
+                    OpalFusionDiagnostics.makeOperationField(operation),
                     OpalFusionDiagnostics.messageKindField(messageKind),
                     OpalFusionDiagnostics.payloadByteCountField(payloadBytes)
                 ]

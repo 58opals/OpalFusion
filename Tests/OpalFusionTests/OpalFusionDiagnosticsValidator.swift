@@ -16,8 +16,8 @@ struct OpalFusionDiagnosticsValidator {
         let event: OpalFusion.Diagnostics.Event = OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed
         let level: OpalFusion.Diagnostics.Level = .error
 
-        #expect(category == OpalFusionDiagnostics.Category.primary)
-        #expect(event == OpalFusionDiagnostics.Event.primaryMessageDecodeFailed)
+        #expect(category == OpalFusion.Diagnostics.Categories.primary)
+        #expect(event == OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed)
         #expect(level == .error)
         #expect(OpalFusion.Diagnostics.ErrorCodes.relayedProofValidationFailed == "relayed_proof_validation_failed")
     }
@@ -26,10 +26,10 @@ struct OpalFusionDiagnosticsValidator {
     func fusionCategoryFilterIncludesSubcategories() {
         withDiagnosticsCapture {
             OpalFusionDiagnostics.record(
-                OpalFusionDiagnostics.Event.primaryMessageDecodeFailed,
-                category: OpalFusionDiagnostics.Category.primary,
+                OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed,
+                category: OpalFusion.Diagnostics.Categories.primary,
                 fields: [
-                    OpalFusionDiagnostics.operationField("primary_decode")
+                    OpalFusionDiagnostics.makeOperationField("primary_decode")
                 ]
             )
             OpalDiagnostics.logger(category: .crypto).record(
@@ -133,6 +133,33 @@ struct OpalFusionDiagnosticsValidator {
         }
     }
 
+    @Test("Covert preparation timeouts record prepare failure diagnostics")
+    func covertPreparationTimeoutsRecordPrepareFailureDiagnostics() throws {
+        try withDiagnosticsCapture {
+            var session = PrimaryRuntimeTestFixtures.makeCovertSession()
+            _ = session.apply(
+                input: .prepare(endpointContext: PrimaryRuntimeTestFixtures.covertEndpointContext),
+                now: PrimaryRuntimeTestFixtures.instant(1_000)
+            )
+
+            OpalDiagnostics.clearRecentRecords()
+            let effects = session.apply(
+                input: .clockAdvanced,
+                now: PrimaryRuntimeTestFixtures.instant(10_000)
+            )
+
+            #expect(effects == [.emitTransportFailure(summary: "Covert endpoint preparation timed out")])
+            let record = try #require(findDiagnosticRecord(named: OpalFusion.Diagnostics.Events.covertPrepareFailed))
+            #expect(findField("operation", in: record)?.value == "covert_prepare")
+            #expect(findField("error_code", in: record)?.value == OpalFusion.Diagnostics.ErrorCodes.transportUnavailable)
+            #expect(
+                OpalDiagnostics.recentRecords(
+                    matching: .init(event: OpalFusion.Diagnostics.Events.covertRequestFailed)
+                ).isEmpty
+            )
+        }
+    }
+
     @Test("Round events use the round identifier as trace ID")
     func roundEventsUseRoundIdentifierTraceID() throws {
         try withDiagnosticsCapture {
@@ -222,6 +249,181 @@ struct OpalFusionDiagnosticsValidator {
             #expect(findField("operation", in: record)?.value == "host_event")
             #expect(findField("error_code", in: record)?.value == OpalFusion.Diagnostics.ErrorCodes.transportUnavailable)
             #expect(findField("error_message", in: record)?.value == "<redacted>")
+        }
+    }
+
+    @Test("Primary connect failure records one lifecycle failure event")
+    func primaryConnectFailureRecordsOneLifecycleFailureEvent() async throws {
+        try await withDiagnosticsCapture {
+            let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+                configuration: PrimaryRuntimeTestFixtures.configuration,
+                genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+                joinPools: PrimaryRuntimeTestFixtures.joinPools,
+                participantReservationSource: HostParticipantReservationSourceAdapter(
+                    participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+                ),
+                transactionAssembler: HostTransactionAssemblerAdapter(
+                    finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+                ),
+                primaryTransport: ScriptedPrimaryTransport(
+                    connectError: NSError(domain: "OpalFusionDiagnosticsValidator", code: 1)
+                )
+            )
+
+            await driver.start()
+
+            let records = OpalDiagnostics.recentRecords(
+                matching: .init(event: OpalFusion.Diagnostics.Events.primaryConnectFailed)
+            )
+            #expect(records.count == 1)
+            let record = try #require(records.first)
+            #expect(findField("operation", in: record)?.value == "primary_connect")
+            #expect(findField("error_code", in: record)?.value == OpalFusion.Diagnostics.ErrorCodes.unknown)
+            #expect(findField("error_message", in: record)?.value == "<redacted>")
+        }
+    }
+
+    @Test("Driver-level covert request failures are not duplicated by session state")
+    func driverLevelCovertRequestFailuresAreNotDuplicatedBySessionState() throws {
+        try withDiagnosticsCapture {
+            var session = PrimaryRuntimeTestFixtures.makeCovertSession()
+            _ = session.apply(
+                input: .prepare(endpointContext: PrimaryRuntimeTestFixtures.covertEndpointContext),
+                now: PrimaryRuntimeTestFixtures.instant(1_000)
+            )
+            _ = session.apply(input: .covertPrepared, now: PrimaryRuntimeTestFixtures.instant(1_001))
+            _ = session.apply(
+                input: .enqueue(message: PrimaryRuntimeTestFixtures.pingMessage),
+                now: PrimaryRuntimeTestFixtures.instant(1_002)
+            )
+
+            OpalDiagnostics.clearRecentRecords()
+            OpalFusionDiagnostics.record(
+                OpalFusion.Diagnostics.Events.covertRequestFailed,
+                category: OpalFusion.Diagnostics.Categories.covert,
+                traceID: OpalFusionDiagnostics.makeTraceID(
+                    for: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier
+                ),
+                fields: [
+                    OpalFusionDiagnostics.makeOperationField("covert_request")
+                ] + OpalFusionDiagnostics.makeErrorFields(for: 
+                    OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(503)
+                )
+            )
+            _ = session.apply(
+                input: .covertRequestFailed(summary: "Covert request failed"),
+                now: PrimaryRuntimeTestFixtures.instant(1_003)
+            )
+
+            let records = OpalDiagnostics.recentRecords(
+                matching: .init(event: OpalFusion.Diagnostics.Events.covertRequestFailed)
+            )
+            #expect(records.count == 1)
+            let record = try #require(records.first)
+            #expect(findField("operation", in: record)?.value == "covert_request")
+            #expect(findField("error_code", in: record)?.value == OpalFusion.Diagnostics.ErrorCodes.unexpectedHTTPStatus)
+        }
+    }
+
+    @Test("Driver-level primary transport failures are not duplicated by session state")
+    func driverLevelPrimaryTransportFailuresAreNotDuplicatedBySessionState() throws {
+        try withDiagnosticsCapture {
+            var session = PrimaryRuntimeTestFixtures.makeSession()
+
+            OpalFusionDiagnostics.record(
+                OpalFusion.Diagnostics.Events.transportError,
+                category: OpalFusion.Diagnostics.Categories.transport,
+                fields: [
+                    OpalFusionDiagnostics.makeOperationField("primary_read")
+                ] + OpalFusionDiagnostics.makeErrorFields(for: 
+                    OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
+                )
+            )
+            _ = session.apply(
+                input: .diagnosedPrimaryTransportFailed(summary: "Primary read failed"),
+                now: PrimaryRuntimeTestFixtures.instant(1_003)
+            )
+
+            let records = OpalDiagnostics.recentRecords(
+                matching: .init(event: OpalFusion.Diagnostics.Events.transportError)
+            )
+            #expect(records.count == 1)
+            let record = try #require(records.first)
+            #expect(findField("operation", in: record)?.value == "primary_read")
+            #expect(findField("error_code", in: record)?.value == OpalFusion.Diagnostics.ErrorCodes.primaryConnectionNotReady)
+            #expect(session.diagnostics(activity: .failed).recentEvents.contains {
+                $0.kind == .failure && $0.summary == "Primary read failed"
+            })
+        }
+    }
+
+    @Test("Primary read failures inside a round keep the round trace ID")
+    func primaryReadFailuresInsideRoundKeepTraceID() async throws {
+        try await withDiagnosticsCapture {
+            let primaryTransport = ScriptedPrimaryTransport()
+            let covertTransport = ScriptedCovertTransport()
+            let nowProvider = ScriptedInstantClock(unixSeconds: 995)
+            let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+                configuration: PrimaryRuntimeTestFixtures.configuration,
+                genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+                joinPools: PrimaryRuntimeTestFixtures.joinPools,
+                workflow: PrimaryRuntimeTestFixtures.workflow,
+                participantReservationSource: HostParticipantReservationSourceAdapter(
+                    participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+                ),
+                transactionAssembler: HostTransactionAssemblerAdapter(
+                    finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+                ),
+                nowProvider: { await nowProvider.now() },
+                primaryTransport: primaryTransport,
+                covertTransport: covertTransport
+            )
+
+            await driver.start()
+            try await waitForWrittenPayloadCount(primaryTransport, count: 1)
+            await nowProvider.update(unixSeconds: 996)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+                )
+            )
+            try await waitForWrittenPayloadCount(primaryTransport, count: 2)
+            await nowProvider.update(unixSeconds: 1_000)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
+                )
+            )
+            _ = try await waitForDiagnosticRecord(
+                named: OpalFusion.Diagnostics.Events.covertPrepareSucceeded
+            )
+            await nowProvider.update(unixSeconds: 1_030)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .startRound(PrimaryRuntimeTestFixtures.startRound)
+                )
+            )
+
+            let roundRecord = try await waitForDiagnosticRecord(
+                named: OpalFusion.Diagnostics.Events.roundEntered
+            )
+            let roundTraceID = OpalFusion.Diagnostics.TraceID(
+                rawValue: PrimaryRuntimeTestFixtures.roundIdentifier.rawValue
+            )
+            #expect(roundRecord.traceID == roundTraceID)
+
+            OpalDiagnostics.clearRecentRecords()
+            await primaryTransport.finishInbound(
+                throwing: LiveRuntimeTestSupportError.inboundStreamClosed
+            )
+
+            let record = try await waitForDiagnosticRecord(
+                named: OpalFusion.Diagnostics.Events.transportError
+            )
+            #expect(record.traceID == roundTraceID)
+            #expect(findField("operation", in: record)?.value == "primary_read")
+
+            await driver.stop()
         }
     }
 
@@ -373,6 +575,20 @@ struct OpalFusionDiagnosticsValidator {
         record.fields.first { $0.name == name }
     }
 
+    private func waitForDiagnosticRecord(
+        named event: OpalDiagnostics.Event
+    ) async throws -> OpalDiagnostics.Record {
+        try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            while true {
+                if let record = findDiagnosticRecord(named: event) {
+                    return record
+                }
+
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
     private func waitForObservedSnapshot(
         _ stateObserver: RecordedClientStateObserver,
         matching predicate: @escaping @Sendable (
@@ -415,4 +631,5 @@ struct OpalFusionDiagnosticsValidator {
             }
         }
     }
+
 }

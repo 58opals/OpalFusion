@@ -225,8 +225,8 @@ extension OpalFusion.Execution {
                     recordBlameProofValidationFailure(
                         roundIdentifier: round.identifier,
                         fields: [
-                            OpalFusionDiagnostics.operationField("proof_decrypt")
-                        ] + OpalFusionDiagnostics.errorFields(error)
+                            OpalFusionDiagnostics.makeOperationField("proof_decrypt")
+                        ] + OpalFusionDiagnostics.makeErrorFields(for: error)
                     )
                     blames.append(
                         .init(
@@ -250,11 +250,11 @@ extension OpalFusion.Execution {
                 } catch let error as OpalFusion.Execution.RelayedProofValidationFailure {
                     recordBlameProofValidationFailure(
                         roundIdentifier: round.identifier,
-                        fields: OpalFusionDiagnostics.sanitizedSummaryFields(
+                        fields: OpalFusionDiagnostics.makeSanitizedSummaryFields(
                             errorCode: OpalFusion.Diagnostics.ErrorCodes.relayedProofValidationFailed,
                             summary: error.reason
                         ) + [
-                            OpalFusionDiagnostics.operationField("proof_validation")
+                            OpalFusionDiagnostics.makeOperationField("proof_validation")
                         ]
                     )
                     blames.append(
@@ -1302,8 +1302,8 @@ extension OpalFusion.Execution {
             fields: [OpalFusionDiagnostics.Field]
         ) {
             OpalFusionDiagnostics.record(
-                OpalFusionDiagnostics.Event.blameProofValidationFailed,
-                category: OpalFusionDiagnostics.Category.blame,
+                OpalFusion.Diagnostics.Events.blameProofValidationFailed,
+                category: OpalFusion.Diagnostics.Categories.blame,
                 traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
                 fields: fields
             )

@@ -6,52 +6,6 @@ import OpalDiagnostics
 enum OpalFusionDiagnostics {
     typealias Field = OpalDiagnostics.Field
 
-    enum Category {
-        static let fusion = OpalFusion.Diagnostics.Categories.fusion
-        static let primary = OpalFusion.Diagnostics.Categories.primary
-        static let covert = OpalFusion.Diagnostics.Categories.covert
-        static let round = OpalFusion.Diagnostics.Categories.round
-        static let transaction = OpalFusion.Diagnostics.Categories.transaction
-        static let blame = OpalFusion.Diagnostics.Categories.blame
-        static let transport = OpalFusion.Diagnostics.Categories.transport
-    }
-
-    enum Event {
-        static let primaryConnectStarted = OpalFusion.Diagnostics.Events.primaryConnectStarted
-        static let primaryConnectSucceeded = OpalFusion.Diagnostics.Events.primaryConnectSucceeded
-        static let primaryConnectFailed = OpalFusion.Diagnostics.Events.primaryConnectFailed
-        static let primaryConnectionPreparing = OpalFusion.Diagnostics.Events.primaryConnectionPreparing
-        static let primaryConnectionReady = OpalFusion.Diagnostics.Events.primaryConnectionReady
-        static let primaryConnectionWaiting = OpalFusion.Diagnostics.Events.primaryConnectionWaiting
-        static let primaryConnectionCancelled = OpalFusion.Diagnostics.Events.primaryConnectionCancelled
-        static let primaryConnectionPeerEOF = OpalFusion.Diagnostics.Events.primaryConnectionPeerEOF
-        static let primaryMessageSent = OpalFusion.Diagnostics.Events.primaryMessageSent
-        static let primaryMessageReceived = OpalFusion.Diagnostics.Events.primaryMessageReceived
-        static let primaryMessageEncodeFailed = OpalFusion.Diagnostics.Events.primaryMessageEncodeFailed
-        static let primaryMessageDecodeFailed = OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed
-        static let primaryRetryScheduled = OpalFusion.Diagnostics.Events.primaryRetryScheduled
-        static let handshakePhaseChanged = OpalFusion.Diagnostics.Events.handshakePhaseChanged
-        static let covertPrepareStarted = OpalFusion.Diagnostics.Events.covertPrepareStarted
-        static let covertPrepareSucceeded = OpalFusion.Diagnostics.Events.covertPrepareSucceeded
-        static let covertPrepareFailed = OpalFusion.Diagnostics.Events.covertPrepareFailed
-        static let covertRequestStarted = OpalFusion.Diagnostics.Events.covertRequestStarted
-        static let covertRequestSucceeded = OpalFusion.Diagnostics.Events.covertRequestSucceeded
-        static let covertRequestFailed = OpalFusion.Diagnostics.Events.covertRequestFailed
-        static let covertMessageEncodeFailed = OpalFusion.Diagnostics.Events.covertMessageEncodeFailed
-        static let covertResponseDecodeFailed = OpalFusion.Diagnostics.Events.covertResponseDecodeFailed
-        static let roundEntered = OpalFusion.Diagnostics.Events.roundEntered
-        static let roundProgressed = OpalFusion.Diagnostics.Events.roundProgressed
-        static let roundCompleted = OpalFusion.Diagnostics.Events.roundCompleted
-        static let roundFailed = OpalFusion.Diagnostics.Events.roundFailed
-        static let roundRestarted = OpalFusion.Diagnostics.Events.roundRestarted
-        static let transactionProposalFailed = OpalFusion.Diagnostics.Events.transactionProposalFailed
-        static let transactionFinalizationSucceeded = OpalFusion.Diagnostics.Events.transactionFinalizationSucceeded
-        static let transactionFinalizationFailed = OpalFusion.Diagnostics.Events.transactionFinalizationFailed
-        static let blameProofValidationFailed = OpalFusion.Diagnostics.Events.blameProofValidationFailed
-        static let blameSubmissionStarted = OpalFusion.Diagnostics.Events.blameSubmissionStarted
-        static let transportError = OpalFusion.Diagnostics.Events.transportError
-    }
-
     static func record(
         _ event: OpalDiagnostics.Event,
         category: OpalDiagnostics.Category,
@@ -75,10 +29,6 @@ enum OpalFusionDiagnostics {
         OpalDiagnostics.Field(name: name, value: value)
     }
 
-    static func publicField(_ name: String, _ value: UInt64) -> OpalDiagnostics.Field {
-        OpalDiagnostics.Field(name: name, value: value)
-    }
-
     static func publicField(_ name: String, _ value: Bool) -> OpalDiagnostics.Field {
         OpalDiagnostics.Field(name: name, value: value)
     }
@@ -87,7 +37,7 @@ enum OpalFusionDiagnostics {
         OpalDiagnostics.Field(name: name, value: value, privacy: .private)
     }
 
-    static func operationField(_ operation: String) -> OpalDiagnostics.Field {
+    static func makeOperationField(_ operation: String) -> OpalDiagnostics.Field {
         publicField("operation", operation)
     }
 
@@ -131,7 +81,7 @@ enum OpalFusionDiagnostics {
         return OpalDiagnostics.TraceID(rawValue: roundIdentifier.rawValue)
     }
 
-    static func errorFields(_ error: Swift.Error) -> [OpalDiagnostics.Field] {
+    static func makeErrorFields(for error: Swift.Error) -> [OpalDiagnostics.Field] {
         [
             publicField("error_code", errorCode(for: error)),
             publicField("error_type", String(reflecting: Swift.type(of: error))),
@@ -139,7 +89,7 @@ enum OpalFusionDiagnostics {
         ]
     }
 
-    static func sanitizedSummaryFields(
+    static func makeSanitizedSummaryFields(
         errorCode: String,
         summary: String
     ) -> [OpalDiagnostics.Field] {
@@ -151,7 +101,7 @@ enum OpalFusionDiagnostics {
 }
 
 extension OpalFusionDiagnostics {
-    static func messageKind(
+    static func makeMessageKind(
         for message: OpalFusion.ProtocolModel.ClientMessage
     ) -> String {
         switch message {
@@ -168,7 +118,7 @@ extension OpalFusionDiagnostics {
         }
     }
 
-    static func messageKind(
+    static func makeMessageKind(
         for message: OpalFusion.ProtocolModel.ServerMessage
     ) -> String {
         switch message {
@@ -197,7 +147,7 @@ extension OpalFusionDiagnostics {
         }
     }
 
-    static func messageKind(
+    static func makeMessageKind(
         for message: OpalFusion.ProtocolModel.CovertMessage
     ) -> String {
         switch message {
@@ -210,7 +160,7 @@ extension OpalFusionDiagnostics {
         }
     }
 
-    static func messageKind(
+    static func makeMessageKind(
         for response: OpalFusion.ProtocolModel.CovertResponse
     ) -> String {
         switch response {
@@ -224,7 +174,7 @@ extension OpalFusionDiagnostics {
 
 extension OpalFusionDiagnostics {
     private static func defaultLevel(for event: OpalDiagnostics.Event) -> OpalDiagnostics.Level {
-        if event.rawValue.hasSuffix(".failed") || event == Event.transportError {
+        if event.rawValue.hasSuffix(".failed") || event == OpalFusion.Diagnostics.Events.transportError {
             return .error
         }
 
