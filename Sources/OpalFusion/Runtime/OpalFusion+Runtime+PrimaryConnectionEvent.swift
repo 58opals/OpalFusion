@@ -3,7 +3,6 @@
 import CFNetwork
 import Foundation
 import Network
-import OSLog
 import Security
 
 extension OpalFusion.Runtime {

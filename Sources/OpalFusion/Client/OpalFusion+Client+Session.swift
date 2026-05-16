@@ -273,11 +273,21 @@ public extension OpalFusion.Client {
             attempt: Int,
             delay: Duration
         ) async {
+            let retryDelayMilliseconds = delay.opalFusionMillisecondsRoundedUp
+            OpalFusionDiagnostics.record(
+                OpalFusionDiagnostics.Event.primaryRetryScheduled,
+                category: OpalFusionDiagnostics.Category.primary,
+                fields: [
+                    OpalFusionDiagnostics.operationField("primary_reconnect"),
+                    OpalFusionDiagnostics.retryAttemptField(attempt),
+                    OpalFusionDiagnostics.retryDelayMillisecondsField(retryDelayMilliseconds)
+                ]
+            )
             let event = OpalFusion.Client.Diagnostics.Event(
                 kind: .retry,
                 summary: "Primary reconnect scheduled",
                 retryAttempt: attempt,
-                retryDelayMilliseconds: delay.opalFusionMillisecondsRoundedUp,
+                retryDelayMilliseconds: retryDelayMilliseconds,
                 handshakeStage: lastEmittedSnapshot.diagnostics.handshakeStage
             )
             let diagnostics = lastEmittedSnapshot.diagnostics

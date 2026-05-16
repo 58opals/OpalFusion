@@ -3,7 +3,6 @@
 import CFNetwork
 import Foundation
 import Network
-import OSLog
 import Security
 
 extension OpalFusion.Runtime {
@@ -13,11 +12,6 @@ extension OpalFusion.Runtime {
             UInt16,
             NWParameters
         ) -> any OpalFusion.Runtime.PrimaryConnectioning
-
-        private static let logger = Logger(
-            subsystem: "OpalFusion",
-            category: "LivePrimaryTransport"
-        )
 
         private let host: String
         private let port: UInt16
@@ -69,8 +63,12 @@ extension OpalFusion.Runtime {
                 throwing: Error.self
             )
 
-            Self.logger.debug(
-                "primary connect start host=\(self.host, privacy: .public) port=\(Int(self.port), privacy: .public) tls=\(self.requiresTLS, privacy: .public)"
+            OpalFusionDiagnostics.record(
+                OpalFusionDiagnostics.Event.primaryConnectStarted,
+                category: OpalFusionDiagnostics.Category.primary,
+                fields: [
+                    OpalFusionDiagnostics.operationField("primary_connect")
+                ]
             )
 
             let connection = connectionFactory(
@@ -92,8 +90,22 @@ extension OpalFusion.Runtime {
                     )
                 }
                 self.eventTask = eventTask
+                OpalFusionDiagnostics.record(
+                    OpalFusionDiagnostics.Event.primaryConnectSucceeded,
+                    category: OpalFusionDiagnostics.Category.primary,
+                    fields: [
+                        OpalFusionDiagnostics.operationField("primary_connect")
+                    ]
+                )
                 return inboundStream
             } catch {
+                OpalFusionDiagnostics.record(
+                    OpalFusionDiagnostics.Event.primaryConnectFailed,
+                    category: OpalFusionDiagnostics.Category.primary,
+                    fields: [
+                        OpalFusionDiagnostics.operationField("primary_connect")
+                    ] + OpalFusionDiagnostics.errorFields(error)
+                )
                 clearConnectionIfCurrent(connectionID)
                 throw error
             }
@@ -128,30 +140,40 @@ extension OpalFusion.Runtime {
             for await event in eventStream {
                 switch event {
                 case .ready:
-                    Self.logger.debug("primary state transition state=ready")
+                    recordPrimaryConnectionEvent(OpalFusionDiagnostics.Event.primaryConnectionReady)
                 case let .waiting(error):
-                    Self.logger.debug(
-                        "primary state waiting error=\(String(describing: error), privacy: .private)"
+                    recordPrimaryConnectionEvent(
+                        OpalFusionDiagnostics.Event.primaryConnectionWaiting,
+                        fields: OpalFusionDiagnostics.errorFields(error)
                     )
                 case let .received(data):
-                    Self.logger.debug(
-                        "primary receive bytes count=\(data.count, privacy: .public)"
+                    OpalFusionDiagnostics.record(
+                        OpalFusionDiagnostics.Event.primaryMessageReceived,
+                        category: OpalFusionDiagnostics.Category.primary,
+                        fields: [
+                            OpalFusionDiagnostics.operationField("primary_transport_receive"),
+                            OpalFusionDiagnostics.frameByteCountField(data.count)
+                        ]
                     )
                     inboundStream.yield([UInt8](data))
                 case .peerEOF:
-                    Self.logger.debug("primary receive complete bytes=0")
+                    recordPrimaryConnectionEvent(OpalFusionDiagnostics.Event.primaryConnectionPeerEOF)
                     inboundStream.finish()
                     clearConnectionIfCurrent(connectionID)
                     return
                 case let .failed(error):
-                    Self.logger.debug(
-                        "primary terminal failure error=\(String(describing: error), privacy: .private)"
+                    OpalFusionDiagnostics.record(
+                        OpalFusionDiagnostics.Event.transportError,
+                        category: OpalFusionDiagnostics.Category.transport,
+                        fields: [
+                            OpalFusionDiagnostics.operationField("primary_connection")
+                        ] + OpalFusionDiagnostics.errorFields(error)
                     )
                     inboundStream.finish(throwing: error)
                     clearConnectionIfCurrent(connectionID)
                     return
                 case .cancelled:
-                    Self.logger.debug("primary state transition state=cancelled")
+                    recordPrimaryConnectionEvent(OpalFusionDiagnostics.Event.primaryConnectionCancelled)
                     inboundStream.finish(
                         throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
                     )
@@ -162,6 +184,19 @@ extension OpalFusion.Runtime {
 
             inboundStream.finish()
             clearConnectionIfCurrent(connectionID)
+        }
+
+        private func recordPrimaryConnectionEvent(
+            _ event: OpalFusion.Diagnostics.Event,
+            fields: [OpalFusionDiagnostics.Field] = []
+        ) {
+            OpalFusionDiagnostics.record(
+                event,
+                category: OpalFusionDiagnostics.Category.primary,
+                fields: [
+                    OpalFusionDiagnostics.operationField("primary_connection")
+                ] + fields
+            )
         }
 
         private func clearConnectionIfCurrent(

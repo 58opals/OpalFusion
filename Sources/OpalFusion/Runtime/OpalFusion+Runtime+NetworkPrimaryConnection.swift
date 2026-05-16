@@ -3,15 +3,10 @@
 import CFNetwork
 import Foundation
 import Network
-import OSLog
 import Security
 
 extension OpalFusion.Runtime {
     actor NetworkPrimaryConnection: PrimaryConnectioning {
-        private static let logger = Logger(
-            subsystem: "OpalFusion",
-            category: "NetworkPrimaryConnection"
-        )
         private let connection: NWConnection
         private let queue = DispatchQueue(
             label: "OpalFusion.Runtime.NetworkPrimaryConnection"
@@ -136,8 +131,13 @@ extension OpalFusion.Runtime {
             _ state: NWConnection.State,
             restartDelay: Duration
         ) async {
-            Self.logger.debug(
-                "state transition state=\(Self.describe(state), privacy: .public)"
+            OpalFusionDiagnostics.record(
+                Self.makeDiagnosticsEvent(for: state),
+                category: OpalFusionDiagnostics.Category.transport,
+                fields: [
+                    OpalFusionDiagnostics.operationField("primary_network_state"),
+                    OpalFusionDiagnostics.publicField("phase", Self.describe(state))
+                ] + Self.errorFields(for: state)
             )
             switch state {
             case .ready:
@@ -370,6 +370,36 @@ extension OpalFusion.Runtime {
                 "cancelled"
             @unknown default:
                 "unknown"
+            }
+        }
+
+        static func makeDiagnosticsEvent(
+            for state: NWConnection.State
+        ) -> OpalFusion.Diagnostics.Event {
+            switch state {
+            case .ready:
+                OpalFusionDiagnostics.Event.primaryConnectionReady
+            case .waiting:
+                OpalFusionDiagnostics.Event.primaryConnectionWaiting
+            case .cancelled:
+                OpalFusionDiagnostics.Event.primaryConnectionCancelled
+            case .failed:
+                OpalFusionDiagnostics.Event.transportError
+            case .setup, .preparing:
+                OpalFusionDiagnostics.Event.primaryConnectionPreparing
+            @unknown default:
+                OpalFusionDiagnostics.Event.transportError
+            }
+        }
+
+        private static func errorFields(
+            for state: NWConnection.State
+        ) -> [OpalFusionDiagnostics.Field] {
+            switch state {
+            case let .waiting(error), let .failed(error):
+                OpalFusionDiagnostics.errorFields(error)
+            default:
+                []
             }
         }
 

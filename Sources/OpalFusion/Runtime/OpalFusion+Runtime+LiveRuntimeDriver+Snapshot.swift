@@ -1,7 +1,5 @@
 // OpalFusion+Runtime+LiveRuntimeDriver+Snapshot.swift
 
-import OSLog
-
 extension OpalFusion.Runtime.LiveRuntimeDriver {
     struct Snapshot: Sendable, Equatable {
         let clientState: OpalFusion.Client.State

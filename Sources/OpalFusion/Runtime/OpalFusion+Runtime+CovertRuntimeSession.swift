@@ -60,6 +60,10 @@ extension OpalFusion.Runtime {
             endpointContext: OpalFusion.Runtime.CovertEndpointContext,
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
+            recordCovertPrepare(
+                OpalFusionDiagnostics.Event.covertPrepareStarted,
+                roundIdentifier: endpointContext.roundIdentifier
+            )
             self.endpointContext = endpointContext
             self.substate = .preparing
             self.queuedMessages = []
@@ -94,6 +98,10 @@ extension OpalFusion.Runtime {
 
             substate = .prepared
             self.preparationPlan = nil
+            recordCovertPrepare(
+                OpalFusionDiagnostics.Event.covertPrepareSucceeded,
+                roundIdentifier: endpointContext?.roundIdentifier
+            )
             return maybeDispatchNextRequest(now: now)
         }
 
@@ -117,6 +125,18 @@ extension OpalFusion.Runtime {
             do {
                 let response = try messageDecoder.decodeResponse(bytes)
                 self.outstandingRequest = nil
+                OpalFusionDiagnostics.record(
+                    OpalFusionDiagnostics.Event.covertRequestSucceeded,
+                    category: OpalFusionDiagnostics.Category.covert,
+                    traceID: OpalFusionDiagnostics.makeTraceID(for: outstandingRequest.endpoint.roundIdentifier),
+                    fields: [
+                        OpalFusionDiagnostics.operationField("covert_request"),
+                        OpalFusionDiagnostics.payloadByteCountField(bytes.count),
+                        OpalFusionDiagnostics.messageKindField(
+                            OpalFusionDiagnostics.messageKind(for: response)
+                        )
+                    ]
+                )
 
                 if case .serverFailure = response {
                     reset()
@@ -131,6 +151,15 @@ extension OpalFusion.Runtime {
                 submitWindowDeadline = nil
                 return [.deliverCovertResponse(response)]
             } catch {
+                OpalFusionDiagnostics.record(
+                    OpalFusionDiagnostics.Event.covertResponseDecodeFailed,
+                    category: OpalFusionDiagnostics.Category.covert,
+                    traceID: OpalFusionDiagnostics.makeTraceID(for: outstandingRequest.endpoint.roundIdentifier),
+                    fields: [
+                        OpalFusionDiagnostics.operationField("covert_response_decode"),
+                        OpalFusionDiagnostics.payloadByteCountField(bytes.count)
+                    ] + OpalFusionDiagnostics.errorFields(error)
+                )
                 reset()
                 return [
                     .emitProtocolFailure(
@@ -202,9 +231,32 @@ extension OpalFusion.Runtime {
                 )
 
                 self.outstandingRequest = request
+                OpalFusionDiagnostics.record(
+                    OpalFusionDiagnostics.Event.covertRequestStarted,
+                    category: OpalFusionDiagnostics.Category.covert,
+                    traceID: OpalFusionDiagnostics.makeTraceID(for: endpointContext.roundIdentifier),
+                    fields: [
+                        OpalFusionDiagnostics.operationField("covert_request"),
+                        OpalFusionDiagnostics.messageKindField(
+                            OpalFusionDiagnostics.messageKind(for: message)
+                        ),
+                        OpalFusionDiagnostics.payloadByteCountField(payload.count)
+                    ]
+                )
 
                 return [.performCovertRequest(request: request)]
             } catch {
+                OpalFusionDiagnostics.record(
+                    OpalFusionDiagnostics.Event.covertMessageEncodeFailed,
+                    category: OpalFusionDiagnostics.Category.covert,
+                    traceID: OpalFusionDiagnostics.makeTraceID(for: endpointContext.roundIdentifier),
+                    fields: [
+                        OpalFusionDiagnostics.operationField("covert_message_encode"),
+                        OpalFusionDiagnostics.messageKindField(
+                            OpalFusionDiagnostics.messageKind(for: message)
+                        )
+                    ] + OpalFusionDiagnostics.errorFields(error)
+                )
                 return protocolFailure(summary: "Covert request encode failed")
             }
         }
@@ -219,6 +271,21 @@ extension OpalFusion.Runtime {
         private mutating func transportFailure(
             summary: String
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
+            OpalFusionDiagnostics.record(
+                OpalFusionDiagnostics.Event.covertRequestFailed,
+                category: OpalFusionDiagnostics.Category.covert,
+                traceID: OpalFusionDiagnostics.makeTraceID(
+                    for: outstandingRequest?.endpoint.roundIdentifier ?? endpointContext?.roundIdentifier
+                ),
+                fields: [
+                    OpalFusionDiagnostics.operationField("covert_transport"),
+                    OpalFusionDiagnostics.publicField(
+                        "error_code",
+                        OpalFusion.Diagnostics.ErrorCodes.transportUnavailable
+                    ),
+                    OpalFusionDiagnostics.privateField("error_message", summary)
+                ]
+            )
             reset()
             return [.emitTransportFailure(summary: summary)]
         }
@@ -254,6 +321,20 @@ extension OpalFusion.Runtime {
             min(
                 endpointContext.connectTimeout,
                 endpointContext.connectWindow
+            )
+        }
+
+        private func recordCovertPrepare(
+            _ event: OpalFusion.Diagnostics.Event,
+            roundIdentifier: OpalFusion.Round.Identifier?
+        ) {
+            OpalFusionDiagnostics.record(
+                event,
+                category: OpalFusionDiagnostics.Category.covert,
+                traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+                fields: [
+                    OpalFusionDiagnostics.operationField("covert_prepare")
+                ]
             )
         }
     }

@@ -222,6 +222,12 @@ extension OpalFusion.Execution {
                         )
                     )
                 } catch {
+                    recordBlameProofValidationFailure(
+                        roundIdentifier: round.identifier,
+                        fields: [
+                            OpalFusionDiagnostics.operationField("proof_decrypt")
+                        ] + OpalFusionDiagnostics.errorFields(error)
+                    )
                     blames.append(
                         .init(
                             proofIndex: UInt32(proofIndex),
@@ -242,6 +248,15 @@ extension OpalFusion.Execution {
                         feeRateSatoshisPerKb: round.serverHello.componentFeeRateSatoshisPerKb
                     )
                 } catch let error as OpalFusion.Execution.RelayedProofValidationFailure {
+                    recordBlameProofValidationFailure(
+                        roundIdentifier: round.identifier,
+                        fields: OpalFusionDiagnostics.sanitizedSummaryFields(
+                            errorCode: OpalFusion.Diagnostics.ErrorCodes.relayedProofValidationFailed,
+                            summary: error.reason
+                        ) + [
+                            OpalFusionDiagnostics.operationField("proof_validation")
+                        ]
+                    )
                     blames.append(
                         .init(
                             proofIndex: UInt32(proofIndex),
@@ -1280,6 +1295,18 @@ extension OpalFusion.Execution {
             message.salt = Data(salt)
             message.pedersenNonce = Data(pedersenNonce)
             return try Array(message.serializedData())
+        }
+
+        private func recordBlameProofValidationFailure(
+            roundIdentifier: OpalFusion.Round.Identifier?,
+            fields: [OpalFusionDiagnostics.Field]
+        ) {
+            OpalFusionDiagnostics.record(
+                OpalFusionDiagnostics.Event.blameProofValidationFailed,
+                category: OpalFusionDiagnostics.Category.blame,
+                traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+                fields: fields
+            )
         }
 
         private func mapTransactionError(

@@ -7,7 +7,16 @@
       "location" : "https://github.com/58opals/OpalCrypto.git",
       "state" : {
         "branch" : "develop",
-        "revision" : "bfc09d71358ceb5a5fa80bc2ee83c2b0165440ef"
+        "revision" : "e317205fc7441859b3510a29032d50d8993805e5"
+      }
+    },
+    {
+      "identity" : "opaldiagnostics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/58opals/OpalDiagnostics.git",
+      "state" : {
+        "branch" : "develop",
+        "revision" : "81aa6b4d758afcb91bc5bd7d75032c6d96ccbedb"
       }
     },
     {
