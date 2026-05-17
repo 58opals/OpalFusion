@@ -795,6 +795,8 @@ struct LiveRuntimeDriverValidator {
         let covertTransport = ScriptedCovertTransport()
         let eventSink = RecordedHostEventSink()
         let observedRequiresTLS = MutableBoolBox()
+        let tlsTrustAnchorCertificateDERs = try await LoopbackPrimaryTLSTestFixture
+            .trustAnchorCertificateDERs()
         let driver = OpalFusion.Runtime.LiveRuntimeDriver(
             configuration: .init(
                 coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
@@ -823,8 +825,7 @@ struct LiveRuntimeDriverValidator {
                     host: configuration.coordinatorHost,
                     port: configuration.coordinatorPort,
                     requiresTLS: configuration.coordinatorRequiresTLS,
-                    tlsTrustAnchorCertificateDERs: try! await LoopbackPrimaryTLSTestFixture
-                        .trustAnchorCertificateDERs()
+                    tlsTrustAnchorCertificateDERs: tlsTrustAnchorCertificateDERs
                 )
             },
             covertTransport: covertTransport

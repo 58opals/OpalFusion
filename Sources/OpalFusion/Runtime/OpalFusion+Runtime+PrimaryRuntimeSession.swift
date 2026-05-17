@@ -1,5 +1,7 @@
 // OpalFusion+Runtime+PrimaryRuntimeSession.swift
 
+import OpalDiagnostics
+
 extension OpalFusion.Runtime {
     struct PrimaryRuntimeSession: Sendable {
         private(set) var frameDecoder: OpalFusion.Wire.PrimaryFrameDecoder
@@ -45,18 +47,6 @@ extension OpalFusion.Runtime {
             engine.session.lastErrorSummary
         }
 
-        func diagnostics(
-            activity: OpalFusion.Client.Diagnostics.Activity
-        ) -> OpalFusion.Client.Diagnostics {
-            .init(
-                activity: activity,
-                primaryFailureCategory: lastError,
-                primaryFailureSummary: lastErrorSummary,
-                handshakeStage: preRoundTrace.handshakeStage,
-                recentEvents: preRoundTrace.recentEvents
-            )
-        }
-
         var coordinatorStatus: OpalFusion.Client.Session.Snapshot.CoordinatorStatus {
             .init(
                 updateSequence: preRoundTrace.updateSequence,
@@ -77,16 +67,13 @@ extension OpalFusion.Runtime {
                 )
                 let payloads = try frameDecoder.append(bytes)
                 guard payloads.count == 1 else {
-                    OpalFusionDiagnostics.record(
-                        OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed,
-                        category: OpalFusion.Diagnostics.Categories.primary,
+                    OpalDiagnostics.logger(category: .fusionPrimary).record(
+                        event: .primaryMessageDecodeFailed,
+                        level: .opalFusionDefault(for: .primaryMessageDecodeFailed),
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("primary_preround_outbound_decode"),
-                            OpalFusionDiagnostics.frameByteCountField(bytes.count),
-                            OpalFusionDiagnostics.publicField(
-                                "error_code",
-                                OpalFusion.Diagnostics.ErrorCodes.protocolIncompatible
-                            )
+                            .operation("primary_preround_outbound_decode"),
+                            .frameByteCount(bytes.count),
+                            .errorCode("protocol_incompatible")
                         ]
                     )
                     return
@@ -98,13 +85,13 @@ extension OpalFusion.Runtime {
                     payloadBytes: payloads[0].count
                 )
             } catch {
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed,
-                    category: OpalFusion.Diagnostics.Categories.primary,
+                OpalDiagnostics.logger(category: .fusionPrimary).record(
+                    event: .primaryMessageDecodeFailed,
+                    level: .opalFusionDefault(for: .primaryMessageDecodeFailed),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("primary_preround_outbound_decode"),
-                        OpalFusionDiagnostics.frameByteCountField(bytes.count)
-                    ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                        .operation("primary_preround_outbound_decode"),
+                        .frameByteCount(bytes.count)
+                    ] + OpalDiagnostics.Field.errorFields(for: error)
                 )
             }
         }
@@ -117,13 +104,12 @@ extension OpalFusion.Runtime {
             case let .invalidConfiguration(summary):
                 recordFailureEvent(
                     summary: summary,
-                    errorCode: OpalFusion.Diagnostics.ErrorCodes.invalidConfiguration
+                    errorCode: "invalid_configuration"
                 )
                 return translateEngineInput(.configurationRejected(summary: summary), now: now)
             case .connected:
                 recordLifecycleEvent(
-                    summary: "Primary channel connected",
-                    handshakeStage: .awaitingServerHello
+                    phase: "awaitingServerHello"
                 )
                 return translateEngineInput(.primaryConnected, now: now)
             case .disconnected:
@@ -131,18 +117,13 @@ extension OpalFusion.Runtime {
                 return translateEngineInput(.primaryDisconnected, now: now)
             case .stopped:
                 recordLifecycleEvent(
-                    summary: "Session stopped",
-                    handshakeStage: .notStarted
+                    phase: "notStarted"
                 )
                 return translateEngineInput(.stopped, now: now)
             case let .primaryTransportFailed(summary):
                 recordFailureEventUnlessRoundIsTerminal(summary: summary)
                 return translateEngineInput(.primaryTransportFailed(summary: summary), now: now)
             case let .diagnosedPrimaryTransportFailed(summary):
-                recordFailureEventUnlessRoundIsTerminal(
-                    summary: summary,
-                    recordDiagnostics: false
-                )
                 return translateEngineInput(.primaryTransportFailed(summary: summary), now: now)
             case let .receivedPrimaryBytes(bytes):
                 return handleReceivedPrimaryBytes(bytes, now: now)
@@ -211,7 +192,6 @@ extension OpalFusion.Runtime {
                     )
                     let effects = translateEngineInput(.primaryMessage(message), now: now)
                     recordAcceptedPreRoundInboundMessage(message)
-                    updateHandshakeStageFromEngine()
                     if engine.session.connectionSubstate == .failed {
                         return effects
                     }
@@ -224,13 +204,13 @@ extension OpalFusion.Runtime {
                 return runtimeEffects
             } catch {
                 if shouldTracePreRoundTraffic {
-                    OpalFusionDiagnostics.record(
-                        OpalFusion.Diagnostics.Events.primaryMessageDecodeFailed,
-                        category: OpalFusion.Diagnostics.Categories.primary,
+                    OpalDiagnostics.logger(category: .fusionPrimary).record(
+                        event: .primaryMessageDecodeFailed,
+                        level: .opalFusionDefault(for: .primaryMessageDecodeFailed),
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("primary_inbound_decode"),
-                            OpalFusionDiagnostics.frameByteCountField(bytes.count)
-                        ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                            .operation("primary_inbound_decode"),
+                            .frameByteCount(bytes.count)
+                        ] + OpalDiagnostics.Field.errorFields(for: error)
                     )
                 }
                 return protocolFailureEffects(
@@ -254,18 +234,14 @@ extension OpalFusion.Runtime {
                         let framed = try frameEncoder.encode(payload: payload)
                         runtimeEffects.append(.writePrimaryBytes(framed))
                     } catch {
-                        OpalFusionDiagnostics.record(
-                            OpalFusion.Diagnostics.Events.primaryMessageEncodeFailed,
-                            category: OpalFusion.Diagnostics.Categories.primary,
-                            traceID: OpalFusionDiagnostics.makeTraceID(
-                                for: engine.round?.identifier
-                            ),
+                        OpalDiagnostics.logger(category: .fusionPrimary).record(
+                            event: .primaryMessageEncodeFailed,
+                            level: .opalFusionDefault(for: .primaryMessageEncodeFailed),
+                            traceID: .opalFusionRound(engine.round?.identifier),
                             fields: [
-                                OpalFusionDiagnostics.makeOperationField("primary_message_encode"),
-                                OpalFusionDiagnostics.messageKindField(
-                                    OpalFusionDiagnostics.makeMessageKind(for: message)
-                                )
-                            ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                                .operation("primary_message_encode"),
+                                .messageKind(for: message)
+                            ] + OpalDiagnostics.Field.errorFields(for: error)
                         )
                         return runtimeEffects + protocolFailureEffects(
                             summary: "Primary wire encode failed",
@@ -417,68 +393,32 @@ extension OpalFusion.Runtime {
 
             switch message {
             case .serverHello:
-                appendDiagnosticEvent(
-                    .init(
-                        kind: .inboundMessage,
-                        summary: "Received ServerHello",
-                        messageKind: "ServerHello",
-                        payloadByteCount: payloadBytes,
-                        handshakeStage: preRoundTrace.handshakeStage
-                    )
-                )
                 recordPrimaryMessageReceived(
                     messageKind: "ServerHello",
                     payloadBytes: payloadBytes
                 )
             case .tierStatusUpdate:
-                appendDiagnosticEvent(
-                    .init(
-                        kind: .inboundMessage,
-                        summary: "Received TierStatusUpdate",
-                        messageKind: "TierStatusUpdate",
-                        payloadByteCount: payloadBytes,
-                        handshakeStage: preRoundTrace.handshakeStage
-                    )
-                )
                 recordPrimaryMessageReceived(
                     messageKind: "TierStatusUpdate",
                     payloadBytes: payloadBytes
                 )
             case .fusionBegin:
-                appendDiagnosticEvent(
-                    .init(
-                        kind: .inboundMessage,
-                        summary: "Received FusionBegin",
-                        messageKind: "FusionBegin",
-                        payloadByteCount: payloadBytes,
-                        handshakeStage: preRoundTrace.handshakeStage
-                    )
-                )
                 recordPrimaryMessageReceived(
                     messageKind: "FusionBegin",
                     payloadBytes: payloadBytes
                 )
             case let .serverFailure(failure):
-                appendDiagnosticEvent(
-                    .init(
-                        kind: .inboundMessage,
-                        summary: "Received ServerFailure",
-                        messageKind: "ServerFailure",
-                        payloadByteCount: payloadBytes,
-                        handshakeStage: preRoundTrace.handshakeStage
-                    )
-                )
                 var fields = [
-                    OpalFusionDiagnostics.makeOperationField("primary_message_receive"),
-                    OpalFusionDiagnostics.messageKindField("ServerFailure"),
-                    OpalFusionDiagnostics.payloadByteCountField(payloadBytes)
+                    OpalDiagnostics.Field.operation("primary_message_receive"),
+                    OpalDiagnostics.Field.messageKind("ServerFailure"),
+                    OpalDiagnostics.Field.payloadByteCount(payloadBytes)
                 ]
                 if let message = failure.message {
-                    fields.append(OpalFusionDiagnostics.privateField("error_message", message))
+                    fields.append(OpalDiagnostics.Field.privateField("error_message", message))
                 }
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.primaryMessageReceived,
-                    category: OpalFusion.Diagnostics.Categories.primary,
+                OpalDiagnostics.logger(category: .fusionPrimary).record(
+                    event: .primaryMessageReceived,
+                    level: .opalFusionDefault(for: .primaryMessageReceived),
                     fields: fields
                 )
             case .startRound, .blindSignatureResponses, .allCommitments, .shareCovertComponents,
@@ -505,32 +445,12 @@ extension OpalFusion.Runtime {
             switch message {
             case .clientHello:
                 preRoundTrace.wroteClientHello = true
-                preRoundTrace.handshakeStage = .awaitingServerHello
-                appendDiagnosticEvent(
-                    .init(
-                        kind: .outboundMessage,
-                        summary: "Sent ClientHello",
-                        messageKind: "ClientHello",
-                        payloadByteCount: payloadBytes,
-                        handshakeStage: preRoundTrace.handshakeStage
-                    )
-                )
                 recordPrimaryMessageSent(
                     messageKind: "ClientHello",
                     payloadBytes: payloadBytes
                 )
             case .joinPools:
                 preRoundTrace.wroteJoinPools = true
-                preRoundTrace.handshakeStage = .awaitingFusionBegin
-                appendDiagnosticEvent(
-                    .init(
-                        kind: .outboundMessage,
-                        summary: "Sent JoinPools",
-                        messageKind: "JoinPools",
-                        payloadByteCount: payloadBytes,
-                        handshakeStage: preRoundTrace.handshakeStage
-                    )
-                )
                 recordPrimaryMessageSent(
                     messageKind: "JoinPools",
                     payloadBytes: payloadBytes
@@ -540,90 +460,43 @@ extension OpalFusion.Runtime {
             }
         }
 
-        private mutating func recordLifecycleEvent(
-            summary: String,
-            handshakeStage: OpalFusion.Client.Diagnostics.HandshakeStage
+        private func recordLifecycleEvent(
+            phase: String
         ) {
-            preRoundTrace.handshakeStage = handshakeStage
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.handshakePhaseChanged,
-                category: OpalFusion.Diagnostics.Categories.primary,
+            OpalDiagnostics.logger(category: .fusionPrimary).record(
+                event: .handshakePhaseChanged,
+                level: .opalFusionDefault(for: .handshakePhaseChanged),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("handshake"),
-                    OpalFusionDiagnostics.publicField(
-                        "phase",
-                        handshakeStage.rawValue
-                    )
+                    .operation("handshake"),
+                    .phase(phase)
                 ]
-            )
-            appendDiagnosticEvent(
-                .init(
-                    kind: .lifecycle,
-                    summary: summary,
-                    handshakeStage: handshakeStage
-                )
             )
         }
 
         private mutating func recordFailureEvent(
             summary: String,
-            errorCode: String = OpalFusion.Diagnostics.ErrorCodes.transportUnavailable,
-            recordDiagnostics: Bool = true
+            errorCode: String = "transport_unavailable"
         ) {
-            if recordDiagnostics {
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.transportError,
-                    category: OpalFusion.Diagnostics.Categories.transport,
-                    fields: [
-                        OpalFusionDiagnostics.makeOperationField("primary_runtime")
-                    ] + OpalFusionDiagnostics.makeSanitizedSummaryFields(
-                        errorCode: errorCode,
-                        summary: summary
-                    )
-                )
-            }
-            appendDiagnosticEvent(
-                .init(
-                    kind: .failure,
-                    summary: summary,
-                    handshakeStage: preRoundTrace.handshakeStage
+            OpalDiagnostics.logger(category: .fusionTransport).record(
+                event: .transportError,
+                level: .opalFusionDefault(for: .transportError),
+                fields: [
+                    .operation("primary_runtime")
+                ] + OpalDiagnostics.Field.sanitizedSummaryFields(
+                    errorCode: errorCode,
+                    summary: summary
                 )
             )
         }
 
         private mutating func recordFailureEventUnlessRoundIsTerminal(
-            summary: String,
-            recordDiagnostics: Bool = true
+            summary: String
         ) {
             guard engine.round?.substate != .terminal else {
                 return
             }
 
-            recordFailureEvent(
-                summary: summary,
-                recordDiagnostics: recordDiagnostics
-            )
-        }
-
-        private mutating func appendDiagnosticEvent(
-            _ event: OpalFusion.Client.Diagnostics.Event
-        ) {
-            preRoundTrace.recentEvents = OpalFusion.Client.Diagnostics.cappedRecentEvents(
-                preRoundTrace.recentEvents + [event]
-            )
-        }
-
-        private mutating func updateHandshakeStageFromEngine() {
-            switch engine.session.connectionSubstate {
-            case .awaitingServerHello:
-                preRoundTrace.handshakeStage = .awaitingServerHello
-            case .awaitingFusionBegin:
-                preRoundTrace.handshakeStage = .awaitingFusionBegin
-            case .inRound:
-                preRoundTrace.handshakeStage = .inRound
-            case .disconnected, .failed:
-                break
-            }
+            recordFailureEvent(summary: summary)
         }
 
         private func recordPrimaryMessageReceived(
@@ -631,7 +504,7 @@ extension OpalFusion.Runtime {
             payloadBytes: Int
         ) {
             recordPrimaryMessage(
-                OpalFusion.Diagnostics.Events.primaryMessageReceived,
+                OpalDiagnostics.Event.primaryMessageReceived,
                 operation: "primary_message_receive",
                 messageKind: messageKind,
                 payloadBytes: payloadBytes
@@ -643,7 +516,7 @@ extension OpalFusion.Runtime {
             payloadBytes: Int
         ) {
             recordPrimaryMessage(
-                OpalFusion.Diagnostics.Events.primaryMessageSent,
+                OpalDiagnostics.Event.primaryMessageSent,
                 operation: "primary_message_send",
                 messageKind: messageKind,
                 payloadBytes: payloadBytes
@@ -651,18 +524,18 @@ extension OpalFusion.Runtime {
         }
 
         private func recordPrimaryMessage(
-            _ event: OpalFusion.Diagnostics.Event,
+            _ event: OpalDiagnostics.Event,
             operation: String,
             messageKind: String,
             payloadBytes: Int
         ) {
-            OpalFusionDiagnostics.record(
-                event,
-                category: OpalFusion.Diagnostics.Categories.primary,
+            OpalDiagnostics.logger(category: .fusionPrimary).record(
+                event: event,
+                level: .opalFusionDefault(for: event),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField(operation),
-                    OpalFusionDiagnostics.messageKindField(messageKind),
-                    OpalFusionDiagnostics.payloadByteCountField(payloadBytes)
+                    .operation(operation),
+                    .messageKind(messageKind),
+                    .payloadByteCount(payloadBytes)
                 ]
             )
         }

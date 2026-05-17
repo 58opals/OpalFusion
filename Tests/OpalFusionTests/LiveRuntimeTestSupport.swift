@@ -19,7 +19,9 @@ enum LiveRuntimeTestSupport {
                 )
             }
 
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw LiveRuntimeTestSupportError.missingTimeoutResult
+            }
             group.cancelAll()
             return result
         }

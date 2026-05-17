@@ -1,5 +1,7 @@
 // OpalFusion+Runtime+CovertRuntimeSession.swift
 
+import OpalDiagnostics
+
 extension OpalFusion.Runtime {
     struct CovertRuntimeSession: Sendable {
         private(set) var endpointContext: OpalFusion.Runtime.CovertEndpointContext?
@@ -43,11 +45,11 @@ extension OpalFusion.Runtime {
             case .covertPrepared:
                 return handleCovertPrepared(now: now)
             case let .covertPreparationFailed(summary):
-                return transportFailure(summary: summary, recordDiagnostics: false)
+                return diagnosedTransportFailure(summary: summary)
             case let .covertResponseBytesReceived(bytes):
                 return handleCovertResponseBytes(bytes, now: now)
             case let .covertRequestFailed(summary):
-                return transportFailure(summary: summary, recordDiagnostics: false)
+                return diagnosedTransportFailure(summary: summary)
             case .clockAdvanced:
                 return handleClockAdvanced(now: now)
             case .reset:
@@ -61,7 +63,7 @@ extension OpalFusion.Runtime {
             now: OpalFusion.Execution.Instant
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
             recordCovertPrepare(
-                OpalFusion.Diagnostics.Events.covertPrepareStarted,
+                OpalDiagnostics.Event.covertPrepareStarted,
                 roundIdentifier: endpointContext.roundIdentifier
             )
             self.endpointContext = endpointContext
@@ -95,7 +97,7 @@ extension OpalFusion.Runtime {
             if now > preparationPlan.deadline {
                 return transportFailure(
                     summary: "Covert endpoint preparation timed out",
-                    event: OpalFusion.Diagnostics.Events.covertPrepareFailed,
+                    event: OpalDiagnostics.Event.covertPrepareFailed,
                     operation: "covert_prepare"
                 )
             }
@@ -103,7 +105,7 @@ extension OpalFusion.Runtime {
             substate = .prepared
             self.preparationPlan = nil
             recordCovertPrepare(
-                OpalFusion.Diagnostics.Events.covertPrepareSucceeded,
+                OpalDiagnostics.Event.covertPrepareSucceeded,
                 roundIdentifier: endpointContext?.roundIdentifier
             )
             return maybeDispatchNextRequest(now: now)
@@ -129,16 +131,14 @@ extension OpalFusion.Runtime {
             do {
                 let response = try messageDecoder.decodeResponse(bytes)
                 self.outstandingRequest = nil
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.covertRequestSucceeded,
-                    category: OpalFusion.Diagnostics.Categories.covert,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: outstandingRequest.endpoint.roundIdentifier),
+                OpalDiagnostics.logger(category: .fusionCovert).record(
+                    event: .covertRequestSucceeded,
+                    level: .opalFusionDefault(for: .covertRequestSucceeded),
+                    traceID: .opalFusionRound(outstandingRequest.endpoint.roundIdentifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("covert_request"),
-                        OpalFusionDiagnostics.payloadByteCountField(bytes.count),
-                        OpalFusionDiagnostics.messageKindField(
-                            OpalFusionDiagnostics.makeMessageKind(for: response)
-                        )
+                        .operation("covert_request"),
+                        .payloadByteCount(bytes.count),
+                        .messageKind(for: response)
                     ]
                 )
 
@@ -155,14 +155,14 @@ extension OpalFusion.Runtime {
                 submitWindowDeadline = nil
                 return [.deliverCovertResponse(response)]
             } catch {
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.covertResponseDecodeFailed,
-                    category: OpalFusion.Diagnostics.Categories.covert,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: outstandingRequest.endpoint.roundIdentifier),
+                OpalDiagnostics.logger(category: .fusionCovert).record(
+                    event: .covertResponseDecodeFailed,
+                    level: .opalFusionDefault(for: .covertResponseDecodeFailed),
+                    traceID: .opalFusionRound(outstandingRequest.endpoint.roundIdentifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("covert_response_decode"),
-                        OpalFusionDiagnostics.payloadByteCountField(bytes.count)
-                    ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                        .operation("covert_response_decode"),
+                        .payloadByteCount(bytes.count)
+                    ] + OpalDiagnostics.Field.errorFields(for: error)
                 )
                 reset()
                 return [
@@ -179,7 +179,7 @@ extension OpalFusion.Runtime {
             if let plan = preparationPlan, now > plan.deadline {
                 return transportFailure(
                     summary: "Covert endpoint preparation timed out",
-                    event: OpalFusion.Diagnostics.Events.covertPrepareFailed,
+                    event: OpalDiagnostics.Event.covertPrepareFailed,
                     operation: "covert_prepare"
                 )
             }
@@ -239,31 +239,27 @@ extension OpalFusion.Runtime {
                 )
 
                 self.outstandingRequest = request
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.covertRequestStarted,
-                    category: OpalFusion.Diagnostics.Categories.covert,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: endpointContext.roundIdentifier),
+                OpalDiagnostics.logger(category: .fusionCovert).record(
+                    event: .covertRequestStarted,
+                    level: .opalFusionDefault(for: .covertRequestStarted),
+                    traceID: .opalFusionRound(endpointContext.roundIdentifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("covert_request"),
-                        OpalFusionDiagnostics.messageKindField(
-                            OpalFusionDiagnostics.makeMessageKind(for: message)
-                        ),
-                        OpalFusionDiagnostics.payloadByteCountField(payload.count)
+                        .operation("covert_request"),
+                        .messageKind(for: message),
+                        .payloadByteCount(payload.count)
                     ]
                 )
 
                 return [.performCovertRequest(request: request)]
             } catch {
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.covertMessageEncodeFailed,
-                    category: OpalFusion.Diagnostics.Categories.covert,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: endpointContext.roundIdentifier),
+                OpalDiagnostics.logger(category: .fusionCovert).record(
+                    event: .covertMessageEncodeFailed,
+                    level: .opalFusionDefault(for: .covertMessageEncodeFailed),
+                    traceID: .opalFusionRound(endpointContext.roundIdentifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("covert_message_encode"),
-                        OpalFusionDiagnostics.messageKindField(
-                            OpalFusionDiagnostics.makeMessageKind(for: message)
-                        )
-                    ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                        .operation("covert_message_encode"),
+                        .messageKind(for: message)
+                    ] + OpalDiagnostics.Field.errorFields(for: error)
                 )
                 return protocolFailure(summary: "Covert request encode failed")
             }
@@ -278,25 +274,27 @@ extension OpalFusion.Runtime {
 
         private mutating func transportFailure(
             summary: String,
-            event: OpalFusion.Diagnostics.Event = OpalFusion.Diagnostics.Events.covertRequestFailed,
-            operation: String = "covert_transport",
-            recordDiagnostics: Bool = true
+            event: OpalDiagnostics.Event = OpalDiagnostics.Event.covertRequestFailed,
+            operation: String = "covert_transport"
         ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
-            if recordDiagnostics {
-                OpalFusionDiagnostics.record(
-                    event,
-                    category: OpalFusion.Diagnostics.Categories.covert,
-                    traceID: OpalFusionDiagnostics.makeTraceID(
-                        for: outstandingRequest?.endpoint.roundIdentifier ?? endpointContext?.roundIdentifier
-                    ),
-                    fields: [
-                        OpalFusionDiagnostics.makeOperationField(operation)
-                    ] + OpalFusionDiagnostics.makeSanitizedSummaryFields(
-                        errorCode: OpalFusion.Diagnostics.ErrorCodes.transportUnavailable,
-                        summary: summary
-                    )
+            OpalDiagnostics.logger(category: .fusionCovert).record(
+                event: event,
+                level: .opalFusionDefault(for: event),
+                traceID: .opalFusionRound(outstandingRequest?.endpoint.roundIdentifier ?? endpointContext?.roundIdentifier),
+                fields: [
+                    .operation(operation)
+                ] + OpalDiagnostics.Field.sanitizedSummaryFields(
+                    errorCode: "transport_unavailable",
+                    summary: summary
                 )
-            }
+            )
+            reset()
+            return [.emitTransportFailure(summary: summary)]
+        }
+
+        private mutating func diagnosedTransportFailure(
+            summary: String
+        ) -> [OpalFusion.Runtime.CovertRuntimeSession.Effect] {
             reset()
             return [.emitTransportFailure(summary: summary)]
         }
@@ -336,15 +334,15 @@ extension OpalFusion.Runtime {
         }
 
         private func recordCovertPrepare(
-            _ event: OpalFusion.Diagnostics.Event,
+            _ event: OpalDiagnostics.Event,
             roundIdentifier: OpalFusion.Round.Identifier?
         ) {
-            OpalFusionDiagnostics.record(
-                event,
-                category: OpalFusion.Diagnostics.Categories.covert,
-                traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+            OpalDiagnostics.logger(category: .fusionCovert).record(
+                event: event,
+                level: .opalFusionDefault(for: event),
+                traceID: .opalFusionRound(roundIdentifier),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("covert_prepare")
+                    .operation("covert_prepare")
                 ]
             )
         }

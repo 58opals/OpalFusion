@@ -282,6 +282,21 @@ struct LivePrimaryTransportValidator {
         await transport.close()
     }
 
+    @Test("Live primary transport rejects invalid connection ports without trapping")
+    func validateInvalidConnectionPortRejection() async throws {
+        let transport = OpalFusion.Runtime.LivePrimaryTransport(
+            host: "127.0.0.1",
+            port: 0
+        )
+
+        do {
+            _ = try await transport.connect()
+            Issue.record("Expected invalid primary connection port to fail")
+        } catch let error as OpalFusion.Runtime.LiveTransportError {
+            #expect(error == .invalidConfiguration("Primary connection port must be valid"))
+        }
+    }
+
     private static func nextServerMessage(
         from inboundStream: AsyncThrowingStream<[UInt8], Error>
     ) async throws -> OpalFusion.ProtocolModel.ServerMessage {

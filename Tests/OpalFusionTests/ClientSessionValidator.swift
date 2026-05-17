@@ -132,7 +132,6 @@ struct ClientSessionValidator {
                 $0.state.isConnected == false
         }
         #expect(snapshot.state.round == nil)
-        #expect(snapshot.diagnostics.activity == .failed)
 
         let observedSnapshots = await stateObserver.snapshot()
         #expect(observedSnapshots.contains {
@@ -550,23 +549,15 @@ struct ClientSessionValidator {
         let retrySnapshot = try await Self.waitForObservedSnapshot(
             stateObserver
         ) {
-            $0.diagnostics.activity == .retrying
+            $0.lastError == .transportUnavailable &&
+                $0.lastErrorSummary == "Primary connection failed"
         }
         #expect(retrySnapshot.lastError == .transportUnavailable)
-        #expect(retrySnapshot.diagnostics.retryAttempt == 1)
-        #expect(retrySnapshot.diagnostics.nextRetryDelayMilliseconds == 10)
-        #expect(retrySnapshot.diagnostics.primaryFailureCategory == .transportUnavailable)
-        #expect(retrySnapshot.diagnostics.primaryFailureSummary == "Primary connection failed")
-        #expect(retrySnapshot.diagnostics.recentEvents.contains {
-            $0.kind == .retry &&
-                $0.retryAttempt == 1 &&
-                $0.retryDelayMilliseconds == 10
-        })
 
         let connectedSnapshot = try await Self.waitForSessionSnapshot(session) {
             $0.state.isConnected && $0.lastError == nil
         }
-        #expect(connectedSnapshot.diagnostics.activity == .running)
+        #expect(connectedSnapshot.state.isConnected)
         #expect(await transportFactories.primaryCount() == 2)
 
         await session.stop()
@@ -604,16 +595,12 @@ struct ClientSessionValidator {
 
         await session.start()
 
-        let retrySnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
-            $0.diagnostics.activity == .retrying &&
-                $0.diagnostics.retryAttempt == 1
-        }
-        #expect(retrySnapshot.diagnostics.nextRetryDelayMilliseconds == 0)
+        _ = try await Self.waitForPrimaryTransport(transportFactories, at: 1)
 
         let connectedSnapshot = try await Self.waitForSessionSnapshot(session) {
             $0.state.isConnected && $0.lastError == nil
         }
-        #expect(connectedSnapshot.diagnostics.activity == .running)
+        #expect(connectedSnapshot.state.isConnected)
         #expect(await transportFactories.primaryCount() == 2)
 
         await session.stop()
@@ -651,10 +638,7 @@ struct ClientSessionValidator {
         )
 
         await session.start()
-        _ = try await Self.waitForObservedSnapshot(stateObserver) {
-            $0.diagnostics.activity == .retrying &&
-                $0.diagnostics.retryAttempt == 1
-        }
+        _ = try await Self.waitForPrimaryTransport(transportFactories, at: 1)
 
         let reconnectedTransport = try await Self.waitForPrimaryTransport(
             transportFactories,
@@ -666,13 +650,9 @@ struct ClientSessionValidator {
         try await Self.waitForWrittenPayloadCount(reconnectedTransport, count: 1)
         await reconnectedTransport.finishInbound()
 
-        let secondRetrySnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
-            $0.diagnostics.activity == .retrying &&
-                $0.lastErrorSummary == "Primary channel disconnected"
+        _ = try await Self.waitForObservedSnapshot(stateObserver) {
+            $0.lastErrorSummary == "Primary channel disconnected"
         }
-
-        #expect(secondRetrySnapshot.diagnostics.retryAttempt == 1)
-        #expect(secondRetrySnapshot.diagnostics.nextRetryDelayMilliseconds == 10)
 
         await session.stop()
     }
@@ -754,17 +734,10 @@ struct ClientSessionValidator {
         let retrySnapshot = try await Self.waitForObservedSnapshot(
             stateObserver
         ) {
-            $0.diagnostics.activity == .retrying &&
-                $0.diagnostics.handshakeStage == .awaitingServerHello
+            $0.lastErrorSummary == "Primary channel disconnected"
         }
 
         #expect(retrySnapshot.lastErrorSummary == "Primary channel disconnected")
-        #expect(retrySnapshot.diagnostics.primaryFailureCategory == .transportUnavailable)
-        #expect(retrySnapshot.diagnostics.recentEvents.contains {
-            $0.kind == .outboundMessage &&
-                $0.messageKind == "ClientHello" &&
-                $0.payloadByteCount != nil
-        })
 
         _ = try await Self.waitForPrimaryTransport(transportFactories, at: 1)
         #expect(await transportFactories.primaryCount() == 2)
@@ -809,21 +782,10 @@ struct ClientSessionValidator {
         let retrySnapshot = try await Self.waitForObservedSnapshot(
             stateObserver
         ) {
-            $0.diagnostics.activity == .retrying &&
-                $0.diagnostics.handshakeStage == .awaitingFusionBegin
+            $0.lastErrorSummary == "Primary channel disconnected"
         }
 
         #expect(retrySnapshot.lastErrorSummary == "Primary channel disconnected")
-        #expect(retrySnapshot.diagnostics.recentEvents.contains {
-            $0.kind == .inboundMessage &&
-                $0.messageKind == "ServerHello" &&
-                $0.payloadByteCount != nil
-        })
-        #expect(retrySnapshot.diagnostics.recentEvents.contains {
-            $0.kind == .outboundMessage &&
-                $0.messageKind == "JoinPools" &&
-                $0.payloadByteCount != nil
-        })
 
         _ = try await Self.waitForPrimaryTransport(transportFactories, at: 1)
         #expect(await transportFactories.primaryCount() == 2)
@@ -883,16 +845,13 @@ struct ClientSessionValidator {
         }
 
         await firstTransport.finishInbound()
-        let terminalSnapshot = try await Self.waitForSessionSnapshot(session) {
+        _ = try await Self.waitForSessionSnapshot(session) {
             $0.lastError == .transportUnavailable &&
                 $0.state.isConnected == false
         }
-        #expect(terminalSnapshot.diagnostics.activity == .failed)
-        #expect(terminalSnapshot.diagnostics.handshakeStage == .inRound)
 
         try await Task.sleep(for: .milliseconds(50))
         #expect(await transportFactories.primaryCount() == 1)
-        #expect((await session.snapshot()).diagnostics.activity != .retrying)
 
         await session.stop()
     }
@@ -951,9 +910,6 @@ struct ClientSessionValidator {
         }
 
         #expect(snapshot.state.round == nil)
-        #expect(snapshot.diagnostics.handshakeStage == .awaitingFusionBegin)
-        #expect(snapshot.diagnostics.activity == .failed)
-        #expect(snapshot.diagnostics.activity != .retrying)
         #expect(await transportFactories.primaryCount() == 1)
 
         await session.stop()
@@ -1005,8 +961,6 @@ struct ClientSessionValidator {
         }
 
         #expect(snapshot.state.round == nil)
-        #expect(snapshot.diagnostics.handshakeStage == .awaitingServerHello)
-        #expect(snapshot.diagnostics.activity == .failed)
         #expect(await transportFactories.primaryCount() == 1)
 
         await session.stop()
@@ -1119,7 +1073,6 @@ struct ClientSessionValidator {
         #expect((await invalidConfigurationSession.snapshot()).lastError == .invalidConfiguration)
         try await Task.sleep(for: .milliseconds(50))
         #expect(await invalidConfigurationFactories.primaryCount() == 0)
-        #expect((await invalidConfigurationSession.snapshot()).diagnostics.activity != .retrying)
         await invalidConfigurationSession.stop()
 
         let protocolFactories = SessionTransportFactoryRecorder()
@@ -1261,15 +1214,12 @@ struct ClientSessionValidator {
 
         await session.start()
         _ = try await Self.waitForObservedSnapshot(stateObserver) {
-            $0.diagnostics.activity == .retrying
+            $0.lastError == .transportUnavailable
         }
         await session.stop()
         try await Task.sleep(for: .milliseconds(2_200))
 
         let stoppedSnapshot = await session.snapshot()
-        #expect(stoppedSnapshot.diagnostics.activity == .stopped)
-        #expect(stoppedSnapshot.diagnostics.retryAttempt == nil)
-        #expect(stoppedSnapshot.diagnostics.nextRetryDelayMilliseconds == nil)
         #expect(stoppedSnapshot.lastError == nil)
         #expect(stoppedSnapshot.lastErrorSummary == nil)
         #expect(stoppedSnapshot.state.isConnected == false)
@@ -1310,17 +1260,13 @@ struct ClientSessionValidator {
         await transport.finishInbound()
 
         _ = try await Self.waitForObservedSnapshot(stateObserver) {
-            $0.diagnostics.activity == .retrying &&
-                $0.diagnostics.handshakeStage == .awaitingServerHello
+            $0.lastError == .transportUnavailable
         }
 
         await session.stop()
         try await Task.sleep(for: .milliseconds(2_200))
 
         let stoppedSnapshot = await session.snapshot()
-        #expect(stoppedSnapshot.diagnostics.activity == .stopped)
-        #expect(stoppedSnapshot.diagnostics.handshakeStage == .notStarted)
-        #expect(stoppedSnapshot.diagnostics.retryAttempt == nil)
         #expect(stoppedSnapshot.lastError == nil)
         #expect(await transportFactories.primaryCount() == 1)
     }
@@ -1369,7 +1315,7 @@ struct ClientSessionValidator {
         await transport.finishInbound()
 
         let retrySnapshot = try await Self.waitForObservedSnapshot(stateObserver) {
-            $0.diagnostics.activity == .retrying &&
+            $0.lastError == .transportUnavailable &&
                 $0.coordinatorStatus.latestInboundMessageKind == "TierStatusUpdate"
         }
 
@@ -1377,62 +1323,8 @@ struct ClientSessionValidator {
         try await Task.sleep(for: .milliseconds(2_200))
 
         let stoppedSnapshot = await session.snapshot()
-        #expect(stoppedSnapshot.diagnostics.activity == .stopped)
         #expect(stoppedSnapshot.coordinatorStatus == retrySnapshot.coordinatorStatus)
         #expect(await transportFactories.primaryCount() == 1)
-    }
-
-    @Test("Public client session diagnostics expose sanitized event metadata only")
-    func validateDiagnosticsExposeSanitizedEventMetadata() async throws {
-        let stateObserver = RecordedClientStateObserver()
-        let transportFactories = SessionTransportFactoryRecorder()
-        let session = OpalFusion.Client.Session(
-            configuration: PrimaryRuntimeTestFixtures.configuration,
-            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
-            joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantReservationSource: HostParticipantReservationSourceAdapter(
-                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
-            ),
-            transactionAssembler: HostTransactionAssemblerAdapter(
-                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
-            ),
-            stateObserver: stateObserver,
-            reconnectPolicy: Self.fastReconnectPolicy,
-            primaryTransportFactory: { await transportFactories.makePrimary() }
-        )
-
-        await session.start()
-        let transport = try await Self.waitForPrimaryTransport(
-            transportFactories,
-            at: 0
-        )
-        try await Self.waitForWrittenPayloadCount(transport, count: 1)
-        await transport.yieldInboundBytes(
-            try PrimaryRuntimeTestFixtures.encodeServerFrame(
-                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
-            )
-        )
-        try await Self.waitForWrittenPayloadCount(transport, count: 2)
-        await transport.finishInbound()
-
-        let retrySnapshot = try await Self.waitForObservedSnapshot(
-            stateObserver
-        ) {
-            $0.diagnostics.activity == .retrying &&
-                $0.diagnostics.recentEvents.contains { $0.messageKind == "ServerHello" }
-        }
-        let events = retrySnapshot.diagnostics.recentEvents
-        #expect(events.allSatisfy { $0.payloadByteCount == nil || $0.payloadByteCount! > 0 })
-        #expect(events.contains { $0.messageKind == "ClientHello" })
-        #expect(events.contains { $0.messageKind == "ServerHello" })
-        #expect(events.allSatisfy { event in
-            event.summary.contains("[") == false &&
-                event.summary.localizedCaseInsensitiveContains("script") == false &&
-                event.summary.localizedCaseInsensitiveContains("publicKey") == false &&
-                event.summary.localizedCaseInsensitiveContains("proof") == false
-        })
-
-        await session.stop()
     }
 
     @Test("Public client session completes a scripted loopback round and forwards observers")

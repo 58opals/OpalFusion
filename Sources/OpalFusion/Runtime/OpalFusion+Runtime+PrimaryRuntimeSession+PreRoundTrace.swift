@@ -8,8 +8,6 @@ extension OpalFusion.Runtime.PrimaryRuntimeSession {
         var sawServerHello: Bool
         var wroteClientHello: Bool
         var wroteJoinPools: Bool
-        var handshakeStage: OpalFusion.Client.Diagnostics.HandshakeStage
-        var recentEvents: [OpalFusion.Client.Diagnostics.Event]
 
         init() {
             self.updateSequence = 0
@@ -18,8 +16,6 @@ extension OpalFusion.Runtime.PrimaryRuntimeSession {
             self.sawServerHello = false
             self.wroteClientHello = false
             self.wroteJoinPools = false
-            self.handshakeStage = .notStarted
-            self.recentEvents = []
         }
     }
 }

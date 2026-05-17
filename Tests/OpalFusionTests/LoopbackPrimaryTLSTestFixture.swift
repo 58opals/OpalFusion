@@ -87,7 +87,18 @@ enum LoopbackPrimaryTLSTestFixture {
             )
         }
 
-        let identity = importedItem[kSecImportItemIdentity as String] as! SecIdentity
+        guard let identityValue = importedItem[kSecImportItemIdentity as String] else {
+            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+                "TLS loopback identity import did not return an identity"
+            )
+        }
+        let identityObject = identityValue as CFTypeRef
+        guard CFGetTypeID(identityObject) == SecIdentityGetTypeID() else {
+            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+                "TLS loopback identity import returned an unexpected item type"
+            )
+        }
+        let identity = identityObject as! SecIdentity
         guard let certificate = SecCertificateCreateWithData(
             nil,
             certificateDER as CFData

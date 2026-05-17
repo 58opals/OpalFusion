@@ -371,8 +371,8 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.covertSession.outstandingRequest == nil)
     }
 
-    @Test("Primary runtime does not record failure diagnostics after terminal success")
-    func validateTerminalSuccessIgnoresFailureDiagnosticsNoise() throws {
+    @Test("Primary runtime ignores failure noise after terminal success")
+    func validateTerminalSuccessIgnoresFailureNoise() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()
         try PrimaryRuntimeTestFixtures.driveToAwaitingResult(session: &session)
         _ = session.apply(
@@ -383,7 +383,6 @@ struct PrimaryRuntimeSessionValidator {
             ),
             now: PrimaryRuntimeTestFixtures.instant(1_055)
         )
-        let diagnosticsBeforeNoise = session.diagnostics(activity: .running)
 
         let effects = session.apply(
             input: .primaryTransportFailed(summary: "Primary read failed"),
@@ -397,15 +396,6 @@ struct PrimaryRuntimeSessionValidator {
                 identifier: PrimaryRuntimeTestFixtures.roundIdentifier,
                 completionStatus: .success
             )
-        )
-        #expect(
-            session.diagnostics(activity: .running).recentEvents
-                == diagnosticsBeforeNoise.recentEvents
-        )
-        #expect(
-            session.diagnostics(activity: .running).recentEvents.contains {
-                $0.kind == .failure && $0.summary == "Primary read failed"
-            } == false
         )
     }
 

@@ -5,7 +5,6 @@ extension OpalFusion.Runtime.LiveRuntimeDriver {
         let clientState: OpalFusion.Client.State
         let lastError: OpalFusion.Client.Error?
         let lastErrorSummary: String?
-        let diagnostics: OpalFusion.Client.Diagnostics
         let coordinatorStatus: OpalFusion.Client.Session.Snapshot.CoordinatorStatus
         let allowsReconnect: Bool
     }

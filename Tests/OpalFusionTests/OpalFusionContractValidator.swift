@@ -237,7 +237,7 @@ struct OpalFusionContractValidator {
         #expect(reservation.outputs == [output])
     }
 
-    @Test("Client session snapshot preserves state and diagnostics visibility")
+    @Test("Client session snapshot preserves state and coordinator status")
     func validateClientSessionSnapshotConstruction() {
         let state = OpalFusion.Client.State(
             isConnected: true,
@@ -262,35 +262,12 @@ struct OpalFusionContractValidator {
             state: state,
             lastError: .transportUnavailable,
             lastErrorSummary: "Primary connection failed",
-            diagnostics: .init(
-                activity: .retrying,
-                retryAttempt: 1,
-                nextRetryDelayMilliseconds: 3_000,
-                primaryFailureCategory: .transportUnavailable,
-                primaryFailureSummary: "Primary connection failed",
-                handshakeStage: .awaitingServerHello,
-                recentEvents: [
-                    .init(
-                        kind: .retry,
-                        summary: "Primary reconnect scheduled",
-                        retryAttempt: 1,
-                        retryDelayMilliseconds: 3_000,
-                        handshakeStage: .awaitingServerHello
-                    )
-                ]
-            ),
             coordinatorStatus: coordinatorStatus
         )
 
         #expect(snapshot.state == state)
         #expect(snapshot.lastError == .transportUnavailable)
         #expect(snapshot.lastErrorSummary == "Primary connection failed")
-        #expect(snapshot.diagnostics.activity == .retrying)
-        #expect(snapshot.diagnostics.retryAttempt == 1)
-        #expect(snapshot.diagnostics.nextRetryDelayMilliseconds == 3_000)
-        #expect(snapshot.diagnostics.primaryFailureCategory == .transportUnavailable)
-        #expect(snapshot.diagnostics.handshakeStage == .awaitingServerHello)
-        #expect(snapshot.diagnostics.recentEvents.count == 1)
         #expect(snapshot.coordinatorStatus == coordinatorStatus)
     }
 

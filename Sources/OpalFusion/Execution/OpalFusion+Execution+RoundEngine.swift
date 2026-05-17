@@ -1,6 +1,7 @@
 // OpalFusion+Execution+RoundEngine.swift
 
 import Foundation
+import OpalDiagnostics
 
 extension OpalFusion.Execution {
     struct RoundEngine: Sendable {
@@ -97,13 +98,13 @@ extension OpalFusion.Execution {
                 if round?.substate == .terminal {
                     return []
                 }
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.transactionFinalizationFailed,
-                    category: OpalFusion.Diagnostics.Categories.transaction,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: round?.identifier),
+                OpalDiagnostics.logger(category: .fusionTransaction).record(
+                    event: .transactionFinalizationFailed,
+                    level: .opalFusionDefault(for: .transactionFinalizationFailed),
+                    traceID: .opalFusionRound(round?.identifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("transaction_finalization")
-                    ] + OpalFusionDiagnostics.makeErrorFields(for: failure)
+                        .operation("transaction_finalization")
+                    ] + OpalDiagnostics.Field.errorFields(for: failure)
                 )
                 return failRound(
                     completionStatus: failure.completionStatus,
@@ -212,7 +213,7 @@ extension OpalFusion.Execution {
                     kind: .failure,
                     phase: .connecting,
                     summary: "Primary channel disconnected",
-                    errorCode: OpalFusion.Diagnostics.ErrorCodes.transportUnavailable
+                    errorCode: "transport_unavailable"
                 )
             ]
         }
@@ -406,15 +407,15 @@ extension OpalFusion.Execution {
                 )
                 round.substate = .collectingInputs
                 self.round = round
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.roundEntered,
-                    category: OpalFusion.Diagnostics.Categories.round,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+                OpalDiagnostics.logger(category: .fusionRound).record(
+                    event: .roundEntered,
+                    level: .opalFusionDefault(for: .roundEntered),
+                    traceID: .opalFusionRound(roundIdentifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("round_enter"),
-                        OpalFusionDiagnostics.phaseField(.registeringInputs),
-                        OpalFusionDiagnostics.roundStateField(round.substate),
-                        OpalFusionDiagnostics.messageKindField("StartRound")
+                        .operation("round_enter"),
+                        .phase(.registeringInputs),
+                        .roundState(round.substate),
+                        .messageKind("StartRound")
                     ]
                 )
 
@@ -579,25 +580,24 @@ extension OpalFusion.Execution {
                     round.substate = .terminal
                     round.completionStatus = .success
                     self.round = round
-                    OpalFusionDiagnostics.record(
-                        OpalFusion.Diagnostics.Events.roundCompleted,
-                        category: OpalFusion.Diagnostics.Categories.round,
-                        traceID: OpalFusionDiagnostics.makeTraceID(for: round.identifier),
+                    OpalDiagnostics.logger(category: .fusionRound).record(
+                        event: .roundCompleted,
+                        level: .opalFusionDefault(for: .roundCompleted),
+                        traceID: .opalFusionRound(round.identifier),
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("round_complete"),
-                            OpalFusionDiagnostics.phaseField(.completed),
-                            OpalFusionDiagnostics.roundStateField(round.substate),
-                            OpalFusionDiagnostics.settlementStateField(.success)
+                            .operation("round_complete"),
+                            .phase(.completed),
+                            .roundState(round.substate),
+                            .settlementState(.success)
                         ]
                     )
                     return [
-                        hostEvent(
+                        hostEventWithoutDiagnostics(
                             roundIdentifier: round.identifier,
                             kind: .completed,
                             phase: .completed,
                             summary: "Round completed successfully",
-                            isTerminal: true,
-                            shouldRecordDiagnostics: false
+                            isTerminal: true
                         )
                     ]
                 }
@@ -635,15 +635,15 @@ extension OpalFusion.Execution {
                 do {
                     blames = try workflow.buildBlames(&round)
                 } catch {
-                    OpalFusionDiagnostics.record(
-                        OpalFusion.Diagnostics.Events.blameProofValidationFailed,
-                        category: OpalFusion.Diagnostics.Categories.blame,
-                        traceID: OpalFusionDiagnostics.makeTraceID(for: round.identifier),
+                    OpalDiagnostics.logger(category: .fusionBlame).record(
+                        event: .blameProofValidationFailed,
+                        level: .opalFusionDefault(for: .blameProofValidationFailed),
+                        traceID: .opalFusionRound(round.identifier),
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("blame_build"),
-                            OpalFusionDiagnostics.phaseField(.blame),
-                            OpalFusionDiagnostics.roundStateField(round.substate)
-                        ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                            .operation("blame_build"),
+                            .phase(.blame),
+                            .roundState(round.substate)
+                        ] + OpalDiagnostics.Field.errorFields(for: error)
                     )
                     return failForWorkflowFailure(error)
                 }
@@ -653,15 +653,15 @@ extension OpalFusion.Execution {
 
                 round.substate = .awaitingRestart
                 self.round = round
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.blameSubmissionStarted,
-                    category: OpalFusion.Diagnostics.Categories.blame,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: round.identifier),
+                OpalDiagnostics.logger(category: .fusionBlame).record(
+                    event: .blameSubmissionStarted,
+                    level: .opalFusionDefault(for: .blameSubmissionStarted),
+                    traceID: .opalFusionRound(round.identifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("blame_submit"),
-                        OpalFusionDiagnostics.phaseField(.blame),
-                        OpalFusionDiagnostics.roundStateField(round.substate),
-                        OpalFusionDiagnostics.messageKindField("Blames")
+                        .operation("blame_submit"),
+                        .phase(.blame),
+                        .roundState(round.substate),
+                        .messageKind("Blames")
                     ]
                 )
 
@@ -687,13 +687,13 @@ extension OpalFusion.Execution {
                 self.round = nil
                 session.restartCount += 1
                 session.connectionSubstate = .awaitingFusionBegin
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.roundRestarted,
-                    category: OpalFusion.Diagnostics.Categories.round,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: priorIdentifier),
+                OpalDiagnostics.logger(category: .fusionRound).record(
+                    event: .roundRestarted,
+                    level: .opalFusionDefault(for: .roundRestarted),
+                    traceID: .opalFusionRound(priorIdentifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("round_restart"),
-                        OpalFusionDiagnostics.phaseField(.connecting)
+                        .operation("round_restart"),
+                        .phase(.connecting)
                     ]
                 )
 
@@ -845,14 +845,14 @@ extension OpalFusion.Execution {
             }
             round.substate = .awaitingSignatureWindow
             self.round = round
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.transactionFinalizationSucceeded,
-                category: OpalFusion.Diagnostics.Categories.transaction,
-                traceID: OpalFusionDiagnostics.makeTraceID(for: round.identifier),
+            OpalDiagnostics.logger(category: .fusionTransaction).record(
+                event: .transactionFinalizationSucceeded,
+                level: .opalFusionDefault(for: .transactionFinalizationSucceeded),
+                traceID: .opalFusionRound(round.identifier),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("transaction_finalization"),
-                    OpalFusionDiagnostics.phaseField(.assemblingTransaction),
-                    OpalFusionDiagnostics.roundStateField(round.substate)
+                    .operation("transaction_finalization"),
+                    .phase(.assemblingTransaction),
+                    .roundState(round.substate)
                 ]
             )
 
@@ -903,13 +903,13 @@ extension OpalFusion.Execution {
             do {
                 messages = try workflow.buildCovertComponentMessages(&round)
             } catch {
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.covertMessageEncodeFailed,
-                    category: OpalFusion.Diagnostics.Categories.covert,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: round.identifier),
+                OpalDiagnostics.logger(category: .fusionCovert).record(
+                    event: .covertMessageEncodeFailed,
+                    level: .opalFusionDefault(for: .covertMessageEncodeFailed),
+                    traceID: .opalFusionRound(round.identifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("covert_component_material")
-                    ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                        .operation("covert_component_material")
+                    ] + OpalDiagnostics.Field.errorFields(for: error)
                 )
                 return failForWorkflowFailure(error)
             }
@@ -1086,24 +1086,23 @@ extension OpalFusion.Execution {
         ) -> [OpalFusion.Execution.RoundEngine.Effect] {
             round = nil
             recordSessionFailure(error: error, summary: summary)
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.roundFailed,
-                category: OpalFusion.Diagnostics.Categories.round,
+            OpalDiagnostics.logger(category: .fusionRound).record(
+                event: .roundFailed,
+                level: .opalFusionDefault(for: .roundFailed),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("pre_round_failure"),
-                    OpalFusionDiagnostics.phaseField(.connecting)
-                ] + OpalFusionDiagnostics.makeSanitizedSummaryFields(
-                    errorCode: OpalFusionDiagnostics.errorCode(for: error),
+                    .operation("pre_round_failure"),
+                    .phase(.connecting)
+                ] + OpalDiagnostics.Field.sanitizedSummaryFields(
+                    errorCode: OpalDiagnostics.Field.errorCode(for: error),
                     summary: summary
                 )
             )
             return [
-                hostEvent(
+                hostEventWithoutDiagnostics(
                     roundIdentifier: nil,
                     kind: .failure,
                     phase: .connecting,
-                    summary: summary,
-                    shouldRecordDiagnostics: false
+                    summary: summary
                 )
             ]
         }
@@ -1147,29 +1146,28 @@ extension OpalFusion.Execution {
             round.completionStatus = completionStatus
             self.round = round
             recordSessionFailure(error: clientError, summary: summary)
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.roundFailed,
-                category: OpalFusion.Diagnostics.Categories.round,
-                traceID: OpalFusionDiagnostics.makeTraceID(for: round.identifier),
+            OpalDiagnostics.logger(category: .fusionRound).record(
+                event: .roundFailed,
+                level: .opalFusionDefault(for: .roundFailed),
+                traceID: .opalFusionRound(round.identifier),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("round_failure"),
-                    OpalFusionDiagnostics.phaseField(.completed),
-                    OpalFusionDiagnostics.roundStateField(round.substate),
-                    OpalFusionDiagnostics.settlementStateField(completionStatus)
-                ] + OpalFusionDiagnostics.makeSanitizedSummaryFields(
-                    errorCode: OpalFusionDiagnostics.errorCode(for: clientError),
+                    .operation("round_failure"),
+                    .phase(.completed),
+                    .roundState(round.substate),
+                    .settlementState(completionStatus)
+                ] + OpalDiagnostics.Field.sanitizedSummaryFields(
+                    errorCode: OpalDiagnostics.Field.errorCode(for: clientError),
                     summary: summary
                 )
             )
 
             return [
-                hostEvent(
+                hostEventWithoutDiagnostics(
                     roundIdentifier: round.identifier,
                     kind: .failure,
                     phase: .completed,
                     summary: summary,
-                    isTerminal: true,
-                    shouldRecordDiagnostics: false
+                    isTerminal: true
                 )
             ]
         }
@@ -1190,19 +1188,32 @@ extension OpalFusion.Execution {
             phase: OpalFusion.Round.Phase,
             summary: String,
             isTerminal: Bool = false,
-            errorCode: String? = nil,
-            shouldRecordDiagnostics: Bool = true
+            errorCode: String? = nil
         ) -> OpalFusion.Execution.RoundEngine.Effect {
-            if shouldRecordDiagnostics {
-                recordHostEventDiagnostics(
-                    roundIdentifier: roundIdentifier,
-                    kind: kind,
-                    phase: phase,
-                    summary: summary,
-                    isTerminal: isTerminal,
-                    errorCode: errorCode
-                )
-            }
+            recordHostEventDiagnostics(
+                roundIdentifier: roundIdentifier,
+                kind: kind,
+                phase: phase,
+                summary: summary,
+                isTerminal: isTerminal,
+                errorCode: errorCode
+            )
+            return hostEventWithoutDiagnostics(
+                roundIdentifier: roundIdentifier,
+                kind: kind,
+                phase: phase,
+                summary: summary,
+                isTerminal: isTerminal
+            )
+        }
+
+        private func hostEventWithoutDiagnostics(
+            roundIdentifier: OpalFusion.Round.Identifier?,
+            kind: OpalFusion.Host.Event.Kind,
+            phase: OpalFusion.Round.Phase,
+            summary: String,
+            isTerminal: Bool = false
+        ) -> OpalFusion.Execution.RoundEngine.Effect {
             return .emitHostEvent(
                 roundIdentifier: roundIdentifier,
                 event: .init(
@@ -1218,14 +1229,14 @@ extension OpalFusion.Execution {
             _ error: Swift.Error,
             roundIdentifier: OpalFusion.Round.Identifier?
         ) {
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.transactionProposalFailed,
-                category: OpalFusion.Diagnostics.Categories.transaction,
-                traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+            OpalDiagnostics.logger(category: .fusionTransaction).record(
+                event: .transactionProposalFailed,
+                level: .opalFusionDefault(for: .transactionProposalFailed),
+                traceID: .opalFusionRound(roundIdentifier),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("transaction_proposal"),
-                    OpalFusionDiagnostics.phaseField(.assemblingTransaction)
-                ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                    .operation("transaction_proposal"),
+                    .phase(.assemblingTransaction)
+                ] + OpalDiagnostics.Field.errorFields(for: error)
             )
         }
 
@@ -1233,13 +1244,13 @@ extension OpalFusion.Execution {
             _ error: Swift.Error,
             roundIdentifier: OpalFusion.Round.Identifier?
         ) {
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.transactionFinalizationFailed,
-                category: OpalFusion.Diagnostics.Categories.transaction,
-                traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+            OpalDiagnostics.logger(category: .fusionTransaction).record(
+                event: .transactionFinalizationFailed,
+                level: .opalFusionDefault(for: .transactionFinalizationFailed),
+                traceID: .opalFusionRound(roundIdentifier),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("transaction_signature_material")
-                ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                    .operation("transaction_signature_material")
+                ] + OpalDiagnostics.Field.errorFields(for: error)
             )
         }
 
@@ -1251,35 +1262,35 @@ extension OpalFusion.Execution {
             isTerminal: Bool,
             errorCode: String?
         ) {
-            let event: OpalFusion.Diagnostics.Event
+            let event: OpalDiagnostics.Event
             if kind == .completed {
-                event = OpalFusion.Diagnostics.Events.roundCompleted
+                event = OpalDiagnostics.Event.roundCompleted
             } else if kind == .failure {
-                event = OpalFusion.Diagnostics.Events.roundFailed
+                event = OpalDiagnostics.Event.roundFailed
             } else {
-                event = OpalFusion.Diagnostics.Events.roundProgressed
+                event = OpalDiagnostics.Event.roundProgressed
             }
 
             var fields = [
-                OpalFusionDiagnostics.makeOperationField("host_event"),
-                OpalFusionDiagnostics.phaseField(phase)
+                OpalDiagnostics.Field.operation("host_event"),
+                OpalDiagnostics.Field.phase(phase)
             ]
             if isTerminal {
-                fields.append(OpalFusionDiagnostics.publicField("terminal", true))
+                fields.append(OpalDiagnostics.Field.terminal(true))
             }
             if kind == .failure {
                 fields.append(
-                    contentsOf: OpalFusionDiagnostics.makeSanitizedSummaryFields(
-                        errorCode: errorCode ?? OpalFusion.Diagnostics.ErrorCodes.unknown,
+                    contentsOf: OpalDiagnostics.Field.sanitizedSummaryFields(
+                        errorCode: errorCode ?? "unknown",
                         summary: summary
                     )
                 )
             }
 
-            OpalFusionDiagnostics.record(
-                event,
-                category: OpalFusion.Diagnostics.Categories.round,
-                traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+            OpalDiagnostics.logger(category: .fusionRound).record(
+                event: event,
+                level: .opalFusionDefault(for: event),
+                traceID: .opalFusionRound(roundIdentifier),
                 fields: fields
             )
         }

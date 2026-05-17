@@ -36,7 +36,7 @@ actor RecordingPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
         Task {
             do {
                 for try await bytes in inboundStream {
-                    await self.recordInbound(bytes)
+                    self.recordInbound(bytes)
                     continuation.yield(bytes)
                 }
                 continuation.finish()

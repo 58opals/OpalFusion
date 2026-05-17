@@ -1,6 +1,7 @@
 // OpalFusion+Runtime+LiveRuntimeDriver.swift
 
 import Foundation
+import OpalDiagnostics
 
 extension OpalFusion.Runtime {
     actor LiveRuntimeDriver {
@@ -155,9 +156,9 @@ extension OpalFusion.Runtime {
             }
 
             do {
-                recordPrimaryConnect(OpalFusion.Diagnostics.Events.primaryConnectStarted)
+                recordPrimaryConnect(OpalDiagnostics.Event.primaryConnectStarted)
                 let inboundStream = try await primaryTransport.connect()
-                recordPrimaryConnect(OpalFusion.Diagnostics.Events.primaryConnectSucceeded)
+                recordPrimaryConnect(OpalDiagnostics.Event.primaryConnectSucceeded)
                 startPrimaryReadLoop(inboundStream)
                 await handle(.connected)
                 if isRunning {
@@ -170,7 +171,7 @@ extension OpalFusion.Runtime {
                 }
 
                 recordPrimaryConnect(
-                    OpalFusion.Diagnostics.Events.primaryConnectFailed,
+                    OpalDiagnostics.Event.primaryConnectFailed,
                     error: error
                 )
                 await handle(
@@ -192,29 +193,25 @@ extension OpalFusion.Runtime {
         }
 
         func snapshot() -> OpalFusion.Runtime.LiveRuntimeDriver.Snapshot {
-            let diagnostics = runtimeSession.diagnostics(
-                activity: diagnosticActivity
-            )
             return .init(
                 clientState: runtimeSession.clientState,
                 lastError: runtimeSession.lastError,
                 lastErrorSummary: runtimeSession.lastErrorSummary,
-                diagnostics: diagnostics,
                 coordinatorStatus: runtimeSession.coordinatorStatus,
                 allowsReconnect: lastFailureAllowsReconnect
             )
         }
 
         private func recordPrimaryConnect(
-            _ event: OpalFusion.Diagnostics.Event,
+            _ event: OpalDiagnostics.Event,
             error: Error? = nil
         ) {
-            let errorFields = error.map { OpalFusionDiagnostics.makeErrorFields(for: $0) } ?? []
-            OpalFusionDiagnostics.record(
-                event,
-                category: OpalFusion.Diagnostics.Categories.primary,
+            let errorFields = error.map { OpalDiagnostics.Field.errorFields(for: $0) } ?? []
+            OpalDiagnostics.logger(category: .fusionPrimary).record(
+                event: event,
+                level: .opalFusionDefault(for: event),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("primary_connect")
+                    .operation("primary_connect")
                 ] + errorFields
             )
         }
@@ -249,15 +246,13 @@ extension OpalFusion.Runtime {
         }
 
         private func recordPrimaryReadFailure(_ error: Error) {
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.transportError,
-                category: OpalFusion.Diagnostics.Categories.transport,
-                traceID: OpalFusionDiagnostics.makeTraceID(
-                    for: runtimeSession.engine.round?.identifier
-                ),
+            OpalDiagnostics.logger(category: .fusionTransport).record(
+                event: .transportError,
+                level: .opalFusionDefault(for: .transportError),
+                traceID: .opalFusionRound(runtimeSession.engine.round?.identifier),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("primary_read")
-                ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                    .operation("primary_read")
+                ] + OpalDiagnostics.Field.errorFields(for: error)
             )
         }
 
@@ -372,16 +367,14 @@ extension OpalFusion.Runtime {
                     try await primaryTransport.write(bytes)
                     runtimeSession.recordWrittenPrimaryFrame(bytes)
                 } catch {
-                    OpalFusionDiagnostics.record(
-                        OpalFusion.Diagnostics.Events.transportError,
-                        category: OpalFusion.Diagnostics.Categories.transport,
-                        traceID: OpalFusionDiagnostics.makeTraceID(
-                            for: runtimeSession.engine.round?.identifier
-                        ),
+                    OpalDiagnostics.logger(category: .fusionTransport).record(
+                        event: .transportError,
+                        level: .opalFusionDefault(for: .transportError),
+                        traceID: .opalFusionRound(runtimeSession.engine.round?.identifier),
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("primary_write"),
-                            OpalFusionDiagnostics.frameByteCountField(bytes.count)
-                        ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                            .operation("primary_write"),
+                            .frameByteCount(bytes.count)
+                        ] + OpalDiagnostics.Field.errorFields(for: error)
                     )
                     await handle(
                         .diagnosedPrimaryTransportFailed(
@@ -405,15 +398,13 @@ extension OpalFusion.Runtime {
                         guard Task.isCancelled == false else {
                             return
                         }
-                        OpalFusionDiagnostics.record(
-                            OpalFusion.Diagnostics.Events.covertPrepareFailed,
-                            category: OpalFusion.Diagnostics.Categories.covert,
-                            traceID: OpalFusionDiagnostics.makeTraceID(
-                                for: plan.endpoint.roundIdentifier
-                            ),
+                        OpalDiagnostics.logger(category: .fusionCovert).record(
+                            event: .covertPrepareFailed,
+                            level: .opalFusionDefault(for: .covertPrepareFailed),
+                            traceID: .opalFusionRound(plan.endpoint.roundIdentifier),
                             fields: [
-                                OpalFusionDiagnostics.makeOperationField("covert_prepare")
-                            ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                                .operation("covert_prepare")
+                            ] + OpalDiagnostics.Field.errorFields(for: error)
                         )
                         await self.handleCovertPreparationFailureIfCurrent(
                             summary: "Covert endpoint preparation failed",
@@ -440,18 +431,16 @@ extension OpalFusion.Runtime {
                         guard Task.isCancelled == false else {
                             return
                         }
-                        OpalFusionDiagnostics.record(
-                            OpalFusion.Diagnostics.Events.covertRequestFailed,
-                            category: OpalFusion.Diagnostics.Categories.covert,
-                            traceID: OpalFusionDiagnostics.makeTraceID(
-                                for: request.endpoint.roundIdentifier
-                            ),
+                        OpalDiagnostics.logger(category: .fusionCovert).record(
+                            event: .covertRequestFailed,
+                            level: .opalFusionDefault(for: .covertRequestFailed),
+                            traceID: .opalFusionRound(request.endpoint.roundIdentifier),
                             fields: [
-                                OpalFusionDiagnostics.makeOperationField("covert_request"),
-                                OpalFusionDiagnostics.payloadByteCountField(
+                                .operation("covert_request"),
+                                .payloadByteCount(
                                     request.payload.count
                                 )
-                            ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                            ] + OpalDiagnostics.Field.errorFields(for: error)
                         )
                         await self.handleCovertRequestFailureIfCurrent(
                             summary: "Covert request failed",
@@ -568,26 +557,6 @@ extension OpalFusion.Runtime {
             }
         }
 
-        private var diagnosticActivity: OpalFusion.Client.Diagnostics.Activity {
-            if stopRequested {
-                return .stopped
-            }
-
-            if runtimeSession.lastError != nil {
-                return .failed
-            }
-
-            if runtimeSession.clientState.isConnected {
-                return .running
-            }
-
-            if isRunning {
-                return .connecting
-            }
-
-            return .idle
-        }
-
         private func canReconnectAfter(
             _ input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
         ) -> Bool {
@@ -666,13 +635,13 @@ extension OpalFusion.Runtime {
             input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
         ) async {
             guard runtimeSession.engine.round?.identifier == roundIdentifier else {
-                OpalFusionDiagnostics.record(
-                    OpalFusion.Diagnostics.Events.roundProgressed,
-                    category: OpalFusion.Diagnostics.Categories.round,
-                    traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+                OpalDiagnostics.logger(category: .fusionRound).record(
+                    event: .roundProgressed,
+                    level: .opalFusionDefault(for: .roundProgressed),
+                    traceID: .opalFusionRound(roundIdentifier),
                     fields: [
-                        OpalFusionDiagnostics.makeOperationField("stale_host_operation"),
-                        OpalFusionDiagnostics.publicField("phase", staleOperation)
+                        .operation("stale_host_operation"),
+                        .phase(staleOperation)
                     ]
                 )
                 return
@@ -698,27 +667,34 @@ extension OpalFusion.Runtime {
                 return
             }
 
-            var fields = [
-                OpalFusionDiagnostics.makeOperationField("primary_preround_disconnect"),
-                OpalFusionDiagnostics.publicField(
-                    "message_kind",
-                    trace.lastInboundKind?.rawValue ?? "nil"
-                ),
-                OpalFusionDiagnostics.publicField(
-                    "phase",
-                    trace.handshakeStage.rawValue
-                )
+            var fields: [OpalDiagnostics.Field] = [
+                .operation("primary_preround_disconnect"),
+                .messageKind(trace.lastInboundKind),
+                .phase(preRoundHandshakePhase)
             ]
             if let payloadByteCount = trace.lastInboundPayloadBytes {
                 fields.append(
-                    OpalFusionDiagnostics.payloadByteCountField(payloadByteCount)
+                    .payloadByteCount(payloadByteCount)
                 )
             }
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.primaryConnectionPeerEOF,
-                category: OpalFusion.Diagnostics.Categories.primary,
+            OpalDiagnostics.logger(category: .fusionPrimary).record(
+                event: .primaryConnectionPeerEOF,
+                level: .opalFusionDefault(for: .primaryConnectionPeerEOF),
                 fields: fields
             )
+        }
+
+        private var preRoundHandshakePhase: String {
+            switch runtimeSession.engine.session.connectionSubstate {
+            case .awaitingServerHello:
+                "awaitingServerHello"
+            case .awaitingFusionBegin:
+                "awaitingFusionBegin"
+            case .inRound:
+                "inRound"
+            case .disconnected, .failed:
+                "notStarted"
+            }
         }
     }
 }

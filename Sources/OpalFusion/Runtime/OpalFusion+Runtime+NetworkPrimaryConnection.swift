@@ -3,6 +3,7 @@
 import CFNetwork
 import Foundation
 import Network
+import OpalDiagnostics
 import Security
 
 extension OpalFusion.Runtime {
@@ -27,10 +28,16 @@ extension OpalFusion.Runtime {
             host: String,
             port: UInt16,
             parameters: NWParameters
-        ) {
+        ) throws {
+            guard port > 0,
+                  let endpointPort = NWEndpoint.Port(rawValue: port) else {
+                throw OpalFusion.Runtime.LiveTransportError.invalidConfiguration(
+                    "Primary connection port must be valid"
+                )
+            }
             self.connection = NWConnection(
                 host: NWEndpoint.Host(host),
-                port: NWEndpoint.Port(rawValue: port)!,
+                port: endpointPort,
                 using: parameters
             )
             self.eventContinuation = nil
@@ -131,12 +138,13 @@ extension OpalFusion.Runtime {
             _ state: NWConnection.State,
             restartDelay: Duration
         ) async {
-            OpalFusionDiagnostics.record(
-                Self.makeDiagnosticsEvent(for: state),
-                category: OpalFusion.Diagnostics.Categories.transport,
+            let event = Self.makeDiagnosticsEvent(for: state)
+            OpalDiagnostics.logger(category: .fusionTransport).record(
+                event: event,
+                level: .opalFusionDefault(for: event),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("primary_network_state"),
-                    OpalFusionDiagnostics.publicField("phase", Self.describe(state))
+                    .operation("primary_network_state"),
+                    .phase(Self.describe(state))
                 ] + Self.errorFields(for: state)
             )
             switch state {
@@ -375,29 +383,29 @@ extension OpalFusion.Runtime {
 
         static func makeDiagnosticsEvent(
             for state: NWConnection.State
-        ) -> OpalFusion.Diagnostics.Event {
+        ) -> OpalDiagnostics.Event {
             switch state {
             case .ready:
-                OpalFusion.Diagnostics.Events.primaryConnectionReady
+                OpalDiagnostics.Event.primaryConnectionReady
             case .waiting:
-                OpalFusion.Diagnostics.Events.primaryConnectionWaiting
+                OpalDiagnostics.Event.primaryConnectionWaiting
             case .cancelled:
-                OpalFusion.Diagnostics.Events.primaryConnectionCancelled
+                OpalDiagnostics.Event.primaryConnectionCancelled
             case .failed:
-                OpalFusion.Diagnostics.Events.transportError
+                OpalDiagnostics.Event.transportError
             case .setup, .preparing:
-                OpalFusion.Diagnostics.Events.primaryConnectionPreparing
+                OpalDiagnostics.Event.primaryConnectionPreparing
             @unknown default:
-                OpalFusion.Diagnostics.Events.transportError
+                OpalDiagnostics.Event.transportError
             }
         }
 
         private static func errorFields(
             for state: NWConnection.State
-        ) -> [OpalFusionDiagnostics.Field] {
+        ) -> [OpalDiagnostics.Field] {
             switch state {
             case let .waiting(error), let .failed(error):
-                OpalFusionDiagnostics.makeErrorFields(for: error)
+                OpalDiagnostics.Field.errorFields(for: error)
             default:
                 []
             }

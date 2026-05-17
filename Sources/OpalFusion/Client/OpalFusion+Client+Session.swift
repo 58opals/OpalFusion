@@ -1,5 +1,7 @@
 // OpalFusion+Client+Session.swift
 
+import OpalDiagnostics
+
 public extension OpalFusion.Client {
     actor Session {
         private let configuration: OpalFusion.Client.Configuration
@@ -274,27 +276,14 @@ public extension OpalFusion.Client {
             delay: Duration
         ) async {
             let retryDelayMilliseconds = delay.opalFusionMillisecondsRoundedUp
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.primaryRetryScheduled,
-                category: OpalFusion.Diagnostics.Categories.primary,
+            OpalDiagnostics.logger(category: .fusionPrimary).record(
+                event: .primaryRetryScheduled,
+                level: .opalFusionDefault(for: .primaryRetryScheduled),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("primary_reconnect"),
-                    OpalFusionDiagnostics.retryAttemptField(attempt),
-                    OpalFusionDiagnostics.retryDelayMillisecondsField(retryDelayMilliseconds)
+                    .operation("primary_reconnect"),
+                    .retryAttempt(attempt),
+                    .retryDelayMilliseconds(retryDelayMilliseconds)
                 ]
-            )
-            let event = OpalFusion.Client.Diagnostics.Event(
-                kind: .retry,
-                summary: "Primary reconnect scheduled",
-                retryAttempt: attempt,
-                retryDelayMilliseconds: retryDelayMilliseconds,
-                handshakeStage: lastEmittedSnapshot.diagnostics.handshakeStage
-            )
-            let diagnostics = lastEmittedSnapshot.diagnostics
-                .withRetry(attempt: attempt, delay: delay)
-                .appending(event)
-            await updateSnapshotIfNeeded(
-                lastEmittedSnapshot.withDiagnostics(diagnostics)
             )
 
             let scheduledGeneration = runtimeDriverGeneration
@@ -338,11 +327,6 @@ public extension OpalFusion.Client {
                 state: .init(),
                 lastError: nil,
                 lastErrorSummary: nil,
-                diagnostics: lastEmittedSnapshot.diagnostics
-                    .withoutFailure()
-                    .withRetry(attempt: nil, delay: nil)
-                    .withHandshakeStage(.notStarted)
-                    .withActivity(.stopped),
                 coordinatorStatus: lastEmittedSnapshot.coordinatorStatus
             )
         }
@@ -371,20 +355,7 @@ private extension OpalFusion.Client.Session.Snapshot {
             state: snapshot.clientState,
             lastError: snapshot.lastError,
             lastErrorSummary: snapshot.lastErrorSummary,
-            diagnostics: snapshot.diagnostics,
             coordinatorStatus: snapshot.coordinatorStatus
-        )
-    }
-
-    func withDiagnostics(
-        _ diagnostics: OpalFusion.Client.Diagnostics
-    ) -> Self {
-        .init(
-            state: state,
-            lastError: lastError,
-            lastErrorSummary: lastErrorSummary,
-            diagnostics: diagnostics,
-            coordinatorStatus: coordinatorStatus
         )
     }
 }

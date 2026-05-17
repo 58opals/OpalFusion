@@ -52,20 +52,17 @@ public extension OpalFusion.Client.Session {
         public let state: OpalFusion.Client.State
         public let lastError: OpalFusion.Client.Error?
         public let lastErrorSummary: String?
-        public let diagnostics: OpalFusion.Client.Diagnostics
         public let coordinatorStatus: CoordinatorStatus
 
         public init(
             state: OpalFusion.Client.State = .init(),
             lastError: OpalFusion.Client.Error? = nil,
             lastErrorSummary: String? = nil,
-            diagnostics: OpalFusion.Client.Diagnostics = .init(),
             coordinatorStatus: CoordinatorStatus = .init()
         ) {
             self.state = state
             self.lastError = lastError
             self.lastErrorSummary = lastErrorSummary
-            self.diagnostics = diagnostics
             self.coordinatorStatus = coordinatorStatus
         }
     }

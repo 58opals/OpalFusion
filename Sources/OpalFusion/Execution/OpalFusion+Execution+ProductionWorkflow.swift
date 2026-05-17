@@ -2,6 +2,7 @@
 
 import Foundation
 import OpalCrypto
+import OpalDiagnostics
 import SwiftProtobuf
 extension OpalFusion.Execution {
     struct ProductionWorkflow: Sendable {
@@ -225,8 +226,8 @@ extension OpalFusion.Execution {
                     recordBlameProofValidationFailure(
                         roundIdentifier: round.identifier,
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("proof_decrypt")
-                        ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                            OpalDiagnostics.Field.operation("proof_decrypt")
+                        ] + OpalDiagnostics.Field.errorFields(for: error)
                     )
                     blames.append(
                         .init(
@@ -250,11 +251,11 @@ extension OpalFusion.Execution {
                 } catch let error as OpalFusion.Execution.RelayedProofValidationFailure {
                     recordBlameProofValidationFailure(
                         roundIdentifier: round.identifier,
-                        fields: OpalFusionDiagnostics.makeSanitizedSummaryFields(
-                            errorCode: OpalFusion.Diagnostics.ErrorCodes.relayedProofValidationFailed,
+                        fields: OpalDiagnostics.Field.sanitizedSummaryFields(
+                            errorCode: "relayed_proof_validation_failed",
                             summary: error.reason
                         ) + [
-                            OpalFusionDiagnostics.makeOperationField("proof_validation")
+                            OpalDiagnostics.Field.operation("proof_validation")
                         ]
                     )
                     blames.append(
@@ -1299,12 +1300,12 @@ extension OpalFusion.Execution {
 
         private func recordBlameProofValidationFailure(
             roundIdentifier: OpalFusion.Round.Identifier?,
-            fields: [OpalFusionDiagnostics.Field]
+            fields: [OpalDiagnostics.Field]
         ) {
-            OpalFusionDiagnostics.record(
-                OpalFusion.Diagnostics.Events.blameProofValidationFailed,
-                category: OpalFusion.Diagnostics.Categories.blame,
-                traceID: OpalFusionDiagnostics.makeTraceID(for: roundIdentifier),
+            OpalDiagnostics.logger(category: .fusionBlame).record(
+                event: .blameProofValidationFailed,
+                level: .opalFusionDefault(for: .blameProofValidationFailed),
+                traceID: .opalFusionRound(roundIdentifier),
                 fields: fields
             )
         }

@@ -3,6 +3,7 @@
 import CFNetwork
 import Foundation
 import Network
+import OpalDiagnostics
 import Security
 
 extension OpalFusion.Runtime {
@@ -11,7 +12,7 @@ extension OpalFusion.Runtime {
             String,
             UInt16,
             NWParameters
-        ) -> any OpalFusion.Runtime.PrimaryConnectioning
+        ) throws -> any OpalFusion.Runtime.PrimaryConnectioning
 
         private let host: String
         private let port: UInt16
@@ -33,7 +34,7 @@ extension OpalFusion.Runtime {
                 host,
                 port,
                 parameters in
-                OpalFusion.Runtime.NetworkPrimaryConnection(
+                try OpalFusion.Runtime.NetworkPrimaryConnection(
                     host: host,
                     port: port,
                     parameters: parameters
@@ -63,7 +64,7 @@ extension OpalFusion.Runtime {
                 throwing: Error.self
             )
 
-            let connection = connectionFactory(
+            let connection = try connectionFactory(
                 host,
                 port,
                 makeParameters()
@@ -118,40 +119,40 @@ extension OpalFusion.Runtime {
             for await event in eventStream {
                 switch event {
                 case .ready:
-                    recordPrimaryConnectionEvent(OpalFusion.Diagnostics.Events.primaryConnectionReady)
+                    recordPrimaryConnectionEvent(OpalDiagnostics.Event.primaryConnectionReady)
                 case let .waiting(error):
                     recordPrimaryConnectionEvent(
-                        OpalFusion.Diagnostics.Events.primaryConnectionWaiting,
-                        fields: OpalFusionDiagnostics.makeErrorFields(for: error)
+                        OpalDiagnostics.Event.primaryConnectionWaiting,
+                        fields: OpalDiagnostics.Field.errorFields(for: error)
                     )
                 case let .received(data):
-                    OpalFusionDiagnostics.record(
-                        OpalFusion.Diagnostics.Events.primaryMessageReceived,
-                        category: OpalFusion.Diagnostics.Categories.primary,
+                    OpalDiagnostics.logger(category: .fusionPrimary).record(
+                        event: .primaryMessageReceived,
+                        level: .opalFusionDefault(for: .primaryMessageReceived),
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("primary_transport_receive"),
-                            OpalFusionDiagnostics.frameByteCountField(data.count)
+                            .operation("primary_transport_receive"),
+                            .frameByteCount(data.count)
                         ]
                     )
                     inboundStream.yield([UInt8](data))
                 case .peerEOF:
-                    recordPrimaryConnectionEvent(OpalFusion.Diagnostics.Events.primaryConnectionPeerEOF)
+                    recordPrimaryConnectionEvent(OpalDiagnostics.Event.primaryConnectionPeerEOF)
                     inboundStream.finish()
                     clearConnectionIfCurrent(connectionID)
                     return
                 case let .failed(error):
-                    OpalFusionDiagnostics.record(
-                        OpalFusion.Diagnostics.Events.transportError,
-                        category: OpalFusion.Diagnostics.Categories.transport,
+                    OpalDiagnostics.logger(category: .fusionTransport).record(
+                        event: .transportError,
+                        level: .opalFusionDefault(for: .transportError),
                         fields: [
-                            OpalFusionDiagnostics.makeOperationField("primary_connection")
-                        ] + OpalFusionDiagnostics.makeErrorFields(for: error)
+                            .operation("primary_connection")
+                        ] + OpalDiagnostics.Field.errorFields(for: error)
                     )
                     inboundStream.finish(throwing: error)
                     clearConnectionIfCurrent(connectionID)
                     return
                 case .cancelled:
-                    recordPrimaryConnectionEvent(OpalFusion.Diagnostics.Events.primaryConnectionCancelled)
+                    recordPrimaryConnectionEvent(OpalDiagnostics.Event.primaryConnectionCancelled)
                     inboundStream.finish(
                         throwing: OpalFusion.Runtime.LiveTransportError.primaryConnectionCancelled
                     )
@@ -165,14 +166,14 @@ extension OpalFusion.Runtime {
         }
 
         private func recordPrimaryConnectionEvent(
-            _ event: OpalFusion.Diagnostics.Event,
-            fields: [OpalFusionDiagnostics.Field] = []
+            _ event: OpalDiagnostics.Event,
+            fields: [OpalDiagnostics.Field] = []
         ) {
-            OpalFusionDiagnostics.record(
-                event,
-                category: OpalFusion.Diagnostics.Categories.primary,
+            OpalDiagnostics.logger(category: .fusionPrimary).record(
+                event: event,
+                level: .opalFusionDefault(for: event),
                 fields: [
-                    OpalFusionDiagnostics.makeOperationField("primary_connection")
+                    .operation("primary_connection")
                 ] + fields
             )
         }
