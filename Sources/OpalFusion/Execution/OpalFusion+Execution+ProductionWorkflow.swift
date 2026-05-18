@@ -252,7 +252,7 @@ extension OpalFusion.Execution {
                     recordBlameProofValidationFailure(
                         roundIdentifier: round.identifier,
                         fields: OpalDiagnostics.Field.sanitizedSummaryFields(
-                            errorCode: "relayed_proof_validation_failed",
+                            errorCode: .relayedProofValidationFailed,
                             summary: error.reason
                         ) + [
                             OpalDiagnostics.Field.operation("proof_validation")
@@ -515,36 +515,41 @@ extension OpalFusion.Execution {
                     "Participant reservation produced an excess fee outside the coordinator range"
                 )
             }
-            guard OpalFusion.Execution.ProtocolPrimitives.isCompressedSecp256k1PublicKey(
-                startRound.roundPublicKey
-            ) else {
+            let roundPublicKey: OpalCrypto.Secp256k1.PublicKey
+            do {
+                roundPublicKey = try OpalCrypto.Secp256k1.PublicKey(
+                    rawRepresentation: Data(startRound.roundPublicKey)
+                )
+            } catch {
                 throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                     "StartRound round public key must be a valid compressed public key"
                 )
             }
-            for (index, blindNoncePoint) in startRound.blindNoncePoints.enumerated() {
-                guard OpalFusion.Execution.ProtocolPrimitives.isCompressedSecp256k1PublicKey(
-                    blindNoncePoint
-                ) else {
-                    throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
-                        "StartRound blind nonce point at index \(index) must be a valid compressed public key"
-                    )
+
+            let blindNoncePublicKeys: [OpalCrypto.Secp256k1.PublicKey] = try startRound
+                .blindNoncePoints
+                .enumerated()
+                .map { index, blindNoncePoint in
+                    do {
+                        return try OpalCrypto.Secp256k1.PublicKey(
+                            rawRepresentation: Data(blindNoncePoint)
+                        )
+                    } catch {
+                        throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
+                            "StartRound blind nonce point at index \(index) must be a valid compressed public key"
+                        )
+                    }
                 }
-            }
 
             let blindRequests: [OpalCrypto.BlindSignature.Request]
             do {
                 blindRequests = try zip(
-                    startRound.blindNoncePoints,
+                    blindNoncePublicKeys,
                     sortedComponents
                 ).map { blindNoncePoint, component in
                     try OpalCrypto.BlindSignature.Request(
-                        signerPublicKey: OpalCrypto.Secp256k1.PublicKey(
-                            rawRepresentation: Data(startRound.roundPublicKey)
-                        ),
-                        noncePoint: OpalCrypto.Secp256k1.PublicKey(
-                            rawRepresentation: Data(blindNoncePoint)
-                        ),
+                        signerPublicKey: roundPublicKey,
+                        noncePoint: blindNoncePoint,
                         messageDigest: OpalCrypto.Signature.Digest(
                             rawRepresentation: Data(
                                 OpalFusion.Execution.ProtocolPrimitives.sha256(

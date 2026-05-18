@@ -298,15 +298,17 @@ struct OpalDiagnosticsFusionValidator {
             )
 
             OpalDiagnostics.clearRecentRecords()
+            let error = OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(503)
             OpalDiagnostics.logger(category: .fusionCovert).record(
                 event: .covertRequestFailed,
                 level: .opalFusionDefault(for: .covertRequestFailed),
                 traceID: .opalFusionRound(PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier),
                 fields: [
-                    .operation("covert_request")
-                ] + OpalDiagnostics.Field.errorFields(
-                    for: OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(503)
-                )
+                    .operation("covert_request"),
+                    .errorCode(OpalDiagnostics.ErrorCode.unexpectedHTTPStatus),
+                    .errorType(error),
+                    .errorMessage(String(describing: error))
+                ]
             )
             _ = session.apply(
                 input: .covertRequestFailed(summary: "Covert request failed"),
@@ -327,15 +329,17 @@ struct OpalDiagnosticsFusionValidator {
     func driverLevelPrimaryTransportFailuresAreNotDuplicatedBySessionState() throws {
         try withDiagnosticsCapture {
             var session = PrimaryRuntimeTestFixtures.makeSession()
+            let error = OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
 
             OpalDiagnostics.logger(category: .fusionTransport).record(
                 event: .transportError,
                 level: .opalFusionDefault(for: .transportError),
                 fields: [
-                    .operation("primary_read")
-                ] + OpalDiagnostics.Field.errorFields(
-                    for: OpalFusion.Runtime.LiveTransportError.primaryConnectionNotReady
-                )
+                    .operation("primary_read"),
+                    .errorCode(OpalDiagnostics.ErrorCode.primaryConnectionNotReady),
+                    .errorType(error),
+                    .errorMessage(String(describing: error))
+                ]
             )
             _ = session.apply(
                 input: .diagnosedPrimaryTransportFailed(summary: "Primary read failed"),

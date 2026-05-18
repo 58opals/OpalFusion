@@ -73,7 +73,7 @@ extension OpalFusion.Runtime {
                         fields: [
                             .operation("primary_preround_outbound_decode"),
                             .frameByteCount(bytes.count),
-                            .errorCode("protocol_incompatible")
+                            .errorCode(OpalDiagnostics.ErrorCode.protocolIncompatible)
                         ]
                     )
                     return
@@ -104,7 +104,7 @@ extension OpalFusion.Runtime {
             case let .invalidConfiguration(summary):
                 recordFailureEvent(
                     summary: summary,
-                    errorCode: "invalid_configuration"
+                    errorCode: .invalidConfiguration
                 )
                 return translateEngineInput(.configurationRejected(summary: summary), now: now)
             case .connected:
@@ -414,7 +414,7 @@ extension OpalFusion.Runtime {
                     OpalDiagnostics.Field.payloadByteCount(payloadBytes)
                 ]
                 if let message = failure.message {
-                    fields.append(OpalDiagnostics.Field.privateField("error_message", message))
+                    fields.append(OpalDiagnostics.Field.errorMessage(message))
                 }
                 OpalDiagnostics.logger(category: .fusionPrimary).record(
                     event: .primaryMessageReceived,
@@ -475,7 +475,7 @@ extension OpalFusion.Runtime {
 
         private mutating func recordFailureEvent(
             summary: String,
-            errorCode: String = "transport_unavailable"
+            errorCode: OpalDiagnostics.ErrorCode = .transportUnavailable
         ) {
             OpalDiagnostics.logger(category: .fusionTransport).record(
                 event: .transportError,

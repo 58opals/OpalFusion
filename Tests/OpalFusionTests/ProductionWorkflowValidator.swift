@@ -63,6 +63,20 @@ struct ProductionWorkflowValidator {
         #expect(sum == expected)
     }
 
+    @Test("Production workflow rejects invalid secure-random byte counts without trapping")
+    func validateRandomBytesRejectsNegativeCounts() throws {
+        do {
+            _ = try OpalFusion.Execution.ProtocolPrimitives.randomBytes(count: -1)
+            Issue.record("Expected negative secure-random byte count to fail")
+        } catch let error as OpalFusion.Execution.WorkflowFailure {
+            #expect(
+                error == .unsupportedExecution(
+                    "Secure random byte count must not be negative"
+                )
+            )
+        }
+    }
+
     @Test("Production workflow rejects invalid StartRound signing keys")
     func validateStartRoundRejectsInvalidBlindSigningKeys() throws {
         let invalidCompressedPublicKey = [UInt8](arrayLiteral: 0x02)
@@ -379,6 +393,20 @@ struct ProductionWorkflowValidator {
                 )
             )
         }
+    }
+
+    @Test("Production workflow clamps impossible dust-limit inputs without trapping")
+    func validateDustLimitOverflowClampsToMaximum() {
+        #expect(
+            OpalFusion.Execution.ProtocolPrimitives.dustLimit(
+                lockingScriptLength: Int.max
+            ) == UInt64.max
+        )
+        #expect(
+            OpalFusion.Execution.ProtocolPrimitives.dustLimit(
+                lockingScriptLength: -1
+            ) == UInt64.max
+        )
     }
 
     @Test("Production workflow encodes long session-hash script pushes with PUSHDATA opcodes")

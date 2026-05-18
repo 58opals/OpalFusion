@@ -284,7 +284,7 @@ extension OpalFusion.Runtime {
                 fields: [
                     .operation(operation)
                 ] + OpalDiagnostics.Field.sanitizedSummaryFields(
-                    errorCode: "transport_unavailable",
+                    errorCode: .transportUnavailable,
                     summary: summary
                 )
             )

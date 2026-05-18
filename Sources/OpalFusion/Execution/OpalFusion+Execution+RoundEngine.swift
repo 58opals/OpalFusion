@@ -213,7 +213,7 @@ extension OpalFusion.Execution {
                     kind: .failure,
                     phase: .connecting,
                     summary: "Primary channel disconnected",
-                    errorCode: "transport_unavailable"
+                    errorCode: .transportUnavailable
                 )
             ]
         }
@@ -1093,7 +1093,7 @@ extension OpalFusion.Execution {
                     .operation("pre_round_failure"),
                     .phase(.connecting)
                 ] + OpalDiagnostics.Field.sanitizedSummaryFields(
-                    errorCode: OpalDiagnostics.Field.errorCode(for: error),
+                    errorCode: OpalDiagnostics.ErrorCode.resolveOpalFusionCode(for: error),
                     summary: summary
                 )
             )
@@ -1156,7 +1156,7 @@ extension OpalFusion.Execution {
                     .roundState(round.substate),
                     .settlementState(completionStatus)
                 ] + OpalDiagnostics.Field.sanitizedSummaryFields(
-                    errorCode: OpalDiagnostics.Field.errorCode(for: clientError),
+                    errorCode: OpalDiagnostics.ErrorCode.resolveOpalFusionCode(for: clientError),
                     summary: summary
                 )
             )
@@ -1188,7 +1188,7 @@ extension OpalFusion.Execution {
             phase: OpalFusion.Round.Phase,
             summary: String,
             isTerminal: Bool = false,
-            errorCode: String? = nil
+            errorCode: OpalDiagnostics.ErrorCode? = nil
         ) -> OpalFusion.Execution.RoundEngine.Effect {
             recordHostEventDiagnostics(
                 roundIdentifier: roundIdentifier,
@@ -1260,7 +1260,7 @@ extension OpalFusion.Execution {
             phase: OpalFusion.Round.Phase,
             summary: String,
             isTerminal: Bool,
-            errorCode: String?
+            errorCode: OpalDiagnostics.ErrorCode?
         ) {
             let event: OpalDiagnostics.Event
             if kind == .completed {
@@ -1281,7 +1281,7 @@ extension OpalFusion.Execution {
             if kind == .failure {
                 fields.append(
                     contentsOf: OpalDiagnostics.Field.sanitizedSummaryFields(
-                        errorCode: errorCode ?? "unknown",
+                        errorCode: errorCode ?? .unknown,
                         summary: summary
                     )
                 )

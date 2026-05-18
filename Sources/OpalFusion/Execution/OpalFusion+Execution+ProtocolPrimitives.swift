@@ -19,6 +19,11 @@ extension OpalFusion.Execution {
         static let maximumMoneySatoshis: UInt64 = 2_100_000_000_000_000
 
         static func randomBytes(count: Int) throws -> [UInt8] {
+            guard count >= 0 else {
+                throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(
+                    "Secure random byte count must not be negative"
+                )
+            }
             var bytes = [UInt8](repeating: 0x00, count: count)
             guard SecRandomCopyBytes(kSecRandomDefault, count, &bytes) == errSecSuccess else {
                 throw OpalFusion.Execution.WorkflowFailure.unsupportedExecution(
@@ -115,7 +120,23 @@ extension OpalFusion.Execution {
         }
 
         static func dustLimit(lockingScriptLength: Int) -> UInt64 {
-            UInt64(3 * (lockingScriptLength + 148))
+            guard lockingScriptLength >= 0 else {
+                return UInt64.max
+            }
+
+            let inputSize = UInt64(lockingScriptLength)
+                .addingReportingOverflow(148)
+            guard inputSize.overflow == false else {
+                return UInt64.max
+            }
+
+            let dustLimit = inputSize.partialValue
+                .multipliedReportingOverflow(by: 3)
+            guard dustLimit.overflow == false else {
+                return UInt64.max
+            }
+
+            return dustLimit.partialValue
         }
 
         static func minimumOutputAmount(
