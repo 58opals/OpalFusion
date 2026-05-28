@@ -1,6 +1,6 @@
-// MutableBoolBox.swift
+// MutableBoolState.swift
 
-actor MutableBoolBox {
+actor MutableBoolState {
     private var storedValue: Bool?
 
     func update(_ value: Bool) {

@@ -13,12 +13,14 @@ struct PrimaryRuntimeSessionValidator {
             now: PrimaryRuntimeTestFixtures.instant(995)
         )
         #expect(connectEffects.count == 2)
+        let connectWriteEffect = try #require(connectEffects.first)
         #expect(
-            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: connectEffects[0])
+            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: connectWriteEffect)
                 == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
         )
+        let connectEventEffect = try #require(connectEffects.dropFirst().first)
         #expect(
-            connectEffects[1] == .emitHostEvent(
+            connectEventEffect == .emitHostEvent(
                 roundIdentifier: nil,
                 event: .init(
                     kind: .status,
@@ -37,12 +39,14 @@ struct PrimaryRuntimeSessionValidator {
             now: PrimaryRuntimeTestFixtures.instant(996)
         )
         #expect(helloEffects.count == 2)
+        let helloWriteEffect = try #require(helloEffects.first)
         #expect(
-            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: helloEffects[0])
+            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: helloWriteEffect)
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
+        let helloEventEffect = try #require(helloEffects.dropFirst().first)
         #expect(
-            helloEffects[1] == .emitHostEvent(
+            helloEventEffect == .emitHostEvent(
                 roundIdentifier: nil,
                 event: .init(
                     kind: .status,
@@ -175,12 +179,14 @@ struct PrimaryRuntimeSessionValidator {
             now: PrimaryRuntimeTestFixtures.instant(1_031)
         )
         #expect(commitEffects.count == 2)
+        let commitWriteEffect = try #require(commitEffects.first)
         #expect(
-            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: commitEffects[0])
+            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: commitWriteEffect)
                 == .playerCommit(PrimaryRuntimeTestFixtures.playerCommit)
         )
+        let commitEventEffect = try #require(commitEffects.dropFirst().first)
         #expect(
-            commitEffects[1] == .emitHostEvent(
+            commitEventEffect == .emitHostEvent(
                 roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier,
                 event: .init(
                     kind: .status,
@@ -212,8 +218,9 @@ struct PrimaryRuntimeSessionValidator {
             input: .receivedPrimaryBytes(Array(serverHelloFrame[serverHelloSplit...])),
             now: PrimaryRuntimeTestFixtures.instant(996)
         )
+        let helloEffect = try #require(helloEffects.first)
         #expect(
-            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: helloEffects[0])
+            try PrimaryRuntimeTestFixtures.extractWriteMessage(from: helloEffect)
                 == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
         )
 
@@ -287,13 +294,15 @@ struct PrimaryRuntimeSessionValidator {
             now: PrimaryRuntimeTestFixtures.instant(1_035)
         )
 
-        let request = try PrimaryRuntimeTestFixtures.extractCovertRequest(from: effects[0])
+        let firstEffect = try #require(effects.first)
+        let request = try PrimaryRuntimeTestFixtures.extractCovertRequest(from: firstEffect)
         #expect(
             effects == [
                 .performCovertRequest(
                     request: try PrimaryRuntimeTestFixtures.expectedRequest(
                         for: PrimaryRuntimeTestFixtures.covertComponentMessage,
-                        startedAt: 1_035
+                        startedAt: 1_035,
+                        roundIdentifier: PrimaryRuntimeTestFixtures.roundIdentifier
                     )
                 ),
                 .emitHostEvent(
@@ -310,6 +319,7 @@ struct PrimaryRuntimeSessionValidator {
             try PrimaryRuntimeTestFixtures.extractCovertMessage(from: request)
                 == PrimaryRuntimeTestFixtures.covertComponentMessage
         )
+        #expect(request.roundIdentifier == PrimaryRuntimeTestFixtures.roundIdentifier)
         #expect(session.covertSession.outstandingRequest == request)
     }
 
@@ -644,7 +654,8 @@ struct PrimaryRuntimeSessionValidator {
         )
 
         #expect(effects.count == 1)
-        guard case let .emitHostEvent(roundIdentifier, event) = effects[0] else {
+        let effect = try #require(effects.first)
+        guard case let .emitHostEvent(roundIdentifier, event) = effect else {
             Issue.record("Expected host event after malformed payload rejection")
             return
         }
@@ -679,7 +690,8 @@ struct PrimaryRuntimeSessionValidator {
         )
 
         #expect(effects.count == 1)
-        guard case let .emitHostEvent(roundIdentifier, event) = effects[0] else {
+        let effect = try #require(effects.first)
+        guard case let .emitHostEvent(roundIdentifier, event) = effect else {
             Issue.record("Expected host event after trailing malformed frame rejection")
             return
         }
@@ -710,7 +722,8 @@ struct PrimaryRuntimeSessionValidator {
         )
 
         #expect(effects.count == 1)
-        guard case let .emitHostEvent(roundIdentifier, event) = effects[0] else {
+        let effect = try #require(effects.first)
+        guard case let .emitHostEvent(roundIdentifier, event) = effect else {
             Issue.record("Expected host event after out-of-order frame rejection")
             return
         }
@@ -740,7 +753,8 @@ struct PrimaryRuntimeSessionValidator {
         )
 
         #expect(effects.count == 1)
-        guard case let .emitHostEvent(roundIdentifier, event) = effects[0] else {
+        let effect = try #require(effects.first)
+        guard case let .emitHostEvent(roundIdentifier, event) = effect else {
             Issue.record("Expected host event after malformed covert response rejection")
             return
         }

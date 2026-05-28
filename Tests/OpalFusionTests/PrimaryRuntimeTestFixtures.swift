@@ -351,11 +351,13 @@ enum PrimaryRuntimeTestFixtures {
 
     static func expectedRequest(
         for message: OpalFusion.ProtocolModel.CovertMessage,
-        startedAt unixSeconds: UInt64
+        startedAt unixSeconds: UInt64,
+        roundIdentifier: OpalFusion.Round.Identifier? = nil
     ) throws -> OpalFusion.Runtime.CovertRequest {
         let startedAt = instant(unixSeconds)
         return .init(
             endpoint: covertEndpointContext,
+            roundIdentifier: roundIdentifier,
             payload: try encodeCovertMessagePayload(message),
             startedAt: startedAt,
             deadline: startedAt.advanced(by: baseline.covertTiming.submitTimeout)

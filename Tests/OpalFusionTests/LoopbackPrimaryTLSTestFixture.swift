@@ -82,19 +82,19 @@ enum LoopbackPrimaryTLSTestFixture {
               let importedItems = importedItems as? [[String: Any]],
               let importedItem = importedItems.first
         else {
-            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+            throw LiveRuntimeTestHarnessError.invalidTLSFixture(
                 "TLS loopback identity import failed with status \(importStatus)"
             )
         }
 
         guard let identityValue = importedItem[kSecImportItemIdentity as String] else {
-            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+            throw LiveRuntimeTestHarnessError.invalidTLSFixture(
                 "TLS loopback identity import did not return an identity"
             )
         }
         let identityObject = identityValue as CFTypeRef
         guard CFGetTypeID(identityObject) == SecIdentityGetTypeID() else {
-            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+            throw LiveRuntimeTestHarnessError.invalidTLSFixture(
                 "TLS loopback identity import returned an unexpected item type"
             )
         }
@@ -103,7 +103,7 @@ enum LoopbackPrimaryTLSTestFixture {
             nil,
             certificateDER as CFData
         ) else {
-            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+            throw LiveRuntimeTestHarnessError.invalidTLSFixture(
                 "TLS loopback certificate could not be materialized"
             )
         }
@@ -112,7 +112,7 @@ enum LoopbackPrimaryTLSTestFixture {
             identity,
             [certificate] as CFArray
         ) else {
-            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+            throw LiveRuntimeTestHarnessError.invalidTLSFixture(
                 "TLS loopback local identity could not be created"
             )
         }
@@ -147,7 +147,7 @@ enum LoopbackPrimaryTLSTestFixture {
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             let errorSummary = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+            throw LiveRuntimeTestHarnessError.invalidTLSFixture(
                 "TLS loopback OpenSSL command failed: \(errorSummary ?? arguments.joined(separator: " "))"
             )
         }
@@ -160,7 +160,7 @@ enum LoopbackPrimaryTLSTestFixture {
             .joined()
 
         guard let data = Data(base64Encoded: base64) else {
-            throw LiveRuntimeTestSupportError.invalidTLSFixture(
+            throw LiveRuntimeTestHarnessError.invalidTLSFixture(
                 "TLS loopback certificate fixture could not be decoded"
             )
         }

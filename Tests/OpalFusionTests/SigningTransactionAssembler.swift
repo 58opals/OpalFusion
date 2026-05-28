@@ -72,7 +72,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         for proposal: OpalFusion.Host.TransactionFinalizationProposal
     ) throws -> (transaction: OpalFusion.Host.FinalizedTransaction, signature: [UInt8]) {
         guard let participantInputPublicKey = participantInput.publicKey else {
-            throw LiveRuntimeTestSupportError.inboundStreamClosed
+            throw LiveRuntimeTestHarnessError.inboundStreamClosed
         }
 
         var transaction = try OpalFusion.Execution.BCHTransaction.parse(
@@ -85,7 +85,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
             input.previousTransactionHashLittleEndian == previousTransactionHashLittleEndian &&
                 input.previousOutputIndex == participantInput.outpointIndex
         }) else {
-            throw LiveRuntimeTestSupportError.signingInputNotFound
+            throw LiveRuntimeTestHarnessError.signingInputNotFound
         }
         let sighash = try transaction.signatureHash(
             forInputAt: inputIndex,

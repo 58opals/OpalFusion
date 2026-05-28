@@ -259,6 +259,12 @@ extension OpalFusion.Runtime {
                         )
                     )
                 case let .submitCovert(message):
+                    if let roundIdentifier = engine.round?.identifier {
+                        _ = covertSession.apply(
+                            input: .roundIdentifierResolved(roundIdentifier),
+                            now: now
+                        )
+                    }
                     runtimeEffects.append(
                         contentsOf: handleCovertRuntimeEffects(
                             covertSession.apply(

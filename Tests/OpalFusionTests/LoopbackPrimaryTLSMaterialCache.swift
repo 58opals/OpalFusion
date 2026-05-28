@@ -7,7 +7,7 @@ import Security
 actor LoopbackPrimaryTLSMaterialCache {
     private var materialResult: Result<
         LoopbackPrimaryTLSTestFixture.Material,
-        LiveRuntimeTestSupportError
+        LiveRuntimeTestHarnessError
     >?
 
     func trustAnchorCertificateDERs() throws -> [Data] {
@@ -37,10 +37,10 @@ actor LoopbackPrimaryTLSMaterialCache {
             }
         }
 
-        let result: Result<LoopbackPrimaryTLSTestFixture.Material, LiveRuntimeTestSupportError>
+        let result: Result<LoopbackPrimaryTLSTestFixture.Material, LiveRuntimeTestHarnessError>
         do {
             result = .success(try LoopbackPrimaryTLSTestFixture.makeMaterial())
-        } catch let error as LiveRuntimeTestSupportError {
+        } catch let error as LiveRuntimeTestHarnessError {
             result = .failure(error)
         } catch {
             result = .failure(

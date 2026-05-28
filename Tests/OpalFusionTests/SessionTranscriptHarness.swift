@@ -1,14 +1,14 @@
-// SessionTranscriptSupport.swift
+// SessionTranscriptHarness.swift
 
 @testable import OpalFusion
 
-enum SessionTranscriptSupport {
+enum SessionTranscriptHarness {
     static func waitForSessionSuccessOrFatalTermination(
         session: OpalFusion.Client.Session,
         timeout: Duration,
         pollInterval: Duration = .milliseconds(250)
     ) async throws -> OpalFusion.Client.Session.Snapshot {
-        try await LiveRuntimeTestSupport.withTimeout(timeout) {
+        try await LiveRuntimeTestHarness.withTimeout(timeout) {
             while true {
                 let snapshot = await session.snapshot()
 

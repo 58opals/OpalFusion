@@ -22,7 +22,7 @@ actor RecordedCovertRequestExecutor {
     ) async throws -> (Data, URLResponse) {
         requests.append(request)
         guard let url = request.url else {
-            throw LiveRuntimeTestSupportError.inboundStreamClosed
+            throw LiveRuntimeTestHarnessError.inboundStreamClosed
         }
         guard let response = HTTPURLResponse(
             url: url,
@@ -30,7 +30,7 @@ actor RecordedCovertRequestExecutor {
             httpVersion: nil,
             headerFields: nil
         ) else {
-            throw LiveRuntimeTestSupportError.invalidHTTPResponse(
+            throw LiveRuntimeTestHarnessError.invalidHTTPResponse(
                 "Recorded covert response status code was invalid"
             )
         }

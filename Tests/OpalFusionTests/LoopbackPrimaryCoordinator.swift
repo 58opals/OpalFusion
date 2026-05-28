@@ -127,7 +127,7 @@ actor LoopbackPrimaryCoordinator {
         listener.stateUpdateHandler = nil
         listener.newConnectionHandler = nil
         listener.cancel()
-        finishWaiters(with: LiveRuntimeTestSupportError.inboundStreamClosed)
+        finishWaiters(with: LiveRuntimeTestHarnessError.inboundStreamClosed)
     }
 
     func closeConnection() async {
@@ -137,7 +137,7 @@ actor LoopbackPrimaryCoordinator {
     func nextClientMessage(
         timeout: Duration = .seconds(1)
     ) async throws -> OpalFusion.ProtocolModel.ClientMessage {
-        try await LiveRuntimeTestSupport.withTimeout(timeout) {
+        try await LiveRuntimeTestHarness.withTimeout(timeout) {
             try await self.awaitNextClientMessage()
         }
     }
@@ -219,7 +219,7 @@ actor LoopbackPrimaryCoordinator {
             failInbound(with: error)
         case .cancelled:
             startContinuation?.resume(
-                throwing: LiveRuntimeTestSupportError.inboundStreamClosed
+                throwing: LiveRuntimeTestHarnessError.inboundStreamClosed
             )
             startContinuation = nil
         case .setup:
@@ -246,7 +246,7 @@ actor LoopbackPrimaryCoordinator {
             connectionReady = false
             connection = nil
             if isStopping == false {
-                finishInbound(with: LiveRuntimeTestSupportError.inboundStreamClosed)
+                finishInbound(with: LiveRuntimeTestHarnessError.inboundStreamClosed)
             }
         case .setup, .preparing:
             break
@@ -289,7 +289,7 @@ actor LoopbackPrimaryCoordinator {
         }
 
         if isComplete {
-            finishInbound(with: LiveRuntimeTestSupportError.inboundStreamClosed)
+            finishInbound(with: LiveRuntimeTestHarnessError.inboundStreamClosed)
             return
         }
 
@@ -340,13 +340,13 @@ actor LoopbackPrimaryCoordinator {
 
         while connection == nil || connectionReady == false {
             if clock.now >= deadline {
-                throw LiveRuntimeTestSupportError.missingConnection
+                throw LiveRuntimeTestHarnessError.missingConnection
             }
             try await Task.sleep(for: .milliseconds(10))
         }
 
         guard let connection, connectionReady else {
-            throw LiveRuntimeTestSupportError.missingConnection
+            throw LiveRuntimeTestHarnessError.missingConnection
         }
 
         return connection

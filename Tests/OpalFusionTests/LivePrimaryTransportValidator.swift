@@ -57,7 +57,7 @@ struct LivePrimaryTransportValidator {
 
     @Test("Live primary transport retries through waiting until a loopback coordinator appears")
     func validateWaitingRecoveryPath() async throws {
-        let reservedPort = try LiveRuntimeTestSupport.reserveLoopbackPort()
+        let reservedPort = try LiveRuntimeTestHarness.reserveLoopbackPort()
         let transport = OpalFusion.Runtime.LivePrimaryTransport(
             host: "127.0.0.1",
             port: await reservedPort.port
@@ -69,7 +69,7 @@ struct LivePrimaryTransportValidator {
 
         try await Task.sleep(for: .milliseconds(150))
         let coordinator = try await LoopbackPrimaryCoordinator.start(reserving: reservedPort)
-        let inboundStream = try await LiveRuntimeTestSupport.withTimeout(.seconds(2)) {
+        let inboundStream = try await LiveRuntimeTestHarness.withTimeout(.seconds(2)) {
             try await connectTask.value
         }
 
@@ -161,7 +161,7 @@ struct LivePrimaryTransportValidator {
         }
 
         do {
-            _ = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            _ = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
                 try await connectTask.value
             }
             Issue.record("Expected startup failure")
@@ -191,7 +191,7 @@ struct LivePrimaryTransportValidator {
         )
 
         do {
-            _ = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            _ = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
                 try await transport.connect()
             }
             Issue.record("Expected startup failure")
@@ -228,7 +228,7 @@ struct LivePrimaryTransportValidator {
         await transport.close()
 
         do {
-            _ = try await LiveRuntimeTestSupport.withTimeout(.seconds(1)) {
+            _ = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
                 try await connectTask.value
             }
             Issue.record("Expected explicit close cancellation")
@@ -313,7 +313,7 @@ struct LivePrimaryTransportValidator {
             }
         }
 
-        throw LiveRuntimeTestSupportError.inboundStreamClosed
+        throw LiveRuntimeTestHarnessError.inboundStreamClosed
     }
 
     private static func makeTLSTransport(

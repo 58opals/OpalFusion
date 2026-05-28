@@ -11,7 +11,12 @@ extension OpalFusion.Execution {
         }
 
         init(unixSeconds: UInt64) {
-            self.init(millisecondsSinceUnixEpoch: Int64(unixSeconds) * 1_000)
+            guard let instant = Self(validatingUnixSeconds: unixSeconds) else {
+                self.init(millisecondsSinceUnixEpoch: Int64.max)
+                return
+            }
+
+            self = instant
         }
 
         init?(validatingUnixSeconds unixSeconds: UInt64) {

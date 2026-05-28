@@ -5,6 +5,61 @@ import Foundation
 import Testing
 
 struct ElectronCashInteropValidator {
+    @Test("Electron Cash interop optional boolean parser trims whitespace")
+    func validateOptionalBooleanParserTrimsWhitespace() throws {
+        #expect(
+            try ElectronCashInteropEnvironmentParser.parseOptionalBool(
+                " true ",
+                environmentVariableName: "OPALFUSION_EC_COORDINATOR_TLS"
+            ) == true
+        )
+        #expect(
+            try ElectronCashInteropEnvironmentParser.parseOptionalBool(
+                "\n0\t",
+                environmentVariableName: "OPALFUSION_EC_TOR_REMOTE_RESOLUTION"
+            ) == false
+        )
+        #expect(
+            try ElectronCashInteropEnvironmentParser.parseOptionalBool(
+                "   ",
+                environmentVariableName: "OPALFUSION_EC_TOR_REMOTE_RESOLUTION"
+            ) == nil
+        )
+    }
+
+    @Test("Electron Cash interop numeric parser trims whitespace")
+    func validateNumericParserTrimsWhitespace() throws {
+        #expect(
+            try ElectronCashInteropEnvironmentParser.parseUInt16(
+                " 50001 ",
+                environmentVariableName: "OPALFUSION_EC_COORDINATOR_PORT"
+            ) == 50_001
+        )
+        #expect(
+            try ElectronCashInteropEnvironmentParser.parseUInt32(
+                "\n1\t",
+                environmentVariableName: "OPALFUSION_EC_INPUT_INDEX"
+            ) == 1
+        )
+        #expect(
+            try ElectronCashInteropEnvironmentParser.parseUInt64(
+                " 100000 ",
+                environmentVariableName: "OPALFUSION_EC_JOIN_TIER"
+            ) == 100_000
+        )
+    }
+
+    @Test("Electron Cash interop ignores blank optional Tor settings")
+    func validateBlankOptionalTorSettingsAreIgnored() throws {
+        var environment = try makeMinimumInteropEnvironment()
+        environment["OPALFUSION_EC_TOR_SOCKS5_PORT"] = "  "
+        environment["OPALFUSION_EC_TOR_REMOTE_RESOLUTION"] = "\n\t"
+
+        let configuration = try ElectronCashInteropConfiguration.fromEnvironment(environment)
+
+        #expect(configuration.clientConfiguration.torSocks5 == nil)
+    }
+
     @Test(
         "Real Electron Cash 4.4.3 coordinator smoke reaches eventual session success",
         .enabled(
@@ -55,7 +110,7 @@ struct ElectronCashInteropValidator {
             }
         }
 
-        let snapshot = try await SessionTranscriptSupport.waitForSessionSuccessOrFatalTermination(
+        let snapshot = try await SessionTranscriptHarness.waitForSessionSuccessOrFatalTermination(
             session: session,
             timeout: .seconds(600)
         )
@@ -67,13 +122,13 @@ struct ElectronCashInteropValidator {
 
         let transcript = SessionTranscript(
             clientMessageKinds: await primaryTransport.recordedClientMessages().map(
-                SessionTranscriptSupport.clientKind
+                SessionTranscriptHarness.clientKind
             ),
             serverMessageKinds: await primaryTransport.recordedServerMessages().map(
-                SessionTranscriptSupport.serverKind
+                SessionTranscriptHarness.serverKind
             ),
             covertMessageKinds: await covertTransport.recordedRequestMessages().map(
-                SessionTranscriptSupport.covertKind
+                SessionTranscriptHarness.covertKind
             ),
             roundEvents: await eventObserver.timedSnapshot(),
             stateSnapshots: await stateObserver.timedSnapshot(),
@@ -82,14 +137,14 @@ struct ElectronCashInteropValidator {
         )
 
         #expect(
-            SessionTranscriptSupport.hasSubsequence(
+            SessionTranscriptHarness.hasSubsequence(
                 transcript.clientMessageKinds,
                 subsequence: ["clientHello", "joinPools", "playerCommit"]
             )
         )
 
         #expect(
-            SessionTranscriptSupport.hasSubsequence(
+            SessionTranscriptHarness.hasSubsequence(
                 transcript.serverMessageKinds,
                 subsequence: [
                     "fusionBegin",
@@ -102,7 +157,7 @@ struct ElectronCashInteropValidator {
         )
 
         #expect(
-            SessionTranscriptSupport.hasSubsequence(
+            SessionTranscriptHarness.hasSubsequence(
                 transcript.covertMessageKinds,
                 subsequence: ["component", "transactionSignature"]
             )
@@ -136,7 +191,7 @@ struct ElectronCashInteropValidator {
 
         let observedEventSummaries = transcript.roundEvents.map(\.event.summary)
         #expect(
-            SessionTranscriptSupport.hasSubsequence(
+            SessionTranscriptHarness.hasSubsequence(
                 observedEventSummaries,
                 subsequence: [
                     "StartRound received; collecting reserved inputs and outputs",
@@ -150,17 +205,39 @@ struct ElectronCashInteropValidator {
                 ]
             )
         )
-        guard
-            let firstReservationRequest = transcript.reservationRequests.first?.recordedAt,
-            let firstProposal = transcript.transactionProposals.first?.recordedAt,
-            let successEvent = transcript.roundEvents.first(where: {
+        let firstReservationRequest = try #require(transcript.reservationRequests.first?.recordedAt)
+        let firstProposal = try #require(transcript.transactionProposals.first?.recordedAt)
+        let successEvent = try #require(
+            transcript.roundEvents.first {
                 $0.event.summary == "Round completed successfully"
-            })?.recordedAt
-        else {
-            Issue.record("Expected timed reservation, proposal, and success-event records")
-            return
-        }
+            }?.recordedAt
+        )
         #expect(firstReservationRequest <= firstProposal)
         #expect(firstProposal <= successEvent)
+    }
+
+    private func makeMinimumInteropEnvironment() throws -> [String: String] {
+        let scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let input = try #require(scenario.reservation.inputs.first)
+        let output = try #require(scenario.reservation.outputs.first)
+        let genesisHash = try #require(PrimaryRuntimeTestFixtures.clientHello.genesisHash)
+
+        return [
+            "OPALFUSION_EC_COORDINATOR_HOST": "127.0.0.1",
+            "OPALFUSION_EC_COORDINATOR_PORT": "50001",
+            "OPALFUSION_EC_GENESIS_HASH_HEX": hexString(genesisHash),
+            "OPALFUSION_EC_JOIN_TIER": "10000",
+            "OPALFUSION_EC_INPUT_TXID_HEX": hexString(input.outpointTransactionHashBytes),
+            "OPALFUSION_EC_INPUT_VOUT": "\(input.outpointIndex)",
+            "OPALFUSION_EC_INPUT_AMOUNT_SATOSHIS": "\(input.amountSatoshis)",
+            "OPALFUSION_EC_INPUT_LOCKING_SCRIPT_HEX": hexString(input.lockingScriptBytes),
+            "OPALFUSION_EC_INPUT_PRIVATE_KEY_HEX": hexString(scenario.participantInputPrivateKey),
+            "OPALFUSION_EC_OUTPUT_LOCKING_SCRIPT_HEX": hexString(output.lockingScriptBytes),
+            "OPALFUSION_EC_OUTPUT_AMOUNT_SATOSHIS": "\(output.amountSatoshis)"
+        ]
+    }
+
+    private func hexString(_ bytes: [UInt8]) -> String {
+        bytes.map { String(format: "%02x", $0) }.joined()
     }
 }

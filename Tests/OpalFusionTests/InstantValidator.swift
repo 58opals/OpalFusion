@@ -12,4 +12,11 @@ struct InstantValidator {
         #expect(earliest.distance(to: latest).wholeMilliseconds == Int64.max)
         #expect(latest.distance(to: earliest).wholeMilliseconds == Int64.min)
     }
+
+    @Test("Execution instant clamps unrepresentable Unix seconds without trapping")
+    func validateUnixSecondsInitializerClampsUnrepresentableValues() {
+        let instant = OpalFusion.Execution.Instant(unixSeconds: UInt64.max)
+
+        #expect(instant.millisecondsSinceUnixEpoch == Int64.max)
+    }
 }

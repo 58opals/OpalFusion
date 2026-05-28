@@ -14,47 +14,46 @@ struct ElectronCashInteropConfiguration: Sendable {
     static func fromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> ElectronCashInteropConfiguration {
-        let coordinatorHost = try ElectronCashInteropTestSupport.requiredString(
+        let coordinatorHost = try ElectronCashInteropEnvironmentParser.requiredString(
             "OPALFUSION_EC_COORDINATOR_HOST",
             in: environment
         )
-        let coordinatorPort = try ElectronCashInteropTestSupport.requiredUInt16(
+        let coordinatorPort = try ElectronCashInteropEnvironmentParser.requiredUInt16(
             "OPALFUSION_EC_COORDINATOR_PORT",
             in: environment
         )
-        let coordinatorRequiresTLS = try ElectronCashInteropTestSupport.parseOptionalBool(
-            environment["OPALFUSION_EC_COORDINATOR_TLS"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            variableName: "OPALFUSION_EC_COORDINATOR_TLS"
+        let coordinatorRequiresTLS = try ElectronCashInteropEnvironmentParser.parseOptionalBool(
+            environment["OPALFUSION_EC_COORDINATOR_TLS"],
+            environmentVariableName: "OPALFUSION_EC_COORDINATOR_TLS"
         ) ?? false
-        let genesisHash = try ElectronCashInteropTestSupport.requiredHexBytes(
+        let genesisHash = try ElectronCashInteropEnvironmentParser.requiredHexBytes(
             "OPALFUSION_EC_GENESIS_HASH_HEX",
             in: environment,
             expectedByteCount: 32
         )
-        let joinTier = try ElectronCashInteropTestSupport.requiredUInt64(
+        let joinTier = try ElectronCashInteropEnvironmentParser.requiredUInt64(
             "OPALFUSION_EC_JOIN_TIER",
             in: environment
         )
 
-        let inputTransactionHash = try ElectronCashInteropTestSupport.requiredHexBytes(
+        let inputTransactionHash = try ElectronCashInteropEnvironmentParser.requiredHexBytes(
             "OPALFUSION_EC_INPUT_TXID_HEX",
             in: environment,
             expectedByteCount: 32
         )
-        let inputIndex = try ElectronCashInteropTestSupport.requiredUInt32(
+        let inputIndex = try ElectronCashInteropEnvironmentParser.requiredUInt32(
             "OPALFUSION_EC_INPUT_VOUT",
             in: environment
         )
-        let inputAmountSatoshis = try ElectronCashInteropTestSupport.requiredUInt64(
+        let inputAmountSatoshis = try ElectronCashInteropEnvironmentParser.requiredUInt64(
             "OPALFUSION_EC_INPUT_AMOUNT_SATOSHIS",
             in: environment
         )
-        let inputLockingScript = try ElectronCashInteropTestSupport.requiredHexBytes(
+        let inputLockingScript = try ElectronCashInteropEnvironmentParser.requiredHexBytes(
             "OPALFUSION_EC_INPUT_LOCKING_SCRIPT_HEX",
             in: environment
         )
-        let participantInputPrivateKey = try ElectronCashInteropTestSupport.requiredHexBytes(
+        let participantInputPrivateKey = try ElectronCashInteropEnvironmentParser.requiredHexBytes(
             "OPALFUSION_EC_INPUT_PRIVATE_KEY_HEX",
             in: environment,
             expectedByteCount: 32
@@ -76,11 +75,11 @@ struct ElectronCashInteropConfiguration: Sendable {
             )
         }
 
-        let outputLockingScript = try ElectronCashInteropTestSupport.requiredHexBytes(
+        let outputLockingScript = try ElectronCashInteropEnvironmentParser.requiredHexBytes(
             "OPALFUSION_EC_OUTPUT_LOCKING_SCRIPT_HEX",
             in: environment
         )
-        let outputAmountSatoshis = try ElectronCashInteropTestSupport.requiredUInt64(
+        let outputAmountSatoshis = try ElectronCashInteropEnvironmentParser.requiredUInt64(
             "OPALFUSION_EC_OUTPUT_AMOUNT_SATOSHIS",
             in: environment
         )
@@ -108,8 +107,11 @@ struct ElectronCashInteropConfiguration: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let torPortString = environment["OPALFUSION_EC_TOR_SOCKS5_PORT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let torRemoteResolutionString = environment["OPALFUSION_EC_TOR_REMOTE_RESOLUTION"]?
+        let hasTorPortSetting = torPortString?.isEmpty == false
+        let torRemoteResolutionString = environment["OPALFUSION_EC_TOR_REMOTE_RESOLUTION"]
+        let hasTorRemoteResolutionSetting = torRemoteResolutionString?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
 
         if let torHost, torHost.isEmpty == false {
             guard let torPortString, torPortString.isEmpty == false else {
@@ -117,20 +119,20 @@ struct ElectronCashInteropConfiguration: Sendable {
                     "OPALFUSION_EC_TOR_SOCKS5_PORT"
                 )
             }
-            let torPort = try ElectronCashInteropTestSupport.parseUInt16(
+            let torPort = try ElectronCashInteropEnvironmentParser.parseUInt16(
                 torPortString,
-                variableName: "OPALFUSION_EC_TOR_SOCKS5_PORT"
+                environmentVariableName: "OPALFUSION_EC_TOR_SOCKS5_PORT"
             )
-            let resolvesRemotely = try ElectronCashInteropTestSupport.parseOptionalBool(
+            let resolvesRemotely = try ElectronCashInteropEnvironmentParser.parseOptionalBool(
                 torRemoteResolutionString,
-                variableName: "OPALFUSION_EC_TOR_REMOTE_RESOLUTION"
+                environmentVariableName: "OPALFUSION_EC_TOR_REMOTE_RESOLUTION"
             ) ?? true
             torSocks5 = .init(
                 host: torHost,
                 port: torPort,
                 resolvesCoordinatorHostNameRemotely: resolvesRemotely
             )
-        } else if torPortString != nil || torRemoteResolutionString != nil {
+        } else if hasTorPortSetting || hasTorRemoteResolutionSetting {
             throw ElectronCashInteropEnvironmentError.missing(
                 "OPALFUSION_EC_TOR_SOCKS5_HOST"
             )

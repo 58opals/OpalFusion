@@ -48,13 +48,8 @@ struct PrimaryFrameValidator {
 
         #expect(try decoder.append(validFrame + trailingMalformedFrame) == [payload])
 
-        do {
-            _ = try decoder.append([])
-            Issue.record("Expected trailing invalid magic rejection")
-        } catch let error as OpalFusion.Wire.PrimaryFrameError {
-            #expect(error == .invalidMagic(invalidMagic))
-        } catch {
-            Issue.record("Unexpected error: \(error)")
+        Self.expectFrameError(.invalidMagic(invalidMagic)) {
+            try decoder.append([])
         }
     }
 
@@ -65,13 +60,8 @@ struct PrimaryFrameValidator {
         let invalidMagic = Array(repeating: UInt8(0xFF), count: configuration.magicBytes.count)
         let frame = invalidMagic + [0x00, 0x00, 0x00, 0x01, 0x42]
 
-        do {
-            _ = try decoder.append(frame)
-            Issue.record("Expected invalid magic rejection")
-        } catch let error as OpalFusion.Wire.PrimaryFrameError {
-            #expect(error == .invalidMagic(invalidMagic))
-        } catch {
-            Issue.record("Unexpected error: \(error)")
+        Self.expectFrameError(.invalidMagic(invalidMagic)) {
+            try decoder.append(frame)
         }
     }
 
@@ -84,22 +74,12 @@ struct PrimaryFrameValidator {
         let encoder = OpalFusion.Wire.PrimaryFrameEncoder(configuration: configuration)
         var decoder = OpalFusion.Wire.PrimaryFrameDecoder(configuration: configuration)
 
-        do {
-            _ = try encoder.encode(payload: [0x42])
-            Issue.record("Expected empty magic encoder rejection")
-        } catch let error as OpalFusion.Wire.PrimaryFrameError {
-            #expect(error == .invalidMagic([]))
-        } catch {
-            Issue.record("Unexpected error: \(error)")
+        Self.expectFrameError(.invalidMagic([])) {
+            try encoder.encode(payload: [0x42])
         }
 
-        do {
-            _ = try decoder.append([0x00, 0x00, 0x00, 0x01, 0x42])
-            Issue.record("Expected empty magic decoder rejection")
-        } catch let error as OpalFusion.Wire.PrimaryFrameError {
-            #expect(error == .invalidMagic([]))
-        } catch {
-            Issue.record("Unexpected error: \(error)")
+        Self.expectFrameError(.invalidMagic([])) {
+            try decoder.append([0x00, 0x00, 0x00, 0x01, 0x42])
         }
     }
 
@@ -110,13 +90,8 @@ struct PrimaryFrameValidator {
         let oversizedLength = configuration.maximumMessageLengthBytes + 1
         let frame = configuration.magicBytes + Self.bigEndianBytes(for: oversizedLength)
 
-        do {
-            _ = try decoder.append(frame)
-            Issue.record("Expected oversized payload rejection")
-        } catch let error as OpalFusion.Wire.PrimaryFrameError {
-            #expect(error == .payloadTooLarge(oversizedLength))
-        } catch {
-            Issue.record("Unexpected error: \(error)")
+        Self.expectFrameError(.payloadTooLarge(oversizedLength)) {
+            try decoder.append(frame)
         }
     }
 
@@ -126,18 +101,22 @@ struct PrimaryFrameValidator {
         var decoder = OpalFusion.Wire.PrimaryFrameDecoder(configuration: configuration)
         let frame = configuration.magicBytes + [0x00, 0x00, 0x00, 0x00]
 
-        do {
-            _ = try decoder.append(frame)
-            Issue.record("Expected invalid length rejection")
-        } catch let error as OpalFusion.Wire.PrimaryFrameError {
-            #expect(error == .invalidLength(0))
-        } catch {
-            Issue.record("Unexpected error: \(error)")
+        Self.expectFrameError(.invalidLength(0)) {
+            try decoder.append(frame)
         }
     }
 }
 
 private extension PrimaryFrameValidator {
+    static func expectFrameError<Success>(
+        _ expectedError: OpalFusion.Wire.PrimaryFrameError,
+        from operation: () throws -> Success
+    ) {
+        #expect(throws: expectedError) {
+            _ = try operation()
+        }
+    }
+
     static func bigEndianBytes(for value: Int) -> [UInt8] {
         let length = UInt32(value)
         return [

@@ -123,7 +123,7 @@ extension OpalFusion.Runtime {
 
             var components = URLComponents()
             components.scheme = endpoint.requiresTLS == true ? "https" : "http"
-            components.host = endpoint.host
+            components.host = Self.makeURLComponentsHost(from: endpoint.host)
             components.port = Int(endpoint.port)
             components.path = endpoint.entryPath
 
@@ -132,6 +132,10 @@ extension OpalFusion.Runtime {
             }
 
             return url
+        }
+
+        private static func makeURLComponentsHost(from host: String) -> String {
+            host.contains(":") ? "[\(host)]" : host
         }
 
         private func makeProxyConfiguration() -> [AnyHashable: Any]? {

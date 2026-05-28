@@ -67,20 +67,7 @@ struct LiveCovertTransportValidator {
             }
         )
 
-        let insecureEndpoint = OpalFusion.Runtime.CovertEndpointContext(
-            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
-            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
-            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
-            requiresTLS: false,
-            entryPath: PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath,
-            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
-            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
-            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
-            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
-            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
-            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
-            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
-        )
+        let insecureEndpoint = Self.makeCovertEndpoint(requiresTLS: false)
         let plan = OpalFusion.Runtime.CovertPreparationPlan(
             endpoint: insecureEndpoint,
             startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
@@ -111,13 +98,45 @@ struct LiveCovertTransportValidator {
         #expect(proxyConfiguration.proxyPort == Int(torSocks5.port))
     }
 
+    @Test("macOS live covert transport builds requests for raw IPv6 endpoint hosts")
+    func validateRawIPv6EndpointHostExecution() async throws {
+        let executor = RecordedCovertRequestExecutor(responseData: Data())
+        let transport = OpalFusion.Runtime.LiveCovertTransport(
+            torSocks5: nil,
+            requestExecutor: { session, request in
+                try await executor.execute(session: session, request: request)
+            }
+        )
+        let endpoint = Self.makeCovertEndpoint(host: "::1")
+        let plan = OpalFusion.Runtime.CovertPreparationPlan(
+            endpoint: endpoint,
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
+        )
+        let request = OpalFusion.Runtime.CovertRequest(
+            endpoint: endpoint,
+            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
+                PrimaryRuntimeTestFixtures.pingMessage
+            ),
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
+        )
+
+        try await transport.prepare(plan)
+        _ = try await transport.perform(request)
+
+        let recordedRequests = await executor.recordedRequests()
+        let recordedRequest = try #require(recordedRequests.last)
+        #expect(recordedRequest.url?.host == "::1")
+    }
+
     @Test("macOS live covert transport rejects responses without HTTP metadata")
     func validateNonHTTPResponseRejection() async throws {
         let transport = OpalFusion.Runtime.LiveCovertTransport(
             torSocks5: nil,
             requestExecutor: { _, request in
                 guard let url = request.url else {
-                    throw LiveRuntimeTestSupportError.inboundStreamClosed
+                    throw LiveRuntimeTestHarnessError.inboundStreamClosed
                 }
                 return (
                     Data(),
@@ -147,11 +166,8 @@ struct LiveCovertTransportValidator {
 
         try await transport.prepare(plan)
 
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected non-HTTP covert response to fail")
-        } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .invalidHTTPResponse)
+        await Self.expectLiveTransportError(.invalidHTTPResponse) {
+            try await transport.perform(request)
         }
     }
 
@@ -164,41 +180,14 @@ struct LiveCovertTransportValidator {
                 try await executor.execute(session: session, request: request)
             }
         )
-        let invalidEndpoint = OpalFusion.Runtime.CovertEndpointContext(
-            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
-            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
-            port: UInt32(UInt16.max) + 1,
-            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
-            entryPath: PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath,
-            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
-            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
-            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
-            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
-            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
-            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
-            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
-        )
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: invalidEndpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: invalidEndpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
+        let invalidEndpoint = Self.makeCovertEndpoint(port: UInt32(UInt16.max) + 1)
+        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
+        let request = try Self.makeRequest(endpoint: invalidEndpoint)
 
         try await transport.prepare(plan)
 
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected out-of-range covert port to fail")
-        } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .malformedCovertURL)
+        await Self.expectLiveTransportError(.malformedCovertURL) {
+            try await transport.perform(request)
         }
         #expect(await executor.recordedRequests().isEmpty)
     }
@@ -212,41 +201,14 @@ struct LiveCovertTransportValidator {
                 try await executor.execute(session: session, request: request)
             }
         )
-        let invalidEndpoint = OpalFusion.Runtime.CovertEndpointContext(
-            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
-            host: "",
-            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
-            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
-            entryPath: PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath,
-            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
-            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
-            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
-            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
-            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
-            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
-            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
-        )
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: invalidEndpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: invalidEndpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
+        let invalidEndpoint = Self.makeCovertEndpoint(host: "")
+        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
+        let request = try Self.makeRequest(endpoint: invalidEndpoint)
 
         try await transport.prepare(plan)
 
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected empty covert host to fail")
-        } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .malformedCovertURL)
+        await Self.expectLiveTransportError(.malformedCovertURL) {
+            try await transport.perform(request)
         }
         #expect(await executor.recordedRequests().isEmpty)
     }
@@ -260,41 +222,14 @@ struct LiveCovertTransportValidator {
                 try await executor.execute(session: session, request: request)
             }
         )
-        let invalidEndpoint = OpalFusion.Runtime.CovertEndpointContext(
-            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
-            host: "-covert.example.org",
-            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
-            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
-            entryPath: PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath,
-            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
-            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
-            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
-            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
-            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
-            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
-            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
-        )
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: invalidEndpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: invalidEndpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
+        let invalidEndpoint = Self.makeCovertEndpoint(host: "-covert.example.org")
+        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
+        let request = try Self.makeRequest(endpoint: invalidEndpoint)
 
         try await transport.prepare(plan)
 
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected malformed covert host to fail")
-        } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .malformedCovertURL)
+        await Self.expectLiveTransportError(.malformedCovertURL) {
+            try await transport.perform(request)
         }
         #expect(await executor.recordedRequests().isEmpty)
     }
@@ -308,41 +243,16 @@ struct LiveCovertTransportValidator {
                 try await executor.execute(session: session, request: request)
             }
         )
-        let invalidEndpoint = OpalFusion.Runtime.CovertEndpointContext(
-            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
-            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
-            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
-            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
-            entryPath: "\(PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath) ",
-            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
-            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
-            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
-            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
-            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
-            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
-            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
+        let invalidEndpoint = Self.makeCovertEndpoint(
+            entryPath: "\(PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath) "
         )
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: invalidEndpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: invalidEndpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
+        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
+        let request = try Self.makeRequest(endpoint: invalidEndpoint)
 
         try await transport.prepare(plan)
 
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected malformed covert endpoint path to fail")
-        } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .malformedCovertURL)
+        await Self.expectLiveTransportError(.malformedCovertURL) {
+            try await transport.perform(request)
         }
         #expect(await executor.recordedRequests().isEmpty)
     }
@@ -356,41 +266,16 @@ struct LiveCovertTransportValidator {
                 try await executor.execute(session: session, request: request)
             }
         )
-        let invalidEndpoint = OpalFusion.Runtime.CovertEndpointContext(
-            roundIdentifier: PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier,
-            host: PrimaryRuntimeTestFixtures.covertEndpointContext.host,
-            port: PrimaryRuntimeTestFixtures.covertEndpointContext.port,
-            requiresTLS: PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
-            entryPath: "\(PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath)?round=1",
-            maxPayloadBytes: PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes,
-            requestTimeoutMilliseconds: PrimaryRuntimeTestFixtures.covertEndpointContext.requestTimeoutMilliseconds,
-            connectTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.connectTimeout,
-            connectWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.connectWindow,
-            submitTimeout: PrimaryRuntimeTestFixtures.covertEndpointContext.submitTimeout,
-            submitWindow: PrimaryRuntimeTestFixtures.covertEndpointContext.submitWindow,
-            spareConnectionCount: PrimaryRuntimeTestFixtures.covertEndpointContext.spareConnectionCount
+        let invalidEndpoint = Self.makeCovertEndpoint(
+            entryPath: "\(PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath)?round=1"
         )
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: invalidEndpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: invalidEndpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
+        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
+        let request = try Self.makeRequest(endpoint: invalidEndpoint)
 
         try await transport.prepare(plan)
 
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected covert endpoint query delimiter to fail")
-        } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .malformedCovertURL)
+        await Self.expectLiveTransportError(.malformedCovertURL) {
+            try await transport.perform(request)
         }
         #expect(await executor.recordedRequests().isEmpty)
     }
@@ -469,5 +354,62 @@ struct LiveCovertTransportValidator {
                     "Covert response payload exceeded the configured size limit"
             )
         }
+    }
+}
+
+private extension LiveCovertTransportValidator {
+    static func expectLiveTransportError(
+        _ expectedError: OpalFusion.Runtime.LiveTransportError,
+        from operation: () async throws -> [UInt8]
+    ) async {
+        await #expect(throws: expectedError) {
+            try await operation()
+        }
+    }
+
+    static func makeCovertEndpoint(
+        host: String = PrimaryRuntimeTestFixtures.covertEndpointContext.host,
+        port: UInt32 = PrimaryRuntimeTestFixtures.covertEndpointContext.port,
+        requiresTLS: Bool? = PrimaryRuntimeTestFixtures.covertEndpointContext.requiresTLS,
+        entryPath: String = PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath
+    ) -> OpalFusion.Runtime.CovertEndpointContext {
+        let baseEndpoint = PrimaryRuntimeTestFixtures.covertEndpointContext
+        return .init(
+            roundIdentifier: baseEndpoint.roundIdentifier,
+            host: host,
+            port: port,
+            requiresTLS: requiresTLS,
+            entryPath: entryPath,
+            maxPayloadBytes: baseEndpoint.maxPayloadBytes,
+            requestTimeoutMilliseconds: baseEndpoint.requestTimeoutMilliseconds,
+            connectTimeout: baseEndpoint.connectTimeout,
+            connectWindow: baseEndpoint.connectWindow,
+            submitTimeout: baseEndpoint.submitTimeout,
+            submitWindow: baseEndpoint.submitWindow,
+            spareConnectionCount: baseEndpoint.spareConnectionCount
+        )
+    }
+
+    static func makePreparationPlan(
+        endpoint: OpalFusion.Runtime.CovertEndpointContext
+    ) -> OpalFusion.Runtime.CovertPreparationPlan {
+        .init(
+            endpoint: endpoint,
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
+        )
+    }
+
+    static func makeRequest(
+        endpoint: OpalFusion.Runtime.CovertEndpointContext
+    ) throws -> OpalFusion.Runtime.CovertRequest {
+        .init(
+            endpoint: endpoint,
+            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
+                PrimaryRuntimeTestFixtures.pingMessage
+            ),
+            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
+            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
+        )
     }
 }

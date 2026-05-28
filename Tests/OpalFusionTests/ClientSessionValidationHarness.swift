@@ -1,8 +1,8 @@
-// ClientSessionValidatorSupport.swift
+// ClientSessionValidationHarness.swift
 
 @testable import OpalFusion
 
-enum ClientSessionValidatorSupport {
+enum ClientSessionValidationHarness {
     static func isUnsupportedReservationTerminalSnapshot(
         _ snapshot: OpalFusion.Client.Session.Snapshot
     ) -> Bool {

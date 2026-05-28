@@ -18,7 +18,7 @@ struct HostEventValidator {
     }
 
     @Test("Event kind exposes all documented cases")
-    func validateEventKinds() {
+    func validateEventKinds() throws {
         let kinds: [OpalFusion.Host.Event.Kind] = [
             .status,
             .warning,
@@ -27,10 +27,10 @@ struct HostEventValidator {
         ]
 
         #expect(kinds.count == 4)
-        #expect(Self.requireSendable(kinds[0]) == .status)
-        #expect(kinds[1] == .warning)
-        #expect(kinds[2] == .failure)
-        #expect(kinds[3] == .completed)
+        #expect(Self.requireSendable(try #require(kinds.first)) == .status)
+        #expect(try #require(kinds.dropFirst().first) == .warning)
+        #expect(try #require(kinds.dropFirst(2).first) == .failure)
+        #expect(try #require(kinds.dropFirst(3).first) == .completed)
     }
 
     static func requireSendable<Value: Sendable>(_ value: Value) -> Value {

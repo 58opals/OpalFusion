@@ -5,7 +5,7 @@ import Testing
 
 struct ClientErrorValidator {
     @Test("Client error exposes the documented additive cases")
-    func validateClientErrorCases() {
+    func validateClientErrorCases() throws {
         let errors: [OpalFusion.Client.Error] = [
             .invalidConfiguration,
             .transportUnavailable,
@@ -17,13 +17,13 @@ struct ClientErrorValidator {
         ]
 
         #expect(errors.count == 7)
-        #expect(Self.requireSendable(errors[0]) == .invalidConfiguration)
-        #expect(errors[1] == .transportUnavailable)
-        #expect(errors[2] == .coordinatorRejected)
-        #expect(errors[3] == .hostRejected)
-        #expect(errors[4] == .protocolIncompatible)
-        #expect(errors[5] == .blameRequired)
-        #expect(errors[6] == .notImplemented)
+        #expect(Self.requireSendable(try #require(errors.first)) == .invalidConfiguration)
+        #expect(try #require(errors.dropFirst().first) == .transportUnavailable)
+        #expect(try #require(errors.dropFirst(2).first) == .coordinatorRejected)
+        #expect(try #require(errors.dropFirst(3).first) == .hostRejected)
+        #expect(try #require(errors.dropFirst(4).first) == .protocolIncompatible)
+        #expect(try #require(errors.dropFirst(5).first) == .blameRequired)
+        #expect(try #require(errors.dropFirst(6).first) == .notImplemented)
     }
 
     @Test("Client error keeps coordinator rejection distinct from host rejection and blame")

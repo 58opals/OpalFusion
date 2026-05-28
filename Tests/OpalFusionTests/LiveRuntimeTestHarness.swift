@@ -1,9 +1,9 @@
-// LiveRuntimeTestSupport.swift
+// LiveRuntimeTestHarness.swift
 
 import Foundation
 import Darwin
 
-enum LiveRuntimeTestSupport {
+enum LiveRuntimeTestHarness {
     static func withTimeout<T: Sendable>(
         _ duration: Duration,
         operation: @escaping @Sendable () async throws -> T
@@ -14,13 +14,13 @@ enum LiveRuntimeTestSupport {
             }
             group.addTask {
                 try await Task.sleep(for: duration)
-                throw LiveRuntimeTestSupportError.timedOut(
+                throw LiveRuntimeTestHarnessError.timedOut(
                     "Timed out after \(duration)"
                 )
             }
 
             guard let result = try await group.next() else {
-                throw LiveRuntimeTestSupportError.missingTimeoutResult
+                throw LiveRuntimeTestHarnessError.missingTimeoutResult
             }
             group.cancelAll()
             return result

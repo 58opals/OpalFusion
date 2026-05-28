@@ -1,6 +1,6 @@
-// LiveRuntimeTestSupportError.swift
+// LiveRuntimeTestHarnessError.swift
 
-enum LiveRuntimeTestSupportError: Swift.Error, Equatable {
+enum LiveRuntimeTestHarnessError: Swift.Error, Equatable {
     case timedOut(String)
     case missingTimeoutResult
     case missingConnection

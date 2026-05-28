@@ -48,6 +48,8 @@ extension Duration {
             return 0
         }
 
-        return (attoseconds + attosecondsPerMillisecond - 1) / attosecondsPerMillisecond
+        let quotient = attoseconds / attosecondsPerMillisecond
+        let remainder = attoseconds % attosecondsPerMillisecond
+        return remainder == 0 ? quotient : quotient + 1
     }
 }

@@ -3,6 +3,7 @@
 extension OpalFusion.Runtime.CovertRuntimeSession {
     enum Input: Sendable, Equatable {
         case prepare(endpointContext: OpalFusion.Runtime.CovertEndpointContext)
+        case roundIdentifierResolved(OpalFusion.Round.Identifier)
         case enqueue(message: OpalFusion.ProtocolModel.CovertMessage)
         case covertPrepared
         case covertPreparationFailed(summary: String)

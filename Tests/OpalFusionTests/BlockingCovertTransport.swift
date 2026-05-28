@@ -8,7 +8,7 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
     private var resetCount: Int = 0
     private let blocksPrepare: Bool
     private let blocksPerform: Bool
-    private var prepareContinuation: CheckedContinuation<Void, Never>?
+    private var prepareContinuation: CheckedContinuation<Result<Void, Error>, Never>?
     private var performContinuation: CheckedContinuation<Result<[UInt8], Error>, Never>?
 
     init(
@@ -25,8 +25,14 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
         preparedPlans.append(plan)
 
         if blocksPrepare {
-            await withCheckedContinuation { continuation in
+            let result = await withCheckedContinuation { continuation in
                 prepareContinuation = continuation
+            }
+            switch result {
+            case .success:
+                break
+            case let .failure(error):
+                throw error
             }
         }
     }
@@ -54,7 +60,12 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
     }
 
     func releasePrepare() {
-        prepareContinuation?.resume()
+        prepareContinuation?.resume(returning: .success(()))
+        prepareContinuation = nil
+    }
+
+    func failPreparation(_ error: Error) {
+        prepareContinuation?.resume(returning: .failure(error))
         prepareContinuation = nil
     }
 

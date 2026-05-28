@@ -5,7 +5,7 @@ import Testing
 
 struct RoundCompletionStatusValidator {
     @Test("Round completion status exposes the documented terminal outcomes")
-    func validateCompletionStatusCases() {
+    func validateCompletionStatusCases() throws {
         let statuses: [OpalFusion.Round.CompletionStatus] = [
             .success,
             .coordinatorRejected,
@@ -16,12 +16,12 @@ struct RoundCompletionStatusValidator {
         ]
 
         #expect(statuses.count == 6)
-        #expect(Self.requireSendable(statuses[0]) == .success)
-        #expect(statuses[1] == .coordinatorRejected)
-        #expect(statuses[2] == .hostRejected)
-        #expect(statuses[3] == .protocolIncompatible)
-        #expect(statuses[4] == .transportFailed)
-        #expect(statuses[5] == .blameRequired)
+        #expect(Self.requireSendable(try #require(statuses.first)) == .success)
+        #expect(try #require(statuses.dropFirst().first) == .coordinatorRejected)
+        #expect(try #require(statuses.dropFirst(2).first) == .hostRejected)
+        #expect(try #require(statuses.dropFirst(3).first) == .protocolIncompatible)
+        #expect(try #require(statuses.dropFirst(4).first) == .transportFailed)
+        #expect(try #require(statuses.dropFirst(5).first) == .blameRequired)
     }
 
     @Test("Round state preserves nonterminal construction without a completion status")

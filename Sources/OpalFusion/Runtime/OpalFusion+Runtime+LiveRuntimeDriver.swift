@@ -398,10 +398,13 @@ extension OpalFusion.Runtime {
                         guard Task.isCancelled == false else {
                             return
                         }
+                        let roundTraceIdentifier = self.roundTraceIdentifierForCovertPreparation(
+                            plan: plan
+                        )
                         OpalDiagnostics.logger(category: .fusionCovert).record(
                             event: .covertPrepareFailed,
                             level: .opalFusionDefault(for: .covertPrepareFailed),
-                            traceID: .opalFusionRound(plan.endpoint.roundIdentifier),
+                            traceID: .opalFusionRound(roundTraceIdentifier),
                             fields: [
                                 .operation("covert_prepare")
                             ] + OpalDiagnostics.Field.errorFields(for: error)
@@ -434,7 +437,7 @@ extension OpalFusion.Runtime {
                         OpalDiagnostics.logger(category: .fusionCovert).record(
                             event: .covertRequestFailed,
                             level: .opalFusionDefault(for: .covertRequestFailed),
-                            traceID: .opalFusionRound(request.endpoint.roundIdentifier),
+                            traceID: .opalFusionRound(request.roundIdentifier),
                             fields: [
                                 .operation("covert_request"),
                                 .payloadByteCount(
@@ -577,6 +580,16 @@ extension OpalFusion.Runtime {
             covertPreparationTask = nil
             covertRequestTask?.cancel()
             covertRequestTask = nil
+        }
+
+        private func roundTraceIdentifierForCovertPreparation(
+            plan: OpalFusion.Runtime.CovertPreparationPlan
+        ) -> OpalFusion.Round.Identifier? {
+            guard runtimeSession.covertSession.preparationPlan == plan else {
+                return plan.endpoint.roundIdentifier
+            }
+
+            return runtimeSession.engine.round?.identifier ?? plan.endpoint.roundIdentifier
         }
 
         private func cancelHostTasks() {

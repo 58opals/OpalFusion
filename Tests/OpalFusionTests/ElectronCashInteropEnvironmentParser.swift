@@ -1,6 +1,6 @@
-// ElectronCashInteropTestSupport.swift
+// ElectronCashInteropEnvironmentParser.swift
 
-enum ElectronCashInteropTestSupport {
+enum ElectronCashInteropEnvironmentParser {
     static func requiredString(
         _ name: String,
         in environment: [String: String]
@@ -18,7 +18,7 @@ enum ElectronCashInteropTestSupport {
     ) throws -> UInt16 {
         try parseUInt16(
             requiredString(name, in: environment),
-            variableName: name
+            environmentVariableName: name
         )
     }
 
@@ -28,7 +28,7 @@ enum ElectronCashInteropTestSupport {
     ) throws -> UInt32 {
         try parseUInt32(
             requiredString(name, in: environment),
-            variableName: name
+            environmentVariableName: name
         )
     }
 
@@ -38,7 +38,7 @@ enum ElectronCashInteropTestSupport {
     ) throws -> UInt64 {
         try parseUInt64(
             requiredString(name, in: environment),
-            variableName: name
+            environmentVariableName: name
         )
     }
 
@@ -49,7 +49,7 @@ enum ElectronCashInteropTestSupport {
     ) throws -> [UInt8] {
         let bytes = try parseHexBytes(
             requiredString(name, in: environment),
-            variableName: name
+            environmentVariableName: name
         )
         if let expectedByteCount, bytes.count != expectedByteCount {
             throw ElectronCashInteropEnvironmentError.invalid(
@@ -62,11 +62,12 @@ enum ElectronCashInteropTestSupport {
 
     static func parseUInt16(
         _ value: String,
-        variableName: String
+        environmentVariableName: String
     ) throws -> UInt16 {
-        guard let parsedValue = UInt16(value) else {
+        let trimmedValue = trimmedEnvironmentValue(value)
+        guard let parsedValue = UInt16(trimmedValue) else {
             throw ElectronCashInteropEnvironmentError.invalid(
-                variableName,
+                environmentVariableName,
                 "expected an unsigned 16-bit integer"
             )
         }
@@ -75,11 +76,12 @@ enum ElectronCashInteropTestSupport {
 
     static func parseUInt32(
         _ value: String,
-        variableName: String
+        environmentVariableName: String
     ) throws -> UInt32 {
-        guard let parsedValue = UInt32(value) else {
+        let trimmedValue = trimmedEnvironmentValue(value)
+        guard let parsedValue = UInt32(trimmedValue) else {
             throw ElectronCashInteropEnvironmentError.invalid(
-                variableName,
+                environmentVariableName,
                 "expected an unsigned 32-bit integer"
             )
         }
@@ -88,11 +90,12 @@ enum ElectronCashInteropTestSupport {
 
     static func parseUInt64(
         _ value: String,
-        variableName: String
+        environmentVariableName: String
     ) throws -> UInt64 {
-        guard let parsedValue = UInt64(value) else {
+        let trimmedValue = trimmedEnvironmentValue(value)
+        guard let parsedValue = UInt64(trimmedValue) else {
             throw ElectronCashInteropEnvironmentError.invalid(
-                variableName,
+                environmentVariableName,
                 "expected an unsigned 64-bit integer"
             )
         }
@@ -101,9 +104,10 @@ enum ElectronCashInteropTestSupport {
 
     static func parseOptionalBool(
         _ value: String?,
-        variableName: String
+        environmentVariableName: String
     ) throws -> Bool? {
-        guard let value, value.isEmpty == false else {
+        guard let value = value.map(trimmedEnvironmentValue),
+              value.isEmpty == false else {
             return nil
         }
 
@@ -114,7 +118,7 @@ enum ElectronCashInteropTestSupport {
             return false
         default:
             throw ElectronCashInteropEnvironmentError.invalid(
-                variableName,
+                environmentVariableName,
                 "expected one of 1, 0, true, false, yes, or no"
             )
         }
@@ -122,7 +126,7 @@ enum ElectronCashInteropTestSupport {
 
     static func parseHexBytes(
         _ value: String,
-        variableName: String
+        environmentVariableName: String
     ) throws -> [UInt8] {
         let trimmedValue = value
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,13 +140,13 @@ enum ElectronCashInteropTestSupport {
 
         guard normalizedValue.isEmpty == false else {
             throw ElectronCashInteropEnvironmentError.invalid(
-                variableName,
+                environmentVariableName,
                 "hex string must not be empty"
             )
         }
         guard normalizedValue.count.isMultiple(of: 2) else {
             throw ElectronCashInteropEnvironmentError.invalid(
-                variableName,
+                environmentVariableName,
                 "hex string must have an even number of characters"
             )
         }
@@ -156,7 +160,7 @@ enum ElectronCashInteropTestSupport {
             let byteString = normalizedValue[cursor..<nextCursor]
             guard let byte = UInt8(byteString, radix: 16) else {
                 throw ElectronCashInteropEnvironmentError.invalid(
-                    variableName,
+                    environmentVariableName,
                     "hex string contained non-hex characters"
                 )
             }
@@ -165,5 +169,9 @@ enum ElectronCashInteropTestSupport {
         }
 
         return bytes
+    }
+
+    private static func trimmedEnvironmentValue(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

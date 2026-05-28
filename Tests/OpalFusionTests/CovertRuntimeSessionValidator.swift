@@ -451,7 +451,7 @@ struct CovertRuntimeSessionValidator {
     }
 
     @Test("Covert runtime surfaces malformed response bytes as protocol failure")
-    func validateMalformedResponseFailure() {
+    func validateMalformedResponseFailure() throws {
         var session = PrimaryRuntimeTestFixtures.makeCovertSession()
         _ = session.apply(
             input: .prepare(endpointContext: PrimaryRuntimeTestFixtures.covertEndpointContext),
@@ -469,7 +469,8 @@ struct CovertRuntimeSessionValidator {
         )
 
         #expect(effects.count == 1)
-        guard case let .emitProtocolFailure(summary) = effects[0] else {
+        let effect = try #require(effects.first)
+        guard case let .emitProtocolFailure(summary) = effect else {
             Issue.record("Expected protocol failure after malformed covert response")
             return
         }
@@ -478,7 +479,7 @@ struct CovertRuntimeSessionValidator {
     }
 
     @Test("Covert runtime clears prepared endpoint and queued work after malformed response")
-    func validateMalformedResponseClearsQueuedState() {
+    func validateMalformedResponseClearsQueuedState() throws {
         var session = PrimaryRuntimeTestFixtures.makeCovertSession()
         _ = session.apply(
             input: .prepare(endpointContext: PrimaryRuntimeTestFixtures.covertEndpointContext),
@@ -500,7 +501,8 @@ struct CovertRuntimeSessionValidator {
         )
 
         #expect(effects.count == 1)
-        guard case let .emitProtocolFailure(summary) = effects[0] else {
+        let effect = try #require(effects.first)
+        guard case let .emitProtocolFailure(summary) = effect else {
             Issue.record("Expected protocol failure after malformed covert response")
             return
         }

@@ -9,6 +9,7 @@ extension OpalFusion.Runtime {
         private(set) var preparationPlan: OpalFusion.Runtime.CovertPreparationPlan?
         private(set) var queuedMessages: [OpalFusion.ProtocolModel.CovertMessage]
         private(set) var outstandingRequest: OpalFusion.Runtime.CovertRequest?
+        private var roundIdentifier: OpalFusion.Round.Identifier?
         private var submitWindowDeadline: OpalFusion.Execution.Instant?
         private let messageEncoder: OpalFusion.Wire.CovertMessageEncoder
         private let messageDecoder: OpalFusion.Wire.CovertMessageDecoder
@@ -19,6 +20,7 @@ extension OpalFusion.Runtime {
             self.preparationPlan = nil
             self.queuedMessages = []
             self.outstandingRequest = nil
+            self.roundIdentifier = nil
             self.submitWindowDeadline = nil
             self.messageEncoder = .init()
             self.messageDecoder = .init()
@@ -31,6 +33,9 @@ extension OpalFusion.Runtime {
             switch input {
             case let .prepare(endpointContext):
                 return handlePrepare(endpointContext: endpointContext, now: now)
+            case let .roundIdentifierResolved(roundIdentifier):
+                self.roundIdentifier = roundIdentifier
+                return []
             case let .enqueue(message):
                 guard let endpointContext else {
                     return protocolFailure(
@@ -70,6 +75,7 @@ extension OpalFusion.Runtime {
             self.substate = .preparing
             self.queuedMessages = []
             self.outstandingRequest = nil
+            self.roundIdentifier = endpointContext.roundIdentifier
             self.submitWindowDeadline = nil
 
             let preparationDeadline = now.advanced(
@@ -106,7 +112,7 @@ extension OpalFusion.Runtime {
             self.preparationPlan = nil
             recordCovertPrepare(
                 OpalDiagnostics.Event.covertPrepareSucceeded,
-                roundIdentifier: endpointContext?.roundIdentifier
+                roundIdentifier: roundIdentifier ?? endpointContext?.roundIdentifier
             )
             return maybeDispatchNextRequest(now: now)
         }
@@ -134,7 +140,7 @@ extension OpalFusion.Runtime {
                 OpalDiagnostics.logger(category: .fusionCovert).record(
                     event: .covertRequestSucceeded,
                     level: .opalFusionDefault(for: .covertRequestSucceeded),
-                    traceID: .opalFusionRound(outstandingRequest.endpoint.roundIdentifier),
+                    traceID: .opalFusionRound(roundTraceIdentifier(for: outstandingRequest)),
                     fields: [
                         .operation("covert_request"),
                         .payloadByteCount(bytes.count),
@@ -158,7 +164,7 @@ extension OpalFusion.Runtime {
                 OpalDiagnostics.logger(category: .fusionCovert).record(
                     event: .covertResponseDecodeFailed,
                     level: .opalFusionDefault(for: .covertResponseDecodeFailed),
-                    traceID: .opalFusionRound(outstandingRequest.endpoint.roundIdentifier),
+                    traceID: .opalFusionRound(roundTraceIdentifier(for: outstandingRequest)),
                     fields: [
                         .operation("covert_response_decode"),
                         .payloadByteCount(bytes.count)
@@ -233,6 +239,7 @@ extension OpalFusion.Runtime {
                 let deadline = min(requestDeadline, submitWindowDeadline)
                 let request = OpalFusion.Runtime.CovertRequest(
                     endpoint: endpointContext,
+                    roundIdentifier: roundIdentifier,
                     payload: payload,
                     startedAt: now,
                     deadline: deadline
@@ -242,7 +249,7 @@ extension OpalFusion.Runtime {
                 OpalDiagnostics.logger(category: .fusionCovert).record(
                     event: .covertRequestStarted,
                     level: .opalFusionDefault(for: .covertRequestStarted),
-                    traceID: .opalFusionRound(endpointContext.roundIdentifier),
+                    traceID: .opalFusionRound(request.roundIdentifier),
                     fields: [
                         .operation("covert_request"),
                         .messageKind(for: message),
@@ -280,7 +287,9 @@ extension OpalFusion.Runtime {
             OpalDiagnostics.logger(category: .fusionCovert).record(
                 event: event,
                 level: .opalFusionDefault(for: event),
-                traceID: .opalFusionRound(outstandingRequest?.endpoint.roundIdentifier ?? endpointContext?.roundIdentifier),
+                traceID: .opalFusionRound(
+                    outstandingRequest.map(roundTraceIdentifier(for:)) ?? currentRoundTraceIdentifier
+                ),
                 fields: [
                     .operation(operation)
                 ] + OpalDiagnostics.Field.sanitizedSummaryFields(
@@ -290,6 +299,16 @@ extension OpalFusion.Runtime {
             )
             reset()
             return [.emitTransportFailure(summary: summary)]
+        }
+
+        private var currentRoundTraceIdentifier: OpalFusion.Round.Identifier? {
+            roundIdentifier ?? endpointContext?.roundIdentifier
+        }
+
+        private func roundTraceIdentifier(
+            for request: OpalFusion.Runtime.CovertRequest
+        ) -> OpalFusion.Round.Identifier? {
+            request.roundIdentifier ?? currentRoundTraceIdentifier
         }
 
         private mutating func diagnosedTransportFailure(
@@ -305,6 +324,7 @@ extension OpalFusion.Runtime {
             preparationPlan = nil
             queuedMessages = []
             outstandingRequest = nil
+            roundIdentifier = nil
             submitWindowDeadline = nil
         }
 
