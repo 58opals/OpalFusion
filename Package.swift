@@ -21,10 +21,6 @@ let package = Package(
         .package(
             url: "https://github.com/58opals/OpalDiagnostics.git",
             branch: "develop"
-        ),
-        .package(
-            url: "https://github.com/apple/swift-protobuf.git",
-            branch: "main"
         )
     ],
     targets: [
@@ -32,8 +28,7 @@ let package = Package(
             name: "OpalFusion",
             dependencies: [
                 .product(name: "OpalCrypto", package: "OpalCrypto"),
-                .product(name: "OpalDiagnostics", package: "OpalDiagnostics"),
-                .product(name: "SwiftProtobuf", package: "swift-protobuf")
+                .product(name: "OpalDiagnostics", package: "OpalDiagnostics")
             ]
         ),
         .testTarget(

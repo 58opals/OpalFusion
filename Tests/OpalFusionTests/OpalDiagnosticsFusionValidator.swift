@@ -5,7 +5,6 @@ import Foundation
 import Network
 import OpalCrypto
 import OpalDiagnostics
-import SwiftProtobuf
 import Testing
 
 @Suite(.serialized)

@@ -1,0 +1,303 @@
+// CashFusionPrimaryMessageCodecValidator.swift
+
+@testable import OpalFusion
+import Testing
+
+struct CashFusionPrimaryMessageCodecValidator {
+    @Test("CashFusion primary codec matches pinned client message bytes")
+    func validateClientMessagePinnedByteParity() throws {
+        #expect(
+            PrimaryRuntimeTestFixtures.clientMessages.count
+                == CashFusionPinnedProtobufFixtures.primaryClientMessageBytes.count
+        )
+
+        for (message, pinnedBytes) in zip(
+            PrimaryRuntimeTestFixtures.clientMessages,
+            CashFusionPinnedProtobufFixtures.primaryClientMessageBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.encode(message)
+
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeClient(
+                    pinnedBytes
+                ) == message
+            )
+        }
+    }
+
+    @Test("CashFusion primary codec matches pinned server message bytes")
+    func validateServerMessagePinnedByteParity() throws {
+        #expect(
+            PrimaryRuntimeTestFixtures.serverMessages.count
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes.count
+        )
+
+        for (message, pinnedBytes) in zip(
+            PrimaryRuntimeTestFixtures.serverMessages,
+            CashFusionPinnedProtobufFixtures.primaryServerMessageBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.encode(message)
+
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeServer(
+                    pinnedBytes
+                ) == message
+            )
+        }
+    }
+
+    @Test("CashFusion primary codec handles optional, map, and packed edge cases")
+    func validateFocusedFieldParity() throws {
+        let clientMessages: [OpalFusion.ProtocolModel.ClientMessage] = [
+            .clientHello(
+                .init(
+                    versionBytes: [0x01],
+                    genesisHash: nil
+                )
+            ),
+            .joinPools(
+                .init(
+                    tiers: [1, 300],
+                    tags: [
+                        .init(
+                            identifier: [0xA0],
+                            limit: 0,
+                            noIp: nil
+                        )
+                    ]
+                )
+            ),
+            .blames(
+                .init(
+                    blames: [
+                        .init(
+                            proofIndex: 7,
+                            decrypter: .privateKey([0xB0]),
+                            requiresBlockchainLookup: true,
+                            reason: nil
+                        )
+                    ]
+                )
+            )
+        ]
+        let serverMessages: [OpalFusion.ProtocolModel.ServerMessage] = [
+            .serverHello(
+                .init(
+                    tiers: [1, 300],
+                    numberOfComponents: 0,
+                    componentFeeRateSatoshisPerKb: 0,
+                    minimumExcessFeeSatoshis: 0,
+                    maximumExcessFeeSatoshis: 0,
+                    donationAddress: nil
+                )
+            ),
+            .tierStatusUpdate(
+                .init(
+                    statusesByTier: [
+                        1: .init(),
+                        300: .init(
+                            playerCount: 1,
+                            minimumPlayerCount: 2,
+                            maximumPlayerCount: 3,
+                            timeRemainingSeconds: 4
+                        )
+                    ]
+                )
+            ),
+            .fusionResult(
+                .init(
+                    isSuccess: false,
+                    transactionSignatures: [],
+                    badComponentIndices: [1, 300]
+                )
+            )
+        ]
+
+        #expect(
+            clientMessages.count
+                == CashFusionPinnedProtobufFixtures.primaryFocusedClientMessageBytes.count
+        )
+        #expect(
+            serverMessages.count
+                == CashFusionPinnedProtobufFixtures.primaryFocusedServerMessageBytes.count
+        )
+
+        for (message, pinnedBytes) in zip(
+            clientMessages,
+            CashFusionPinnedProtobufFixtures.primaryFocusedClientMessageBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.encode(message)
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeClient(
+                    pinnedBytes
+                ) == message
+            )
+        }
+
+        for (message, pinnedBytes) in zip(
+            serverMessages,
+            CashFusionPinnedProtobufFixtures.primaryFocusedServerMessageBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.encode(message)
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeServer(
+                    pinnedBytes
+                ) == message
+            )
+        }
+    }
+
+    @Test("CashFusion primary codec rejects malformed envelopes explicitly")
+    func validateMalformedPrimaryMessages() throws {
+        Self.expectPrimaryError(.missingClientMessageCase) {
+            _ = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeClient([])
+        }
+
+        Self.expectPrimaryError(.missingServerMessageCase) {
+            _ = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeServer([])
+        }
+
+        Self.expectPrimaryError(.missingBlameDecrypter) {
+            _ = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeClient(
+                Self.clientBlamesEnvelopeWithoutDecrypter()
+            )
+        }
+
+        Self.expectCodingError(
+            .conflictingOneOfField(
+                messageName: "ClientMessage",
+                fieldNumber: 2
+            )
+        ) {
+            _ = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeClient(
+                Self.conflictingClientEnvelope()
+            )
+        }
+
+        Self.expectPrimaryError(.invalidUTF8Field("FusionBegin.covertDomain")) {
+            _ = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeServer(
+                Self.serverFusionBeginEnvelopeWithInvalidDomain()
+            )
+        }
+
+        Self.expectPrimaryError(.invalidUTF8Field("Error.message")) {
+            _ = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeServer(
+                Self.serverFailureEnvelopeWithInvalidMessage()
+            )
+        }
+
+        Self.expectCodingError(.truncatedInput) {
+            _ = try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeServer(
+                [0x1A, 0x01, 0x08]
+            )
+        }
+    }
+
+    @Test("CashFusion primary codec skips unknown envelope fields")
+    func validateUnknownEnvelopeFields() throws {
+        var writer = OpalFusion.Wire.CashFusionProtobufWriter()
+        try writer.writeUInt64Field(
+            1,
+            fieldNumber: 99
+        )
+        let message = OpalFusion.ProtocolModel.ServerMessage.serverHello(
+            PrimaryRuntimeTestFixtures.serverHello
+        )
+        let payload = writer.serializedBytes
+            + (try OpalFusion.Wire.CashFusionPrimaryMessageCodec.encode(message))
+
+        #expect(
+            try OpalFusion.Wire.CashFusionPrimaryMessageCodec.decodeServer(
+                payload
+            ) == message
+        )
+    }
+}
+
+private extension CashFusionPrimaryMessageCodecValidator {
+    static func clientBlamesEnvelopeWithoutDecrypter() throws -> [UInt8] {
+        var proofWriter = OpalFusion.Wire.CashFusionProtobufWriter()
+        try proofWriter.writeUInt32Field(
+            1,
+            fieldNumber: 1
+        )
+
+        var blamesWriter = OpalFusion.Wire.CashFusionProtobufWriter()
+        try blamesWriter.writeBytesField(
+            proofWriter.serializedBytes,
+            fieldNumber: 1
+        )
+
+        var envelopeWriter = OpalFusion.Wire.CashFusionProtobufWriter()
+        try envelopeWriter.writeBytesField(
+            blamesWriter.serializedBytes,
+            fieldNumber: 6
+        )
+        return envelopeWriter.serializedBytes
+    }
+
+    static func conflictingClientEnvelope() throws -> [UInt8] {
+        var writer = OpalFusion.Wire.CashFusionProtobufWriter()
+        try writer.writeBytesField(
+            [],
+            fieldNumber: 1
+        )
+        try writer.writeBytesField(
+            [],
+            fieldNumber: 2
+        )
+        return writer.serializedBytes
+    }
+
+    static func serverFusionBeginEnvelopeWithInvalidDomain() throws -> [UInt8] {
+        var fusionBeginWriter = OpalFusion.Wire.CashFusionProtobufWriter()
+        try fusionBeginWriter.writeBytesField(
+            [0xFF],
+            fieldNumber: 2
+        )
+
+        var envelopeWriter = OpalFusion.Wire.CashFusionProtobufWriter()
+        try envelopeWriter.writeBytesField(
+            fusionBeginWriter.serializedBytes,
+            fieldNumber: 3
+        )
+        return envelopeWriter.serializedBytes
+    }
+
+    static func serverFailureEnvelopeWithInvalidMessage() throws -> [UInt8] {
+        var failureWriter = OpalFusion.Wire.CashFusionProtobufWriter()
+        try failureWriter.writeBytesField(
+            [0xFF],
+            fieldNumber: 1
+        )
+
+        var envelopeWriter = OpalFusion.Wire.CashFusionProtobufWriter()
+        try envelopeWriter.writeBytesField(
+            failureWriter.serializedBytes,
+            fieldNumber: 15
+        )
+        return envelopeWriter.serializedBytes
+    }
+
+    static func expectPrimaryError<Success>(
+        _ expectedError: OpalFusion.Wire.PrimaryMessageCodecError,
+        from operation: () throws -> Success
+    ) {
+        #expect(throws: expectedError) {
+            _ = try operation()
+        }
+    }
+
+    static func expectCodingError<Success>(
+        _ expectedError: OpalFusion.Wire.CashFusionProtobufCodingError,
+        from operation: () throws -> Success
+    ) {
+        #expect(throws: expectedError) {
+            _ = try operation()
+        }
+    }
+}

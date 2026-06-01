@@ -3,7 +3,6 @@
 import Foundation
 import OpalCrypto
 import OpalDiagnostics
-import SwiftProtobuf
 extension OpalFusion.Execution {
     struct ProductionWorkflow: Sendable {
         let baseline: OpalFusion.Transport.BaselineConfiguration
@@ -1138,58 +1137,46 @@ extension OpalFusion.Execution {
             }
 
             let payload: OpalFusion.Commitment.ComponentPayload
-            switch message.component {
+            switch message.payload {
             case let .input(input):
-                guard input.prevTxid.count == 32 else {
+                guard input.outpointTransactionHash.count == 32 else {
                     throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                         "Shared input component at index \(componentIndex) previous transaction hash must be 32 bytes"
                     )
                 }
 
-                guard input.amount <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                guard input.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
                     throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                         "Shared input component at index \(componentIndex) exceeds the maximum BCH money supply"
                     )
                 }
                 guard OpalFusion.Execution.ProtocolPrimitives.isCompressedSecp256k1PublicKey(
-                    input.pubkey.bytes
+                    input.publicKey
                 ) else {
                     throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                         "Shared input component at index \(componentIndex) must provide a valid compressed public key"
                     )
                 }
 
-                payload = .input(
-                    .init(
-                        outpointTransactionHash: Array(input.prevTxid.reversed()),
-                        outpointIndex: input.prevIndex,
-                        publicKey: input.pubkey.bytes,
-                        amountSatoshis: input.amount
-                    )
-                )
+                payload = .input(input)
             case let .output(output):
-                guard output.amount <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
+                guard output.amountSatoshis <= OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis else {
                     throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                         "Shared output component at index \(componentIndex) exceeds the maximum BCH money supply"
                     )
                 }
 
                 let minimumAmount = OpalFusion.Execution.ProtocolPrimitives.minimumOutputAmount(
-                    for: output.scriptpubkey.bytes,
+                    for: output.lockingScript,
                     baseline: baseline
                 )
-                guard output.amount >= minimumAmount else {
+                guard output.amountSatoshis >= minimumAmount else {
                     throw OpalFusion.Execution.WorkflowFailure.protocolValidationFailed(
                         "Shared output component at index \(componentIndex) is below the minimum allowed amount"
                     )
                 }
 
-                payload = .output(
-                    .init(
-                        lockingScript: output.scriptpubkey.bytes,
-                        amountSatoshis: output.amount
-                    )
-                )
+                payload = .output(output)
             case .blank(_):
                 payload = .blank(.init())
             case .none:
@@ -1199,16 +1186,16 @@ extension OpalFusion.Execution {
             }
             return .init(
                 serializedComponent: bytes,
-                saltCommitment: message.saltCommitment.bytes,
+                saltCommitment: message.saltCommitment,
                 payload: payload
             )
         }
 
         private func parseComponent(
             bytes: [UInt8]
-        ) throws -> FusionComponent {
+        ) throws -> OpalFusion.Wire.CashFusionComponentData {
             do {
-                return try FusionComponent(serializedBytes: Data(bytes))
+                return try OpalFusion.Wire.CashFusionComponentCodec.decode(bytes)
             } catch let error as OpalFusion.Execution.WorkflowFailure {
                 throw error
             } catch {
@@ -1222,12 +1209,7 @@ extension OpalFusion.Execution {
             bytes: [UInt8]
         ) throws -> OpalFusion.Commitment.InitialCommitment {
             do {
-                let message = try FusionInitialCommitment(serializedBytes: Data(bytes))
-                return .init(
-                    saltedComponentHash: message.saltedComponentHash.bytes,
-                    amountCommitment: message.amountCommitment.bytes,
-                    communicationPublicKey: message.communicationKey.bytes
-                )
+                return try OpalFusion.Wire.CashFusionInitialCommitmentCodec.decode(bytes)
             } catch let error as OpalFusion.Execution.WorkflowFailure {
                 throw error
             } catch {
@@ -1241,12 +1223,7 @@ extension OpalFusion.Execution {
             bytes: [UInt8]
         ) throws -> OpalFusion.Blame.Proof {
             do {
-                let message = try FusionProof(serializedBytes: Data(bytes))
-                return .init(
-                    componentIndex: message.componentIdx,
-                    salt: message.salt.bytes,
-                    pedersenNonce: message.pedersenNonce.bytes
-                )
+                return try OpalFusion.Wire.CashFusionProofCodec.decode(bytes)
             } catch let error as OpalFusion.Execution.RelayedProofValidationFailure {
                 throw error
             } catch {
@@ -1260,35 +1237,16 @@ extension OpalFusion.Execution {
             payload: OpalFusion.Commitment.ComponentPayload,
             saltCommitment: [UInt8]
         ) throws -> [UInt8] {
-            var message = FusionComponent()
-            message.saltCommitment = Data(saltCommitment)
-            switch payload {
-            case let .input(inputComponent):
-                var input = FusionInputComponent()
-                input.prevTxid = Data(inputComponent.outpointTransactionHash.reversed())
-                input.prevIndex = inputComponent.outpointIndex
-                input.pubkey = Data(inputComponent.publicKey)
-                input.amount = inputComponent.amountSatoshis
-                message.component = .input(input)
-            case let .output(outputComponent):
-                var output = FusionOutputComponent()
-                output.scriptpubkey = Data(outputComponent.lockingScript)
-                output.amount = outputComponent.amountSatoshis
-                message.component = .output(output)
-            case .blank:
-                message.component = .blank(.init())
-            }
-            return try Array(message.serializedData())
+            try OpalFusion.Wire.CashFusionComponentCodec.encode(
+                payload: payload,
+                saltCommitment: saltCommitment
+            )
         }
 
         private func serializeInitialCommitment(
             _ commitment: OpalFusion.Commitment.InitialCommitment
         ) throws -> [UInt8] {
-            var message = FusionInitialCommitment()
-            message.saltedComponentHash = Data(commitment.saltedComponentHash)
-            message.amountCommitment = Data(commitment.amountCommitment)
-            message.communicationKey = Data(commitment.communicationPublicKey)
-            return try Array(message.serializedData())
+            try OpalFusion.Wire.CashFusionInitialCommitmentCodec.encode(commitment)
         }
 
         private func serializeProof(
@@ -1296,11 +1254,13 @@ extension OpalFusion.Execution {
             salt: [UInt8],
             pedersenNonce: [UInt8]
         ) throws -> [UInt8] {
-            var message = FusionProof()
-            message.componentIdx = componentIndex
-            message.salt = Data(salt)
-            message.pedersenNonce = Data(pedersenNonce)
-            return try Array(message.serializedData())
+            try OpalFusion.Wire.CashFusionProofCodec.encode(
+                .init(
+                    componentIndex: componentIndex,
+                    salt: salt,
+                    pedersenNonce: pedersenNonce
+                )
+            )
         }
 
         private func recordBlameProofValidationFailure(

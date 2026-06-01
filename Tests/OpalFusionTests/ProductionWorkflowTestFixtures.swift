@@ -3,7 +3,6 @@
 @testable import OpalFusion
 import Foundation
 import OpalCrypto
-import SwiftProtobuf
 
 enum ProductionWorkflowTestFixtures {
     static let baseline = OpalFusion.Transport.BaselineConfiguration.electronCash443
@@ -232,17 +231,16 @@ enum ProductionWorkflowTestFixtures {
         let pedersenNonce = [UInt8](repeating: 0x77, count: 32)
         let amountSatoshis: UInt64 = 60_000
 
-        var component = FusionComponent()
-        component.saltCommitment = Data(
-            OpalFusion.Execution.ProtocolPrimitives.sha256(salt)
+        let inputComponent = OpalFusion.Commitment.InputComponent(
+            outpointTransactionHash: [UInt8](repeating: 0xCC, count: 32),
+            outpointIndex: 2,
+            publicKey: inputPublicKey,
+            amountSatoshis: amountSatoshis
         )
-        var input = FusionInputComponent()
-        input.prevTxid = Data([UInt8](repeating: 0xCC, count: 32).reversed())
-        input.prevIndex = 2
-        input.pubkey = Data(inputPublicKey)
-        input.amount = amountSatoshis
-        component.component = .input(input)
-        let serializedComponent = try Array(component.serializedData())
+        let serializedComponent = try OpalFusion.Wire.CashFusionComponentCodec.encode(
+            payload: .input(inputComponent),
+            saltCommitment: OpalFusion.Execution.ProtocolPrimitives.sha256(salt)
+        )
 
         let contribution = Int64(amountSatoshis)
             - Int64(
@@ -279,13 +277,16 @@ enum ProductionWorkflowTestFixtures {
         pedersenNonce: [UInt8],
         recipientPublicKey: [UInt8]
     ) throws -> [UInt8] {
-        var proof = FusionProof()
-        proof.componentIdx = UInt32(componentIndex)
-        proof.salt = Data(salt)
-        proof.pedersenNonce = Data(pedersenNonce)
+        let proof = OpalFusion.Blame.Proof(
+            componentIndex: UInt32(componentIndex),
+            salt: salt,
+            pedersenNonce: pedersenNonce
+        )
         return try Array(
             OpalCrypto.Communication.encrypt(
-                message: proof.serializedData(),
+                message: Data(
+                    try OpalFusion.Wire.CashFusionProofCodec.encode(proof)
+                ),
                 recipientPublicKey: OpalCrypto.Secp256k1.PublicKey(
                     rawRepresentation: Data(recipientPublicKey)
                 ),

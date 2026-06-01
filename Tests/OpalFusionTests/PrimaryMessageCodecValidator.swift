@@ -60,122 +60,120 @@ struct PrimaryMessageCodecValidator {
     }
 
     @Test("Primary protobuf bridge matches pinned oneof cases for interoperability messages")
-    func validateGeneratedCompatibilityCases() throws {
+    func validatePinnedCompatibilityCases() throws {
         let encoder = OpalFusion.Wire.PrimaryMessageEncoder()
+        let decoder = OpalFusion.Wire.PrimaryMessageDecoder()
 
-        let clientHelloEnvelope = try FusionClientMessage(
-            serializedBytes: encoder.encode(.clientHello(PrimaryRuntimeTestFixtures.clientHello))
+        let clientHello = OpalFusion.ProtocolModel.ClientMessage.clientHello(
+            PrimaryRuntimeTestFixtures.clientHello
         )
-        guard case let .clienthello(clientHello)? = clientHelloEnvelope.msg else {
-            Issue.record("Expected clienthello envelope case")
-            return
-        }
-        #expect([UInt8](clientHello.version) == PrimaryRuntimeTestFixtures.clientHello.versionBytes)
-        #expect(clientHello.hasGenesisHash)
+        #expect(try encoder.encode(clientHello) == CashFusionPinnedProtobufFixtures.primaryClientMessageBytes[0])
         #expect(
-            [UInt8](clientHello.genesisHash)
-                == (PrimaryRuntimeTestFixtures.clientHello.genesisHash ?? [])
+            try decoder.decodeClient(
+                CashFusionPinnedProtobufFixtures.primaryClientMessageBytes[0]
+            ) == clientHello
         )
 
-        let serverHelloEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.serverHello(PrimaryRuntimeTestFixtures.serverHello))
-        )
-        guard case let .serverhello(serverHello)? = serverHelloEnvelope.msg else {
-            Issue.record("Expected serverhello envelope case")
-            return
-        }
-        #expect(serverHello.tiers == PrimaryRuntimeTestFixtures.serverHello.tiers)
-        #expect(serverHello.hasDonationAddress)
-        #expect(
-            serverHello.donationAddress
-                == (PrimaryRuntimeTestFixtures.serverHello.donationAddress ?? "")
-        )
-
-        let fusionBeginEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin))
-        )
-        guard case let .fusionbegin(fusionBegin)? = fusionBeginEnvelope.msg else {
-            Issue.record("Expected fusionbegin envelope case")
-            return
-        }
-        #expect(fusionBegin.tier == PrimaryRuntimeTestFixtures.fusionBegin.tier)
-        #expect(
-            String(decoding: fusionBegin.covertDomain, as: UTF8.self)
-                == PrimaryRuntimeTestFixtures.fusionBegin.covertDomain
-        )
-        #expect(fusionBegin.covertPort == PrimaryRuntimeTestFixtures.fusionBegin.covertPort)
-
-        let startRoundEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.startRound(PrimaryRuntimeTestFixtures.startRound))
-        )
-        guard case let .startround(startRound)? = startRoundEnvelope.msg else {
-            Issue.record("Expected startround envelope case")
-            return
-        }
-        #expect([UInt8](startRound.roundPubkey) == PrimaryRuntimeTestFixtures.startRound.roundPublicKey)
-        #expect(
-            startRound.blindNoncePoints.map { [UInt8]($0) }
-                == PrimaryRuntimeTestFixtures.startRound.blindNoncePoints
-        )
-
-        let commitmentsEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.allCommitments(PrimaryRuntimeTestFixtures.allCommitments))
-        )
-        guard case let .allcommitments(allCommitments)? = commitmentsEnvelope.msg else {
-            Issue.record("Expected allcommitments envelope case")
-            return
-        }
-        #expect(allCommitments.initialCommitments.count == 1)
-        let nestedCommitment = try FusionInitialCommitment(
-            serializedBytes: allCommitments.initialCommitments[0]
+        let serverHello = OpalFusion.ProtocolModel.ServerMessage.serverHello(
+            PrimaryRuntimeTestFixtures.serverHello
         )
         #expect(
-            [UInt8](nestedCommitment.communicationKey)
-                == PrimaryRuntimeTestFixtures.initialCommitment.communicationPublicKey
+            try encoder.encode(serverHello)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[0]
         )
-
-        let fusionResultEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.fusionResult(PrimaryRuntimeTestFixtures.successResult))
-        )
-        guard case let .fusionresult(fusionResult)? = fusionResultEnvelope.msg else {
-            Issue.record("Expected fusionresult envelope case")
-            return
-        }
-        #expect(fusionResult.ok)
         #expect(
-            fusionResult.txsignatures.map { [UInt8]($0) }
-                == PrimaryRuntimeTestFixtures.successResult.transactionSignatures
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[0]
+            ) == serverHello
         )
 
-        let proofsEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.theirProofsList(PrimaryRuntimeTestFixtures.theirProofsList))
+        let fusionBegin = OpalFusion.ProtocolModel.ServerMessage.fusionBegin(
+            PrimaryRuntimeTestFixtures.fusionBegin
         )
-        guard case let .theirproofslist(theirProofsList)? = proofsEnvelope.msg else {
-            Issue.record("Expected theirproofslist envelope case")
-            return
-        }
-        #expect(theirProofsList.proofs.count == 1)
         #expect(
-            [UInt8](theirProofsList.proofs[0].encryptedProof)
-                == PrimaryRuntimeTestFixtures.theirProofsList.proofs[0].encryptedProof
+            try encoder.encode(fusionBegin)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[2]
+        )
+        #expect(
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[2]
+            ) == fusionBegin
         )
 
-        let restartEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.restartRound(.init()))
+        let startRound = OpalFusion.ProtocolModel.ServerMessage.startRound(
+            PrimaryRuntimeTestFixtures.startRound
         )
-        guard case .restartround? = restartEnvelope.msg else {
-            Issue.record("Expected restartround envelope case")
-            return
-        }
+        #expect(
+            try encoder.encode(startRound)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[3]
+        )
+        #expect(
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[3]
+            ) == startRound
+        )
 
-        let errorEnvelope = try FusionServerMessage(
-            serializedBytes: encoder.encode(.serverFailure(PrimaryRuntimeTestFixtures.serverFailure))
+        let allCommitments = OpalFusion.ProtocolModel.ServerMessage.allCommitments(
+            PrimaryRuntimeTestFixtures.allCommitments
         )
-        guard case let .error(error)? = errorEnvelope.msg else {
-            Issue.record("Expected error envelope case")
-            return
-        }
-        #expect(error.message == (PrimaryRuntimeTestFixtures.serverFailure.message ?? ""))
+        #expect(
+            try encoder.encode(allCommitments)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[5]
+        )
+        #expect(
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[5]
+            ) == allCommitments
+        )
+
+        let fusionResult = OpalFusion.ProtocolModel.ServerMessage.fusionResult(
+            PrimaryRuntimeTestFixtures.successResult
+        )
+        #expect(
+            try encoder.encode(fusionResult)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[7]
+        )
+        #expect(
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[7]
+            ) == fusionResult
+        )
+
+        let theirProofsList = OpalFusion.ProtocolModel.ServerMessage.theirProofsList(
+            PrimaryRuntimeTestFixtures.theirProofsList
+        )
+        #expect(
+            try encoder.encode(theirProofsList)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[8]
+        )
+        #expect(
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[8]
+            ) == theirProofsList
+        )
+
+        let restartRound = OpalFusion.ProtocolModel.ServerMessage.restartRound(.init())
+        #expect(
+            try encoder.encode(restartRound)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[9]
+        )
+        #expect(
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[9]
+            ) == restartRound
+        )
+
+        let serverFailure = OpalFusion.ProtocolModel.ServerMessage.serverFailure(
+            PrimaryRuntimeTestFixtures.serverFailure
+        )
+        #expect(
+            try encoder.encode(serverFailure)
+                == CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[10]
+        )
+        #expect(
+            try decoder.decodeServer(
+                CashFusionPinnedProtobufFixtures.primaryServerMessageBytes[10]
+            ) == serverFailure
+        )
     }
-
 }

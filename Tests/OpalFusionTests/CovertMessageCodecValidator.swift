@@ -34,23 +34,18 @@ struct CovertMessageCodecValidator {
             .encode(PrimaryRuntimeTestFixtures.covertComponentMessage)
         let signaturePayload = try OpalFusion.Wire.CovertMessageEncoder()
             .encode(PrimaryRuntimeTestFixtures.signatureMessage)
+        let decoder = OpalFusion.Wire.CovertMessageDecoder()
 
-        let componentEnvelope = try FusionCovertMessage(serializedBytes: componentPayload)
-        let signatureEnvelope = try FusionCovertMessage(serializedBytes: signaturePayload)
-
-        guard case let .component(component)? = componentEnvelope.msg else {
-            Issue.record("Expected covert component envelope")
-            return
-        }
-        guard case let .signature(signature)? = signatureEnvelope.msg else {
-            Issue.record("Expected covert signature envelope")
-            return
-        }
-
-        #expect(component.hasRoundPubkey)
-        #expect(signature.hasRoundPubkey)
-        #expect([UInt8](component.roundPubkey) == [0xAA, 0xBB])
-        #expect([UInt8](signature.roundPubkey) == [0xAA, 0xBB])
+        #expect(componentPayload == CashFusionPinnedProtobufFixtures.covertMessageBytes[0])
+        #expect(signaturePayload == CashFusionPinnedProtobufFixtures.covertMessageBytes[1])
+        #expect(
+            try decoder.decodeMessage(CashFusionPinnedProtobufFixtures.covertMessageBytes[0])
+                == PrimaryRuntimeTestFixtures.covertComponentMessage
+        )
+        #expect(
+            try decoder.decodeMessage(CashFusionPinnedProtobufFixtures.covertMessageBytes[1])
+                == PrimaryRuntimeTestFixtures.signatureMessage
+        )
     }
 
     @Test("Covert protobuf bridge rejects malformed covert response payloads")

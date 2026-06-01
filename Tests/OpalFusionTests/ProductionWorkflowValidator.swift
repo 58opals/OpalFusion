@@ -3,7 +3,6 @@
 @testable import OpalFusion
 import Foundation
 import OpalCrypto
-import SwiftProtobuf
 import Testing
 
 struct ProductionWorkflowValidator {
@@ -611,12 +610,15 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = FusionComponent()
-        component.saltCommitment = Self.saltCommitment(0xA0)
-        var output = FusionOutputComponent()
-        output.scriptpubkey = Data([0x51])
-        output.amount = OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis + 1
-        component.component = .output(output)
+        let serializedComponent = try Self.serializedComponent(
+            saltCommitment: Self.saltCommitment(0xA0),
+            payload: .output(
+                .init(
+                    lockingScript: [0x51],
+                    amountSatoshis: OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis + 1
+                )
+            )
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments + [
@@ -627,7 +629,7 @@ struct ProductionWorkflowValidator {
                 )
             ],
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(component.serializedData())]
+                + [serializedComponent]
         )
 
         do {
@@ -647,12 +649,15 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = FusionComponent()
-        component.saltCommitment = Self.saltCommitment(0xD0)
-        var output = FusionOutputComponent()
-        output.scriptpubkey = Data([0x51])
-        output.amount = 1
-        component.component = .output(output)
+        let serializedComponent = try Self.serializedComponent(
+            saltCommitment: Self.saltCommitment(0xD0),
+            payload: .output(
+                .init(
+                    lockingScript: [0x51],
+                    amountSatoshis: 1
+                )
+            )
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments + [
@@ -663,7 +668,7 @@ struct ProductionWorkflowValidator {
                 )
             ],
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(component.serializedData())]
+                + [serializedComponent]
         )
 
         do {
@@ -683,14 +688,15 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var extraComponent = FusionComponent()
-        extraComponent.saltCommitment = Self.saltCommitment(0xE0)
-        extraComponent.component = .blank(.init())
+        let extraComponent = try Self.serializedComponent(
+            saltCommitment: Self.saltCommitment(0xE0),
+            payload: .blank(.init())
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments,
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(extraComponent.serializedData())]
+                + [extraComponent]
         )
 
         do {
@@ -710,9 +716,10 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = FusionComponent()
-        component.saltCommitment = Data([0xE1])
-        component.component = .blank(.init())
+        let serializedComponent = try Self.serializedComponent(
+            saltCommitment: [0xE1],
+            payload: .blank(.init())
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments + [
@@ -723,7 +730,7 @@ struct ProductionWorkflowValidator {
                 )
             ],
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(component.serializedData())]
+                + [serializedComponent]
         )
 
         do {
@@ -743,12 +750,15 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = FusionComponent()
-        component.saltCommitment = Self.saltCommitment(0xF0)
-        var output = FusionOutputComponent()
-        output.scriptpubkey = Data([0x51])
-        output.amount = OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis
-        component.component = .output(output)
+        let serializedComponent = try Self.serializedComponent(
+            saltCommitment: Self.saltCommitment(0xF0),
+            payload: .output(
+                .init(
+                    lockingScript: [0x51],
+                    amountSatoshis: OpalFusion.Execution.ProtocolPrimitives.maximumMoneySatoshis
+                )
+            )
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments + [
@@ -759,7 +769,7 @@ struct ProductionWorkflowValidator {
                 )
             ],
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(component.serializedData())]
+                + [serializedComponent]
         )
 
         do {
@@ -779,14 +789,17 @@ struct ProductionWorkflowValidator {
         var scenario = try ProductionWorkflowTestFixtures.makeScenario()
         let playerCommit = try scenario.buildPlayerCommit()
 
-        var component = FusionComponent()
-        component.saltCommitment = Self.saltCommitment(0xB0)
-        var input = FusionInputComponent()
-        input.prevTxid = Data([UInt8](repeating: 0xCC, count: 32).reversed())
-        input.prevIndex = 2
-        input.pubkey = Data([UInt8](arrayLiteral: 0x02) + [UInt8](repeating: 0x00, count: 32))
-        input.amount = 60_000
-        component.component = .input(input)
+        let serializedComponent = try Self.serializedComponent(
+            saltCommitment: Self.saltCommitment(0xB0),
+            payload: .input(
+                .init(
+                    outpointTransactionHash: [UInt8](repeating: 0xCC, count: 32),
+                    outpointIndex: 2,
+                    publicKey: [UInt8](arrayLiteral: 0x02) + [UInt8](repeating: 0x00, count: 32),
+                    amountSatoshis: 60_000
+                )
+            )
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments + [
@@ -797,7 +810,7 @@ struct ProductionWorkflowValidator {
                 )
             ],
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(component.serializedData())]
+                + [serializedComponent]
         )
 
         do {
@@ -822,14 +835,17 @@ struct ProductionWorkflowValidator {
             return
         }
 
-        var component = FusionComponent()
-        component.saltCommitment = Self.saltCommitment(0xC0)
-        var input = FusionInputComponent()
-        input.prevTxid = Data([UInt8](repeating: 0xCC, count: 31))
-        input.prevIndex = 2
-        input.pubkey = Data(publicKey)
-        input.amount = 60_000
-        component.component = .input(input)
+        let serializedComponent = try Self.serializedComponent(
+            saltCommitment: Self.saltCommitment(0xC0),
+            payload: .input(
+                .init(
+                    outpointTransactionHash: [UInt8](repeating: 0xCC, count: 31),
+                    outpointIndex: 2,
+                    publicKey: publicKey,
+                    amountSatoshis: 60_000
+                )
+            )
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments + [
@@ -840,7 +856,7 @@ struct ProductionWorkflowValidator {
                 )
             ],
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(component.serializedData())]
+                + [serializedComponent]
         )
 
         do {
@@ -865,14 +881,17 @@ struct ProductionWorkflowValidator {
             return
         }
 
-        var component = FusionComponent()
-        component.saltCommitment = Self.saltCommitment(0xC8)
-        var input = FusionInputComponent()
-        input.prevTxid = Data(scenario.reservation.inputs[0].outpointTransactionHashBytes.reversed())
-        input.prevIndex = scenario.reservation.inputs[0].outpointIndex
-        input.pubkey = Data(publicKey)
-        input.amount = scenario.reservation.inputs[0].amountSatoshis
-        component.component = .input(input)
+        let serializedComponent = try Self.serializedComponent(
+            saltCommitment: Self.saltCommitment(0xC8),
+            payload: .input(
+                .init(
+                    outpointTransactionHash: scenario.reservation.inputs[0].outpointTransactionHashBytes,
+                    outpointIndex: scenario.reservation.inputs[0].outpointIndex,
+                    publicKey: publicKey,
+                    amountSatoshis: scenario.reservation.inputs[0].amountSatoshis
+                )
+            )
+        )
 
         try scenario.useSharedRound(
             allCommitments: playerCommit.initialCommitments + [
@@ -883,7 +902,7 @@ struct ProductionWorkflowValidator {
                 )
             ],
             serializedComponents: scenario.localSerializedComponents()
-                + [try Array(component.serializedData())]
+                + [serializedComponent]
         )
 
         do {
@@ -930,8 +949,10 @@ struct ProductionWorkflowValidator {
                 rawRepresentation: Data(extraInputComponent.communicationPrivateKey)
             )
         )
-        let parsedProof = try FusionProof(serializedBytes: decryptedProof.message)
-        #expect(sharedRoundMaterial.myComponentIndices.contains(Int(parsedProof.componentIdx)))
+        let parsedProof = try OpalFusion.Wire.CashFusionProofCodec.decode(
+            Array(decryptedProof.message)
+        )
+        #expect(sharedRoundMaterial.myComponentIndices.contains(Int(parsedProof.componentIndex)))
 
         let destinationComponent = playerCommitMaterial.componentsByCommitmentOrder[0]
         let invalidEncryptedProof = try Array(
@@ -1021,7 +1042,17 @@ struct ProductionWorkflowValidator {
 }
 
 private extension ProductionWorkflowValidator {
-    static func saltCommitment(_ byte: UInt8) -> Data {
-        Data(repeating: byte, count: 32)
+    static func serializedComponent(
+        saltCommitment: [UInt8],
+        payload: OpalFusion.Commitment.ComponentPayload
+    ) throws -> [UInt8] {
+        try OpalFusion.Wire.CashFusionComponentCodec.encode(
+            payload: payload,
+            saltCommitment: saltCommitment
+        )
+    }
+
+    static func saltCommitment(_ byte: UInt8) -> [UInt8] {
+        [UInt8](repeating: byte, count: 32)
     }
 }

@@ -2,7 +2,6 @@
 
 import Foundation
 import OpalCrypto
-import SwiftProtobuf
 
 extension OpalFusion.Execution.WorkflowContext {
     static func production(

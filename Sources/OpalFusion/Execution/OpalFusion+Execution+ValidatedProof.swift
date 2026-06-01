@@ -2,7 +2,6 @@
 
 import Foundation
 import OpalCrypto
-import SwiftProtobuf
 
 extension OpalFusion.Execution {
     enum ValidatedProof: Sendable, Equatable {
