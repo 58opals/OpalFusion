@@ -43,15 +43,15 @@ extension OpalFusion.Wire {
             }
 
             return try .init(
-                componentIndex: requiredValue(
+                componentIndex: requireValue(
                     componentIndex,
                     fieldNumber: 1
                 ),
-                salt: requiredValue(
+                salt: requireValue(
                     salt,
                     fieldNumber: 2
                 ),
-                pedersenNonce: requiredValue(
+                pedersenNonce: requireValue(
                     pedersenNonce,
                     fieldNumber: 3
                 )
@@ -61,7 +61,7 @@ extension OpalFusion.Wire {
 }
 
 private extension OpalFusion.Wire.CashFusionProofCodec {
-    static func requiredValue<Value>(
+    static func requireValue<Value>(
         _ value: Value?,
         fieldNumber: Int
     ) throws -> Value {

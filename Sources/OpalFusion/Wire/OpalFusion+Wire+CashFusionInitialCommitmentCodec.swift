@@ -43,15 +43,15 @@ extension OpalFusion.Wire {
             }
 
             return try .init(
-                saltedComponentHash: requiredBytes(
+                saltedComponentHash: requireBytes(
                     saltedComponentHash,
                     fieldNumber: 1
                 ),
-                amountCommitment: requiredBytes(
+                amountCommitment: requireBytes(
                     amountCommitment,
                     fieldNumber: 2
                 ),
-                communicationPublicKey: requiredBytes(
+                communicationPublicKey: requireBytes(
                     communicationPublicKey,
                     fieldNumber: 3
                 )
@@ -61,7 +61,7 @@ extension OpalFusion.Wire {
 }
 
 private extension OpalFusion.Wire.CashFusionInitialCommitmentCodec {
-    static func requiredBytes(
+    static func requireBytes(
         _ value: [UInt8]?,
         fieldNumber: Int
     ) throws -> [UInt8] {
