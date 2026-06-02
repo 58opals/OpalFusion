@@ -14,7 +14,7 @@ struct HostParticipantReservationSourceAdapter: OpalFusion.Host.ParticipantReser
         self.participantOutputs = participantOutputs
     }
 
-    func participantReservation(
+    func reserveParticipant(
         for roundIdentifier: OpalFusion.Round.Identifier
     ) async throws -> OpalFusion.Host.ParticipantReservation {
         .init(

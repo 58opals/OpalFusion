@@ -107,7 +107,7 @@ struct PrimaryFrameValidator {
     }
 }
 
-private extension PrimaryFrameValidator {
+extension PrimaryFrameValidator {
     static func expectFrameError<Success>(
         _ expectedError: OpalFusion.Wire.PrimaryFrameError,
         from operation: () throws -> Success

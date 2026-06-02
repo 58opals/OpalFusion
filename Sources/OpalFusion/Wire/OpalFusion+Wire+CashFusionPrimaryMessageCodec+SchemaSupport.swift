@@ -20,7 +20,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var message: String?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 message = try readStringValue(
@@ -38,7 +38,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
 
     static func decodeEmptyMessage(_ bytes: [UInt8]) throws {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             try reader.skipValue(for: fieldHeader)
         }
     }

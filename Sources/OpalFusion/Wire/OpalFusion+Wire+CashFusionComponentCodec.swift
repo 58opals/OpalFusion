@@ -40,7 +40,7 @@ extension OpalFusion.Wire {
             var saltCommitment: [UInt8]?
             var payload: OpalFusion.Commitment.ComponentPayload?
 
-            while let fieldHeader = try reader.nextFieldHeader() {
+            while let fieldHeader = try reader.readNextFieldHeader() {
                 switch fieldHeader.number {
                 case 1:
                     saltCommitment = try reader.readBytesValue(for: fieldHeader)

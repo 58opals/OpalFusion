@@ -98,7 +98,7 @@ extension OpalFusion.Runtime {
             proxyConfiguration = nil
         }
 
-        func proxyConfigurationSnapshot() -> OpalFusion.Runtime.CovertProxyConfigurationSnapshot {
+        var proxyConfigurationSnapshot: OpalFusion.Runtime.CovertProxyConfigurationSnapshot {
             .init(
                 socksEnabled: (proxyConfiguration?[kCFNetworkProxiesSOCKSEnable as String] as? Int) == 1,
                 proxyHost: proxyConfiguration?[kCFNetworkProxiesSOCKSProxy as String] as? String,

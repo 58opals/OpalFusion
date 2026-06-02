@@ -117,7 +117,7 @@ struct CashFusionProtobufWriterValidator {
     }
 }
 
-private extension CashFusionProtobufWriterValidator {
+extension CashFusionProtobufWriterValidator {
     static func expectCodingError<Success>(
         _ expectedError: OpalFusion.Wire.CashFusionProtobufCodingError,
         from operation: () throws -> Success

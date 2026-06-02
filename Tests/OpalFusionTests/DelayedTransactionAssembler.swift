@@ -41,15 +41,15 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         return finalizedTransaction
     }
 
-    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+    var requestedRounds: [OpalFusion.Round.Identifier] {
         requestedRoundIdentifiers
     }
 
-    func recordedProposals() -> [OpalFusion.Host.TransactionFinalizationProposal] {
+    var recordedProposals: [OpalFusion.Host.TransactionFinalizationProposal] {
         proposals
     }
 
-    func timedProposalRecords() -> [TimedTransactionProposalRecord] {
+    var timedProposalRecords: [TimedTransactionProposalRecord] {
         proposalRecords
     }
 }

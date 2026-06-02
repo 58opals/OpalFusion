@@ -29,15 +29,15 @@ actor ScriptedCovertTransport: OpalFusion.Runtime.CovertTransporting {
         queuedResponses.append(response)
     }
 
-    func recordedPreparationPlans() -> [OpalFusion.Runtime.CovertPreparationPlan] {
+    var recordedPreparationPlans: [OpalFusion.Runtime.CovertPreparationPlan] {
         preparedPlans
     }
 
-    func recordedRequests() -> [OpalFusion.Runtime.CovertRequest] {
+    var recordedRequests: [OpalFusion.Runtime.CovertRequest] {
         performedRequests
     }
 
-    func recordedResetCount() -> Int {
+    var recordedResetCount: Int {
         resetCount
     }
 }

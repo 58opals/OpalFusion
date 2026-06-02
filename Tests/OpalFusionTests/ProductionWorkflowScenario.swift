@@ -29,7 +29,7 @@ struct ProductionWorkflowScenario {
     mutating func buildBlindSignatureResponses(
         for playerCommit: OpalFusion.ProtocolModel.PlayerCommit
     ) async throws -> OpalFusion.ProtocolModel.BlindSignatureResponses {
-        let responses = try await blindCoordinator.responses(for: playerCommit)
+        let responses = try await blindCoordinator.signResponses(for: playerCommit)
         round.blindSignatureResponses = responses
         return responses
     }
@@ -46,7 +46,7 @@ struct ProductionWorkflowScenario {
         )
     }
 
-    func localSerializedComponents() -> [[UInt8]] {
+    func makeLocalSerializedComponents() -> [[UInt8]] {
         round.executionMaterial.playerCommitMaterial?.componentsByCommitmentOrder
             .map(\.serializedComponent) ?? []
     }

@@ -105,7 +105,7 @@ struct CashFusionComponentCodecValidator {
     }
 }
 
-private extension CashFusionComponentCodecValidator {
+extension CashFusionComponentCodecValidator {
     static let saltCommitment = [UInt8](repeating: 0xAB, count: 32)
     static let inputPayload = OpalFusion.Commitment.ComponentPayload.input(
         .init(

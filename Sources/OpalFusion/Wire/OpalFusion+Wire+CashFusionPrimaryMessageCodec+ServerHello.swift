@@ -47,7 +47,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var maximumExcessFeeSatoshis: UInt64?
         var donationAddress: String?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 tiers.append(contentsOf: try reader.readRepeatedUInt64Values(for: fieldHeader))

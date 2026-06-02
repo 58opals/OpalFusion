@@ -30,7 +30,7 @@ extension OpalFusion.Wire.CashFusionCovertMessageCodec {
         var signature: [UInt8]?
         var serializedComponent: [UInt8]?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 roundPublicKey = try reader.readBytesValue(for: fieldHeader)
@@ -87,7 +87,7 @@ extension OpalFusion.Wire.CashFusionCovertMessageCodec {
         var inputIndex: UInt32?
         var transactionSignature: [UInt8]?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 roundPublicKey = try reader.readBytesValue(for: fieldHeader)
@@ -134,7 +134,7 @@ extension OpalFusion.Wire.CashFusionCovertMessageCodec {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var message: String?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 message = try reader.readStringValue(for: fieldHeader)

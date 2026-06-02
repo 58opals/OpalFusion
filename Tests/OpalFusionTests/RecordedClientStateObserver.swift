@@ -5,10 +5,10 @@ import Foundation
 
 actor RecordedClientStateObserver: OpalFusion.Client.StateObserver {
     private var snapshots: [OpalFusion.Client.Session.Snapshot] = []
-    private var timedSnapshots: [TimedClientSessionSnapshot] = []
+    private var timedSnapshotRecords: [TimedClientSessionSnapshot] = []
 
     func receive(_ snapshot: OpalFusion.Client.Session.Snapshot) async {
-        timedSnapshots.append(
+        timedSnapshotRecords.append(
             .init(
                 snapshot: snapshot,
                 recordedAt: Date()
@@ -17,11 +17,11 @@ actor RecordedClientStateObserver: OpalFusion.Client.StateObserver {
         snapshots.append(snapshot)
     }
 
-    func snapshot() -> [OpalFusion.Client.Session.Snapshot] {
+    var recordedSnapshots: [OpalFusion.Client.Session.Snapshot] {
         snapshots
     }
 
-    func timedSnapshot() -> [TimedClientSessionSnapshot] {
-        timedSnapshots
+    var timedSnapshots: [TimedClientSessionSnapshot] {
+        timedSnapshotRecords
     }
 }

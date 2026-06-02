@@ -22,13 +22,13 @@ actor DelayedParticipantReservationSource: OpalFusion.Host.ParticipantReservatio
         self.requestedRoundIdentifiers = []
     }
 
-    func participantReservation(
+    func reserveParticipant(
         for roundIdentifier: OpalFusion.Round.Identifier
     ) async throws -> OpalFusion.Host.ParticipantReservation {
         try await reserveParticipantReservation(for: roundIdentifier)
     }
 
-    func participantReservation(
+    func reserveParticipant(
         for context: OpalFusion.Host.ParticipantReservationContext
     ) async throws -> OpalFusion.Host.ParticipantReservation {
         requestedReservationContexts.append(context)
@@ -56,15 +56,15 @@ actor DelayedParticipantReservationSource: OpalFusion.Host.ParticipantReservatio
         )
     }
 
-    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+    var requestedRounds: [OpalFusion.Round.Identifier] {
         requestedRoundIdentifiers
     }
 
-    func requestedContexts() -> [OpalFusion.Host.ParticipantReservationContext] {
+    var requestedContexts: [OpalFusion.Host.ParticipantReservationContext] {
         requestedReservationContexts
     }
 
-    func timedRequestRecords() -> [TimedRoundRequestRecord] {
+    var timedRequestRecords: [TimedRoundRequestRecord] {
         requestRecords
     }
 }

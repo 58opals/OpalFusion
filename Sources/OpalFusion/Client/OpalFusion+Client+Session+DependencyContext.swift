@@ -15,7 +15,7 @@ extension OpalFusion.Client.Session {
         static let defaults = Self(
             workflow: nil,
             baseline: .electronCash443,
-            nowProvider: { .now() },
+            nowProvider: { .current },
             clockTickInterval: .milliseconds(250),
             primaryTransportFactory: { nil },
             covertTransportFactory: { nil },

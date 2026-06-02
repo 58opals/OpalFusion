@@ -21,11 +21,11 @@ struct CashFusionProtobufOracleValidator {
         #expect(writer.serializedBytes == pinnedBytes)
 
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: pinnedBytes)
-        let versionHeader = try #require(try reader.nextFieldHeader())
+        let versionHeader = try #require(try reader.readNextFieldHeader())
         #expect(versionHeader.number == 1)
         #expect(try reader.readBytesValue(for: versionHeader) == versionBytes)
 
-        let genesisHeader = try #require(try reader.nextFieldHeader())
+        let genesisHeader = try #require(try reader.readNextFieldHeader())
         #expect(genesisHeader.number == 2)
         #expect(try reader.readBytesValue(for: genesisHeader) == genesisHash)
         #expect(reader.isAtEnd)
@@ -42,7 +42,7 @@ struct CashFusionProtobufOracleValidator {
         #expect(writer.serializedBytes == pinnedBytes)
 
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: pinnedBytes)
-        let messageHeader = try #require(try reader.nextFieldHeader())
+        let messageHeader = try #require(try reader.readNextFieldHeader())
         #expect(messageHeader.number == 1)
         #expect(try reader.readStringValue(for: messageHeader) == "bad request")
         #expect(reader.isAtEnd)

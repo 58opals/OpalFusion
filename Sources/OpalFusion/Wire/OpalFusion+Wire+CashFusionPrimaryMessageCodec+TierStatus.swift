@@ -23,7 +23,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var statusesByTier: [UInt64: OpalFusion.ProtocolModel.TierStatus] = [:]
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 let entry = try decodeTierStatusMapEntry(
@@ -66,7 +66,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
             timeRemainingSeconds: nil
         )
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 tier = try reader.readUInt64Value(for: fieldHeader)
@@ -120,7 +120,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var maximumPlayerCount: UInt32?
         var timeRemainingSeconds: UInt32?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 playerCount = try reader.readUInt32Value(for: fieldHeader)

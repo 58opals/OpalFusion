@@ -55,7 +55,7 @@ public extension OpalFusion.Client {
 }
 
 extension OpalFusion.Client.ReconnectPolicy {
-    func delay(
+    func calculateDelay(
         forRetryAttempt attempt: Int
     ) -> Duration? {
         guard maximumAttempts != 0, attempt > 0 else {

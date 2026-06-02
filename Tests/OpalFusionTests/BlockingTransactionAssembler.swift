@@ -32,11 +32,11 @@ actor BlockingTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         }
     }
 
-    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+    var requestedRounds: [OpalFusion.Round.Identifier] {
         requestedRoundIdentifiers
     }
 
-    func recordedProposals() -> [OpalFusion.Host.TransactionFinalizationProposal] {
+    var recordedProposals: [OpalFusion.Host.TransactionFinalizationProposal] {
         proposals
     }
 

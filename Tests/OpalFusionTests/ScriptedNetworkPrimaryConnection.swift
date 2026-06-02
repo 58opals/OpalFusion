@@ -61,7 +61,7 @@ actor ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning 
                 )
             }
         } catch {
-            finishEvents()
+            finishEventStream()
             throw error
         }
 
@@ -80,10 +80,10 @@ actor ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning 
         )
         readyContinuation = nil
         eventContinuation?.yield(.cancelled)
-        finishEvents()
+        finishEventStream()
     }
 
-    func cancelCount() -> Int {
+    var cancellationCount: Int {
         cancelCallCount
     }
 
@@ -156,7 +156,7 @@ actor ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning 
             case .cancelled:
                 if isExplicitlyClosing {
                     eventContinuation?.yield(.cancelled)
-                    finishEvents()
+                    finishEventStream()
                 } else {
                     handleTerminalFailure(resolveCancellationError())
                 }
@@ -174,10 +174,10 @@ actor ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning 
         readyContinuation?.resume(throwing: error)
         readyContinuation = nil
         eventContinuation?.yield(.failed(error))
-        finishEvents()
+        finishEventStream()
     }
 
-    private func finishEvents() {
+    private func finishEventStream() {
         guard let eventContinuation else {
             return
         }

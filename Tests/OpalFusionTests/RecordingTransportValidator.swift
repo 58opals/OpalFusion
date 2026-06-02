@@ -23,12 +23,12 @@ struct RecordingTransportValidator {
         try await recorder.write(clientFrame)
 
         #expect(receivedFrame == serverFrame)
-        #expect(await recorder.recordedInboundPrimaryChunks() == [serverFrame])
-        #expect(await recorder.recordedOutboundPrimaryChunks() == [clientFrame])
-        #expect(await recorder.recordedServerMessages() == [serverMessage])
-        #expect(await recorder.recordedClientMessages() == [clientMessage])
-        #expect(await recorder.recordedInboundDecodeFailures().isEmpty)
-        #expect(await recorder.recordedOutboundDecodeFailures().isEmpty)
+        #expect(await recorder.recordedInboundPrimaryChunks == [serverFrame])
+        #expect(await recorder.recordedOutboundPrimaryChunks == [clientFrame])
+        #expect(await recorder.recordedServerMessages == [serverMessage])
+        #expect(await recorder.recordedClientMessages == [clientMessage])
+        #expect((await recorder.recordedInboundDecodeFailures).isEmpty)
+        #expect((await recorder.recordedOutboundDecodeFailures).isEmpty)
 
         await recorder.close()
     }
@@ -52,12 +52,12 @@ struct RecordingTransportValidator {
         let receivedResponsePayload = try await recorder.perform(request)
 
         #expect(receivedResponsePayload == responsePayload)
-        #expect(await recorder.recordedRequestPayloads() == [requestPayload])
-        #expect(await recorder.recordedResponsePayloads() == [responsePayload])
-        #expect(await recorder.recordedRequestMessages() == [message])
-        #expect(await recorder.recordedResponses() == [response])
-        #expect(await recorder.recordedRequestDecodeFailures().isEmpty)
-        #expect(await recorder.recordedResponseDecodeFailures().isEmpty)
+        #expect(await recorder.recordedRequestPayloads == [requestPayload])
+        #expect(await recorder.recordedResponsePayloads == [responsePayload])
+        #expect(await recorder.recordedRequestMessages == [message])
+        #expect(await recorder.recordedResponses == [response])
+        #expect((await recorder.recordedRequestDecodeFailures).isEmpty)
+        #expect((await recorder.recordedResponseDecodeFailures).isEmpty)
     }
 
     private static func primaryFrame(

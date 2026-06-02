@@ -3,7 +3,7 @@
 extension OpalFusion.Wire.CashFusionCovertMessageCodec {
     static func decodeEmptyMessage(_ bytes: [UInt8]) throws {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             try reader.skipValue(for: fieldHeader)
         }
     }

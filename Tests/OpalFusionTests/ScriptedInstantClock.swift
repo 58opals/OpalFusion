@@ -3,17 +3,17 @@
 @testable import OpalFusion
 
 actor ScriptedInstantClock {
-    private var currentInstant: OpalFusion.Execution.Instant
+    private var storedInstant: OpalFusion.Execution.Instant
 
     init(unixSeconds: UInt64) {
-        self.currentInstant = .init(unixSeconds: unixSeconds)
+        self.storedInstant = .init(unixSeconds: unixSeconds)
     }
 
-    func now() -> OpalFusion.Execution.Instant {
-        return currentInstant
+    var current: OpalFusion.Execution.Instant {
+        storedInstant
     }
 
     func update(unixSeconds: UInt64) {
-        currentInstant = .init(unixSeconds: unixSeconds)
+        storedInstant = .init(unixSeconds: unixSeconds)
     }
 }

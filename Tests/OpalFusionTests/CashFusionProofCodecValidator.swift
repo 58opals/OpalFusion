@@ -48,7 +48,7 @@ struct CashFusionProofCodecValidator {
     }
 }
 
-private extension CashFusionProofCodecValidator {
+extension CashFusionProofCodecValidator {
     static func expectCodingError<Success>(
         _ expectedError: OpalFusion.Wire.CashFusionProtobufCodingError,
         from operation: () throws -> Success

@@ -88,7 +88,7 @@ let session = OpalFusion.Client.Session(
 )
 
 await session.start()
-let snapshot = await session.snapshot()
+let snapshot = await session.currentSnapshot
 ```
 
 Current live-path expectations:

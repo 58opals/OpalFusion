@@ -29,7 +29,7 @@ extension OpalFusion.Wire {
             var salt: [UInt8]?
             var pedersenNonce: [UInt8]?
 
-            while let fieldHeader = try reader.nextFieldHeader() {
+            while let fieldHeader = try reader.readNextFieldHeader() {
                 switch fieldHeader.number {
                 case 1:
                     componentIndex = try reader.readFixed32Value(for: fieldHeader)

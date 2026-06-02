@@ -25,7 +25,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var encryptedProofs: [[UInt8]] = []
         var randomNumber: [UInt8]?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 encryptedProofs.append(try reader.readBytesValue(for: fieldHeader))
@@ -65,7 +65,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var blames: [OpalFusion.Blame.BlameProof] = []
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 blames.append(try decodeBlameProof(try reader.readBytesValue(for: fieldHeader)))
@@ -121,7 +121,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var requiresBlockchainLookup: Bool?
         var reason: String?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 proofIndex = try reader.readUInt32Value(for: fieldHeader)

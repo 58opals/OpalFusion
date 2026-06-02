@@ -52,19 +52,19 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         return signingResult.transaction
     }
 
-    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+    var requestedRounds: [OpalFusion.Round.Identifier] {
         requestedRoundIdentifiers
     }
 
-    func recordedProposals() -> [OpalFusion.Host.TransactionFinalizationProposal] {
+    var recordedProposals: [OpalFusion.Host.TransactionFinalizationProposal] {
         proposals
     }
 
-    func timedProposalRecords() -> [TimedTransactionProposalRecord] {
+    var timedProposalRecords: [TimedTransactionProposalRecord] {
         proposalRecords
     }
 
-    func recordedSignatures() -> [[UInt8]] {
+    var recordedSignatures: [[UInt8]] {
         signatures
     }
 
@@ -109,7 +109,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
 
         transaction = try transaction.settingUnlockingScript(unlockingScript, at: inputIndex)
         return (
-            .init(transactionBytes: try transaction.serialized()),
+            .init(transactionBytes: try transaction.serialize()),
             signature
         )
     }

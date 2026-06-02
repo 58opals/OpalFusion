@@ -40,7 +40,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var covertSsl: Bool?
         var serverTimeUnixSeconds: UInt64?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 tier = try reader.readUInt64Value(for: fieldHeader)
@@ -115,7 +115,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var blindNoncePoints: [[UInt8]] = []
         var serverTimeUnixSeconds: UInt64?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 roundPublicKey = try reader.readBytesValue(for: fieldHeader)

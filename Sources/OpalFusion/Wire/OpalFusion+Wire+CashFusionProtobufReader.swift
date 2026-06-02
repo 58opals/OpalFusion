@@ -20,7 +20,7 @@ extension OpalFusion.Wire {
             cursor >= bytes.count
         }
 
-        mutating func nextFieldHeader() throws -> OpalFusion.Wire.CashFusionProtobufFieldHeader? {
+        mutating func readNextFieldHeader() throws -> OpalFusion.Wire.CashFusionProtobufFieldHeader? {
             guard isAtEnd == false else {
                 return nil
             }

@@ -20,7 +20,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var responses: [OpalFusion.BlindSignature.Response] = []
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 responses.append(.init(scalar: try reader.readBytesValue(for: fieldHeader)))
@@ -53,7 +53,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var initialCommitments: [OpalFusion.Commitment.InitialCommitment] = []
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 initialCommitments.append(
@@ -102,7 +102,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var skipSignatures: Bool?
         var sessionHash: [UInt8]?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 4:
                 serializedComponents.append(try reader.readBytesValue(for: fieldHeader))

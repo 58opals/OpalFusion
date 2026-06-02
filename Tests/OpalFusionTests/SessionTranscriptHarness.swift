@@ -10,7 +10,7 @@ enum SessionTranscriptHarness {
     ) async throws -> OpalFusion.Client.Session.Snapshot {
         try await LiveRuntimeTestHarness.withTimeout(timeout) {
             while true {
-                let snapshot = await session.snapshot()
+                let snapshot = await session.currentSnapshot
 
                 if let completionStatus = snapshot.state.round?.completionStatus {
                     switch completionStatus {
@@ -32,7 +32,7 @@ enum SessionTranscriptHarness {
         }
     }
 
-    static func clientKind(
+    static func describeClientMessageKind(
         _ message: OpalFusion.ProtocolModel.ClientMessage
     ) -> String {
         switch message {
@@ -49,7 +49,7 @@ enum SessionTranscriptHarness {
         }
     }
 
-    static func serverKind(
+    static func describeServerMessageKind(
         _ message: OpalFusion.ProtocolModel.ServerMessage
     ) -> String {
         switch message {
@@ -78,7 +78,7 @@ enum SessionTranscriptHarness {
         }
     }
 
-    static func covertKind(
+    static func describeCovertMessageKind(
         _ message: OpalFusion.ProtocolModel.CovertMessage
     ) -> String {
         switch message {
@@ -91,7 +91,7 @@ enum SessionTranscriptHarness {
         }
     }
 
-    static func covertResponseKind(
+    static func describeCovertResponseKind(
         _ response: OpalFusion.ProtocolModel.CovertResponse
     ) -> String {
         switch response {

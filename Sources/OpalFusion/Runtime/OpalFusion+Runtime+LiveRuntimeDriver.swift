@@ -19,29 +19,29 @@ extension OpalFusion.Runtime {
             OpalFusion.Client.Configuration
         ) async -> any OpalFusion.Runtime.CovertTransporting
 
-        private let configuration: OpalFusion.Client.Configuration
-        private var runtimeSession: OpalFusion.Runtime.PrimaryRuntimeSession
-        private let participantReservationSource: any OpalFusion.Host.ParticipantReservationSource
-        private let transactionAssembler: any OpalFusion.Host.TransactionAssembler
-        private let eventObserver: (any OpalFusion.Host.EventObserver)?
-        private let hostEventSink: HostEventSink
-        private let snapshotSink: SnapshotSink
-        private let primaryTransportFactory: PrimaryTransportBuilder
-        private let covertTransportFactory: CovertTransportBuilder
-        private var primaryTransport: (any OpalFusion.Runtime.PrimaryTransporting)?
-        private var covertTransport: (any OpalFusion.Runtime.CovertTransporting)?
-        private let nowProvider: @Sendable () async -> OpalFusion.Execution.Instant
-        private let clockTickInterval: Duration
-        private var primaryReadTask: Task<Void, Never>?
-        private var clockTask: Task<Void, Never>?
-        private var covertPreparationTask: Task<Void, Never>?
-        private var covertRequestTask: Task<Void, Never>?
-        private var participantReservationTask: Task<Void, Never>?
-        private var transactionFinalizationTask: Task<Void, Never>?
-        private var isRunning: Bool
-        private var lastEmittedSnapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot?
-        private var lastFailureAllowsReconnect: Bool
-        private var stopRequested: Bool
+        let configuration: OpalFusion.Client.Configuration
+        var runtimeSession: OpalFusion.Runtime.PrimaryRuntimeSession
+        let participantReservationSource: any OpalFusion.Host.ParticipantReservationSource
+        let transactionAssembler: any OpalFusion.Host.TransactionAssembler
+        let eventObserver: (any OpalFusion.Host.EventObserver)?
+        let hostEventSink: HostEventSink
+        let snapshotSink: SnapshotSink
+        let primaryTransportFactory: PrimaryTransportBuilder
+        let covertTransportFactory: CovertTransportBuilder
+        var primaryTransport: (any OpalFusion.Runtime.PrimaryTransporting)?
+        var covertTransport: (any OpalFusion.Runtime.CovertTransporting)?
+        let nowProvider: @Sendable () async -> OpalFusion.Execution.Instant
+        let clockTickInterval: Duration
+        var primaryReadTask: Task<Void, Never>?
+        var clockTask: Task<Void, Never>?
+        var covertPreparationTask: Task<Void, Never>?
+        var covertRequestTask: Task<Void, Never>?
+        var participantReservationTask: Task<Void, Never>?
+        var transactionFinalizationTask: Task<Void, Never>?
+        var isRunning: Bool
+        var lastEmittedSnapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot?
+        var lastFailureAllowsReconnect: Bool
+        var stopRequested: Bool
 
         init(
             configuration: OpalFusion.Client.Configuration,
@@ -55,7 +55,7 @@ extension OpalFusion.Runtime {
             snapshotSink: @escaping SnapshotSink = { _ in },
             baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443,
             nowProvider: @escaping @Sendable () async -> OpalFusion.Execution.Instant = {
-                .now()
+                .current
             },
             clockTickInterval: Duration = .milliseconds(250),
             primaryTransportFactory: PrimaryTransportBuilder? = nil,
@@ -120,80 +120,10 @@ extension OpalFusion.Runtime {
             self.stopRequested = false
         }
 
-        func start() async {
-            guard isRunning == false else {
-                return
-            }
-            isRunning = true
-            stopRequested = false
-            lastFailureAllowsReconnect = false
 
-            if let summary = OpalFusion.Runtime.validateStartupConfiguration(
-                runtimeSession.engine.session.configuration,
-                genesisHash: runtimeSession.engine.session.genesisHash,
-                joinPools: runtimeSession.engine.session.joinPools
-            ) {
-                await handle(.invalidConfiguration(summary: summary))
-                await tearDownTransports()
-                return
-            }
 
-            if primaryTransport == nil {
-                primaryTransport = await primaryTransportFactory(configuration)
-            }
-            if covertTransport == nil {
-                covertTransport = await covertTransportFactory(configuration)
-            }
-
-            guard let primaryTransport else {
-                await handle(
-                    .primaryTransportFailed(
-                        summary: "Primary transport was unavailable"
-                    )
-                )
-                await tearDownTransports()
-                return
-            }
-
-            do {
-                recordPrimaryConnect(OpalDiagnostics.Event.primaryConnectStarted)
-                let inboundStream = try await primaryTransport.connect()
-                recordPrimaryConnect(OpalDiagnostics.Event.primaryConnectSucceeded)
-                startPrimaryReadLoop(inboundStream)
-                await handle(.connected)
-                if isRunning {
-                    startClockLoop()
-                }
-            } catch {
-                if stopRequested,
-                   Self.shouldIgnorePrimaryTransportCancellation(error) {
-                    return
-                }
-
-                recordPrimaryConnect(
-                    OpalDiagnostics.Event.primaryConnectFailed,
-                    error: error
-                )
-                await handle(
-                    .diagnosedPrimaryTransportFailed(
-                        summary: "Primary connection failed"
-                    )
-                )
-                await tearDownTransports()
-            }
-        }
-
-        func stop() async {
-            guard isRunning else {
-                return
-            }
-
-            stopRequested = true
-            await handle(.stopped)
-        }
-
-        func snapshot() -> OpalFusion.Runtime.LiveRuntimeDriver.Snapshot {
-            return .init(
+        var currentSnapshot: OpalFusion.Runtime.LiveRuntimeDriver.Snapshot {
+            .init(
                 clientState: runtimeSession.clientState,
                 lastError: runtimeSession.lastError,
                 lastErrorSummary: runtimeSession.lastErrorSummary,
@@ -202,361 +132,15 @@ extension OpalFusion.Runtime {
             )
         }
 
-        private func recordPrimaryConnect(
-            _ event: OpalDiagnostics.Event,
-            error: Error? = nil
-        ) {
-            let errorFields = error.map { OpalDiagnostics.Field.errorFields(for: $0) } ?? []
-            OpalDiagnostics.logger(category: .fusionPrimary).record(
-                event: event,
-                level: .opalFusionDefault(for: event),
-                fields: [
-                    .operation("primary_connect")
-                ] + errorFields
-            )
-        }
 
-        private func startPrimaryReadLoop(
-            _ inboundStream: AsyncThrowingStream<[UInt8], Error>
-        ) {
-            primaryReadTask?.cancel()
-            primaryReadTask = Task { [inboundStream] in
-                do {
-                    for try await bytes in inboundStream {
-                        await self.handle(.receivedPrimaryBytes(bytes))
-                    }
-                    guard Task.isCancelled == false else {
-                        return
-                    }
-                    self.logPreRoundDisconnectIfNeeded()
-                    await self.handle(.disconnected)
-                } catch {
-                    guard Task.isCancelled == false,
-                          Self.shouldIgnorePrimaryTransportCancellation(error) == false else {
-                        return
-                    }
-                    self.recordPrimaryReadFailure(error)
-                    await self.handle(
-                        .diagnosedPrimaryTransportFailed(
-                            summary: "Primary read failed"
-                        )
-                    )
-                }
-            }
-        }
 
-        private func recordPrimaryReadFailure(_ error: Error) {
-            OpalDiagnostics.logger(category: .fusionTransport).record(
-                event: .transportError,
-                level: .opalFusionDefault(for: .transportError),
-                traceID: .opalFusionRound(runtimeSession.engine.round?.identifier),
-                fields: [
-                    .operation("primary_read")
-                ] + OpalDiagnostics.Field.errorFields(for: error)
-            )
-        }
 
-        private static func shouldIgnorePrimaryTransportCancellation(
-            _ error: Error
-        ) -> Bool {
-            if error is CancellationError {
-                return true
-            }
 
-            if let transportError = error as? OpalFusion.Runtime.LiveTransportError,
-               transportError == .primaryConnectionCancelled {
-                return true
-            }
 
-            let nsError = error as NSError
-            if nsError.domain == NSPOSIXErrorDomain,
-               nsError.code == Int(ECANCELED) {
-                return true
-            }
 
-            if nsError.domain == NSURLErrorDomain,
-               nsError.code == NSURLErrorCancelled {
-                return true
-            }
 
-            return false
-        }
 
-        private func startClockLoop() {
-            clockTask?.cancel()
-            clockTask = Task { [clockTickInterval] in
-                while Task.isCancelled == false {
-                    do {
-                        try await Task.sleep(for: clockTickInterval)
-                    } catch {
-                        return
-                    }
-
-                    if Task.isCancelled {
-                        return
-                    }
-
-                    await self.handle(.clockAdvanced)
-                }
-            }
-        }
-
-        private func handle(
-            _ input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
-        ) async {
-            let failureAllowsReconnect = canReconnectAfter(input)
-            let effects = runtimeSession.apply(
-                input: input,
-                now: await nowProvider()
-            )
-
-            for effect in effects {
-                await process(effect)
-
-                if hasTerminalConnectionState {
-                    break
-                }
-            }
-
-            let shouldCancelRoundScopedTasks = runtimeSession.engine.session.connectionSubstate != .inRound
-            let reachedTerminalConnectionState = hasTerminalConnectionState
-            let shouldProjectPreRoundDisconnect = reachedTerminalConnectionState &&
-                runtimeSession.engine.round == nil &&
-                runtimeSession.clientState.isConnected
-
-            if shouldCancelRoundScopedTasks {
-                cancelCovertTasks()
-                cancelHostTasks()
-                if let covertTransport {
-                    await covertTransport.reset()
-                }
-            }
-
-            if reachedTerminalConnectionState {
-                lastFailureAllowsReconnect = lastFailureAllowsReconnect ||
-                    (
-                        failureAllowsReconnect &&
-                            runtimeSession.lastError == .transportUnavailable
-                    )
-                await emitSnapshotIfNeeded()
-                await tearDownTransports()
-                if shouldProjectPreRoundDisconnect {
-                    await handle(.disconnected)
-                }
-                return
-            }
-
-            lastFailureAllowsReconnect = false
-            await emitSnapshotIfNeeded()
-        }
-
-        private func process(
-            _ effect: OpalFusion.Runtime.PrimaryRuntimeSession.Effect
-        ) async {
-            switch effect {
-            case let .writePrimaryBytes(bytes):
-                guard let primaryTransport else {
-                    await handle(
-                        .primaryTransportFailed(
-                            summary: "Primary transport was unavailable"
-                        )
-                    )
-                    return
-                }
-                do {
-                    try await primaryTransport.write(bytes)
-                    runtimeSession.recordWrittenPrimaryFrame(bytes)
-                } catch {
-                    OpalDiagnostics.logger(category: .fusionTransport).record(
-                        event: .transportError,
-                        level: .opalFusionDefault(for: .transportError),
-                        traceID: .opalFusionRound(runtimeSession.engine.round?.identifier),
-                        fields: [
-                            .operation("primary_write"),
-                            .frameByteCount(bytes.count)
-                        ] + OpalDiagnostics.Field.errorFields(for: error)
-                    )
-                    await handle(
-                        .diagnosedPrimaryTransportFailed(
-                            summary: "Primary write failed"
-                        )
-                    )
-                }
-            case let .prepareCovertEndpoint(plan):
-                guard let covertTransport else {
-                    return
-                }
-                covertPreparationTask?.cancel()
-                covertPreparationTask = Task { [covertTransport] in
-                    do {
-                        try await covertTransport.prepare(plan)
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        await self.handleCovertPreparedIfCurrent(plan: plan)
-                    } catch {
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        let roundTraceIdentifier = self.roundTraceIdentifierForCovertPreparation(
-                            plan: plan
-                        )
-                        OpalDiagnostics.logger(category: .fusionCovert).record(
-                            event: .covertPrepareFailed,
-                            level: .opalFusionDefault(for: .covertPrepareFailed),
-                            traceID: .opalFusionRound(roundTraceIdentifier),
-                            fields: [
-                                .operation("covert_prepare")
-                            ] + OpalDiagnostics.Field.errorFields(for: error)
-                        )
-                        await self.handleCovertPreparationFailureIfCurrent(
-                            summary: "Covert endpoint preparation failed",
-                            plan: plan
-                        )
-                    }
-                }
-            case let .performCovertRequest(request):
-                guard let covertTransport else {
-                    return
-                }
-                covertRequestTask?.cancel()
-                covertRequestTask = Task { [covertTransport] in
-                    do {
-                        let responseBytes = try await covertTransport.perform(request)
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        await self.handleCovertResponseIfCurrent(
-                            responseBytes,
-                            request: request
-                        )
-                    } catch {
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        OpalDiagnostics.logger(category: .fusionCovert).record(
-                            event: .covertRequestFailed,
-                            level: .opalFusionDefault(for: .covertRequestFailed),
-                            traceID: .opalFusionRound(request.roundIdentifier),
-                            fields: [
-                                .operation("covert_request"),
-                                .payloadByteCount(
-                                    request.payload.count
-                                )
-                            ] + OpalDiagnostics.Field.errorFields(for: error)
-                        )
-                        await self.handleCovertRequestFailureIfCurrent(
-                            summary: "Covert request failed",
-                            request: request
-                        )
-                    }
-                }
-            case .resetCovertTransport:
-                cancelCovertTasks()
-                if let covertTransport {
-                    await covertTransport.reset()
-                }
-            case let .requestParticipantReservation(context):
-                let participantReservationSource = self.participantReservationSource
-                let roundIdentifier = context.roundIdentifier
-                participantReservationTask?.cancel()
-                participantReservationTask = Task { [participantReservationSource] in
-                    do {
-                        let reservation = try await participantReservationSource.participantReservation(
-                            for: context
-                        )
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        await self.handleHostOperationIfCurrent(
-                            roundIdentifier: roundIdentifier,
-                            staleOperation: "participant reservation",
-                            input: .participantReservationLoaded(reservation)
-                        )
-                    } catch {
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        await self.handleHostOperationIfCurrent(
-                            roundIdentifier: roundIdentifier,
-                            staleOperation: "participant reservation rejection",
-                            input: .participantReservationRejected
-                        )
-                    }
-                }
-            case let .requestTransactionFinalization(roundIdentifier, proposal):
-                let transactionAssembler = self.transactionAssembler
-                transactionFinalizationTask?.cancel()
-                transactionFinalizationTask = Task { [transactionAssembler] in
-                    do {
-                        let transaction = try await transactionAssembler.finalizeTransaction(
-                            for: roundIdentifier,
-                            proposal: proposal
-                        )
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        await self.handleHostOperationIfCurrent(
-                            roundIdentifier: roundIdentifier,
-                            staleOperation: "transaction finalization",
-                            input: .finalizedTransactionLoaded(transaction)
-                        )
-                    } catch let failure as OpalFusion.Host.TransactionFinalizationFailure {
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        await self.handleHostOperationIfCurrent(
-                            roundIdentifier: roundIdentifier,
-                            staleOperation: "transaction finalization rejection",
-                            input: .transactionFinalizationRejected(failure)
-                        )
-                    } catch {
-                        guard Task.isCancelled == false else {
-                            return
-                        }
-                        await self.handleHostOperationIfCurrent(
-                            roundIdentifier: roundIdentifier,
-                            staleOperation: "transaction finalization rejection",
-                            input: .transactionFinalizationRejected(
-                                .transactionAssemblyFailed(
-                                    summary: "Host transaction finalization failed"
-                                )
-                            )
-                        )
-                    }
-                }
-            case let .emitHostEvent(roundIdentifier, event):
-                await hostEventSink(roundIdentifier, event)
-
-                if let roundIdentifier {
-                    await eventObserver?.receive(event, for: roundIdentifier)
-                }
-            }
-        }
-
-        private func tearDownTransports() async {
-            guard isRunning else {
-                return
-            }
-
-            isRunning = false
-            cancelCovertTasks()
-            cancelHostTasks()
-            primaryReadTask?.cancel()
-            primaryReadTask = nil
-            clockTask?.cancel()
-            clockTask = nil
-            if let primaryTransport {
-                await primaryTransport.close()
-                self.primaryTransport = nil
-            }
-            if let covertTransport {
-                await covertTransport.reset()
-                self.covertTransport = nil
-            }
-        }
-
-        private var hasTerminalConnectionState: Bool {
+        var hasTerminalConnectionState: Bool {
             switch runtimeSession.engine.session.connectionSubstate {
             case .failed, .disconnected:
                 true
@@ -565,144 +149,18 @@ extension OpalFusion.Runtime {
             }
         }
 
-        private func canReconnectAfter(
-            _ input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
-        ) -> Bool {
-            guard runtimeSession.engine.round == nil else {
-                return false
-            }
 
-            return switch input {
-            case .disconnected, .primaryTransportFailed, .diagnosedPrimaryTransportFailed:
-                true
-            default:
-                false
-            }
-        }
 
-        private func cancelCovertTasks() {
-            covertPreparationTask?.cancel()
-            covertPreparationTask = nil
-            covertRequestTask?.cancel()
-            covertRequestTask = nil
-        }
 
-        private func roundTraceIdentifierForCovertPreparation(
-            plan: OpalFusion.Runtime.CovertPreparationPlan
-        ) -> OpalFusion.Round.Identifier? {
-            guard runtimeSession.covertSession.preparationPlan == plan else {
-                return plan.endpoint.roundIdentifier
-            }
 
-            return runtimeSession.engine.round?.identifier ?? plan.endpoint.roundIdentifier
-        }
 
-        private func cancelHostTasks() {
-            participantReservationTask?.cancel()
-            participantReservationTask = nil
-            transactionFinalizationTask?.cancel()
-            transactionFinalizationTask = nil
-        }
 
-        private func handleCovertPreparedIfCurrent(
-            plan: OpalFusion.Runtime.CovertPreparationPlan
-        ) async {
-            guard runtimeSession.covertSession.preparationPlan == plan else {
-                return
-            }
 
-            await handle(.covertPrepared)
-        }
 
-        private func handleCovertPreparationFailureIfCurrent(
-            summary: String,
-            plan: OpalFusion.Runtime.CovertPreparationPlan
-        ) async {
-            guard runtimeSession.covertSession.preparationPlan == plan else {
-                return
-            }
 
-            await handle(.covertPreparationFailed(summary: summary))
-        }
 
-        private func handleCovertResponseIfCurrent(
-            _ responseBytes: [UInt8],
-            request: OpalFusion.Runtime.CovertRequest
-        ) async {
-            guard runtimeSession.covertSession.outstandingRequest == request else {
-                return
-            }
 
-            await handle(.receivedCovertResponseBytes(responseBytes))
-        }
-
-        private func handleCovertRequestFailureIfCurrent(
-            summary: String,
-            request: OpalFusion.Runtime.CovertRequest
-        ) async {
-            guard runtimeSession.covertSession.outstandingRequest == request else {
-                return
-            }
-
-            await handle(.covertRequestFailed(summary: summary))
-        }
-
-        private func handleHostOperationIfCurrent(
-            roundIdentifier: OpalFusion.Round.Identifier,
-            staleOperation: String,
-            input: OpalFusion.Runtime.PrimaryRuntimeSession.Input
-        ) async {
-            guard runtimeSession.engine.round?.identifier == roundIdentifier else {
-                OpalDiagnostics.logger(category: .fusionRound).record(
-                    event: .roundProgressed,
-                    level: .opalFusionDefault(for: .roundProgressed),
-                    traceID: .opalFusionRound(roundIdentifier),
-                    fields: [
-                        .operation("stale_host_operation"),
-                        .phase(staleOperation)
-                    ]
-                )
-                return
-            }
-
-            await handle(input)
-        }
-
-        private func emitSnapshotIfNeeded() async {
-            let snapshot = snapshot()
-            guard snapshot != lastEmittedSnapshot else {
-                return
-            }
-
-            lastEmittedSnapshot = snapshot
-            await snapshotSink(snapshot)
-        }
-
-        private func logPreRoundDisconnectIfNeeded() {
-            let trace = runtimeSession.preRoundTrace
-            guard runtimeSession.engine.round == nil,
-                  trace.wroteClientHello || trace.wroteJoinPools || trace.lastInboundKind != nil else {
-                return
-            }
-
-            var fields: [OpalDiagnostics.Field] = [
-                .operation("primary_preround_disconnect"),
-                .messageKind(trace.lastInboundKind),
-                .phase(preRoundHandshakePhase)
-            ]
-            if let payloadByteCount = trace.lastInboundPayloadBytes {
-                fields.append(
-                    .payloadByteCount(payloadByteCount)
-                )
-            }
-            OpalDiagnostics.logger(category: .fusionPrimary).record(
-                event: .primaryConnectionPeerEOF,
-                level: .opalFusionDefault(for: .primaryConnectionPeerEOF),
-                fields: fields
-            )
-        }
-
-        private var preRoundHandshakePhase: String {
+        var preRoundHandshakePhase: String {
             switch runtimeSession.engine.session.connectionSubstate {
             case .awaitingServerHello:
                 "awaitingServerHello"

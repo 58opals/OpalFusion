@@ -32,7 +32,7 @@ struct BlindSigningCoordinator {
         )
     }
 
-    mutating func responses(
+    mutating func signResponses(
         for playerCommit: OpalFusion.ProtocolModel.PlayerCommit
     ) async throws -> OpalFusion.ProtocolModel.BlindSignatureResponses {
         guard playerCommit.blindSignatureRequests.count == signers.count else {

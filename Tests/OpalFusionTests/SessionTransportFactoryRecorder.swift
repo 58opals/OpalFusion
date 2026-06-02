@@ -36,7 +36,7 @@ actor SessionTransportFactoryRecorder {
         return transport
     }
 
-    func primaryCount() -> Int {
+    var primaryTransportCount: Int {
         primaryTransports.count
     }
 

@@ -51,7 +51,7 @@ extension OpalFusion.Wire {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
             var message: OpalFusion.ProtocolModel.CovertMessage?
 
-            while let fieldHeader = try reader.nextFieldHeader() {
+            while let fieldHeader = try reader.readNextFieldHeader() {
                 switch fieldHeader.number {
                 case 1:
                     try assignOneOfPayload(
@@ -92,7 +92,7 @@ extension OpalFusion.Wire {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
             var response: OpalFusion.ProtocolModel.CovertResponse?
 
-            while let fieldHeader = try reader.nextFieldHeader() {
+            while let fieldHeader = try reader.readNextFieldHeader() {
                 switch fieldHeader.number {
                 case 1:
                     try decodeEmptyMessage(try reader.readBytesValue(for: fieldHeader))

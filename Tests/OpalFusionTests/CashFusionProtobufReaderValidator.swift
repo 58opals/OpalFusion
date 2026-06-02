@@ -18,47 +18,47 @@ struct CashFusionProtobufReaderValidator {
         ]
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: payload)
 
-        let integerHeader = try #require(try reader.nextFieldHeader())
+        let integerHeader = try #require(try reader.readNextFieldHeader())
         #expect(integerHeader.number == 1)
         #expect(integerHeader.wireKind == .varint)
         #expect(try reader.readUInt64Value(for: integerHeader) == 150)
 
-        let uint32Header = try #require(try reader.nextFieldHeader())
+        let uint32Header = try #require(try reader.readNextFieldHeader())
         #expect(uint32Header.number == 5)
         #expect(uint32Header.wireKind == .varint)
         #expect(try reader.readUInt32Value(for: uint32Header) == 300)
 
-        let fixed32Header = try #require(try reader.nextFieldHeader())
+        let fixed32Header = try #require(try reader.readNextFieldHeader())
         #expect(fixed32Header.number == 6)
         #expect(fixed32Header.wireKind == .fixed32)
         #expect(try reader.readFixed32Value(for: fixed32Header) == 0x01020304)
 
-        let fixed64Header = try #require(try reader.nextFieldHeader())
+        let fixed64Header = try #require(try reader.readNextFieldHeader())
         #expect(fixed64Header.number == 7)
         #expect(fixed64Header.wireKind == .fixed64)
         #expect(try reader.readFixed64Value(for: fixed64Header) == 0x0102030405060708)
 
-        let packedHeader = try #require(try reader.nextFieldHeader())
+        let packedHeader = try #require(try reader.readNextFieldHeader())
         #expect(packedHeader.number == 9)
         #expect(packedHeader.wireKind == .lengthDelimited)
         #expect(try reader.readRepeatedUInt32Values(for: packedHeader) == [1, 300])
 
-        let bytesHeader = try #require(try reader.nextFieldHeader())
+        let bytesHeader = try #require(try reader.readNextFieldHeader())
         #expect(bytesHeader.number == 2)
         #expect(bytesHeader.wireKind == .lengthDelimited)
         #expect(try reader.readBytesValue(for: bytesHeader) == [0xAA, 0xBB])
 
-        let boolHeader = try #require(try reader.nextFieldHeader())
+        let boolHeader = try #require(try reader.readNextFieldHeader())
         #expect(boolHeader.number == 3)
         #expect(boolHeader.wireKind == .varint)
         #expect(try reader.readBoolValue(for: boolHeader))
 
-        let stringHeader = try #require(try reader.nextFieldHeader())
+        let stringHeader = try #require(try reader.readNextFieldHeader())
         #expect(stringHeader.number == 4)
         #expect(stringHeader.wireKind == .lengthDelimited)
         #expect(try reader.readStringValue(for: stringHeader) == "alpha")
         #expect(reader.isAtEnd)
-        #expect(try reader.nextFieldHeader() == nil)
+        #expect(try reader.readNextFieldHeader() == nil)
     }
 
     @Test("CashFusion protobuf reader skips supported unknown field kinds")
@@ -73,11 +73,11 @@ struct CashFusionProtobufReaderValidator {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: payload)
 
         for _ in 0..<4 {
-            let fieldHeader = try #require(try reader.nextFieldHeader())
+            let fieldHeader = try #require(try reader.readNextFieldHeader())
             try reader.skipValue(for: fieldHeader)
         }
 
-        let finalHeader = try #require(try reader.nextFieldHeader())
+        let finalHeader = try #require(try reader.readNextFieldHeader())
         #expect(finalHeader.number == 5)
         #expect(try reader.readUInt64Value(for: finalHeader) == 7)
         #expect(reader.isAtEnd)
@@ -87,12 +87,12 @@ struct CashFusionProtobufReaderValidator {
     func validateInvalidFieldHeaders() {
         Self.expectCodingError(.invalidFieldNumber(0)) {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: [0x00])
-            _ = try reader.nextFieldHeader()
+            _ = try reader.readNextFieldHeader()
         }
 
         Self.expectCodingError(.invalidWireKind(3)) {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: [0x0B])
-            _ = try reader.nextFieldHeader()
+            _ = try reader.readNextFieldHeader()
         }
     }
 
@@ -102,19 +102,19 @@ struct CashFusionProtobufReaderValidator {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(
                 bytes: [0x08] + Array(repeating: 0x80, count: 10)
             )
-            let fieldHeader = try #require(try reader.nextFieldHeader())
+            let fieldHeader = try #require(try reader.readNextFieldHeader())
             _ = try reader.readUInt64Value(for: fieldHeader)
         }
 
         Self.expectCodingError(.truncatedInput) {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: [0x08, 0x80])
-            let fieldHeader = try #require(try reader.nextFieldHeader())
+            let fieldHeader = try #require(try reader.readNextFieldHeader())
             _ = try reader.readUInt64Value(for: fieldHeader)
         }
 
         Self.expectCodingError(.lengthDelimitedValueOutOfBounds(length: 3, remainingByteCount: 1)) {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: [0x0A, 0x03, 0xAA])
-            let fieldHeader = try #require(try reader.nextFieldHeader())
+            let fieldHeader = try #require(try reader.readNextFieldHeader())
             _ = try reader.readBytesValue(for: fieldHeader)
         }
 
@@ -122,7 +122,7 @@ struct CashFusionProtobufReaderValidator {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(
                 bytes: [0x08, 0x80, 0x80, 0x80, 0x80, 0x10]
             )
-            let fieldHeader = try #require(try reader.nextFieldHeader())
+            let fieldHeader = try #require(try reader.readNextFieldHeader())
             _ = try reader.readUInt32Value(for: fieldHeader)
         }
 
@@ -137,13 +137,13 @@ struct CashFusionProtobufReaderValidator {
 
         Self.expectCodingError(.invalidUTF8String) {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: [0x0A, 0x01, 0xFF])
-            let fieldHeader = try #require(try reader.nextFieldHeader())
+            let fieldHeader = try #require(try reader.readNextFieldHeader())
             _ = try reader.readStringValue(for: fieldHeader)
         }
     }
 }
 
-private extension CashFusionProtobufReaderValidator {
+extension CashFusionProtobufReaderValidator {
     static func expectCodingError<Success>(
         _ expectedError: OpalFusion.Wire.CashFusionProtobufCodingError,
         from operation: () throws -> Success

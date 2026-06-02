@@ -1,15 +1,15 @@
-// ElectronCashTranscriptCaptureFormatter.swift
+// ElectronCashTranscriptCaptureLiteralEmitter.swift
 
-enum ElectronCashTranscriptCaptureFormatter {
+enum ElectronCashTranscriptCaptureLiteralEmitter {
     static let beginMarker = "-----BEGIN OPALFUSION ELECTRON CASH TRANSCRIPT CAPTURE-----"
     static let endMarker = "-----END OPALFUSION ELECTRON CASH TRANSCRIPT CAPTURE-----"
 
-    static func markedSwiftFixtureCandidate(
+    static func makeMarkedSwiftFixtureCandidate(
         for capture: ElectronCashTranscriptCapture
     ) -> String {
         [
             beginMarker,
-            swiftFixtureCandidate(for: capture),
+            makeSwiftFixtureCandidate(for: capture),
             endMarker,
         ].joined(separator: "\n")
     }
@@ -31,7 +31,7 @@ enum ElectronCashTranscriptCaptureFormatter {
         return lines[candidateStartIndex..<endIndex].joined(separator: "\n")
     }
 
-    static func swiftFixtureCandidate(
+    static func makeSwiftFixtureCandidate(
         for capture: ElectronCashTranscriptCapture
     ) -> String {
         var lines: [String] = [

@@ -29,7 +29,7 @@ extension OpalFusion.Wire {
             var amountCommitment: [UInt8]?
             var communicationPublicKey: [UInt8]?
 
-            while let fieldHeader = try reader.nextFieldHeader() {
+            while let fieldHeader = try reader.readNextFieldHeader() {
                 switch fieldHeader.number {
                 case 1:
                     saltedComponentHash = try reader.readBytesValue(for: fieldHeader)

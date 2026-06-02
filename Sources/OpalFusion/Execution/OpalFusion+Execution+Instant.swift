@@ -30,7 +30,7 @@ extension OpalFusion.Execution {
             millisecondsSinceUnixEpoch / 1_000
         }
 
-        static func now() -> Self {
+        static var current: Self {
             .init(
                 millisecondsSinceUnixEpoch: Int64((Date().timeIntervalSince1970 * 1_000).rounded())
             )

@@ -13,8 +13,8 @@ enum LoopbackPrimaryTLSTestFixture {
     private static let pkcs12Passphrase = "OpalFusionTests"
     private static let materialCache = LoopbackPrimaryTLSMaterialCache()
 
-    static func trustAnchorCertificateDERs() async throws -> [Data] {
-        try await materialCache.trustAnchorCertificateDERs()
+    static func loadTrustAnchorCertificateDERs() async throws -> [Data] {
+        try await materialCache.loadTrustAnchorCertificateDERs()
     }
 
     static func makeListenerParameters() async throws -> NWParameters {

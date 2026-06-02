@@ -85,27 +85,27 @@ actor RecordingPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
         }
     }
 
-    func recordedClientMessages() -> [OpalFusion.ProtocolModel.ClientMessage] {
+    var recordedClientMessages: [OpalFusion.ProtocolModel.ClientMessage] {
         clientMessages
     }
 
-    func recordedOutboundPrimaryChunks() -> [[UInt8]] {
+    var recordedOutboundPrimaryChunks: [[UInt8]] {
         outboundPrimaryChunks
     }
 
-    func recordedInboundPrimaryChunks() -> [[UInt8]] {
+    var recordedInboundPrimaryChunks: [[UInt8]] {
         inboundPrimaryChunks
     }
 
-    func recordedServerMessages() -> [OpalFusion.ProtocolModel.ServerMessage] {
+    var recordedServerMessages: [OpalFusion.ProtocolModel.ServerMessage] {
         serverMessages
     }
 
-    func recordedOutboundDecodeFailures() -> [String] {
+    var recordedOutboundDecodeFailures: [String] {
         outboundDecodeFailures
     }
 
-    func recordedInboundDecodeFailures() -> [String] {
+    var recordedInboundDecodeFailures: [String] {
         inboundDecodeFailures
     }
 }

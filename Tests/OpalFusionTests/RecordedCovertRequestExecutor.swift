@@ -37,7 +37,7 @@ actor RecordedCovertRequestExecutor {
         return (responseData, response)
     }
 
-    func recordedRequests() -> [URLRequest] {
+    var recordedRequests: [URLRequest] {
         requests
     }
 }

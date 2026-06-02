@@ -88,15 +88,15 @@ actor ScriptedPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
         inboundContinuation.finish(throwing: error)
     }
 
-    func recordedConnectCallCount() -> Int {
+    var recordedConnectCallCount: Int {
         connectCallCount
     }
 
-    func recordedWrittenPayloads() -> [[UInt8]] {
+    var recordedWrittenPayloads: [[UInt8]] {
         writtenPayloads
     }
 
-    func recordedCloseCallCount() -> Int {
+    var recordedCloseCallCount: Int {
         closeCallCount
     }
 

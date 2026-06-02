@@ -26,11 +26,11 @@ actor RecordedRoundEventObserver: OpalFusion.Host.EventObserver {
         )
     }
 
-    func snapshot() -> [RecordedRoundEvent] {
+    var recordedSnapshots: [RecordedRoundEvent] {
         events
     }
 
-    func timedSnapshot() -> [TimedRecordedRoundEvent] {
+    var timedSnapshots: [TimedRecordedRoundEvent] {
         timedEvents
     }
 }

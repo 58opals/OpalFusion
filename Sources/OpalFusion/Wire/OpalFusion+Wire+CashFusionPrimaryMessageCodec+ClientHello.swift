@@ -25,7 +25,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var versionBytes: [UInt8]?
         var genesisHash: [UInt8]?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 versionBytes = try reader.readBytesValue(for: fieldHeader)

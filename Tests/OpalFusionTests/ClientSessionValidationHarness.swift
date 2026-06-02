@@ -19,7 +19,7 @@ enum ClientSessionValidationHarness {
             port: port,
             requiresTLS: true,
             tlsTrustAnchorCertificateDERs: try await LoopbackPrimaryTLSTestFixture
-                .trustAnchorCertificateDERs()
+                .loadTrustAnchorCertificateDERs()
         )
     }
 

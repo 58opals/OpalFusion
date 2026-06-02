@@ -12,14 +12,14 @@ actor RoundIdentifierOnlyParticipantReservationSource: OpalFusion.Host.Participa
         self.reservation = reservation
     }
 
-    func participantReservation(
+    func reserveParticipant(
         for roundIdentifier: OpalFusion.Round.Identifier
     ) async throws -> OpalFusion.Host.ParticipantReservation {
         roundIdentifiers.append(roundIdentifier)
         return reservation
     }
 
-    func requestedRounds() -> [OpalFusion.Round.Identifier] {
+    var requestedRounds: [OpalFusion.Round.Identifier] {
         roundIdentifiers
     }
 }

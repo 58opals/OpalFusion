@@ -23,7 +23,7 @@ extension OpalFusion.Wire.CashFusionComponentCodec {
         var lockingScript: [UInt8]?
         var amountSatoshis: UInt64?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 lockingScript = try reader.readBytesValue(for: fieldHeader)
@@ -50,7 +50,7 @@ extension OpalFusion.Wire.CashFusionComponentCodec {
 
     static func decodeBlankComponent(_ bytes: [UInt8]) throws {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             try reader.skipValue(for: fieldHeader)
         }
     }

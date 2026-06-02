@@ -33,7 +33,7 @@ extension OpalFusion.Wire.CashFusionComponentCodec {
         var publicKey: [UInt8]?
         var amountSatoshis: UInt64?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 previousTransactionID = try reader.readBytesValue(for: fieldHeader)

@@ -10,7 +10,7 @@ actor LoopbackPrimaryTLSMaterialCache {
         LiveRuntimeTestHarnessError
     >?
 
-    func trustAnchorCertificateDERs() throws -> [Data] {
+    func loadTrustAnchorCertificateDERs() throws -> [Data] {
         [try loadMaterial().certificateDER]
     }
 

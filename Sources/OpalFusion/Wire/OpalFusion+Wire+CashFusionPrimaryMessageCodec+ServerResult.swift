@@ -32,7 +32,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var transactionSignatures: [[UInt8]] = []
         var badComponentIndices: [UInt32] = []
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 isSuccess = try reader.readBoolValue(for: fieldHeader)
@@ -77,7 +77,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var proofs: [OpalFusion.Blame.RelayedProof] = []
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 proofs.append(try decodeRelayedProof(try reader.readBytesValue(for: fieldHeader)))
@@ -116,7 +116,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var sourceCommitmentIndex: UInt32?
         var destinationKeyIndex: UInt32?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 encryptedProof = try reader.readBytesValue(for: fieldHeader)

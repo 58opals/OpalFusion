@@ -44,7 +44,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var randomNumberCommitment: [UInt8]?
         var blindSignatureRequests: [OpalFusion.BlindSignature.Request] = []
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 initialCommitments.append(

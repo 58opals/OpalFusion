@@ -55,35 +55,35 @@ actor RecordingCovertTransport: OpalFusion.Runtime.CovertTransporting {
         await base.reset()
     }
 
-    func recordedPreparationPlans() -> [OpalFusion.Runtime.CovertPreparationPlan] {
+    var recordedPreparationPlans: [OpalFusion.Runtime.CovertPreparationPlan] {
         preparationPlans
     }
 
-    func recordedRequests() -> [OpalFusion.Runtime.CovertRequest] {
+    var recordedRequests: [OpalFusion.Runtime.CovertRequest] {
         requests
     }
 
-    func recordedRequestPayloads() -> [[UInt8]] {
+    var recordedRequestPayloads: [[UInt8]] {
         requestPayloads
     }
 
-    func recordedResponsePayloads() -> [[UInt8]] {
+    var recordedResponsePayloads: [[UInt8]] {
         responsePayloads
     }
 
-    func recordedRequestMessages() -> [OpalFusion.ProtocolModel.CovertMessage] {
+    var recordedRequestMessages: [OpalFusion.ProtocolModel.CovertMessage] {
         requestMessages
     }
 
-    func recordedResponses() -> [OpalFusion.ProtocolModel.CovertResponse] {
+    var recordedResponses: [OpalFusion.ProtocolModel.CovertResponse] {
         responses
     }
 
-    func recordedRequestDecodeFailures() -> [String] {
+    var recordedRequestDecodeFailures: [String] {
         requestDecodeFailures
     }
 
-    func recordedResponseDecodeFailures() -> [String] {
+    var recordedResponseDecodeFailures: [String] {
         responseDecodeFailures
     }
 }

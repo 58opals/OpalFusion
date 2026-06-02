@@ -7,7 +7,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
             var message: OpalFusion.ProtocolModel.ServerMessage?
 
-            while let fieldHeader = try reader.nextFieldHeader() {
+            while let fieldHeader = try reader.readNextFieldHeader() {
                 switch fieldHeader.number {
                 case 1:
                     try assignOneOfPayload(

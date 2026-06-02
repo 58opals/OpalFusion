@@ -1,8 +1,8 @@
-// ElectronCashTranscriptCaptureFormatterValidator.swift
+// ElectronCashTranscriptCaptureLiteralEmitterValidator.swift
 
 import Testing
 
-struct ElectronCashTranscriptCaptureFormatterValidator {
+struct ElectronCashTranscriptCaptureLiteralEmitterValidator {
     @Test("Electron Cash transcript capture formatter emits deterministic Swift literals")
     func validateSwiftFixtureCandidateFormatting() {
         let capture = ElectronCashTranscriptCapture(
@@ -18,12 +18,12 @@ struct ElectronCashTranscriptCaptureFormatterValidator {
             eventSummaries: ["event \"quoted\" \\ path\nnext"]
         )
 
-        let output = ElectronCashTranscriptCaptureFormatter.swiftFixtureCandidate(
+        let output = ElectronCashTranscriptCaptureLiteralEmitter.makeSwiftFixtureCandidate(
             for: capture
         )
 
         #expect(
-            output == ElectronCashTranscriptCaptureFormatter.swiftFixtureCandidate(
+            output == ElectronCashTranscriptCaptureLiteralEmitter.makeSwiftFixtureCandidate(
                 for: capture
             )
         )
@@ -36,7 +36,7 @@ struct ElectronCashTranscriptCaptureFormatterValidator {
 
     @Test("Electron Cash transcript capture formatter omits sensitive labels")
     func validateSensitiveLabelsAreOmitted() {
-        let output = ElectronCashTranscriptCaptureFormatter.swiftFixtureCandidate(
+        let output = ElectronCashTranscriptCaptureLiteralEmitter.makeSwiftFixtureCandidate(
             for: .init(
                 primaryInboundChunks: [],
                 primaryOutboundChunks: [],
@@ -80,27 +80,27 @@ struct ElectronCashTranscriptCaptureFormatterValidator {
             roundOutcomes: ["success"],
             eventSummaries: []
         )
-        let candidate = ElectronCashTranscriptCaptureFormatter.swiftFixtureCandidate(
+        let candidate = ElectronCashTranscriptCaptureLiteralEmitter.makeSwiftFixtureCandidate(
             for: capture
         )
-        let markedCandidate = ElectronCashTranscriptCaptureFormatter.markedSwiftFixtureCandidate(
+        let markedCandidate = ElectronCashTranscriptCaptureLiteralEmitter.makeMarkedSwiftFixtureCandidate(
             for: capture
         )
 
-        #expect(markedCandidate.contains(ElectronCashTranscriptCaptureFormatter.beginMarker))
-        #expect(markedCandidate.contains(ElectronCashTranscriptCaptureFormatter.endMarker))
+        #expect(markedCandidate.contains(ElectronCashTranscriptCaptureLiteralEmitter.beginMarker))
+        #expect(markedCandidate.contains(ElectronCashTranscriptCaptureLiteralEmitter.endMarker))
         #expect(
-            ElectronCashTranscriptCaptureFormatter.extractSwiftFixtureCandidate(
+            ElectronCashTranscriptCaptureLiteralEmitter.extractSwiftFixtureCandidate(
                 from: markedCandidate
             ) == candidate
         )
         #expect(
-            ElectronCashTranscriptCaptureFormatter.extractSwiftFixtureCandidate(
+            ElectronCashTranscriptCaptureLiteralEmitter.extractSwiftFixtureCandidate(
                 from: "noise\n\(markedCandidate)\nmore noise"
             ) == candidate
         )
         #expect(
-            ElectronCashTranscriptCaptureFormatter.extractSwiftFixtureCandidate(
+            ElectronCashTranscriptCaptureLiteralEmitter.extractSwiftFixtureCandidate(
                 from: candidate
             ) == nil
         )

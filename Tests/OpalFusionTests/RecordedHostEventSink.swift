@@ -26,11 +26,11 @@ actor RecordedHostEventSink {
         )
     }
 
-    func snapshot() -> [RecordedHostEvent] {
+    var recordedSnapshots: [RecordedHostEvent] {
         events
     }
 
-    func timedSnapshot() -> [TimedRecordedHostEvent] {
+    var timedSnapshots: [TimedRecordedHostEvent] {
         timedEvents
     }
 }

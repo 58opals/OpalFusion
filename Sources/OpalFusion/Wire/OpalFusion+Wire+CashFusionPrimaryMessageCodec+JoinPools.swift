@@ -27,7 +27,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var tiers: [UInt64] = []
         var tags: [OpalFusion.ProtocolModel.PoolTag] = []
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 tiers.append(contentsOf: try reader.readRepeatedUInt64Values(for: fieldHeader))
@@ -73,7 +73,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         var limit: UInt32?
         var noIp: Bool?
 
-        while let fieldHeader = try reader.nextFieldHeader() {
+        while let fieldHeader = try reader.readNextFieldHeader() {
             switch fieldHeader.number {
             case 1:
                 identifier = try reader.readBytesValue(for: fieldHeader)

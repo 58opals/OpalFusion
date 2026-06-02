@@ -106,7 +106,7 @@ extension OpalFusion.Wire {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
             var message: OpalFusion.ProtocolModel.ClientMessage?
 
-            while let fieldHeader = try reader.nextFieldHeader() {
+            while let fieldHeader = try reader.readNextFieldHeader() {
                 switch fieldHeader.number {
                 case 1:
                     try assignOneOfPayload(
