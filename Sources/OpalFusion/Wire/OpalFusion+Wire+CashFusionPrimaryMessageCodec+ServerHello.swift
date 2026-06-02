@@ -41,10 +41,10 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
     ) throws -> OpalFusion.ProtocolModel.ServerHello {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var tiers: [UInt64] = []
-        var numberOfComponents: UInt32 = 0
-        var componentFeeRateSatoshisPerKb: UInt64 = 0
-        var minimumExcessFeeSatoshis: UInt64 = 0
-        var maximumExcessFeeSatoshis: UInt64 = 0
+        var numberOfComponents: UInt32?
+        var componentFeeRateSatoshisPerKb: UInt64?
+        var minimumExcessFeeSatoshis: UInt64?
+        var maximumExcessFeeSatoshis: UInt64?
         var donationAddress: String?
 
         while let fieldHeader = try reader.nextFieldHeader() {
@@ -72,10 +72,26 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
 
         return .init(
             tiers: tiers,
-            numberOfComponents: numberOfComponents,
-            componentFeeRateSatoshisPerKb: componentFeeRateSatoshisPerKb,
-            minimumExcessFeeSatoshis: minimumExcessFeeSatoshis,
-            maximumExcessFeeSatoshis: maximumExcessFeeSatoshis,
+            numberOfComponents: try requireValue(
+                numberOfComponents,
+                messageName: "ServerHello",
+                fieldNumber: 2
+            ),
+            componentFeeRateSatoshisPerKb: try requireValue(
+                componentFeeRateSatoshisPerKb,
+                messageName: "ServerHello",
+                fieldNumber: 4
+            ),
+            minimumExcessFeeSatoshis: try requireValue(
+                minimumExcessFeeSatoshis,
+                messageName: "ServerHello",
+                fieldNumber: 5
+            ),
+            maximumExcessFeeSatoshis: try requireValue(
+                maximumExcessFeeSatoshis,
+                messageName: "ServerHello",
+                fieldNumber: 6
+            ),
             donationAddress: donationAddress
         )
     }

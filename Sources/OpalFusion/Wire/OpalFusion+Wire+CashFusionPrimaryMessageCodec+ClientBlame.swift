@@ -23,7 +23,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
     ) throws -> OpalFusion.ProtocolModel.MyProofsList {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var encryptedProofs: [[UInt8]] = []
-        var randomNumber: [UInt8] = []
+        var randomNumber: [UInt8]?
 
         while let fieldHeader = try reader.nextFieldHeader() {
             switch fieldHeader.number {
@@ -38,7 +38,11 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
 
         return .init(
             encryptedProofs: encryptedProofs,
-            randomNumber: randomNumber
+            randomNumber: try requireBytes(
+                randomNumber,
+                messageName: "MyProofsList",
+                fieldNumber: 2
+            )
         )
     }
 
@@ -112,7 +116,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         _ bytes: [UInt8]
     ) throws -> OpalFusion.Blame.BlameProof {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        var proofIndex: UInt32 = 0
+        var proofIndex: UInt32?
         var decrypter: OpalFusion.Blame.Decrypter?
         var requiresBlockchainLookup: Bool?
         var reason: String?
@@ -153,7 +157,11 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         }
 
         return .init(
-            proofIndex: proofIndex,
+            proofIndex: try requireValue(
+                proofIndex,
+                messageName: "BlameProof",
+                fieldNumber: 1
+            ),
             decrypter: decrypter,
             requiresBlockchainLookup: requiresBlockchainLookup,
             reason: reason

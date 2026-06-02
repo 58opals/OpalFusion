@@ -464,6 +464,38 @@ struct LiveRuntimeDriverValidator {
         #expect(await primaryTransport.recordedConnectCallCount() == 0)
     }
 
+    @Test("Live runtime driver rejects oversized join-pool tag sets before transport connect")
+    func validateOversizedJoinPoolTagStartupValidation() async throws {
+        let primaryTransport = ScriptedPrimaryTransport()
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: .init(
+                tiers: [10_000],
+                tags: (0 ..< 6).map { index in
+                    .init(identifier: [UInt8(index + 1)], limit: 1)
+                }
+            ),
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantReservationSource: DelayedParticipantReservationSource(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            transactionAssembler: DelayedTransactionAssembler(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            primaryTransport: primaryTransport,
+            covertTransport: ScriptedCovertTransport()
+        )
+
+        await driver.start()
+
+        let snapshot = await driver.snapshot()
+        #expect(snapshot.lastError == .invalidConfiguration)
+        #expect(snapshot.lastErrorSummary == "Join pool tags must not exceed five entries")
+        #expect(snapshot.clientState.isConnected == false)
+        #expect(await primaryTransport.recordedConnectCallCount() == 0)
+    }
+
     @Test("Live runtime driver maps primary connect failure to transport unavailable")
     func validatePrimaryConnectFailureProjection() async throws {
         let primaryTransport = ScriptedPrimaryTransport(
@@ -1602,6 +1634,70 @@ struct LiveRuntimeDriverValidator {
 
         await driver.stop()
         await coordinator.stop()
+    }
+
+    @Test("Live runtime driver resets covert transport at close-start without closing primary")
+    func validateCloseStartResetPreservesPrimaryTransport() async throws {
+        let primaryTransport = ScriptedPrimaryTransport()
+        let covertTransport = ScriptedCovertTransport()
+        let nowProvider = ScriptedInstantClock(unixSeconds: 995)
+        let transactionAssembler = BlockingTransactionAssembler(
+            finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+        )
+        let driver = OpalFusion.Runtime.LiveRuntimeDriver(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            workflow: PrimaryRuntimeTestFixtures.workflow,
+            participantReservationSource: DelayedParticipantReservationSource(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput],
+                participantOutputs: [PrimaryRuntimeTestFixtures.participantOutput]
+            ),
+            transactionAssembler: transactionAssembler,
+            baseline: PrimaryRuntimeTestFixtures.closeStartReachableBaseline,
+            nowProvider: { await nowProvider.now() },
+            clockTickInterval: .milliseconds(100),
+            primaryTransport: primaryTransport,
+            covertTransport: covertTransport
+        )
+
+        await driver.start()
+        try await driveScriptedRuntimeToPendingTransactionFinalization(
+            primaryTransport: primaryTransport,
+            covertTransport: covertTransport,
+            nowProvider: nowProvider,
+            transactionAssembler: transactionAssembler
+        )
+        await transactionAssembler.releaseTransaction()
+
+        await covertTransport.enqueueResponse(
+            try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                PrimaryRuntimeTestFixtures.acknowledgement
+            )
+        )
+        await nowProvider.update(unixSeconds: 1_050)
+        try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+            while await covertTransport.recordedRequests().count < 2 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        let resetCountBeforeCloseStart = await covertTransport.recordedResetCount()
+        await nowProvider.update(unixSeconds: 1_075)
+        let snapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+            while true {
+                if await covertTransport.recordedResetCount() > resetCountBeforeCloseStart {
+                    return await driver.snapshot()
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        #expect(snapshot.clientState.isConnected)
+        #expect(snapshot.clientState.round?.phase == .assemblingTransaction)
+        #expect(await primaryTransport.recordedCloseCallCount() == 0)
+
+        await driver.stop()
     }
 
     @Test("Live runtime driver ignores stale covert completions after stop")

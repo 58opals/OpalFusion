@@ -59,6 +59,40 @@ struct PrimaryMessageCodecValidator {
         #expect(blames == .blames(PrimaryRuntimeTestFixtures.blames))
     }
 
+    @Test("Primary protobuf bridge preserves official blame variants and lookup hints")
+    func validateBlameProofVariantPreservation() throws {
+        let encoder = OpalFusion.Wire.PrimaryMessageEncoder()
+        let decoder = OpalFusion.Wire.PrimaryMessageDecoder()
+        let message = OpalFusion.ProtocolModel.ClientMessage.blames(
+            .init(
+                blames: [
+                    .init(
+                        proofIndex: 0,
+                        decrypter: .sessionKey([0x83]),
+                        requiresBlockchainLookup: false,
+                        reason: "session proof"
+                    ),
+                    .init(
+                        proofIndex: 1,
+                        decrypter: .privateKey([0x84]),
+                        requiresBlockchainLookup: true,
+                        reason: "private proof"
+                    )
+                ]
+            )
+        )
+
+        let decoded = try decoder.decodeClient(encoder.encode(message))
+
+        #expect(decoded == message)
+        guard case let .blames(blames) = decoded else {
+            Issue.record("Expected decoded client message to carry Blames")
+            return
+        }
+        #expect(blames.blames[0].requiresBlockchainLookup == false)
+        #expect(blames.blames[1].requiresBlockchainLookup == true)
+    }
+
     @Test("Primary protobuf bridge matches pinned oneof cases for interoperability messages")
     func validatePinnedCompatibilityCases() throws {
         let encoder = OpalFusion.Wire.PrimaryMessageEncoder()

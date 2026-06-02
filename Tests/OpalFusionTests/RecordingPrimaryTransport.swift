@@ -7,6 +7,8 @@ actor RecordingPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
     private var outboundFrameDecoder: OpalFusion.Wire.PrimaryFrameDecoder
     private var inboundFrameDecoder: OpalFusion.Wire.PrimaryFrameDecoder
     private let messageDecoder: OpalFusion.Wire.PrimaryMessageDecoder
+    private(set) var outboundPrimaryChunks: [[UInt8]]
+    private(set) var inboundPrimaryChunks: [[UInt8]]
     private(set) var clientMessages: [OpalFusion.ProtocolModel.ClientMessage]
     private(set) var serverMessages: [OpalFusion.ProtocolModel.ServerMessage]
     private(set) var outboundDecodeFailures: [String]
@@ -20,6 +22,8 @@ actor RecordingPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
         self.outboundFrameDecoder = .init(configuration: baseline.framing)
         self.inboundFrameDecoder = .init(configuration: baseline.framing)
         self.messageDecoder = .init()
+        self.outboundPrimaryChunks = []
+        self.inboundPrimaryChunks = []
         self.clientMessages = []
         self.serverMessages = []
         self.outboundDecodeFailures = []
@@ -58,6 +62,7 @@ actor RecordingPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
     }
 
     private func recordOutbound(_ bytes: [UInt8]) {
+        outboundPrimaryChunks.append(bytes)
         do {
             let payloads = try outboundFrameDecoder.append(bytes)
             for payload in payloads {
@@ -69,6 +74,7 @@ actor RecordingPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
     }
 
     private func recordInbound(_ bytes: [UInt8]) {
+        inboundPrimaryChunks.append(bytes)
         do {
             let payloads = try inboundFrameDecoder.append(bytes)
             for payload in payloads {
@@ -81,6 +87,14 @@ actor RecordingPrimaryTransport: OpalFusion.Runtime.PrimaryTransporting {
 
     func recordedClientMessages() -> [OpalFusion.ProtocolModel.ClientMessage] {
         clientMessages
+    }
+
+    func recordedOutboundPrimaryChunks() -> [[UInt8]] {
+        outboundPrimaryChunks
+    }
+
+    func recordedInboundPrimaryChunks() -> [[UInt8]] {
+        inboundPrimaryChunks
     }
 
     func recordedServerMessages() -> [OpalFusion.ProtocolModel.ServerMessage] {

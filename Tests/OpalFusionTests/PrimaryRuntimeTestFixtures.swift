@@ -5,6 +5,26 @@
 enum PrimaryRuntimeTestFixtures {
     static let baseline = OpalFusion.Transport.BaselineConfiguration.electronCash443
     static let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+    static let closeStartReachableBaseline = OpalFusion.Transport.BaselineConfiguration(
+        protocolIdentity: baseline.protocolIdentity,
+        framing: baseline.framing,
+        covertTiming: baseline.covertTiming,
+        roundTiming: .init(
+            maximumClockDiscrepancy: baseline.roundTiming.maximumClockDiscrepancy,
+            warmupDuration: baseline.roundTiming.warmupDuration,
+            warmupSlop: baseline.roundTiming.warmupSlop,
+            commitmentsDeadlineFromRoundStart: baseline.roundTiming.commitmentsDeadlineFromRoundStart,
+            covertComponentsStartFromRoundStart: baseline.roundTiming.covertComponentsStartFromRoundStart,
+            covertComponentsDeadlineFromRoundStart: baseline.roundTiming.covertComponentsDeadlineFromRoundStart,
+            signaturesStartFromRoundStart: baseline.roundTiming.signaturesStartFromRoundStart,
+            signaturesDeadlineFromRoundStart: baseline.roundTiming.signaturesDeadlineFromRoundStart,
+            conclusionTimeoutFromRoundStart: .seconds(90),
+            closeStartFromRoundStart: baseline.roundTiming.closeStartFromRoundStart,
+            blameCloseStartFromRoundStart: baseline.roundTiming.blameCloseStartFromRoundStart,
+            standardTimeout: baseline.roundTiming.standardTimeout,
+            blameVerifyDuration: baseline.roundTiming.blameVerifyDuration
+        )
+    )
 
     static let configuration = OpalFusion.Client.Configuration(
         coordinatorHost: "fusion.example.org",
@@ -260,7 +280,9 @@ enum PrimaryRuntimeTestFixtures {
         spareConnectionCount: baseline.covertTiming.spareConnectionCount
     )
 
-    static func makeSession() -> OpalFusion.Runtime.PrimaryRuntimeSession {
+    static func makeSession(
+        baseline: OpalFusion.Transport.BaselineConfiguration = PrimaryRuntimeTestFixtures.baseline
+    ) -> OpalFusion.Runtime.PrimaryRuntimeSession {
         .init(
             configuration: configuration,
             genesisHash: clientHello.genesisHash,

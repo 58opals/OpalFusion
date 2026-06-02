@@ -49,6 +49,8 @@ Normative upstream references:
 - Reference server defaults:
   [server.py](https://raw.githubusercontent.com/Electron-Cash/Electron-Cash/4.4.3/electroncash_plugins/fusion/server.py)
 
+Detailed conformance tracking lives in [`cashfusion-official-protocol-matrix.md`](cashfusion-official-protocol-matrix.md). The public native Swift support boundary and remaining proof gates are summarized in [`cashfusion-native-support-statement.md`](cashfusion-native-support-statement.md).
+
 ### Baseline Rules
 
 - Electron Cash `4.4.3` behavior wins when this document and upstream `master` differ.
@@ -358,7 +360,9 @@ Wallet and OpalBase should consume OpalFusion through `OpalFusion.Client.Session
 - `develop` is the public pilot lane for Opal Fusion. `main` remains intentionally behind it until the current public pilot path is proven repeatedly against a real Electron Cash `4.4.3` coordinator.
 - The current live support envelope remains intentionally narrow: compressed-key standard P2PKH reserved inputs and matching standard Schnorr P2PKH unlocking scripts for local finalized inputs.
 - The current coordinator-backed proof target is session-level eventual success rather than first-round success. Intermediate blame or restart rounds are acceptable as long as one round in the session completes successfully before the overall smoke timeout.
-- The current pilot-confidence exit target is three consecutive successful runs of `./scripts/run-electron-cash-interop-smoke.sh 3` on the supported path. Broader BCH script support stays deferred until after that gate.
+- The current pilot-confidence exit target is three consecutive successful runs of `./scripts/run-electron-cash-interop-smoke.sh 3` on the supported path; `docs/cashfusion-live-pilot-confidence.md` documents the opt-in runner and redacted summary path. Broader BCH script support stays deferred until after that gate.
+- Reviewed pinned transcript replay is prepared through `docs/cashfusion-transcript-capture.md` and `./scripts/run-electron-cash-transcript-capture.sh`, which keep captured byte candidates outside the repository until manual review.
+- The current public native Swift support statement is [`cashfusion-native-support-statement.md`](cashfusion-native-support-statement.md); it must not claim final 100% official CashFusion support until pinned replay and repeated live smoke pass.
 
 ## 8. Acceptance Checklist for Future Changes
 
@@ -370,6 +374,7 @@ Future maintainers and contributors should still be able to answer these questio
 - How do the current public namespaces map to concrete responsibilities?
 - Which failures are transport failures, host failures, protocol failures, and blame outcomes?
 - Which items are intentionally out of scope for the first slice?
+- Does the native Swift support statement still match the conformance matrix, dependency graph, pinned transcript status, and live smoke evidence?
 
 Future implementation work should be considered aligned only if:
 

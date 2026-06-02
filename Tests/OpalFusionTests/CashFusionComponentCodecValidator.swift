@@ -70,6 +70,24 @@ struct CashFusionComponentCodecValidator {
         }
     }
 
+    @Test("CashFusion component codec rejects conflicting oneof before malformed second payload")
+    func validateMalformedSecondOneOfPayloadConflict() throws {
+        Self.expectCodingError(.conflictingOneOfField(messageName: "Component", fieldNumber: 2)) {
+            let validBytes = try OpalFusion.Wire.CashFusionComponentCodec.encode(
+                payload: Self.inputPayload,
+                saltCommitment: Self.saltCommitment
+            )
+            var writer = OpalFusion.Wire.CashFusionProtobufWriter()
+            try writer.writeBytesField(
+                [0x0A],
+                fieldNumber: 2
+            )
+            _ = try OpalFusion.Wire.CashFusionComponentCodec.decode(
+                validBytes + writer.serializedBytes
+            )
+        }
+    }
+
     @Test("CashFusion component codec skips unknown fields")
     func validateUnknownFieldSkipping() throws {
         var writer = OpalFusion.Wire.CashFusionProtobufWriter()

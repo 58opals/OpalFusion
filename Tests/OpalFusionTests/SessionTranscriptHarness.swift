@@ -91,6 +91,17 @@ enum SessionTranscriptHarness {
         }
     }
 
+    static func covertResponseKind(
+        _ response: OpalFusion.ProtocolModel.CovertResponse
+    ) -> String {
+        switch response {
+        case .acknowledgement:
+            "acknowledgement"
+        case .serverFailure:
+            "serverFailure"
+        }
+    }
+
     static func makeRoundIdentifier(
         from roundPublicKey: [UInt8]
     ) -> OpalFusion.Round.Identifier {

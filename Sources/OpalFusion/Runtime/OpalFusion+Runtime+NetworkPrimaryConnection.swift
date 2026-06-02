@@ -251,6 +251,11 @@ extension OpalFusion.Runtime {
                 return
             }
 
+            guard restartDelay != .zero else {
+                restartConnectionIfNeeded(lastError: error)
+                return
+            }
+
             waitingRestartTask = Task {
                 try? await Task.sleep(for: restartDelay)
                 guard Task.isCancelled == false else {

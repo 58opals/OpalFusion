@@ -28,7 +28,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         _ bytes: [UInt8]
     ) throws -> OpalFusion.ProtocolModel.FusionResult {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        var isSuccess = false
+        var isSuccess: Bool?
         var transactionSignatures: [[UInt8]] = []
         var badComponentIndices: [UInt32] = []
 
@@ -48,7 +48,11 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         }
 
         return .init(
-            isSuccess: isSuccess,
+            isSuccess: try requireValue(
+                isSuccess,
+                messageName: "FusionResult",
+                fieldNumber: 1
+            ),
             transactionSignatures: transactionSignatures,
             badComponentIndices: badComponentIndices
         )
@@ -108,9 +112,9 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         _ bytes: [UInt8]
     ) throws -> OpalFusion.Blame.RelayedProof {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        var encryptedProof: [UInt8] = []
-        var sourceCommitmentIndex: UInt32 = 0
-        var destinationKeyIndex: UInt32 = 0
+        var encryptedProof: [UInt8]?
+        var sourceCommitmentIndex: UInt32?
+        var destinationKeyIndex: UInt32?
 
         while let fieldHeader = try reader.nextFieldHeader() {
             switch fieldHeader.number {
@@ -126,9 +130,21 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         }
 
         return .init(
-            encryptedProof: encryptedProof,
-            sourceCommitmentIndex: sourceCommitmentIndex,
-            destinationKeyIndex: destinationKeyIndex
+            encryptedProof: try requireBytes(
+                encryptedProof,
+                messageName: "RelayedProof",
+                fieldNumber: 1
+            ),
+            sourceCommitmentIndex: try requireValue(
+                sourceCommitmentIndex,
+                messageName: "RelayedProof",
+                fieldNumber: 2
+            ),
+            destinationKeyIndex: try requireValue(
+                destinationKeyIndex,
+                messageName: "RelayedProof",
+                fieldNumber: 3
+            )
         )
     }
 }

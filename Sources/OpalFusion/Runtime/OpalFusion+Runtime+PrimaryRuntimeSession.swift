@@ -274,6 +274,9 @@ extension OpalFusion.Runtime {
                             now: now
                         )
                     )
+                case .resetCovertTransport:
+                    _ = covertSession.apply(input: .reset, now: now)
+                    runtimeEffects.append(.resetCovertTransport)
                 case let .requestParticipantReservation(context):
                     runtimeEffects.append(
                         .requestParticipantReservation(context: context)

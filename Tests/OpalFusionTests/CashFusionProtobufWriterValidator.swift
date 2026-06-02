@@ -73,6 +73,22 @@ struct CashFusionProtobufWriterValidator {
         )
     }
 
+    @Test("CashFusion protobuf writer omits empty packed repeated fields")
+    func validateEmptyPackedRepeatedFields() throws {
+        var writer = OpalFusion.Wire.CashFusionProtobufWriter()
+
+        try writer.writePackedUInt32Field(
+            [],
+            fieldNumber: 8
+        )
+        try writer.writePackedUInt64Field(
+            [],
+            fieldNumber: 9
+        )
+
+        #expect(writer.serializedBytes.isEmpty)
+    }
+
     @Test("CashFusion protobuf writer rejects invalid field numbers")
     func validateInvalidFieldNumbers() {
         Self.expectCodingError(.invalidFieldNumber(0)) {
@@ -88,6 +104,14 @@ struct CashFusionProtobufWriterValidator {
             try writer.writeBytesField(
                 [],
                 fieldNumber: 536_870_912
+            )
+        }
+
+        Self.expectCodingError(.invalidFieldNumber(0)) {
+            var writer = OpalFusion.Wire.CashFusionProtobufWriter()
+            try writer.writePackedUInt32Field(
+                [],
+                fieldNumber: 0
             )
         }
     }

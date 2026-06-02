@@ -39,9 +39,9 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
     ) throws -> OpalFusion.ProtocolModel.PlayerCommit {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var initialCommitments: [OpalFusion.Commitment.InitialCommitment] = []
-        var excessFeeSatoshis: UInt64 = 0
-        var pedersenTotalNonce: [UInt8] = []
-        var randomNumberCommitment: [UInt8] = []
+        var excessFeeSatoshis: UInt64?
+        var pedersenTotalNonce: [UInt8]?
+        var randomNumberCommitment: [UInt8]?
         var blindSignatureRequests: [OpalFusion.BlindSignature.Request] = []
 
         while let fieldHeader = try reader.nextFieldHeader() {
@@ -69,9 +69,21 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
 
         return .init(
             initialCommitments: initialCommitments,
-            excessFeeSatoshis: excessFeeSatoshis,
-            pedersenTotalNonce: pedersenTotalNonce,
-            randomNumberCommitment: randomNumberCommitment,
+            excessFeeSatoshis: try requireValue(
+                excessFeeSatoshis,
+                messageName: "PlayerCommit",
+                fieldNumber: 2
+            ),
+            pedersenTotalNonce: try requireBytes(
+                pedersenTotalNonce,
+                messageName: "PlayerCommit",
+                fieldNumber: 3
+            ),
+            randomNumberCommitment: try requireBytes(
+                randomNumberCommitment,
+                messageName: "PlayerCommit",
+                fieldNumber: 4
+            ),
             blindSignatureRequests: blindSignatureRequests
         )
     }

@@ -115,15 +115,6 @@ actor ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning 
     }
 
     private func process(
-        _ states: [NWConnection.State]
-    ) {
-        process(
-            states: states,
-            restartDelay: .zero
-        )
-    }
-
-    private func process(
         states: [NWConnection.State],
         restartDelay: Duration
     ) {
@@ -140,6 +131,13 @@ actor ScriptedNetworkPrimaryConnection: OpalFusion.Runtime.PrimaryConnectioning 
                 recordNonCancellationTransportError(error)
                 eventContinuation?.yield(.waiting(error))
                 restartTask?.cancel()
+                guard restartDelay != .zero else {
+                    process(
+                        states: restartStates,
+                        restartDelay: restartDelay
+                    )
+                    return
+                }
                 restartTask = Task {
                     try? await Task.sleep(for: restartDelay)
                     guard Task.isCancelled == false else {

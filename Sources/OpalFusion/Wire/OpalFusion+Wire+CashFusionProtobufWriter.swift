@@ -72,6 +72,7 @@ extension OpalFusion.Wire {
             _ values: [UInt64],
             fieldNumber: Int
         ) throws {
+            try Self.validateFieldNumber(fieldNumber)
             guard values.isEmpty == false else {
                 return
             }
@@ -129,11 +130,15 @@ private extension OpalFusion.Wire.CashFusionProtobufWriter {
         fieldNumber: Int,
         wireKind: OpalFusion.Wire.CashFusionProtobufWireKind
     ) throws {
+        try Self.validateFieldNumber(fieldNumber)
+        let key = (UInt64(fieldNumber) << 3) | UInt64(wireKind.rawValue)
+        writeRawVarint(key)
+    }
+
+    static func validateFieldNumber(_ fieldNumber: Int) throws {
         try OpalFusion.Wire.CashFusionProtobufFieldHeader.validateFieldNumber(
             fieldNumber
         )
-        let key = (UInt64(fieldNumber) << 3) | UInt64(wireKind.rawValue)
-        writeRawVarint(key)
     }
 
     mutating func writeRawVarint(_ value: UInt64) {

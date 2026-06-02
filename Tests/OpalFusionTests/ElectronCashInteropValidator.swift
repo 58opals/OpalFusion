@@ -120,48 +120,60 @@ struct ElectronCashInteropValidator {
         #expect(snapshot.state.round?.phase == .completed)
         #expect(snapshot.state.round?.completionStatus == .success)
 
+        let clientMessageKinds = await primaryTransport.recordedClientMessages().map(
+            SessionTranscriptHarness.clientKind
+        )
+        let serverMessageKinds = await primaryTransport.recordedServerMessages().map(
+            SessionTranscriptHarness.serverKind
+        )
+        let covertMessageKinds = await covertTransport.recordedRequestMessages().map(
+            SessionTranscriptHarness.covertKind
+        )
+        let covertResponseKinds = await covertTransport.recordedResponses().map(
+            SessionTranscriptHarness.covertResponseKind
+        )
+        let primaryOutboundDecodeFailures = await primaryTransport
+            .recordedOutboundDecodeFailures()
+        let primaryInboundDecodeFailures = await primaryTransport
+            .recordedInboundDecodeFailures()
+        let covertRequestDecodeFailures = await covertTransport
+            .recordedRequestDecodeFailures()
+        let covertResponseDecodeFailures = await covertTransport
+            .recordedResponseDecodeFailures()
+
         let transcript = SessionTranscript(
-            clientMessageKinds: await primaryTransport.recordedClientMessages().map(
-                SessionTranscriptHarness.clientKind
-            ),
-            serverMessageKinds: await primaryTransport.recordedServerMessages().map(
-                SessionTranscriptHarness.serverKind
-            ),
-            covertMessageKinds: await covertTransport.recordedRequestMessages().map(
-                SessionTranscriptHarness.covertKind
-            ),
+            clientMessageKinds: clientMessageKinds,
+            serverMessageKinds: serverMessageKinds,
+            covertMessageKinds: covertMessageKinds,
             roundEvents: await eventObserver.timedSnapshot(),
             stateSnapshots: await stateObserver.timedSnapshot(),
             reservationRequests: await participantReservationSource.timedRequestRecords(),
             transactionProposals: await transactionAssembler.timedProposalRecords()
         )
 
-        #expect(
-            SessionTranscriptHarness.hasSubsequence(
-                transcript.clientMessageKinds,
-                subsequence: ["clientHello", "joinPools", "playerCommit"]
-            )
+        let hasExpectedClientMessages = SessionTranscriptHarness.hasSubsequence(
+            transcript.clientMessageKinds,
+            subsequence: ["clientHello", "joinPools", "playerCommit"]
         )
+        #expect(hasExpectedClientMessages)
 
-        #expect(
-            SessionTranscriptHarness.hasSubsequence(
-                transcript.serverMessageKinds,
-                subsequence: [
-                    "fusionBegin",
-                    "startRound",
-                    "blindSignatureResponses",
-                    "shareCovertComponents",
-                    "fusionResult.success",
-                ]
-            )
+        let hasExpectedServerMessages = SessionTranscriptHarness.hasSubsequence(
+            transcript.serverMessageKinds,
+            subsequence: [
+                "fusionBegin",
+                "startRound",
+                "blindSignatureResponses",
+                "shareCovertComponents",
+                "fusionResult.success",
+            ]
         )
+        #expect(hasExpectedServerMessages)
 
-        #expect(
-            SessionTranscriptHarness.hasSubsequence(
-                transcript.covertMessageKinds,
-                subsequence: ["component", "transactionSignature"]
-            )
+        let hasExpectedCovertMessages = SessionTranscriptHarness.hasSubsequence(
+            transcript.covertMessageKinds,
+            subsequence: ["component", "transactionSignature"]
         )
+        #expect(hasExpectedCovertMessages)
         #expect(transcript.roundOutcomes.contains { $0.outcome == .success })
         let outcomesBeforeSuccess = transcript.roundOutcomes.prefix { $0.outcome != .success }
         #expect(
@@ -170,10 +182,10 @@ struct ElectronCashInteropValidator {
             }
         )
 
-        #expect(await primaryTransport.recordedOutboundDecodeFailures().isEmpty)
-        #expect(await primaryTransport.recordedInboundDecodeFailures().isEmpty)
-        #expect(await covertTransport.recordedRequestDecodeFailures().isEmpty)
-        #expect(await covertTransport.recordedResponseDecodeFailures().isEmpty)
+        #expect(primaryOutboundDecodeFailures.isEmpty)
+        #expect(primaryInboundDecodeFailures.isEmpty)
+        #expect(covertRequestDecodeFailures.isEmpty)
+        #expect(covertResponseDecodeFailures.isEmpty)
 
         #expect(transcript.reservationRequests.isEmpty == false)
         #expect(transcript.transactionProposals.isEmpty == false)
@@ -214,6 +226,54 @@ struct ElectronCashInteropValidator {
         )
         #expect(firstReservationRequest <= firstProposal)
         #expect(firstProposal <= successEvent)
+
+        if shouldEmitTranscriptCapture(
+            snapshot: snapshot,
+            hasExpectedClientMessages: hasExpectedClientMessages,
+            hasExpectedServerMessages: hasExpectedServerMessages,
+            hasExpectedCovertMessages: hasExpectedCovertMessages,
+            primaryOutboundDecodeFailures: primaryOutboundDecodeFailures,
+            primaryInboundDecodeFailures: primaryInboundDecodeFailures,
+            covertRequestDecodeFailures: covertRequestDecodeFailures,
+            covertResponseDecodeFailures: covertResponseDecodeFailures
+        ) {
+            let capture = ElectronCashTranscriptCapture(
+                primaryInboundChunks: await primaryTransport.recordedInboundPrimaryChunks(),
+                primaryOutboundChunks: await primaryTransport.recordedOutboundPrimaryChunks(),
+                covertRequestPayloads: await covertTransport.recordedRequestPayloads(),
+                covertResponsePayloads: await covertTransport.recordedResponsePayloads(),
+                clientMessageKinds: clientMessageKinds,
+                serverMessageKinds: serverMessageKinds,
+                covertMessageKinds: covertMessageKinds,
+                covertResponseKinds: covertResponseKinds,
+                roundOutcomes: transcript.roundOutcomes.map(\.outcome.rawValue),
+                eventSummaries: observedEventSummaries
+            )
+            print(ElectronCashTranscriptCaptureFormatter.markedSwiftFixtureCandidate(for: capture))
+        }
+    }
+
+    private func shouldEmitTranscriptCapture(
+        snapshot: OpalFusion.Client.Session.Snapshot,
+        hasExpectedClientMessages: Bool,
+        hasExpectedServerMessages: Bool,
+        hasExpectedCovertMessages: Bool,
+        primaryOutboundDecodeFailures: [String],
+        primaryInboundDecodeFailures: [String],
+        covertRequestDecodeFailures: [String],
+        covertResponseDecodeFailures: [String]
+    ) -> Bool {
+        ProcessInfo.processInfo.environment["OPALFUSION_EC_CAPTURE_TRANSCRIPT"] == "1"
+            && snapshot.lastError == nil
+            && snapshot.state.isConnected
+            && snapshot.state.round?.completionStatus == .success
+            && hasExpectedClientMessages
+            && hasExpectedServerMessages
+            && hasExpectedCovertMessages
+            && primaryOutboundDecodeFailures.isEmpty
+            && primaryInboundDecodeFailures.isEmpty
+            && covertRequestDecodeFailures.isEmpty
+            && covertResponseDecodeFailures.isEmpty
     }
 
     private func makeMinimumInteropEnvironment() throws -> [String: String] {

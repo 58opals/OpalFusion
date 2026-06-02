@@ -2,7 +2,7 @@
 
 extension OpalFusion.Wire.CashFusionComponentCodec {
     static func assignOneOfPayload(
-        _ nextPayload: OpalFusion.Commitment.ComponentPayload,
+        _ nextPayload: @autoclosure () throws -> OpalFusion.Commitment.ComponentPayload,
         to payload: inout OpalFusion.Commitment.ComponentPayload?,
         fieldNumber: Int
     ) throws {
@@ -12,7 +12,7 @@ extension OpalFusion.Wire.CashFusionComponentCodec {
                 fieldNumber: fieldNumber
             )
         }
-        payload = nextPayload
+        payload = try nextPayload()
     }
 
     static func requireBytes(

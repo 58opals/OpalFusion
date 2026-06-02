@@ -347,6 +347,35 @@ struct PrimaryRuntimeSessionValidator {
         #expect(session.covertSession.outstandingRequest == nil)
     }
 
+    @Test("Primary runtime clears covert state and surfaces close-start transport reset")
+    func validateCloseStartResetClearsCovertSession() throws {
+        var session = PrimaryRuntimeTestFixtures.makeSession(
+            baseline: PrimaryRuntimeTestFixtures.closeStartReachableBaseline
+        )
+        try PrimaryRuntimeTestFixtures.driveToAwaitingResult(session: &session)
+
+        #expect(session.covertSession.endpointContext != nil)
+        let effects = session.apply(
+            input: .clockAdvanced,
+            now: PrimaryRuntimeTestFixtures.instant(1_075)
+        )
+
+        #expect(effects == [.resetCovertTransport])
+        #expect(session.engine.round?.substate == .awaitingResult)
+        #expect(session.clientState.round?.phase == .assemblingTransaction)
+        #expect(session.covertSession.substate == .idle)
+        #expect(session.covertSession.endpointContext == nil)
+        #expect(session.covertSession.queuedMessages.isEmpty)
+        #expect(session.covertSession.outstandingRequest == nil)
+        #expect(
+            session.apply(
+                input: .clockAdvanced,
+                now: PrimaryRuntimeTestFixtures.instant(1_076)
+            )
+                .isEmpty
+        )
+    }
+
     @Test("Primary runtime clears covert state on restart while keeping the primary session alive")
     func validateRestartClearsCovertState() throws {
         var session = PrimaryRuntimeTestFixtures.makeSession()

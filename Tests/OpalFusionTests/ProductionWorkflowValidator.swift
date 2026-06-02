@@ -1008,6 +1008,18 @@ struct ProductionWorkflowValidator {
         } else {
             Issue.record("Expected input proof blame to carry a session key")
         }
+
+        let decodedSubmission = try OpalFusion.Wire.PrimaryMessageDecoder().decodeClient(
+            OpalFusion.Wire.PrimaryMessageEncoder().encode(
+                OpalFusion.ProtocolModel.ClientMessage.blames(blames)
+            )
+        )
+        guard case let .blames(decodedBlames) = decodedSubmission else {
+            Issue.record("Expected decoded production blame submission")
+            return
+        }
+        #expect(decodedBlames.blames[0].requiresBlockchainLookup == false)
+        #expect(decodedBlames.blames[1].requiresBlockchainLookup == true)
     }
 
     @Test("Production workflow fails proof generation when a destination communication key is invalid")

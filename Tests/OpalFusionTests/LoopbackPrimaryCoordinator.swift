@@ -17,7 +17,12 @@ actor LoopbackPrimaryCoordinator {
     private var clientMessages: [OpalFusion.ProtocolModel.ClientMessage]
     private var clientMessageHistory: [OpalFusion.ProtocolModel.ClientMessage]
     private var serverMessageHistory: [OpalFusion.ProtocolModel.ServerMessage]
-    private var messageWaiters: [CheckedContinuation<OpalFusion.ProtocolModel.ClientMessage, Error>]
+    private var messageWaiters: [
+        (
+            id: UUID,
+            continuation: CheckedContinuation<OpalFusion.ProtocolModel.ClientMessage, Error>
+        )
+    ]
     private var inboundError: Error?
     private var startContinuation: CheckedContinuation<Void, Error>?
     private var isStopping: Bool
@@ -36,9 +41,13 @@ actor LoopbackPrimaryCoordinator {
         }
         let listener: NWListener
         if let port {
+            guard port > 0,
+                  let endpointPort = NWEndpoint.Port(rawValue: port) else {
+                throw LiveRuntimeTestHarnessError.invalidLoopbackPort(port)
+            }
             listener = try NWListener(
                 using: parameters,
-                on: NWEndpoint.Port(rawValue: port)!
+                on: endpointPort
             )
         } else {
             listener = try NWListener(using: parameters, on: .any)
@@ -47,19 +56,7 @@ actor LoopbackPrimaryCoordinator {
         let coordinator = LoopbackPrimaryCoordinator(
             listener: listener,
             networkQueue: networkQueue,
-            connectionReady: false,
-            portValue: 0,
-            frameDecoder: .init(configuration: baseline.framing),
-            frameEncoder: .init(configuration: baseline.framing),
-            messageEncoder: .init(),
-            messageDecoder: .init(),
-            clientMessages: [],
-            clientMessageHistory: [],
-            serverMessageHistory: [],
-            messageWaiters: [],
-            inboundError: nil,
-            startContinuation: nil,
-            isStopping: false
+            baseline: baseline
         )
         try await coordinator.startListener()
         return coordinator
@@ -82,36 +79,24 @@ actor LoopbackPrimaryCoordinator {
     private init(
         listener: NWListener,
         networkQueue: DispatchQueue,
-        connectionReady: Bool,
-        portValue: UInt16,
-        frameDecoder: OpalFusion.Wire.PrimaryFrameDecoder,
-        frameEncoder: OpalFusion.Wire.PrimaryFrameEncoder,
-        messageEncoder: OpalFusion.Wire.PrimaryMessageEncoder,
-        messageDecoder: OpalFusion.Wire.PrimaryMessageDecoder,
-        clientMessages: [OpalFusion.ProtocolModel.ClientMessage],
-        clientMessageHistory: [OpalFusion.ProtocolModel.ClientMessage],
-        serverMessageHistory: [OpalFusion.ProtocolModel.ServerMessage],
-        messageWaiters: [CheckedContinuation<OpalFusion.ProtocolModel.ClientMessage, Error>],
-        inboundError: Error?,
-        startContinuation: CheckedContinuation<Void, Error>?,
-        isStopping: Bool
+        baseline: OpalFusion.Transport.BaselineConfiguration
     ) {
         self.listener = listener
         self.networkQueue = networkQueue
         self.connection = nil
-        self.connectionReady = connectionReady
-        self.portValue = portValue
-        self.frameDecoder = frameDecoder
-        self.frameEncoder = frameEncoder
-        self.messageEncoder = messageEncoder
-        self.messageDecoder = messageDecoder
-        self.clientMessages = clientMessages
-        self.clientMessageHistory = clientMessageHistory
-        self.serverMessageHistory = serverMessageHistory
-        self.messageWaiters = messageWaiters
-        self.inboundError = inboundError
-        self.startContinuation = startContinuation
-        self.isStopping = isStopping
+        self.connectionReady = false
+        self.portValue = 0
+        self.frameDecoder = .init(configuration: baseline.framing)
+        self.frameEncoder = .init(configuration: baseline.framing)
+        self.messageEncoder = .init()
+        self.messageDecoder = .init()
+        self.clientMessages = []
+        self.clientMessageHistory = []
+        self.serverMessageHistory = []
+        self.messageWaiters = []
+        self.inboundError = nil
+        self.startContinuation = nil
+        self.isStopping = false
     }
 
     var port: UInt16 {
@@ -158,10 +143,14 @@ actor LoopbackPrimaryCoordinator {
 
         var cursor = 0
         for chunkLength in chunkLengths {
+            guard chunkLength > 0 else {
+                throw LiveRuntimeTestHarnessError.invalidFragmentLength(chunkLength)
+            }
             guard cursor < framedBytes.count else {
                 return
             }
-            let upperBound = min(cursor + chunkLength, framedBytes.count)
+            let byteCount = min(chunkLength, framedBytes.count - cursor)
+            let upperBound = cursor + byteCount
             try await send(bytes: Array(framedBytes[cursor ..< upperBound]))
             cursor = upperBound
         }
@@ -212,11 +201,11 @@ actor LoopbackPrimaryCoordinator {
         case let .waiting(error):
             startContinuation?.resume(throwing: error)
             startContinuation = nil
-            failInbound(with: error)
+            finishInbound(with: error)
         case let .failed(error):
             startContinuation?.resume(throwing: error)
             startContinuation = nil
-            failInbound(with: error)
+            finishInbound(with: error)
         case .cancelled:
             startContinuation?.resume(
                 throwing: LiveRuntimeTestHarnessError.inboundStreamClosed
@@ -237,11 +226,11 @@ actor LoopbackPrimaryCoordinator {
         case let .waiting(error):
             connectionReady = false
             connection = nil
-            failInbound(with: error)
+            finishInbound(with: error)
         case let .failed(error):
             connectionReady = false
             connection = nil
-            failInbound(with: error)
+            finishInbound(with: error)
         case .cancelled:
             connectionReady = false
             connection = nil
@@ -284,7 +273,7 @@ actor LoopbackPrimaryCoordinator {
         }
 
         if let error {
-            failInbound(with: error)
+            finishInbound(with: error)
             return
         }
 
@@ -304,13 +293,13 @@ actor LoopbackPrimaryCoordinator {
                 clientMessageHistory.append(message)
                 if messageWaiters.isEmpty == false {
                     let waiter = messageWaiters.removeFirst()
-                    waiter.resume(returning: message)
+                    waiter.continuation.resume(returning: message)
                 } else {
                     clientMessages.append(message)
                 }
             }
         } catch {
-            failInbound(with: error)
+            finishInbound(with: error)
         }
     }
 
@@ -338,18 +327,16 @@ actor LoopbackPrimaryCoordinator {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
 
-        while connection == nil || connectionReady == false {
+        while true {
+            if let connection, connectionReady {
+                return connection
+            }
+
             if clock.now >= deadline {
                 throw LiveRuntimeTestHarnessError.missingConnection
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-
-        guard let connection, connectionReady else {
-            throw LiveRuntimeTestHarnessError.missingConnection
-        }
-
-        return connection
     }
 
     private func awaitNextClientMessage() async throws -> OpalFusion.ProtocolModel.ClientMessage {
@@ -361,14 +348,30 @@ actor LoopbackPrimaryCoordinator {
             throw inboundError
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            messageWaiters.append(continuation)
+        let waiterID = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                messageWaiters.append(
+                    (
+                        id: waiterID,
+                        continuation: continuation
+                    )
+                )
+            }
+        } onCancel: {
+            Task {
+                await self.cancelMessageWaiter(waiterID)
+            }
         }
     }
 
-    private func failInbound(with error: Error) {
-        inboundError = error
-        finishWaiters(with: error)
+    private func cancelMessageWaiter(_ waiterID: UUID) {
+        guard let waiterIndex = messageWaiters.firstIndex(where: { $0.id == waiterID }) else {
+            return
+        }
+
+        let waiter = messageWaiters.remove(at: waiterIndex)
+        waiter.continuation.resume(throwing: CancellationError())
     }
 
     private func finishInbound(with error: Error) {
@@ -380,7 +383,7 @@ actor LoopbackPrimaryCoordinator {
         let waiters = messageWaiters
         messageWaiters.removeAll()
         for waiter in waiters {
-            waiter.resume(throwing: error)
+            waiter.continuation.resume(throwing: error)
         }
     }
 

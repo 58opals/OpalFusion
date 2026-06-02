@@ -163,6 +163,8 @@ extension OpalDiagnostics.ErrorCode {
             .missingBlameDecrypter
         case OpalFusion.Wire.PrimaryMessageCodecError.invalidUTF8Field:
             .invalidUTF8Field
+        case OpalFusion.Wire.PrimaryMessageCodecError.protobufCodingFailed:
+            .protobufCodingFailed
         case OpalFusion.Wire.PrimaryMessageCodecError.protobufDecodingFailed:
             .protobufDecodingFailed
 

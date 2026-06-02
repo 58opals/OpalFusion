@@ -20,6 +20,7 @@ extension OpalFusion.Execution {
         var blames: OpalFusion.ProtocolModel.Blames?
         var substate: OpalFusion.Execution.RoundSubstate
         var deadlines: OpalFusion.Execution.Deadlines
+        var hasStartedCovertClose: Bool
         var completionStatus: OpalFusion.Round.CompletionStatus?
         var executionMaterial: OpalFusion.Execution.ExecutionMaterial
 
@@ -44,6 +45,7 @@ extension OpalFusion.Execution {
             self.blames = nil
             self.substate = .warmup
             self.deadlines = deadlines
+            self.hasStartedCovertClose = false
             self.completionStatus = nil
             self.executionMaterial = .init()
         }

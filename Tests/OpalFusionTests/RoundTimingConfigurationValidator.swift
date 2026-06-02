@@ -22,4 +22,14 @@ struct RoundTimingConfigurationValidator {
         #expect(roundTiming.standardTimeout == .seconds(3))
         #expect(roundTiming.blameVerifyDuration == .seconds(5))
     }
+
+    @Test("Round timing configuration records STANDARD_TIMEOUT audit scope")
+    func validateStandardTimeoutAuditScope() {
+        let baseline = OpalFusion.Transport.BaselineConfiguration.electronCash443
+
+        #expect(baseline.roundTiming.standardTimeout == .seconds(3))
+        #expect(baseline.covertTiming.submitTimeout == baseline.roundTiming.standardTimeout)
+        #expect(baseline.roundTiming.blameVerifyDuration == .seconds(5))
+        #expect(baseline.roundTiming.blameVerifyDuration != baseline.roundTiming.standardTimeout)
+    }
 }

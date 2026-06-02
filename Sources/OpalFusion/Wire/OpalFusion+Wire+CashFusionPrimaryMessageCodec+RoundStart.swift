@@ -34,11 +34,11 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         _ bytes: [UInt8]
     ) throws -> OpalFusion.ProtocolModel.FusionBegin {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        var tier: UInt64 = 0
-        var covertDomain = ""
-        var covertPort: UInt32 = 0
+        var tier: UInt64?
+        var covertDomain: String?
+        var covertPort: UInt32?
         var covertSsl: Bool?
-        var serverTimeUnixSeconds: UInt64 = 0
+        var serverTimeUnixSeconds: UInt64?
 
         while let fieldHeader = try reader.nextFieldHeader() {
             switch fieldHeader.number {
@@ -62,11 +62,27 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         }
 
         return .init(
-            tier: tier,
-            covertDomain: covertDomain,
-            covertPort: covertPort,
+            tier: try requireValue(
+                tier,
+                messageName: "FusionBegin",
+                fieldNumber: 1
+            ),
+            covertDomain: try requireValue(
+                covertDomain,
+                messageName: "FusionBegin",
+                fieldNumber: 2
+            ),
+            covertPort: try requireValue(
+                covertPort,
+                messageName: "FusionBegin",
+                fieldNumber: 3
+            ),
             covertSsl: covertSsl,
-            serverTimeUnixSeconds: serverTimeUnixSeconds
+            serverTimeUnixSeconds: try requireValue(
+                serverTimeUnixSeconds,
+                messageName: "FusionBegin",
+                fieldNumber: 5
+            )
         )
     }
 
@@ -95,9 +111,9 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         _ bytes: [UInt8]
     ) throws -> OpalFusion.ProtocolModel.StartRound {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        var roundPublicKey: [UInt8] = []
+        var roundPublicKey: [UInt8]?
         var blindNoncePoints: [[UInt8]] = []
-        var serverTimeUnixSeconds: UInt64 = 0
+        var serverTimeUnixSeconds: UInt64?
 
         while let fieldHeader = try reader.nextFieldHeader() {
             switch fieldHeader.number {
@@ -113,9 +129,17 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         }
 
         return .init(
-            roundPublicKey: roundPublicKey,
+            roundPublicKey: try requireBytes(
+                roundPublicKey,
+                messageName: "StartRound",
+                fieldNumber: 1
+            ),
             blindNoncePoints: blindNoncePoints,
-            serverTimeUnixSeconds: serverTimeUnixSeconds
+            serverTimeUnixSeconds: try requireValue(
+                serverTimeUnixSeconds,
+                messageName: "StartRound",
+                fieldNumber: 5
+            )
         )
     }
 }

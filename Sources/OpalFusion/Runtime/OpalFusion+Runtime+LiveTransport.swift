@@ -196,6 +196,18 @@ extension OpalFusion.Runtime {
             if tag.limit == 0 {
                 return "Join pool tag limits must be greater than zero"
             }
+
+            if tag.identifier.count > 20 {
+                return "Join pool tag identifiers must not exceed 20 bytes"
+            }
+
+            if tag.limit > 5 {
+                return "Join pool tag limits must not exceed five"
+            }
+        }
+
+        if joinPools.tags.count > 5 {
+            return "Join pool tags must not exceed five entries"
         }
 
         return nil

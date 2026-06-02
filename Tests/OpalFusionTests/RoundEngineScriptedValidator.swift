@@ -1004,6 +1004,161 @@ struct RoundEngineScriptedValidator {
         )
     }
 
+    @Test("Round engine lets the default conclusion timeout win before close-start cleanup")
+    func validateDefaultConclusionTimeoutPrecedesCloseStartCleanup() {
+        var engine = Self.makeEngine()
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        let effects = engine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_075)
+        )
+
+        #expect(engine.round?.substate == .terminal)
+        #expect(
+            effects == [
+                .emitHostEvent(
+                    roundIdentifier: Self.roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Round conclusion timeout elapsed",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
+    @Test("Round engine emits one covert reset at close-start while the round remains active")
+    func validateCloseStartCovertResetIsOneShot() {
+        var engine = Self.makeEngine(baseline: Self.closeStartReachableBaseline)
+        Self.driveToSignatureSubmission(engine: &engine)
+
+        let effects = engine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_075)
+        )
+
+        #expect(effects == [.resetCovertTransport])
+        #expect(engine.round?.substate == .submittingSignatures)
+        #expect(engine.clientState.round?.phase == .assemblingTransaction)
+        #expect(
+            engine.apply(
+                input: .clockAdvanced,
+                now: Self.instant(1_076)
+            )
+                .isEmpty
+        )
+    }
+
+    @Test("Round engine does not emit close-start covert reset during blame restart handling")
+    func validateCloseStartCovertResetIsSkippedDuringBlameRestart() {
+        var engine = Self.makeEngine(baseline: Self.closeStartReachableBaseline)
+        Self.driveToSignatureSubmission(engine: &engine)
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.failureResult)),
+            now: Self.instant(1_055)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.theirProofsList(Self.theirProofsList)),
+            now: Self.instant(1_056)
+        )
+
+        #expect(engine.round?.substate == .awaitingRestart)
+        #expect(
+            engine.apply(
+                input: .clockAdvanced,
+                now: Self.instant(1_075)
+            )
+                .isEmpty
+        )
+    }
+
+    @Test("Round engine propagates the official covert spare count")
+    func validateCovertSpareCountPropagation() {
+        var engine = Self.makeEngine()
+        _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = engine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+
+        let effects = engine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        guard case let .prepareCovert(context) = effects.first else {
+            Issue.record("Expected FusionBegin to prepare a covert endpoint")
+            return
+        }
+        #expect(context.spareConnectionCount == 6)
+        #expect(
+            context.spareConnectionCount
+                == OpalFusion.Transport.BaselineConfiguration.electronCash443.covertTiming.spareConnectionCount
+        )
+    }
+
+    @Test("Round engine enforces the official warmup slop boundary")
+    func validateWarmupSlopBoundary() {
+        var boundaryEngine = Self.makeEngine()
+        _ = boundaryEngine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = boundaryEngine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        _ = boundaryEngine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        #expect(
+            boundaryEngine.apply(
+                input: .clockAdvanced,
+                now: Self.instant(1_033)
+            ).isEmpty
+        )
+        let acceptedEffects = boundaryEngine.apply(
+            input: .primaryMessage(.startRound(Self.startRound)),
+            now: Self.instant(1_033)
+        )
+        #expect(boundaryEngine.clientState.round?.phase == .registeringInputs)
+        #expect(acceptedEffects.first == .requestParticipantReservation(context: Self.participantReservationContext))
+
+        var timeoutEngine = Self.makeEngine()
+        _ = timeoutEngine.apply(input: .primaryConnected, now: Self.instant(995))
+        _ = timeoutEngine.apply(
+            input: .primaryMessage(.serverHello(Self.serverHello)),
+            now: Self.instant(996)
+        )
+        _ = timeoutEngine.apply(
+            input: .primaryMessage(.fusionBegin(Self.fusionBegin)),
+            now: Self.instant(1_000)
+        )
+
+        let timeoutEffects = timeoutEngine.apply(
+            input: .clockAdvanced,
+            now: Self.instant(1_034)
+        )
+        #expect(timeoutEngine.session.lastError == .transportUnavailable)
+        #expect(timeoutEngine.round?.substate == .terminal)
+        #expect(timeoutEngine.clientState.round == nil)
+        #expect(
+            timeoutEffects == [
+                .emitHostEvent(
+                    roundIdentifier: nil,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Warmup expired before StartRound arrived",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Round engine times out pending participant reservation at commitment deadline")
     func validatePendingReservationTimesOutAtCommitmentDeadline() {
         var engine = Self.makeEngine()
@@ -1819,6 +1974,30 @@ private extension RoundEngineScriptedValidator {
         )
     }
 
+    static var closeStartReachableBaseline: OpalFusion.Transport.BaselineConfiguration {
+        let baseline = OpalFusion.Transport.BaselineConfiguration.electronCash443
+        return .init(
+            protocolIdentity: baseline.protocolIdentity,
+            framing: baseline.framing,
+            covertTiming: baseline.covertTiming,
+            roundTiming: .init(
+                maximumClockDiscrepancy: baseline.roundTiming.maximumClockDiscrepancy,
+                warmupDuration: baseline.roundTiming.warmupDuration,
+                warmupSlop: baseline.roundTiming.warmupSlop,
+                commitmentsDeadlineFromRoundStart: baseline.roundTiming.commitmentsDeadlineFromRoundStart,
+                covertComponentsStartFromRoundStart: baseline.roundTiming.covertComponentsStartFromRoundStart,
+                covertComponentsDeadlineFromRoundStart: baseline.roundTiming.covertComponentsDeadlineFromRoundStart,
+                signaturesStartFromRoundStart: baseline.roundTiming.signaturesStartFromRoundStart,
+                signaturesDeadlineFromRoundStart: baseline.roundTiming.signaturesDeadlineFromRoundStart,
+                conclusionTimeoutFromRoundStart: .seconds(90),
+                closeStartFromRoundStart: baseline.roundTiming.closeStartFromRoundStart,
+                blameCloseStartFromRoundStart: baseline.roundTiming.blameCloseStartFromRoundStart,
+                standardTimeout: baseline.roundTiming.standardTimeout,
+                blameVerifyDuration: baseline.roundTiming.blameVerifyDuration
+            )
+        )
+    }
+
     static var joinPools: OpalFusion.ProtocolModel.JoinPools {
         .init(
             tiers: [10_000],
@@ -2040,7 +2219,9 @@ private extension RoundEngineScriptedValidator {
         )
     }
 
-    static func makeEngine() -> OpalFusion.Execution.RoundEngine {
+    static func makeEngine(
+        baseline: OpalFusion.Transport.BaselineConfiguration = .electronCash443
+    ) -> OpalFusion.Execution.RoundEngine {
         .init(
             configuration: configuration,
             genesisHash: [0xAA, 0xBB, 0xCC],
@@ -2052,7 +2233,8 @@ private extension RoundEngineScriptedValidator {
                 buildCovertSignatureMessages: { _ in [signatureMessage] },
                 buildMyProofsList: { _ in myProofsList },
                 buildBlames: { _ in blames }
-            )
+            ),
+            baseline: baseline
         )
     }
 

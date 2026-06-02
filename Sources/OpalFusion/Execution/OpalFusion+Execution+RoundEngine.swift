@@ -875,9 +875,33 @@ extension OpalFusion.Execution {
                 return timeoutEffects
             }
 
-            var effects = maybeOpenCovertSubmission(now: now)
+            var effects = covertCloseEffectsIfNeeded(now: now)
+            effects.append(contentsOf: maybeOpenCovertSubmission(now: now))
             effects.append(contentsOf: maybeOpenSignatureSubmission(now: now))
             return effects
+        }
+
+        private mutating func covertCloseEffectsIfNeeded(
+            now: OpalFusion.Execution.Instant
+        ) -> [OpalFusion.Execution.RoundEngine.Effect] {
+            guard var round,
+                  round.hasStartedCovertClose == false,
+                  let closeStart = round.deadlines.closeStart,
+                  now >= closeStart else {
+                return []
+            }
+
+            switch round.substate {
+            case .awaitingTheirProofs, .submittingBlames, .awaitingRestart, .terminal:
+                return []
+            case .warmup, .collectingInputs, .awaitingBlindSignatures, .awaitingAllCommitments,
+                    .awaitingCovertComponentWindow, .submittingCovertComponents,
+                    .awaitingSharedComponents, .awaitingHostFinalization,
+                    .awaitingSignatureWindow, .submittingSignatures, .awaitingResult:
+                round.hasStartedCovertClose = true
+                self.round = round
+                return [.resetCovertTransport]
+            }
         }
 
         private mutating func maybeOpenCovertSubmission(

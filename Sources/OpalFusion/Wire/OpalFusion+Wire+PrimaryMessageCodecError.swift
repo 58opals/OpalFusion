@@ -6,6 +6,7 @@ extension OpalFusion.Wire {
         case missingServerMessageCase
         case missingBlameDecrypter
         case invalidUTF8Field(String)
+        case protobufCodingFailed(String)
         case protobufDecodingFailed(String)
     }
 }

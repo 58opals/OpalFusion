@@ -7,6 +7,8 @@ actor RecordingCovertTransport: OpalFusion.Runtime.CovertTransporting {
     private let messageDecoder: OpalFusion.Wire.CovertMessageDecoder
     private(set) var preparationPlans: [OpalFusion.Runtime.CovertPreparationPlan]
     private(set) var requests: [OpalFusion.Runtime.CovertRequest]
+    private(set) var requestPayloads: [[UInt8]]
+    private(set) var responsePayloads: [[UInt8]]
     private(set) var requestMessages: [OpalFusion.ProtocolModel.CovertMessage]
     private(set) var responses: [OpalFusion.ProtocolModel.CovertResponse]
     private(set) var requestDecodeFailures: [String]
@@ -17,6 +19,8 @@ actor RecordingCovertTransport: OpalFusion.Runtime.CovertTransporting {
         self.messageDecoder = .init()
         self.preparationPlans = []
         self.requests = []
+        self.requestPayloads = []
+        self.responsePayloads = []
         self.requestMessages = []
         self.responses = []
         self.requestDecodeFailures = []
@@ -30,6 +34,7 @@ actor RecordingCovertTransport: OpalFusion.Runtime.CovertTransporting {
 
     func perform(_ request: OpalFusion.Runtime.CovertRequest) async throws -> [UInt8] {
         requests.append(request)
+        requestPayloads.append(request.payload)
         do {
             requestMessages.append(try messageDecoder.decodeMessage(request.payload))
         } catch {
@@ -37,6 +42,7 @@ actor RecordingCovertTransport: OpalFusion.Runtime.CovertTransporting {
         }
 
         let responseBytes = try await base.perform(request)
+        responsePayloads.append(responseBytes)
         do {
             responses.append(try messageDecoder.decodeResponse(responseBytes))
         } catch {
@@ -55,6 +61,14 @@ actor RecordingCovertTransport: OpalFusion.Runtime.CovertTransporting {
 
     func recordedRequests() -> [OpalFusion.Runtime.CovertRequest] {
         requests
+    }
+
+    func recordedRequestPayloads() -> [[UInt8]] {
+        requestPayloads
+    }
+
+    func recordedResponsePayloads() -> [[UInt8]] {
+        responsePayloads
     }
 
     func recordedRequestMessages() -> [OpalFusion.ProtocolModel.CovertMessage] {

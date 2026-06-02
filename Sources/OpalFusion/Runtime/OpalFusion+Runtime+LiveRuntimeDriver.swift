@@ -451,6 +451,11 @@ extension OpalFusion.Runtime {
                         )
                     }
                 }
+            case .resetCovertTransport:
+                cancelCovertTasks()
+                if let covertTransport {
+                    await covertTransport.reset()
+                }
             case let .requestParticipantReservation(context):
                 let participantReservationSource = self.participantReservationSource
                 let roundIdentifier = context.roundIdentifier

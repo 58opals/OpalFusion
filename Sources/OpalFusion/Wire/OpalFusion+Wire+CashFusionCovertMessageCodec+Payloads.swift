@@ -27,8 +27,8 @@ extension OpalFusion.Wire.CashFusionCovertMessageCodec {
     ) throws -> OpalFusion.ProtocolModel.CovertComponent {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var roundPublicKey: [UInt8]?
-        var signature: [UInt8] = []
-        var serializedComponent: [UInt8] = []
+        var signature: [UInt8]?
+        var serializedComponent: [UInt8]?
 
         while let fieldHeader = try reader.nextFieldHeader() {
             switch fieldHeader.number {
@@ -45,8 +45,16 @@ extension OpalFusion.Wire.CashFusionCovertMessageCodec {
 
         return .init(
             roundPublicKey: roundPublicKey,
-            signature: signature,
-            serializedComponent: serializedComponent
+            signature: try requireBytes(
+                signature,
+                messageName: "CovertComponent",
+                fieldNumber: 2
+            ),
+            serializedComponent: try requireBytes(
+                serializedComponent,
+                messageName: "CovertComponent",
+                fieldNumber: 3
+            )
         )
     }
 
@@ -76,8 +84,8 @@ extension OpalFusion.Wire.CashFusionCovertMessageCodec {
     ) throws -> OpalFusion.ProtocolModel.CovertTransactionSignature {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
         var roundPublicKey: [UInt8]?
-        var inputIndex: UInt32 = 0
-        var transactionSignature: [UInt8] = []
+        var inputIndex: UInt32?
+        var transactionSignature: [UInt8]?
 
         while let fieldHeader = try reader.nextFieldHeader() {
             switch fieldHeader.number {
@@ -94,8 +102,16 @@ extension OpalFusion.Wire.CashFusionCovertMessageCodec {
 
         return .init(
             roundPublicKey: roundPublicKey,
-            inputIndex: inputIndex,
-            transactionSignature: transactionSignature
+            inputIndex: try requireValue(
+                inputIndex,
+                messageName: "CovertTransactionSignature",
+                fieldNumber: 2
+            ),
+            transactionSignature: try requireBytes(
+                transactionSignature,
+                messageName: "CovertTransactionSignature",
+                fieldNumber: 3
+            )
         )
     }
 

@@ -88,6 +88,20 @@ struct OpalDiagnosticsFusionValidator {
         }
     }
 
+    @Test("Primary protobuf coding and decoding failures use distinct diagnostics codes")
+    func validatePrimaryProtobufFailureDiagnosticsCodes() {
+        #expect(
+            OpalDiagnostics.ErrorCode.resolveOpalFusionCode(
+                for: OpalFusion.Wire.PrimaryMessageCodecError.protobufCodingFailed("redacted")
+            ) == .protobufCodingFailed
+        )
+        #expect(
+            OpalDiagnostics.ErrorCode.resolveOpalFusionCode(
+                for: OpalFusion.Wire.PrimaryMessageCodecError.protobufDecodingFailed("redacted")
+            ) == .protobufDecodingFailed
+        )
+    }
+
     @Test("Primary network setup states use primary connection events")
     func validatePrimaryNetworkSetupStatesUsePrimaryConnectionEvents() {
         #expect(

@@ -69,8 +69,8 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         _ bytes: [UInt8]
     ) throws -> OpalFusion.ProtocolModel.PoolTag {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        var identifier: [UInt8] = []
-        var limit: UInt32 = 0
+        var identifier: [UInt8]?
+        var limit: UInt32?
         var noIp: Bool?
 
         while let fieldHeader = try reader.nextFieldHeader() {
@@ -87,8 +87,16 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         }
 
         return .init(
-            identifier: identifier,
-            limit: limit,
+            identifier: try requireBytes(
+                identifier,
+                messageName: "PoolTag",
+                fieldNumber: 1
+            ),
+            limit: try requireValue(
+                limit,
+                messageName: "PoolTag",
+                fieldNumber: 2
+            ),
             noIp: noIp
         )
     }

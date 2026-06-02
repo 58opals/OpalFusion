@@ -22,7 +22,7 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         _ bytes: [UInt8]
     ) throws -> OpalFusion.ProtocolModel.ClientHello {
         var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: bytes)
-        var versionBytes: [UInt8] = []
+        var versionBytes: [UInt8]?
         var genesisHash: [UInt8]?
 
         while let fieldHeader = try reader.nextFieldHeader() {
@@ -37,7 +37,11 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
         }
 
         return .init(
-            versionBytes: versionBytes,
+            versionBytes: try requireBytes(
+                versionBytes,
+                messageName: "ClientHello",
+                fieldNumber: 1
+            ),
             genesisHash: genesisHash
         )
     }

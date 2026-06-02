@@ -144,27 +144,30 @@ struct CashFusionCovertMessageCodecValidator {
             )
         }
 
-        Self.expectCodingError(.truncatedInput) {
+        Self.expectCodingError(
+            .lengthDelimitedValueOutOfBounds(
+                length: 2,
+                remainingByteCount: 1
+            )
+        ) {
             _ = try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeResponse(
-                [0x7A, 0x01, 0x0A]
+                CashFusionOfficialProtobufFixtures.malformedCovertResponseLengthBytes
             )
         }
     }
 
     @Test("CashFusion covert codec skips unknown envelope fields")
     func validateUnknownEnvelopeFields() throws {
-        var writer = OpalFusion.Wire.CashFusionProtobufWriter()
-        try writer.writeUInt64Field(
-            1,
-            fieldNumber: 99
+        let message = OpalFusion.ProtocolModel.CovertMessage.component(
+            .init(
+                signature: [0x30],
+                serializedComponent: [0x31]
+            )
         )
-        let message = PrimaryRuntimeTestFixtures.covertComponentMessage
-        let payload = writer.serializedBytes
-            + (try OpalFusion.Wire.CashFusionCovertMessageCodec.encode(message))
 
         #expect(
             try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeMessage(
-                payload
+                CashFusionOfficialProtobufFixtures.covertMessageEnvelopeWithUnknownPrefixBytes
             ) == message
         )
     }
