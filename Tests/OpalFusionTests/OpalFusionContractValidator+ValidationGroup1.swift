@@ -134,6 +134,27 @@ extension OpalFusionContractValidator {
         #expect(policyFailure.completionStatus == .hostRejected)
     }
 
+    @Test("Host participant reservation failures preserve safe reason codes")
+    func validateParticipantReservationFailureConstruction() {
+        let unavailableFailure = OpalFusion.Host.ParticipantReservationFailure
+            .reservationUnavailable(reason: .walletLocked, summary: "Wallet locked")
+        let matchingUnavailableFailure = OpalFusion.Host.ParticipantReservationFailure
+            .reservationUnavailable(reason: .walletLocked, summary: "Wallet locked")
+        let policyFailure = OpalFusion.Host.ParticipantReservationFailure
+            .hostPolicyRejected(reason: .noEligibleInputs, summary: "No eligible inputs")
+
+        #expect(unavailableFailure == matchingUnavailableFailure)
+        #expect(unavailableFailure != policyFailure)
+        #expect(unavailableFailure.reason == .walletLocked)
+        #expect(unavailableFailure.summary == "Wallet locked")
+        #expect(unavailableFailure.clientError == .hostRejected)
+        #expect(unavailableFailure.completionStatus == .hostRejected)
+        #expect(policyFailure.reason == .noEligibleInputs)
+        #expect(policyFailure.summary == "No eligible inputs")
+        #expect(policyFailure.clientError == .hostRejected)
+        #expect(policyFailure.completionStatus == .hostRejected)
+    }
+
     @Test("Participant reservation context preserves coordinator round constraints")
     func validateParticipantReservationContextConstruction() {
         let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "round-ctx")

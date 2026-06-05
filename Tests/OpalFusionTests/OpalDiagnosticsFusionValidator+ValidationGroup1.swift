@@ -101,6 +101,26 @@ extension OpalDiagnosticsFusionValidator {
         )
     }
 
+    @Test("Participant reservation failures use distinct diagnostics codes")
+    func validateParticipantReservationFailureDiagnosticsCodes() {
+        #expect(
+            OpalDiagnostics.ErrorCode.resolveOpalFusionCode(
+                for: OpalFusion.Host.ParticipantReservationFailure.reservationUnavailable(
+                    reason: .walletLocked,
+                    summary: "redacted"
+                )
+            ) == .participantReservationUnavailable
+        )
+        #expect(
+            OpalDiagnostics.ErrorCode.resolveOpalFusionCode(
+                for: OpalFusion.Host.ParticipantReservationFailure.hostPolicyRejected(
+                    reason: .noEligibleInputs,
+                    summary: "redacted"
+                )
+            ) == .participantReservationHostPolicyRejected
+        )
+    }
+
     @Test("Primary network setup states use primary connection events")
     func validatePrimaryNetworkSetupStatesUsePrimaryConnectionEvents() {
         #expect(

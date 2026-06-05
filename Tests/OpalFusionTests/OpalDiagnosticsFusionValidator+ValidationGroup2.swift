@@ -70,13 +70,84 @@ extension OpalDiagnosticsFusionValidator {
             #expect(record.category == OpalDiagnostics.Category.fusionTransaction)
             #expect(record.traceID == Self.primaryRoundTraceID)
             #expect(findField("error_code", in: record)?.value == "host_policy_rejected")
+            #expect(findField("host_response_class", in: record)?.value == "transaction_finalization_rejected")
+            #expect(findField("validation_branch", in: record)?.value == "transaction_finalization")
+            #expect(findField("reason_code", in: record)?.value == "host_policy_rejected")
             #expect(findField("error_message", in: record)?.value == "<redacted>")
             #expect(record.fields.contains { $0.value.contains("wallet raw transaction material") } == false)
-            #expect(
-                OpalDiagnostics.recentRecords(
-                    matching: .init(event: OpalDiagnostics.Event.roundFailed)
-                ).count == 1
+            let roundRecord = try #require(findDiagnosticRecord(named: OpalDiagnostics.Event.roundFailed))
+            #expect(findField("operation", in: roundRecord)?.value == "round_failure")
+            #expect(findField("settlement_state", in: roundRecord)?.value == OpalFusion.Round.CompletionStatus.hostRejected.rawValue)
+            #expect(findField("host_response_class", in: roundRecord)?.value == "transaction_finalization_rejected")
+            #expect(findField("validation_branch", in: roundRecord)?.value == "transaction_finalization")
+            #expect(findField("reason_code", in: roundRecord)?.value == "host_policy_rejected")
+            #expect(findField("error_code", in: roundRecord)?.value == "host_policy_rejected")
+            #expect(findField("error_message", in: roundRecord)?.value == "<redacted>")
+            #expect(roundRecord.fields.contains { $0.value.contains("wallet raw transaction material") } == false)
+        }
+    }
+
+    @Test("Participant reservation rejections record structured host-safe diagnostics")
+    func validateParticipantReservationRejectionsRecordStructuredDiagnostics() throws {
+        try withDiagnosticsCapture {
+            var session = PrimaryRuntimeTestFixtures.makeSession()
+            try PrimaryRuntimeTestFixtures.driveThroughStartRound(session: &session)
+
+            OpalDiagnostics.clearRecentRecords()
+            _ = session.apply(
+                input: .participantReservationRejected(
+                    .hostPolicyRejected(
+                        reason: .noEligibleInputs,
+                        summary: "wallet address and outpoint material"
+                    )
+                ),
+                now: PrimaryRuntimeTestFixtures.instant(1_031)
             )
+
+            let record = try #require(findDiagnosticRecord(named: OpalDiagnostics.Event.roundFailed))
+            #expect(record.category == OpalDiagnostics.Category.fusionRound)
+            #expect(record.traceID == Self.primaryRoundTraceID)
+            #expect(findField("operation", in: record)?.value == "round_failure")
+            #expect(findField("phase", in: record)?.value == OpalFusion.Round.Phase.completed.rawValue)
+            #expect(findField("round_state", in: record)?.value == "terminal")
+            #expect(findField("settlement_state", in: record)?.value == OpalFusion.Round.CompletionStatus.hostRejected.rawValue)
+            #expect(findField("message_kind", in: record)?.value == "StartRound")
+            #expect(findField("host_response_class", in: record)?.value == "participant_reservation_rejected")
+            #expect(findField("validation_branch", in: record)?.value == "participant_reservation")
+            #expect(findField("reason_code", in: record)?.value == "no_eligible_inputs")
+            #expect(findField("error_code", in: record)?.value == "participant_reservation_host_policy_rejected")
+            #expect(findField("error_message", in: record)?.value == "<redacted>")
+            #expect(record.fields.contains { $0.value.contains("wallet address") } == false)
+        }
+    }
+
+    @Test("Coordinator server failures record sanitized protocol identifiers")
+    func validateCoordinatorServerFailuresRecordSanitizedProtocolIdentifiers() throws {
+        try withDiagnosticsCapture {
+            var session = PrimaryRuntimeTestFixtures.makeSession()
+            _ = session.apply(input: .connected, now: PrimaryRuntimeTestFixtures.instant(995))
+
+            OpalDiagnostics.clearRecentRecords()
+            _ = session.apply(
+                input: .receivedPrimaryBytes(
+                    try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                        .serverFailure(.init(message: "Coordinator rejected JoinPools for wallet address secret"))
+                    )
+                ),
+                now: PrimaryRuntimeTestFixtures.instant(996)
+            )
+
+            let receivedRecord = try #require(findDiagnosticRecord(named: OpalDiagnostics.Event.primaryMessageReceived))
+            #expect(findField("message_kind", in: receivedRecord)?.value == "ServerFailure")
+            #expect(findField("protocol_error_identifier", in: receivedRecord)?.value == "server_failure_join_rejected")
+            #expect(findField("error_message", in: receivedRecord)?.value == "<redacted>")
+            #expect(receivedRecord.fields.contains { $0.value.contains("wallet address") } == false)
+
+            let failedRecord = try #require(findDiagnosticRecord(named: OpalDiagnostics.Event.roundFailed))
+            #expect(findField("message_kind", in: failedRecord)?.value == "ServerFailure")
+            #expect(findField("protocol_error_identifier", in: failedRecord)?.value == "server_failure_join_rejected")
+            #expect(findField("error_code", in: failedRecord)?.value == "coordinator_rejected")
+            #expect(failedRecord.fields.contains { $0.value.contains("wallet address") } == false)
         }
     }
 

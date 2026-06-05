@@ -12,7 +12,7 @@ extension OpalFusion.Execution.RoundEngine {
         case primaryMessage(OpalFusion.ProtocolModel.ServerMessage)
         case covertResponse(OpalFusion.ProtocolModel.CovertResponse)
         case participantReservationLoaded(OpalFusion.Host.ParticipantReservation)
-        case participantReservationRejected
+        case participantReservationRejected(OpalFusion.Host.ParticipantReservationFailure)
         case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
         case transactionFinalizationRejected(OpalFusion.Host.TransactionFinalizationFailure)
         case clockAdvanced

@@ -35,7 +35,10 @@ extension OpalFusion.Runtime.PrimaryRuntimeSession {
             var fields = [
                 OpalDiagnostics.Field.operation("primary_message_receive"),
                 OpalDiagnostics.Field.messageKind("ServerFailure"),
-                OpalDiagnostics.Field.payloadByteCount(payloadBytes)
+                OpalDiagnostics.Field.payloadByteCount(payloadBytes),
+                OpalDiagnostics.Field.protocolErrorIdentifier(
+                    failure.sanitizedProtocolErrorIdentifier
+                )
             ]
             if let message = failure.message {
                 fields.append(OpalDiagnostics.Field.errorMessage(message))

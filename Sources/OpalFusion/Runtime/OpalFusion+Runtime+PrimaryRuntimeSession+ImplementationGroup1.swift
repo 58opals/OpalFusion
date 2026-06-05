@@ -107,8 +107,8 @@ extension OpalFusion.Runtime.PrimaryRuntimeSession {
             )
         case let .participantReservationLoaded(reservation):
             return translateEngineInput(.participantReservationLoaded(reservation), now: now)
-        case .participantReservationRejected:
-            return translateEngineInput(.participantReservationRejected, now: now)
+        case let .participantReservationRejected(failure):
+            return translateEngineInput(.participantReservationRejected(failure), now: now)
         case let .finalizedTransactionLoaded(transaction):
             return translateEngineInput(.finalizedTransactionLoaded(transaction), now: now)
         case let .transactionFinalizationRejected(failure):

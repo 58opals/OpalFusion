@@ -14,7 +14,7 @@ extension OpalFusion.Runtime.PrimaryRuntimeSession {
         case receivedCovertResponseBytes([UInt8])
         case covertRequestFailed(summary: String)
         case participantReservationLoaded(OpalFusion.Host.ParticipantReservation)
-        case participantReservationRejected
+        case participantReservationRejected(OpalFusion.Host.ParticipantReservationFailure)
         case finalizedTransactionLoaded(OpalFusion.Host.FinalizedTransaction)
         case transactionFinalizationRejected(OpalFusion.Host.TransactionFinalizationFailure)
         case clockAdvanced

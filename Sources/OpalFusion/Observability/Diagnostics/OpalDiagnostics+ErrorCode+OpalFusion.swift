@@ -28,6 +28,8 @@ extension OpalDiagnostics.ErrorCode {
     static let missingCovertMessageCase = Self(rawValue: "missing_covert_message_case")
     static let missingCovertResponseCase = Self(rawValue: "missing_covert_response_case")
     static let protobufCodingFailed = Self(rawValue: "protobuf_coding_failed")
+    static let participantReservationUnavailable = Self(rawValue: "participant_reservation_unavailable")
+    static let participantReservationHostPolicyRejected = Self(rawValue: "participant_reservation_host_policy_rejected")
     static let transactionAssemblyFailed = Self(rawValue: "transaction_assembly_failed")
     static let hostPolicyRejected = Self(rawValue: "host_policy_rejected")
     static let invalidParticipantReservation = Self(rawValue: "invalid_participant_reservation")
@@ -95,6 +97,11 @@ extension OpalDiagnostics.ErrorCode {
             .missingCovertResponseCase
         case OpalFusion.Wire.CovertMessageCodecError.protobufCodingFailed:
             .protobufCodingFailed
+
+        case OpalFusion.Host.ParticipantReservationFailure.reservationUnavailable:
+            .participantReservationUnavailable
+        case OpalFusion.Host.ParticipantReservationFailure.hostPolicyRejected:
+            .participantReservationHostPolicyRejected
 
         case OpalFusion.Host.TransactionFinalizationFailure.transactionAssemblyFailed:
             .transactionAssemblyFailed

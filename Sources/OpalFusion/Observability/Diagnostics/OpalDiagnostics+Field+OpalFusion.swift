@@ -74,6 +74,22 @@ extension OpalDiagnostics.Field {
         OpalDiagnostics.Field(name: "settlement_state", publicValue: status.rawValue)
     }
 
+    static func hostResponseClass(_ responseClass: String) -> OpalDiagnostics.Field {
+        OpalDiagnostics.Field(name: "host_response_class", publicValue: responseClass)
+    }
+
+    static func validationBranch(_ branch: String) -> OpalDiagnostics.Field {
+        OpalDiagnostics.Field(name: "validation_branch", publicValue: branch)
+    }
+
+    static func reasonCode(_ reasonCode: String) -> OpalDiagnostics.Field {
+        OpalDiagnostics.Field(name: "reason_code", publicValue: reasonCode)
+    }
+
+    static func protocolErrorIdentifier(_ identifier: String) -> OpalDiagnostics.Field {
+        OpalDiagnostics.Field(name: "protocol_error_identifier", publicValue: identifier)
+    }
+
     static func terminal(_ isTerminal: Bool) -> OpalDiagnostics.Field {
         OpalDiagnostics.Field(name: "terminal", value: isTerminal)
     }
@@ -95,9 +111,94 @@ extension OpalDiagnostics.Field {
             OpalDiagnostics.Field.errorMessage(summary)
         ]
     }
+
+    static func hostFailureFields(
+        for failure: OpalFusion.Host.ParticipantReservationFailure
+    ) -> [OpalDiagnostics.Field] {
+        [
+            hostResponseClass(participantReservationResponseClass(for: failure)),
+            validationBranch("participant_reservation"),
+            reasonCode(failure.reason.rawValue)
+        ]
+    }
+
+    static func hostFailureFields(
+        for failure: OpalFusion.Host.TransactionFinalizationFailure
+    ) -> [OpalDiagnostics.Field] {
+        [
+            hostResponseClass(transactionFinalizationResponseClass(for: failure)),
+            validationBranch("transaction_finalization"),
+            reasonCode(OpalDiagnostics.ErrorCode.resolveOpalFusionCode(for: failure).rawValue)
+        ]
+    }
+
+    static func workflowFailureFields(
+        for failure: OpalFusion.Execution.WorkflowFailure
+    ) -> [OpalDiagnostics.Field] {
+        [
+            validationBranch(workflowValidationBranch(for: failure)),
+            reasonCode(workflowReasonCode(for: failure))
+        ]
+    }
 }
 
 private extension OpalDiagnostics.Field {
+    static func participantReservationResponseClass(
+        for failure: OpalFusion.Host.ParticipantReservationFailure
+    ) -> String {
+        switch failure {
+        case .reservationUnavailable:
+            "reservation_unavailable"
+        case .hostPolicyRejected:
+            "participant_reservation_rejected"
+        }
+    }
+
+    static func transactionFinalizationResponseClass(
+        for failure: OpalFusion.Host.TransactionFinalizationFailure
+    ) -> String {
+        switch failure {
+        case .transactionAssemblyFailed:
+            "transaction_assembly_failed"
+        case .hostPolicyRejected:
+            "transaction_finalization_rejected"
+        }
+    }
+
+    static func workflowValidationBranch(
+        for failure: OpalFusion.Execution.WorkflowFailure
+    ) -> String {
+        switch failure {
+        case .invalidParticipantReservation:
+            "participant_reservation_material"
+        case .missingParticipantInputPublicKey:
+            "participant_input_public_key"
+        case .invalidTransactionTemplate:
+            "transaction_template"
+        case .protocolValidationFailed:
+            "protocol_validation"
+        case .unsupportedExecution:
+            "unsupported_execution"
+        }
+    }
+
+    static func workflowReasonCode(
+        for failure: OpalFusion.Execution.WorkflowFailure
+    ) -> String {
+        switch failure {
+        case .invalidParticipantReservation:
+            "invalid_participant_reservation"
+        case .missingParticipantInputPublicKey:
+            "missing_participant_input_public_key"
+        case .invalidTransactionTemplate:
+            "invalid_transaction_template"
+        case .protocolValidationFailed:
+            "workflow_protocol_validation_failed"
+        case .unsupportedExecution:
+            "unsupported_execution"
+        }
+    }
+
     static func messageKindName(
         for message: OpalFusion.ProtocolModel.ClientMessage
     ) -> String {

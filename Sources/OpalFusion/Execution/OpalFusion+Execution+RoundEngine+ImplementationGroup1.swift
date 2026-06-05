@@ -54,14 +54,16 @@ extension OpalFusion.Execution.RoundEngine {
             return handleCovertResponse(response)
         case let .participantReservationLoaded(reservation):
             return handleParticipantReservationLoaded(reservation, now: now)
-        case .participantReservationRejected:
+        case let .participantReservationRejected(failure):
             if round?.substate == .terminal {
                 return []
             }
             return failRound(
-                completionStatus: .hostRejected,
-                clientError: .hostRejected,
-                summary: "Host rejected participant reservation"
+                completionStatus: failure.completionStatus,
+                clientError: failure.clientError,
+                summary: failure.summary,
+                diagnosticErrorCode: OpalDiagnostics.ErrorCode.resolveOpalFusionCode(for: failure),
+                diagnosticFields: OpalDiagnostics.Field.hostFailureFields(for: failure)
             )
         case let .finalizedTransactionLoaded(transaction):
             return handleFinalizedTransactionLoaded(transaction, now: now)
@@ -75,12 +77,18 @@ extension OpalFusion.Execution.RoundEngine {
                 traceID: .opalFusionRound(round?.identifier),
                 fields: [
                     .operation("transaction_finalization")
-                ] + OpalDiagnostics.Field.errorFields(for: failure)
+                ] + OpalDiagnostics.Field.hostFailureFields(for: failure)
+                    + OpalDiagnostics.Field.sanitizedSummaryFields(
+                        errorCode: OpalDiagnostics.ErrorCode.resolveOpalFusionCode(for: failure),
+                        summary: failure.summary
+                    )
             )
             return failRound(
                 completionStatus: failure.completionStatus,
                 clientError: failure.clientError,
-                summary: failure.summary
+                summary: failure.summary,
+                diagnosticErrorCode: OpalDiagnostics.ErrorCode.resolveOpalFusionCode(for: failure),
+                diagnosticFields: OpalDiagnostics.Field.hostFailureFields(for: failure)
             )
         case .clockAdvanced:
             return handleClockAdvanced(now: now)

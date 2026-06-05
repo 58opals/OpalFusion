@@ -124,7 +124,12 @@ extension RoundEngineScriptedValidator {
         #expect(engine.clientState.round?.completionStatus == .success)
 
         let rejectionEffects = engine.apply(
-            input: .participantReservationRejected,
+            input: .participantReservationRejected(
+                .hostPolicyRejected(
+                    reason: .unknown,
+                    summary: "Host rejected participant reservation"
+                )
+            ),
             now: Self.instant(1_062)
         )
 

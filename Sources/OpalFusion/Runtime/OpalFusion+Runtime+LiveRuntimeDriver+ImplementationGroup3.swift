@@ -127,6 +127,15 @@ extension OpalFusion.Runtime.LiveRuntimeDriver {
                         staleOperation: "participant reservation",
                         input: .participantReservationLoaded(reservation)
                     )
+                } catch let failure as OpalFusion.Host.ParticipantReservationFailure {
+                    guard Task.isCancelled == false else {
+                        return
+                    }
+                    await self.handleHostOperationIfCurrent(
+                        roundIdentifier: roundIdentifier,
+                        staleOperation: "participant reservation rejection",
+                        input: .participantReservationRejected(failure)
+                    )
                 } catch {
                     guard Task.isCancelled == false else {
                         return
@@ -134,7 +143,12 @@ extension OpalFusion.Runtime.LiveRuntimeDriver {
                     await self.handleHostOperationIfCurrent(
                         roundIdentifier: roundIdentifier,
                         staleOperation: "participant reservation rejection",
-                        input: .participantReservationRejected
+                        input: .participantReservationRejected(
+                            .reservationUnavailable(
+                                reason: .unknown,
+                                summary: "Host participant reservation failed"
+                            )
+                        )
                     )
                 }
             }

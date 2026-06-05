@@ -165,7 +165,12 @@ extension PrimaryRuntimeSessionValidator {
         try PrimaryRuntimeTestFixtures.driveThroughStartRound(session: &session)
 
         let effects = session.apply(
-            input: .participantReservationRejected,
+            input: .participantReservationRejected(
+                .hostPolicyRejected(
+                    reason: .unknown,
+                    summary: "Host rejected participant reservation"
+                )
+            ),
             now: PrimaryRuntimeTestFixtures.instant(1_031)
         )
 

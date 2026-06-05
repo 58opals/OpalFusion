@@ -37,4 +37,17 @@ struct RoundEntryProtocolValidator {
         #expect(restartRound == .init())
         #expect(serverFailure.message == "protocol mismatch")
     }
+
+    @Test("Server failure identifiers avoid substring false positives")
+    func validateServerFailureIdentifierTokenMatching() {
+        let fulfilledFailure = OpalFusion.ProtocolModel.ServerFailure(
+            message: "Coordinator fulfilled request before rejecting follow-up"
+        )
+        let joinPoolsFailure = OpalFusion.ProtocolModel.ServerFailure(
+            message: "Coordinator rejected JoinPools"
+        )
+
+        #expect(fulfilledFailure.sanitizedProtocolErrorIdentifier == "server_failure_coordinator_rejected")
+        #expect(joinPoolsFailure.sanitizedProtocolErrorIdentifier == "server_failure_join_rejected")
+    }
 }
