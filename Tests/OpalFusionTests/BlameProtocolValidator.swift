@@ -13,7 +13,7 @@ struct BlameProtocolValidator {
         )
         let blameProof = OpalFusion.Blame.BlameProof(
             proofIndex: 0,
-            decrypter: .privateKey([0x20, 0x21]),
+            decrypter: .privateKey(secretBytes: [0x20, 0x21]),
             reason: "bad component"
         )
         let myProofsList = OpalFusion.ProtocolModel.MyProofsList(

@@ -90,6 +90,13 @@ struct CashFusionProtobufReaderValidator {
             _ = try reader.readNextFieldHeader()
         }
 
+        Self.expectCodingError(.invalidFieldNumber(536_870_912)) {
+            var reader = OpalFusion.Wire.CashFusionProtobufReader(
+                bytes: Array(repeating: 0xFF, count: 9) + [0x01]
+            )
+            _ = try reader.readNextFieldHeader()
+        }
+
         Self.expectCodingError(.invalidWireKind(3)) {
             var reader = OpalFusion.Wire.CashFusionProtobufReader(bytes: [0x0B])
             _ = try reader.readNextFieldHeader()

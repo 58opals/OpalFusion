@@ -86,12 +86,12 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
             fieldNumber: 1
         )
         switch message.decrypter {
-        case let .sessionKey(sessionKey):
+        case let .sessionKey(secretBytes: sessionKey):
             try writer.writeBytesField(
                 sessionKey,
                 fieldNumber: 2
             )
-        case let .privateKey(privateKey):
+        case let .privateKey(secretBytes: privateKey):
             try writer.writeBytesField(
                 privateKey,
                 fieldNumber: 3
@@ -127,14 +127,14 @@ extension OpalFusion.Wire.CashFusionPrimaryMessageCodec {
                 proofIndex = try reader.readUInt32Value(for: fieldHeader)
             case 2:
                 try assignOneOfPayload(
-                    .sessionKey(try reader.readBytesValue(for: fieldHeader)),
+                    .sessionKey(secretBytes: try reader.readBytesValue(for: fieldHeader)),
                     to: &decrypter,
                     messageName: "BlameProof",
                     fieldNumber: 2
                 )
             case 3:
                 try assignOneOfPayload(
-                    .privateKey(try reader.readBytesValue(for: fieldHeader)),
+                    .privateKey(secretBytes: try reader.readBytesValue(for: fieldHeader)),
                     to: &decrypter,
                     messageName: "BlameProof",
                     fieldNumber: 3

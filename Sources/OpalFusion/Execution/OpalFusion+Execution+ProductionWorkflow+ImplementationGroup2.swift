@@ -58,7 +58,7 @@ extension OpalFusion.Execution.ProductionWorkflow {
                 blames.append(
                     .init(
                         proofIndex: UInt32(proofIndex),
-                        decrypter: .privateKey(localComponent.communicationPrivateKey),
+                        decrypter: .privateKey(secretBytes: localComponent.communicationPrivateKey),
                         reason: "undecryptable"
                     )
                 )
@@ -87,7 +87,7 @@ extension OpalFusion.Execution.ProductionWorkflow {
                 blames.append(
                     .init(
                         proofIndex: UInt32(proofIndex),
-                        decrypter: .sessionKey(Array(decrypted.symmetricKey.rawRepresentation)),
+                        decrypter: .sessionKey(secretBytes: Array(decrypted.symmetricKey.rawRepresentation)),
                         requiresBlockchainLookup: false,
                         reason: error.reason
                     )
@@ -99,7 +99,7 @@ extension OpalFusion.Execution.ProductionWorkflow {
                 blames.append(
                     .init(
                         proofIndex: UInt32(proofIndex),
-                        decrypter: .sessionKey(Array(decrypted.symmetricKey.rawRepresentation)),
+                        decrypter: .sessionKey(secretBytes: Array(decrypted.symmetricKey.rawRepresentation)),
                         requiresBlockchainLookup: true,
                         reason: "input requires blockchain lookup"
                     )
@@ -120,7 +120,7 @@ extension OpalFusion.Execution.ProductionWorkflow {
         }
         if let cachedMessages = round.executionMaterial.covertSignatureMessages,
            round.executionMaterial.covertSignatureSourceTransaction ==
-            finalizedTransaction.transactionBytes {
+            finalizedTransaction.signedFusionTransactionBytes {
             return cachedMessages
         }
 
@@ -133,7 +133,7 @@ extension OpalFusion.Execution.ProductionWorkflow {
 
         let parsedFinalizedTransaction: OpalFusion.Execution.BCHTransaction
         do {
-            parsedFinalizedTransaction = try .parse(finalizedTransaction.transactionBytes)
+            parsedFinalizedTransaction = try .parse(finalizedTransaction.signedFusionTransactionBytes)
         } catch let error as OpalFusion.Execution.BCHTransactionError {
             throw mapTransactionError(error)
         }
@@ -172,7 +172,7 @@ extension OpalFusion.Execution.ProductionWorkflow {
 
         round.executionMaterial.covertSignatureMessages = messages
         round.executionMaterial.covertSignatureSourceTransaction =
-            finalizedTransaction.transactionBytes
+            finalizedTransaction.signedFusionTransactionBytes
         return messages
     }
 }

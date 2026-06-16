@@ -135,9 +135,10 @@ extension OpalDiagnostics.Field {
     static func workflowFailureFields(
         for failure: OpalFusion.Execution.WorkflowFailure
     ) -> [OpalDiagnostics.Field] {
-        [
-            validationBranch(workflowValidationBranch(for: failure)),
-            reasonCode(workflowReasonCode(for: failure))
+        let parts = workflowFailureDiagnosticParts(for: failure)
+        return [
+            validationBranch(parts.validationBranch),
+            reasonCode(parts.reasonCode)
         ]
     }
 }
@@ -165,10 +166,10 @@ private extension OpalDiagnostics.Field {
         }
     }
 
-    static func workflowValidationBranch(
+    static func workflowFailureDiagnosticParts(
         for failure: OpalFusion.Execution.WorkflowFailure
-    ) -> String {
-        switch failure {
+    ) -> (validationBranch: String, reasonCode: String) {
+        let validationBranch = switch failure {
         case .invalidParticipantReservation:
             "participant_reservation_material"
         case .missingParticipantInputPublicKey:
@@ -180,92 +181,11 @@ private extension OpalDiagnostics.Field {
         case .unsupportedExecution:
             "unsupported_execution"
         }
+
+        return (
+            validationBranch: validationBranch,
+            reasonCode: OpalDiagnostics.ErrorCode.resolveOpalFusionCode(for: failure).rawValue
+        )
     }
 
-    static func workflowReasonCode(
-        for failure: OpalFusion.Execution.WorkflowFailure
-    ) -> String {
-        switch failure {
-        case .invalidParticipantReservation:
-            "invalid_participant_reservation"
-        case .missingParticipantInputPublicKey:
-            "missing_participant_input_public_key"
-        case .invalidTransactionTemplate:
-            "invalid_transaction_template"
-        case .protocolValidationFailed:
-            "workflow_protocol_validation_failed"
-        case .unsupportedExecution:
-            "unsupported_execution"
-        }
-    }
-
-    static func messageKindName(
-        for message: OpalFusion.ProtocolModel.ClientMessage
-    ) -> String {
-        switch message {
-        case .clientHello:
-            "ClientHello"
-        case .joinPools:
-            "JoinPools"
-        case .playerCommit:
-            "PlayerCommit"
-        case .myProofsList:
-            "MyProofsList"
-        case .blames:
-            "Blames"
-        }
-    }
-
-    static func messageKindName(
-        for message: OpalFusion.ProtocolModel.ServerMessage
-    ) -> String {
-        switch message {
-        case .serverHello:
-            "ServerHello"
-        case .tierStatusUpdate:
-            "TierStatusUpdate"
-        case .fusionBegin:
-            "FusionBegin"
-        case .startRound:
-            "StartRound"
-        case .blindSignatureResponses:
-            "BlindSignatureResponses"
-        case .allCommitments:
-            "AllCommitments"
-        case .shareCovertComponents:
-            "ShareCovertComponents"
-        case .fusionResult:
-            "FusionResult"
-        case .theirProofsList:
-            "TheirProofsList"
-        case .restartRound:
-            "RestartRound"
-        case .serverFailure:
-            "ServerFailure"
-        }
-    }
-
-    static func messageKindName(
-        for message: OpalFusion.ProtocolModel.CovertMessage
-    ) -> String {
-        switch message {
-        case .component:
-            "CovertComponent"
-        case .transactionSignature:
-            "CovertTransactionSignature"
-        case .ping:
-            "Ping"
-        }
-    }
-
-    static func messageKindName(
-        for response: OpalFusion.ProtocolModel.CovertResponse
-    ) -> String {
-        switch response {
-        case .acknowledgement:
-            "Acknowledgement"
-        case .serverFailure:
-            "ServerFailure"
-        }
-    }
 }

@@ -20,7 +20,7 @@ actor DelayedTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         self.proposals = []
     }
 
-    func finalizeTransaction(
+    func finalizeFusionTransaction(
         for roundIdentifier: OpalFusion.Round.Identifier,
         proposal: OpalFusion.Host.TransactionFinalizationProposal
     ) async throws -> OpalFusion.Host.FinalizedTransaction {

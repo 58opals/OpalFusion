@@ -68,13 +68,13 @@ struct PrimaryMessageCodecValidator {
                 blames: [
                     .init(
                         proofIndex: 0,
-                        decrypter: .sessionKey([0x83]),
+                        decrypter: .sessionKey(secretBytes: [0x83]),
                         requiresBlockchainLookup: false,
                         reason: "session proof"
                     ),
                     .init(
                         proofIndex: 1,
-                        decrypter: .privateKey([0x84]),
+                        decrypter: .privateKey(secretBytes: [0x84]),
                         requiresBlockchainLookup: true,
                         reason: "private proof"
                     )

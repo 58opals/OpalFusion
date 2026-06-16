@@ -89,14 +89,14 @@ extension OpalFusion.Execution.ProductionWorkflow {
         round: inout OpalFusion.Execution.RoundContext
     ) throws -> OpalFusion.Host.TransactionFinalizationProposal {
         let sharedMaterial = try ensureSharedRoundMaterial(round: &round)
-        let unsignedTransactionBytes: [UInt8]
+        let unsignedFusionTransactionBytes: [UInt8]
         do {
-            unsignedTransactionBytes = try sharedMaterial.transactionTemplate.serialize()
+            unsignedFusionTransactionBytes = try sharedMaterial.transactionTemplate.serialize()
         } catch let error as OpalFusion.Execution.BCHTransactionError {
             throw mapTransactionError(error)
         }
         return .init(
-            unsignedTransactionBytes: unsignedTransactionBytes,
+            unsignedFusionTransactionBytes: unsignedFusionTransactionBytes,
             sessionHash: sharedMaterial.sessionHash,
             expectedInputCount: sharedMaterial.transactionTemplate.inputs.count,
             expectedOutputCount: sharedMaterial.transactionTemplate.outputs.count,

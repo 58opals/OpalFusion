@@ -19,7 +19,7 @@ extension ProductionWorkflowTestFixtures {
         }
 
         var transaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.unsignedTransactionBytes
+            proposal.unsignedFusionTransactionBytes
         )
         var signatures: [[UInt8]] = []
         var transactionInputIndices: [Int] = []
@@ -71,7 +71,7 @@ extension ProductionWorkflowTestFixtures {
         }
 
         return (
-            .init(transactionBytes: try transaction.serialize()),
+            .init(signedFusionTransactionBytes: try transaction.serialize()),
             signatures,
             transactionInputIndices
         )

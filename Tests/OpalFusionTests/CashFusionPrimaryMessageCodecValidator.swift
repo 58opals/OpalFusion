@@ -74,7 +74,7 @@ struct CashFusionPrimaryMessageCodecValidator {
                     blames: [
                         .init(
                             proofIndex: 7,
-                            decrypter: .privateKey([0xB0]),
+                            decrypter: .privateKey(secretBytes: [0xB0]),
                             requiresBlockchainLookup: true,
                             reason: nil
                         )

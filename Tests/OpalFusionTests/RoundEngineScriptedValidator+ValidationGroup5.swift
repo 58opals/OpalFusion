@@ -99,6 +99,47 @@ extension RoundEngineScriptedValidator {
         #expect(engine.session.latestServerHello == Self.serverHello)
     }
 
+    @Test("Round engine fails restart instead of overflowing the session restart count")
+    func validateRestartCountOverflowFailsRound() {
+        var engine = Self.makeEngine()
+        let roundIdentifier = OpalFusion.Round.Identifier(rawValue: "aabb")
+
+        Self.driveToSignatureSubmission(engine: &engine)
+        _ = engine.apply(
+            input: .primaryMessage(.fusionResult(Self.failureResult)),
+            now: Self.instant(1_055)
+        )
+        _ = engine.apply(
+            input: .primaryMessage(.theirProofsList(Self.theirProofsList)),
+            now: Self.instant(1_056)
+        )
+        #expect(engine.round?.substate == .awaitingRestart)
+        engine.session.restartCount = Int.max
+
+        let restartEffects = engine.apply(
+            input: .primaryMessage(.restartRound(.init())),
+            now: Self.instant(1_060)
+        )
+
+        #expect(engine.session.restartCount == Int.max)
+        #expect(engine.session.lastError == .protocolIncompatible)
+        #expect(engine.session.lastErrorSummary == "Round restart count exceeded the supported range")
+        #expect(engine.clientState.round?.completionStatus == .protocolIncompatible)
+        #expect(
+            restartEffects == [
+                .emitHostEvent(
+                    roundIdentifier: roundIdentifier,
+                    event: .init(
+                        kind: .failure,
+                        phase: .completed,
+                        summary: "Round restart count exceeded the supported range",
+                        isTerminal: true
+                    )
+                )
+            ]
+        )
+    }
+
     @Test("Round engine maps unresolved blame handling to a distinct terminal outcome")
     func validateUnresolvedBlameTerminalOutcome() {
         var engine = Self.makeEngine()

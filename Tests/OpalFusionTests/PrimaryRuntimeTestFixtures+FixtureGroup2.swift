@@ -28,7 +28,7 @@ extension PrimaryRuntimeTestFixtures {
         blames: [
             .init(
                 proofIndex: 0,
-                decrypter: .sessionKey([0x83]),
+                decrypter: .sessionKey(secretBytes: [0x83]),
                 requiresBlockchainLookup: false,
                 reason: "invalid component"
             )

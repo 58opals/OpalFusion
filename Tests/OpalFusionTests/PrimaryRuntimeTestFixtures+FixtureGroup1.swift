@@ -154,7 +154,7 @@ extension PrimaryRuntimeTestFixtures {
     )
 
     static let transactionProposal = OpalFusion.Host.TransactionFinalizationProposal(
-        unsignedTransactionBytes: [0x50],
+        unsignedFusionTransactionBytes: [0x50],
         sessionHash: [0x41],
         expectedInputCount: 1,
         expectedOutputCount: 2,
@@ -162,7 +162,7 @@ extension PrimaryRuntimeTestFixtures {
     )
 
     static let finalizedTransaction = OpalFusion.Host.FinalizedTransaction(
-        transactionBytes: [0x60]
+        signedFusionTransactionBytes: [0x60]
     )
 
     static let signatureMessage = OpalFusion.ProtocolModel.CovertMessage.transactionSignature(

@@ -28,7 +28,7 @@ extension CashFusionOfficialProtobufFixtureValidator {
         try expectPrimaryPayload(
             OpalFusion.Blame.BlameProof(
                 proofIndex: 0,
-                decrypter: .sessionKey([0xAA])
+                decrypter: .sessionKey(secretBytes: [0xAA])
             ),
             bytes: CashFusionOfficialProtobufFixtures.blameProofSessionKeyBytes,
             encode: OpalFusion.Wire.CashFusionPrimaryMessageCodec.encode,
@@ -37,7 +37,7 @@ extension CashFusionOfficialProtobufFixtureValidator {
         try expectPrimaryPayload(
             OpalFusion.Blame.BlameProof(
                 proofIndex: 1,
-                decrypter: .privateKey([0xBB]),
+                decrypter: .privateKey(secretBytes: [0xBB]),
                 requiresBlockchainLookup: true,
                 reason: "ok"
             ),

@@ -157,6 +157,13 @@ extension OpalFusion.Execution.RoundEngine {
         }
 
         let priorIdentifier = round.identifier
+        guard session.restartCount < Int.max else {
+            return failRound(
+                completionStatus: .protocolIncompatible,
+                clientError: .protocolIncompatible,
+                summary: "Round restart count exceeded the supported range"
+            )
+        }
         self.round = nil
         session.restartCount += 1
         session.connectionSubstate = .awaitingFusionBegin

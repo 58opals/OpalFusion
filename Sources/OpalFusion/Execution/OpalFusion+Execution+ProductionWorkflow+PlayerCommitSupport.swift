@@ -40,8 +40,15 @@ extension OpalFusion.Execution.ProductionWorkflow {
         for sortedComponents: [OpalFusion.Execution.LocalComponentMaterial],
         serverHello: OpalFusion.ProtocolModel.ServerHello
     ) throws -> UInt64 {
-        let excessFee = sortedComponents.reduce(Int64(0)) { partial, component in
-            partial + component.contributionSatoshis
+        var excessFee = Int64(0)
+        for component in sortedComponents {
+            let result = excessFee.addingReportingOverflow(component.contributionSatoshis)
+            guard result.overflow == false else {
+                throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(
+                    "Participant reservation produced an excess fee outside the supported range"
+                )
+            }
+            excessFee = result.partialValue
         }
         guard excessFee >= 0 else {
             throw OpalFusion.Execution.WorkflowFailure.invalidParticipantReservation(

@@ -27,11 +27,11 @@ extension OpalFusionContractValidator {
         let session = OpalFusion.Client.Session(
             configuration: configuration,
             joinPools: .init(tiers: [10_000], tags: []),
-            participantReservationSource: HostParticipantReservationSourceAdapter(
+            hostParticipantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: []
             ),
-            transactionAssembler: HostTransactionAssemblerAdapter(
-                finalizedTransaction: .init(transactionBytes: [])
+            hostTransactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: .init(signedFusionTransactionBytes: [])
             )
         )
         let snapshot = await session.currentSnapshot
@@ -79,10 +79,10 @@ extension OpalFusionContractValidator {
             outputs: [participantOutput]
         )
         let finalizedTransaction = OpalFusion.Host.FinalizedTransaction(
-            transactionBytes: [0xDE, 0xAD, 0xBE, 0xEF]
+            signedFusionTransactionBytes: [0xDE, 0xAD, 0xBE, 0xEF]
         )
         let proposal = OpalFusion.Host.TransactionFinalizationProposal(
-            unsignedTransactionBytes: [0xAA]
+            unsignedFusionTransactionBytes: [0xAA]
         )
         let event = OpalFusion.Host.Event(
             kind: .completed,
@@ -103,7 +103,7 @@ extension OpalFusionContractValidator {
         let participantReservation = try await participantReservationSource.reserveParticipant(
             for: roundIdentifier
         )
-        let assembledTransaction = try await transactionAssembler.finalizeTransaction(
+        let assembledTransaction = try await transactionAssembler.finalizeFusionTransaction(
             for: roundIdentifier,
             proposal: proposal
         )

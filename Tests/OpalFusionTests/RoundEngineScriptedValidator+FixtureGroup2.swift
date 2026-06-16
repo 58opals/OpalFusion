@@ -31,7 +31,7 @@ extension RoundEngineScriptedValidator {
 
     static var transactionProposal: OpalFusion.Host.TransactionFinalizationProposal {
         .init(
-            unsignedTransactionBytes: [0x50],
+            unsignedFusionTransactionBytes: [0x50],
             sessionHash: [0x41],
             expectedInputCount: 1,
             expectedOutputCount: 2,
@@ -40,7 +40,7 @@ extension RoundEngineScriptedValidator {
     }
 
     static var finalizedTransaction: OpalFusion.Host.FinalizedTransaction {
-        .init(transactionBytes: [0x60])
+        .init(signedFusionTransactionBytes: [0x60])
     }
 
     static var signatureMessage: OpalFusion.ProtocolModel.CovertMessage {
@@ -93,7 +93,7 @@ extension RoundEngineScriptedValidator {
             blames: [
                 .init(
                     proofIndex: 0,
-                    decrypter: .sessionKey([0x83]),
+                    decrypter: .sessionKey(secretBytes: [0x83]),
                     requiresBlockchainLookup: false,
                     reason: "invalid component"
                 )

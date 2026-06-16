@@ -104,7 +104,7 @@ extension ProductionWorkflowTestFixtures {
         }
 
         var transaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.unsignedTransactionBytes
+            proposal.unsignedFusionTransactionBytes
         )
         let sighash = try transaction.signatureHash(
             forInputAt: 0,
@@ -131,7 +131,7 @@ extension ProductionWorkflowTestFixtures {
 
         transaction = try transaction.settingUnlockingScript(unlockingScript, at: 0)
         return .init(
-            transaction: .init(transactionBytes: try transaction.serialize()),
+            transaction: .init(signedFusionTransactionBytes: try transaction.serialize()),
             signature: signature
         )
     }

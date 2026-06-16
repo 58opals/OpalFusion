@@ -24,7 +24,7 @@ extension ProductionWorkflowValidator {
         let proposal = try scenario.workflow.buildTransactionFinalizationProposal(round: &scenario.round)
         #expect(proposal.participantCount == nil)
         let unsignedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.unsignedTransactionBytes
+            proposal.unsignedFusionTransactionBytes
         )
 
         #expect(unsignedTransaction.version == 1)
@@ -68,7 +68,7 @@ extension ProductionWorkflowValidator {
             var mismatchedTransaction = unsignedTransaction
             mismatchedTransaction.outputs[1].amountSatoshis += 1
             mismatchedRound.finalizedTransaction = .init(
-                transactionBytes: try mismatchedTransaction.serialize()
+                signedFusionTransactionBytes: try mismatchedTransaction.serialize()
             )
             _ = try scenario.workflow.buildCovertSignatureMessages(round: &mismatchedRound)
             Issue.record("Expected mismatched finalized transaction to fail")
@@ -138,7 +138,7 @@ extension ProductionWorkflowValidator {
             round: &scenario.round
         )
         let unsignedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.unsignedTransactionBytes
+            proposal.unsignedFusionTransactionBytes
         )
 
         #expect(unsignedTransaction.inputs.count == 2)

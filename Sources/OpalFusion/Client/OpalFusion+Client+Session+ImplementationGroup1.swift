@@ -79,8 +79,8 @@ extension OpalFusion.Client.Session {
             genesisHash: genesisHash,
             joinPools: joinPools,
             workflow: dependencies.workflow,
-            participantReservationSource: participantReservationSource,
-            transactionAssembler: transactionAssembler,
+            participantReservationSource: hostParticipantReservationSource,
+            transactionAssembler: hostTransactionAssembler,
             eventObserver: eventObserver,
             snapshotSink: { snapshot in
                 await self.receive(snapshot, generation: generation)

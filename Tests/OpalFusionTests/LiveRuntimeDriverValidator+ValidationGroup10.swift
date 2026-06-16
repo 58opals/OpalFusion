@@ -41,15 +41,15 @@ extension LiveRuntimeDriverValidator {
             lockTime: 0
         )
         let proposal = OpalFusion.Host.TransactionFinalizationProposal(
-            unsignedTransactionBytes: try unsignedTransaction.serialize()
+            unsignedFusionTransactionBytes: try unsignedTransaction.serialize()
         )
 
-        let finalizedTransaction = try await assembler.finalizeTransaction(
+        let finalizedTransaction = try await assembler.finalizeFusionTransaction(
             for: scenario.round.identifier!,
             proposal: proposal
         )
         let parsedTransaction = try OpalFusion.Execution.BCHTransaction.parse(
-            finalizedTransaction.transactionBytes
+            finalizedTransaction.signedFusionTransactionBytes
         )
 
         #expect(parsedTransaction.inputs[0].unlockingScript.isEmpty)

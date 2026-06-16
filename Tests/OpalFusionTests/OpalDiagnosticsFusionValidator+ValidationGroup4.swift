@@ -74,10 +74,10 @@ extension OpalDiagnosticsFusionValidator {
                 configuration: PrimaryRuntimeTestFixtures.configuration,
                 genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
                 joinPools: PrimaryRuntimeTestFixtures.joinPools,
-                participantReservationSource: HostParticipantReservationSourceAdapter(
+                hostParticipantReservationSource: HostParticipantReservationSourceAdapter(
                     participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
                 ),
-                transactionAssembler: HostTransactionAssemblerAdapter(
+                hostTransactionAssembler: HostTransactionAssemblerAdapter(
                     finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
                 ),
                 reconnectPolicy: Self.fastReconnectPolicy,

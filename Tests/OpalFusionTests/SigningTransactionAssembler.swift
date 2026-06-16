@@ -29,7 +29,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         self.signatures = []
     }
 
-    func finalizeTransaction(
+    func finalizeFusionTransaction(
         for roundIdentifier: OpalFusion.Round.Identifier,
         proposal: OpalFusion.Host.TransactionFinalizationProposal
     ) async throws -> OpalFusion.Host.FinalizedTransaction {
@@ -76,7 +76,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
         }
 
         var transaction = try OpalFusion.Execution.BCHTransaction.parse(
-            proposal.unsignedTransactionBytes
+            proposal.unsignedFusionTransactionBytes
         )
         let previousTransactionHashLittleEndian = Array(
             participantInput.outpointTransactionHashBytes.reversed()
@@ -109,7 +109,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
 
         transaction = try transaction.settingUnlockingScript(unlockingScript, at: inputIndex)
         return (
-            .init(transactionBytes: try transaction.serialize()),
+            .init(signedFusionTransactionBytes: try transaction.serialize()),
             signature
         )
     }

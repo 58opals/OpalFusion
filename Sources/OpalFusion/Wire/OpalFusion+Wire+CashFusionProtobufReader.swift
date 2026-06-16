@@ -26,7 +26,13 @@ extension OpalFusion.Wire {
             }
 
             let key = try readRawVarint()
-            let fieldNumber = Int(key >> 3)
+            let rawFieldNumber = key >> 3
+            guard rawFieldNumber <= UInt64(OpalFusion.Wire.CashFusionProtobufFieldHeader.maximumFieldNumber) else {
+                throw OpalFusion.Wire.CashFusionProtobufCodingError.invalidFieldNumber(
+                    OpalFusion.Wire.CashFusionProtobufFieldHeader.maximumFieldNumber + 1
+                )
+            }
+            let fieldNumber = Int(rawFieldNumber)
             let wireKind = try OpalFusion.Wire.CashFusionProtobufWireKind(
                 rawWireKind: key & 0x07
             )

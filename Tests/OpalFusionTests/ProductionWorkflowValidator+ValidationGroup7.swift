@@ -85,14 +85,14 @@ extension ProductionWorkflowValidator {
         #expect(blames.blames.count == 2)
         #expect(blames.blames[0].requiresBlockchainLookup == false)
         #expect(blames.blames[0].reason == "proof decode failed")
-        if case let .sessionKey(sessionKey) = blames.blames[0].decrypter {
+        if case let .sessionKey(secretBytes: sessionKey) = blames.blames[0].decrypter {
             #expect(sessionKey.count == 32)
         } else {
             Issue.record("Expected invalid proof blame to carry a session key")
         }
         #expect(blames.blames[1].requiresBlockchainLookup == true)
         #expect(blames.blames[1].reason == "input requires blockchain lookup")
-        if case let .sessionKey(sessionKey) = blames.blames[1].decrypter {
+        if case let .sessionKey(secretBytes: sessionKey) = blames.blames[1].decrypter {
             #expect(sessionKey.count == 32)
         } else {
             Issue.record("Expected input proof blame to carry a session key")

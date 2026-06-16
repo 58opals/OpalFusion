@@ -19,8 +19,8 @@ struct BlameModelValidator {
             sourceCommitmentIndex: 7,
             destinationKeyIndex: 2
         )
-        let sessionKeyDecrypter = OpalFusion.Blame.Decrypter.sessionKey([0x50, 0x51])
-        let privateKeyDecrypter = OpalFusion.Blame.Decrypter.privateKey([0x60, 0x61])
+        let sessionKeyDecrypter = OpalFusion.Blame.Decrypter.sessionKey(secretBytes: [0x50, 0x51])
+        let privateKeyDecrypter = OpalFusion.Blame.Decrypter.privateKey(secretBytes: [0x60, 0x61])
         let blameProof = OpalFusion.Blame.BlameProof(
             proofIndex: 5,
             decrypter: sessionKeyDecrypter,
@@ -36,8 +36,8 @@ struct BlameModelValidator {
         #expect(relayedProof.encryptedProof == [0x40, 0x41])
         #expect(relayedProof.sourceCommitmentIndex == 7)
         #expect(relayedProof.destinationKeyIndex == 2)
-        #expect(sessionKeyDecrypter == .sessionKey([0x50, 0x51]))
-        #expect(privateKeyDecrypter == .privateKey([0x60, 0x61]))
+        #expect(sessionKeyDecrypter == .sessionKey(secretBytes: [0x50, 0x51]))
+        #expect(privateKeyDecrypter == .privateKey(secretBytes: [0x60, 0x61]))
         #expect(blameProof.proofIndex == 5)
         #expect(blameProof.decrypter == sessionKeyDecrypter)
         #expect(blameProof.requiresBlockchainLookup == true)
