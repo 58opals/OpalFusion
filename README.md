@@ -1,5 +1,7 @@
 # Opal Fusion
 
+Status: Pilot on develop.
+
 Opal Fusion is the CashFusion protocol and runtime package for the Opal Bitcoin Cash stack. It exists so coordinator connectivity, covert transport, round-state handling, commitments, blind-signature flow, and blame handling can live in one focused Swift package instead of leaking into app-layer packages, crypto helpers, or product code.
 
 ## Canonical Spec
@@ -57,6 +59,12 @@ Build the package:
 swift build
 ```
 
+Add the public pilot branch to a Swift package:
+
+```swift
+.package(url: "https://github.com/58opals/OpalFusion.git", branch: "develop")
+```
+
 The package now exposes a conservative public session wrapper over the internal runtime:
 
 ```swift
@@ -105,3 +113,25 @@ Real Electron Cash proofing:
 - Run `./scripts/run-electron-cash-interop-smoke.sh 3` for the current pilot-confidence target of three consecutive successful session-level proofs.
 
 This keeps the public surface small while leaving the runtime, transport, framing, protobuf, and execution machinery internal.
+
+## Validation
+
+Baseline build command:
+
+```bash
+swift build
+```
+
+Latest local result: passed on June 19, 2026 with `Build complete! (0.15s)`.
+
+Real Electron Cash coordinator proof command:
+
+```bash
+./scripts/run-electron-cash-interop-smoke.sh 3
+```
+
+No real coordinator proof result is recorded here because this session did not have the required `OPALFUSION_EC_*` environment configured.
+
+## License
+
+Opal Fusion is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).
