@@ -122,7 +122,7 @@ Baseline build command:
 swift build
 ```
 
-Latest local result: passed on June 19, 2026 with `Build complete! (0.15s)`.
+Latest local result: passed on June 19, 2026 with `Build complete!`.
 
 Real Electron Cash coordinator proof command:
 
