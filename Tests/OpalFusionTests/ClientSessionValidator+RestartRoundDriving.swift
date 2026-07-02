@@ -33,7 +33,10 @@ extension ClientSessionValidator {
 
         await nowProvider.update(unixSeconds: 1_030)
         try await coordinator.send(.startRound(firstStartRound))
-        _ = try await coordinator.readNextClientMessage()
+        #expect(
+            try await coordinator.readNextClientMessage()
+                == .playerCommit(PrimaryRuntimeTestFixtures.playerCommit)
+        )
 
         await nowProvider.update(unixSeconds: 1_032)
         try await coordinator.send(
@@ -100,7 +103,10 @@ extension ClientSessionValidator {
 
         await nowProvider.update(unixSeconds: 1_090)
         try await coordinator.send(.startRound(secondStartRound))
-        _ = try await coordinator.readNextClientMessage()
+        #expect(
+            try await coordinator.readNextClientMessage()
+                == .playerCommit(PrimaryRuntimeTestFixtures.playerCommit)
+        )
 
         await nowProvider.update(unixSeconds: 1_092)
         try await coordinator.send(

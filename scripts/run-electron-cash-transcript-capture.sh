@@ -23,6 +23,7 @@ fail() {
 script_path="${0:A}"
 script_dir="${script_path:h}"
 repo_root="$(cd "${script_dir}/.." && pwd -P)"
+cd "$repo_root"
 output_path=""
 force=0
 
@@ -70,6 +71,14 @@ case "$canonical_output_path" in
     fail "Capture output path must be outside this repository: $canonical_output_path"
     ;;
 esac
+
+if [[ -L "$canonical_output_path" ]]; then
+  fail "Capture output path must not be a symbolic link: $canonical_output_path"
+fi
+
+if [[ -d "$canonical_output_path" ]]; then
+  fail "Capture output path must not be a directory: $canonical_output_path"
+fi
 
 if [[ -e "$canonical_output_path" && "$force" -ne 1 ]]; then
   fail "Capture output already exists. Pass --force to overwrite: $canonical_output_path"

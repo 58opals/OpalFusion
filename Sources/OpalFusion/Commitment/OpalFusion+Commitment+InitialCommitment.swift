@@ -2,7 +2,7 @@
 
 public extension OpalFusion.Commitment {
     /// The initial commitment bundle submitted before full component reveal.
-    struct InitialCommitment: Sendable, Equatable {
+    struct InitialCommitment: Sendable, Equatable, Hashable {
         public let saltedComponentHash: [UInt8]
         public let amountCommitment: [UInt8]
         public let communicationPublicKey: [UInt8]

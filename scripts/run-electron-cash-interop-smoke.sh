@@ -25,6 +25,7 @@ fail() {
 script_path="${0:A}"
 script_dir="${script_path:h}"
 repo_root="$(cd "${script_dir}/.." && pwd -P)"
+cd "$repo_root"
 run_count="1"
 has_run_count=0
 summary_path=""
@@ -95,6 +96,14 @@ if [[ -n "$summary_path" ]]; then
       fail "Summary output path must be outside this repository: $canonical_summary_path"
       ;;
   esac
+
+  if [[ -L "$canonical_summary_path" ]]; then
+    fail "Summary output path must not be a symbolic link: $canonical_summary_path"
+  fi
+
+  if [[ -d "$canonical_summary_path" ]]; then
+    fail "Summary output path must not be a directory: $canonical_summary_path"
+  fi
 
   if [[ -e "$canonical_summary_path" && "$force" -ne 1 ]]; then
     fail "Summary output already exists. Pass --force to overwrite: $canonical_summary_path"

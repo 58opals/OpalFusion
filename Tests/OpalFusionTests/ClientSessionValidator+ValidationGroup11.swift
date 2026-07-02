@@ -39,11 +39,17 @@ extension ClientSessionValidator {
         )
 
         await session.start()
-        _ = try await coordinator.readNextClientMessage()
+        #expect(
+            try await coordinator.readNextClientMessage()
+                == .clientHello(PrimaryRuntimeTestFixtures.clientHello)
+        )
 
         await nowProvider.update(unixSeconds: 996)
         try await coordinator.send(.serverHello(scenario.serverHello))
-        _ = try await coordinator.readNextClientMessage()
+        #expect(
+            try await coordinator.readNextClientMessage()
+                == .joinPools(PrimaryRuntimeTestFixtures.joinPools)
+        )
 
         await nowProvider.update(unixSeconds: 1_000)
         try await coordinator.send(.fusionBegin(scenario.fusionBegin))

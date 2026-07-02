@@ -49,17 +49,16 @@ extension OpalFusion.Execution.RoundEngine {
                 summary: "AllCommitments arrived out of order"
             )
         }
+        let receivedCommitments = Set(allCommitments.initialCommitments)
         guard let playerCommit = round.playerCommit,
-              playerCommit.initialCommitments.allSatisfy({
-                  allCommitments.initialCommitments.contains($0)
-              }) else {
+              playerCommit.initialCommitments.allSatisfy(receivedCommitments.contains) else {
             return failRound(
                 completionStatus: .protocolIncompatible,
                 clientError: .protocolIncompatible,
                 summary: "AllCommitments omitted a local commitment"
             )
         }
-        guard Self.hasDuplicateInitialCommitments(allCommitments.initialCommitments) == false else {
+        guard receivedCommitments.count == allCommitments.initialCommitments.count else {
             return failRound(
                 completionStatus: .protocolIncompatible,
                 clientError: .protocolIncompatible,

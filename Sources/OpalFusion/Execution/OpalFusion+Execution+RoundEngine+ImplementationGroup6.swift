@@ -166,19 +166,4 @@ extension OpalFusion.Execution.RoundEngine {
         return OpalFusion.Runtime.isValidHostName(domain)
     }
 
-    static func hasDuplicateInitialCommitments(
-        _ commitments: [OpalFusion.Commitment.InitialCommitment]
-    ) -> Bool {
-        for index in commitments.indices {
-            guard index < commitments.index(before: commitments.endIndex) else {
-                continue
-            }
-
-            if commitments[commitments.index(after: index)...].contains(commitments[index]) {
-                return true
-            }
-        }
-
-        return false
-    }
 }
