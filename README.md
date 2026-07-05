@@ -114,6 +114,10 @@ Real Electron Cash proofing:
 
 This keeps the public surface small while leaving the runtime, transport, framing, protobuf, and execution machinery internal.
 
+## Changelog
+
+Package changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
+
 ## Validation
 
 Baseline build command:
