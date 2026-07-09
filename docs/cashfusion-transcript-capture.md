@@ -16,7 +16,7 @@ Use `--force` only when deliberately replacing an existing reviewed candidate:
 ./scripts/run-electron-cash-transcript-capture.sh --output /private/tmp/opalfusion-electron-cash-transcript.swift --force
 ```
 
-The script rejects relative paths and output paths inside this repository. It sets `OPALFUSION_EC_INTEROP=1` and `OPALFUSION_EC_CAPTURE_TRANSCRIPT=1`, runs `ElectronCashInteropValidator`, extracts the marked fixture candidate, and writes only that candidate to the requested file.
+The script rejects relative paths and output paths inside this repository. It enables the interop and transcript-capture flags, verifies that the real coordinator proof test identifier is registered, runs `ElectronCashInteropValidator`, extracts the marked fixture candidate, and writes only that candidate to the requested file.
 
 ## Required Environment
 
@@ -34,7 +34,7 @@ The runner requires the same live smoke configuration as `scripts/run-electron-c
 - `OPALFUSION_EC_OUTPUT_LOCKING_SCRIPT_HEX`
 - `OPALFUSION_EC_OUTPUT_AMOUNT_SATOSHIS`
 
-The capture candidate is emitted only after the live smoke succeeds, the session reaches success, expected primary and covert message kinds are present, and all native decode-failure logs are empty.
+The capture candidate is meaningful only after the live smoke actually executes the real coordinator session proof, the session reaches success, expected primary and covert message kinds are present, and all native decode-failure logs are empty.
 
 ## Review Checklist
 
@@ -47,4 +47,4 @@ Before any candidate is copied into a test fixture, inspect the output file manu
 
 ## Failure Behavior
 
-The runner writes no fixture candidate when required configuration is missing, the live smoke fails, capture markers are absent, the marked block is empty, or the output path is unsafe. These failures should be fixed by correcting the live smoke setup or capture harness before attempting pinned replay.
+The runner writes no fixture candidate when required configuration is missing, the live proof test is not registered, the live smoke fails, capture markers are absent, the marked block is empty, or the output path is unsafe.

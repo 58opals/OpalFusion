@@ -15,7 +15,7 @@ extension ElectronCashInteropValidator {
         covertRequestDecodeFailures: [String],
         covertResponseDecodeFailures: [String]
     ) -> Bool {
-        ProcessInfo.processInfo.environment["OPALFUSION_EC_CAPTURE_TRANSCRIPT"] == "1"
+        ElectronCashInteropTestSupport.isTranscriptCaptureEnabled
             && snapshot.lastError == nil
             && snapshot.state.isConnected
             && snapshot.state.round?.completionStatus == .success

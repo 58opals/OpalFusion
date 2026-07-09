@@ -120,6 +120,7 @@ SPM_SCRATCH_PATH=".swiftpm-cache/swiftpm/build"
 SPM_CACHE_PATH=".swiftpm-cache/swiftpm/cache"
 SPM_CONFIG_PATH=".swiftpm-cache/swiftpm/config"
 SPM_SECURITY_PATH=".swiftpm-cache/swiftpm/security"
+SPM_MODULE_CACHE_PATH=".swiftpm-cache/swiftpm/module-cache"
 SPM_LANE_FLAGS=(
   --disable-sandbox
   --scratch-path "$SPM_SCRATCH_PATH"
@@ -127,9 +128,24 @@ SPM_LANE_FLAGS=(
   --config-path "$SPM_CONFIG_PATH"
   --security-path "$SPM_SECURITY_PATH"
 )
+export CLANG_MODULE_CACHE_PATH="$repo_root/$SPM_MODULE_CACHE_PATH"
+mkdir -p "$CLANG_MODULE_CACHE_PATH"
 
 spm_package() { swift package "${SPM_LANE_FLAGS[@]}" "$@"; }
 spm_test() { swift test "${SPM_LANE_FLAGS[@]}" "$@"; }
+
+LIVE_COORDINATOR_TEST_ID="OpalFusionTests.ElectronCashInteropValidator/validateRealElectronCashCoordinatorInterop()"
+
+verify_live_coordinator_test_registration() {
+  local listed_tests
+  if ! listed_tests="$(spm_test list)"; then
+    fail "Unable to list Swift tests before running Electron Cash transcript capture."
+  fi
+
+  if ! print -r -- "$listed_tests" | grep -Fqx "$LIVE_COORDINATOR_TEST_ID"; then
+    fail "Real Electron Cash coordinator proof test is not registered: $LIVE_COORDINATOR_TEST_ID"
+  fi
+}
 
 begin_marker="-----BEGIN OPALFUSION ELECTRON CASH TRANSCRIPT CAPTURE-----"
 end_marker="-----END OPALFUSION ELECTRON CASH TRANSCRIPT CAPTURE-----"
@@ -149,6 +165,7 @@ tmp_log="$(mktemp -t opalfusion-ec-capture.XXXXXX.log)"
 tmp_output="$(mktemp -t opalfusion-ec-capture.XXXXXX.swift)"
 
 spm_package resolve
+verify_live_coordinator_test_registration
 
 echo "[transcript capture] Running Electron Cash 4.4.3 session-level proof"
 if ! spm_test --filter ElectronCashInteropValidator 2>&1 | tee "$tmp_log"; then

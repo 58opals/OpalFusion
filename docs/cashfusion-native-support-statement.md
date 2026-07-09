@@ -20,7 +20,13 @@ Current protobuf support is implemented through native Swift reader/writer primi
 - Primary and covert envelope encoding/decoding through native `CashFusion*Codec` implementations, with active runtime bridges no longer backed by generated protobuf types.
 - Runtime lifecycle support for primary handshake, pool joining, fusion warmup, round start, commitment submission, covert component/signature submission, result handling, restart continuation, and close-start covert cleanup.
 - Production workflow support for component ordering, input/output/blank component semantics, salt commitments, initial commitments, proof material, signature extraction, transaction assembly boundaries, and blame proof generation/validation.
-- Local conformance evidence from pinned protobuf byte fixtures, official manual fixtures, runtime semantic tests, production workflow tests, and env-gated live-smoke infrastructure.
+- Local conformance evidence from pinned protobuf byte fixtures, official manual fixtures, runtime semantic tests, production workflow tests, and guarded env-gated live-smoke infrastructure.
+
+## Coverage Boundary
+
+The deterministic local suite is not a complete support proof. It provides fast package-level confidence for codecs, round-state behavior, runtime semantics, production workflow materialization, host boundaries, and diagnostics, but it does not by itself prove successful Electron Cash coordinator participation or downstream wallet/app behavior.
+
+Complete support remains dependent on the proof gates below plus downstream validation of host-owned responsibilities such as coin selection, funding, signing authority, persistence, broadcast, retry behavior, and user-facing fusion policy.
 
 ## Remaining Proof Gates
 
@@ -40,3 +46,6 @@ Current protobuf support is implemented through native Swift reader/writer primi
 - Official conformance matrix: [`cashfusion-official-protocol-matrix.md`](cashfusion-official-protocol-matrix.md)
 - Env-gated live pilot confidence: [`cashfusion-live-pilot-confidence.md`](cashfusion-live-pilot-confidence.md)
 - Transcript capture and review flow: [`cashfusion-transcript-capture.md`](cashfusion-transcript-capture.md)
+- Fast local validation and focused filters: [`validation.md`](validation.md)
+- App and OpalBase integration: [`integration-guide.md`](integration-guide.md)
+- Maintainer architecture map: [`architecture.md`](architecture.md)

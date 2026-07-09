@@ -49,7 +49,7 @@ Normative upstream references:
 - Reference server defaults:
   [server.py](https://raw.githubusercontent.com/Electron-Cash/Electron-Cash/4.4.3/electroncash_plugins/fusion/server.py)
 
-Detailed conformance tracking lives in [`cashfusion-official-protocol-matrix.md`](cashfusion-official-protocol-matrix.md). The public native Swift support boundary and remaining proof gates are summarized in [`cashfusion-native-support-statement.md`](cashfusion-native-support-statement.md).
+Detailed conformance tracking lives in [`cashfusion-official-protocol-matrix.md`](cashfusion-official-protocol-matrix.md). The public native Swift support boundary and remaining proof gates are summarized in [`cashfusion-native-support-statement.md`](cashfusion-native-support-statement.md). Developer-facing integration, architecture, and validation guidance lives in [`integration-guide.md`](integration-guide.md), [`architecture.md`](architecture.md), and [`validation.md`](validation.md).
 
 ### Baseline Rules
 
@@ -190,7 +190,7 @@ Upstream-required timing:
 
 ## 5. OpalFusion Subsystem Mapping
 
-This section maps the current public scaffold to the required behavior.
+This section maps the current public package surface to the required behavior.
 
 ### `OpalFusion.Client`
 
@@ -202,7 +202,7 @@ Responsibilities:
 - Report high-level error categories that distinguish configuration, transport, host, protocol, and blame outcomes.
 - Provide session-scoped snapshot observation without exposing internal runtime or transport controls.
 
-Current scaffold alignment:
+Current implementation alignment:
 
 - `Configuration` already models coordinator host, coordinator port, covert channel configuration, and optional Tor SOCKS5 configuration.
 - `State` already models connection state plus an optional round snapshot.
@@ -220,7 +220,7 @@ Responsibilities:
 - Represent round identity and externally visible progress.
 - Stay aligned to protocol milestones rather than internal implementation details.
 
-Current scaffold alignment:
+Current implementation alignment:
 
 - `Identifier` is the public round token.
 - `Phase` is currently a coarse observable state machine:
@@ -246,7 +246,7 @@ Responsibilities:
 - Own covert-channel configuration and optional Tor SOCKS5 proxy usage.
 - Enforce timing-sensitive connection and submission behavior required for interoperability.
 
-Current scaffold alignment:
+Current implementation alignment:
 
 - `CovertChannelConfiguration` models entry path, payload sizing, and request timeout.
 - `TorSocks5Configuration` models proxy host, port, and remote hostname resolution behavior.
@@ -260,7 +260,7 @@ Responsibilities:
 - Finalize the transaction implied by the server-shared components so OpalFusion can validate the result and derive the required signatures.
 - Observe coarse round events.
 
-Current scaffold alignment:
+Current implementation alignment:
 
 - `ParticipantReservationSource` supplies a `ParticipantReservation` from a round-scoped `ParticipantReservationContext`.
 - `TransactionAssembler` finalizes a transaction from a round-scoped proposal.
@@ -274,21 +274,21 @@ OpalFusion-specific choice:
 
 ### `OpalFusion.Commitment`
 
-Current scaffold alignment:
+Current implementation alignment:
 
 - `Commitment` already exposes public value models for component payloads, input/output/blank components, full components, and initial commitments.
 - Commitment generation, coordinator submission ordering, and execution-specific bookkeeping remain internal runtime concerns.
 
 ### `OpalFusion.BlindSignature`
 
-Current scaffold alignment:
+Current implementation alignment:
 
 - `BlindSignature` already exposes public request and response value models tied to the pinned protocol behavior.
 - Blind-signature material generation, unblinding, and round sequencing remain internal runtime concerns.
 
 ### `OpalFusion.Blame`
 
-Current scaffold alignment:
+Current implementation alignment:
 
 - `Blame` already exposes public proof, encrypted-proof, relayed-proof, decrypter, and blame-proof value models.
 - Blame sequencing, proof validation, and restart handling remain internal runtime concerns.
@@ -354,15 +354,14 @@ Wallet and OpalBase should consume OpalFusion through `OpalFusion.Client.Session
 - Public user-safe error categories are `invalidConfiguration`, `transportUnavailable`, `coordinatorRejected`, `hostRejected`, `protocolIncompatible`, `blameRequired`, and `notImplemented`.
 - `lastErrorSummary` and host event summaries are sanitized integration diagnostics, not raw coordinator or OS error text.
 
-## 7. Current Pilot Status
+## 7. Support Status Pointers
 
-- The canonical specification, public session surface, typed protocol/domain models, live runtime/transport stack, and `OpalCrypto`-backed execution materialization are now present on `develop`.
-- `develop` is the public pilot lane for Opal Fusion. `main` remains intentionally behind it until the current public pilot path is proven repeatedly against a real Electron Cash `4.4.3` coordinator.
-- The current live support envelope remains intentionally narrow: compressed-key standard P2PKH reserved inputs and matching standard Schnorr P2PKH unlocking scripts for local finalized inputs.
-- The current coordinator-backed proof target is session-level eventual success rather than first-round success. Intermediate blame or restart rounds are acceptable as long as one round in the session completes successfully before the overall smoke timeout.
-- The current pilot-confidence exit target is three consecutive successful runs of `./scripts/run-electron-cash-interop-smoke.sh 3` on the supported path; `docs/cashfusion-live-pilot-confidence.md` documents the opt-in runner and redacted summary path. Broader BCH script support stays deferred until after that gate.
-- Reviewed pinned transcript replay is prepared through `docs/cashfusion-transcript-capture.md` and `./scripts/run-electron-cash-transcript-capture.sh`, which keep captured byte candidates outside the repository until manual review.
-- The current public native Swift support statement is [`cashfusion-native-support-statement.md`](cashfusion-native-support-statement.md); it must not claim final 100% official CashFusion support until pinned replay and repeated live smoke pass.
+- The current public support claim lives in [`cashfusion-native-support-statement.md`](cashfusion-native-support-statement.md).
+- Row-level implementation and evidence status lives in [`cashfusion-official-protocol-matrix.md`](cashfusion-official-protocol-matrix.md).
+- The supported host integration envelope lives in [`integration-guide.md`](integration-guide.md).
+- Fast local validation loops and slow proof gates live in [`validation.md`](validation.md).
+- Env-gated live proofing and transcript capture procedures live in [`cashfusion-live-pilot-confidence.md`](cashfusion-live-pilot-confidence.md) and [`cashfusion-transcript-capture.md`](cashfusion-transcript-capture.md).
+- This specification should stay focused on normative protocol behavior and package boundaries. Mutable support status belongs in the linked status and validation documents.
 
 ## 8. Acceptance Checklist for Future Changes
 

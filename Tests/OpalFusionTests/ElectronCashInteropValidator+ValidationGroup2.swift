@@ -5,6 +5,10 @@ import Foundation
 import Testing
 
 extension ElectronCashInteropValidator {
+    @Test(
+        "Electron Cash interop completes a real coordinator session",
+        .enabled(if: ElectronCashInteropTestSupport.isLiveCoordinatorInteropEnabled)
+    )
     func validateRealElectronCashCoordinatorInterop() async throws {
         let interopConfiguration = try ElectronCashInteropConfiguration.fromEnvironment()
         let participantReservationSource = DelayedParticipantReservationSource(
@@ -33,8 +37,8 @@ extension ElectronCashInteropValidator {
             configuration: interopConfiguration.clientConfiguration,
             genesisHash: interopConfiguration.genesisHash,
             joinPools: interopConfiguration.joinPools,
-            participantReservationSource: participantReservationSource,
-            transactionAssembler: transactionAssembler,
+            hostParticipantReservationSource: participantReservationSource,
+            hostTransactionAssembler: transactionAssembler,
             eventObserver: eventObserver,
             stateObserver: stateObserver,
             primaryTransportFactory: { primaryTransport },
