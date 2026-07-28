@@ -44,7 +44,7 @@ struct OpalDiagnosticsFusionValidator {
     )
 
     static let primaryRoundTraceID = OpalDiagnostics.TraceID(
-        rawValue: PrimaryRuntimeTestFixtures.roundIdentifier.rawValue
+        publicValue: PrimaryRuntimeTestFixtures.roundIdentifier.rawValue
     )
 
 

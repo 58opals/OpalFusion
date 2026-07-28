@@ -51,19 +51,19 @@ extension OpalDiagnostics.Field {
     }
 
     static func payloadByteCount(_ count: Int) -> OpalDiagnostics.Field {
-        OpalDiagnostics.Field(name: "payload_byte_count", value: count)
+        OpalDiagnostics.Field(name: "payload_byte_count", value: count, privacy: .public)
     }
 
     static func frameByteCount(_ count: Int) -> OpalDiagnostics.Field {
-        OpalDiagnostics.Field(name: "frame_byte_count", value: count)
+        OpalDiagnostics.Field(name: "frame_byte_count", value: count, privacy: .public)
     }
 
     static func retryAttempt(_ attempt: Int) -> OpalDiagnostics.Field {
-        OpalDiagnostics.Field(name: "retry_attempt", value: attempt)
+        OpalDiagnostics.Field(name: "retry_attempt", value: attempt, privacy: .public)
     }
 
     static func retryDelayMilliseconds(_ milliseconds: Int) -> OpalDiagnostics.Field {
-        OpalDiagnostics.Field(name: "retry_delay_ms", value: milliseconds)
+        OpalDiagnostics.Field(name: "retry_delay_ms", value: milliseconds, privacy: .public)
     }
 
     static func roundState(_ state: OpalFusion.Execution.RoundSubstate) -> OpalDiagnostics.Field {
@@ -91,7 +91,7 @@ extension OpalDiagnostics.Field {
     }
 
     static func terminal(_ isTerminal: Bool) -> OpalDiagnostics.Field {
-        OpalDiagnostics.Field(name: "terminal", value: isTerminal)
+        OpalDiagnostics.Field(name: "terminal", value: isTerminal, privacy: .public)
     }
 
     static func errorFields(for error: Swift.Error) -> [OpalDiagnostics.Field] {

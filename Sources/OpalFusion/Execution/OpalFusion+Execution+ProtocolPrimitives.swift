@@ -9,9 +9,8 @@ extension OpalFusion.Execution {
         static let pedersenAlternateBasePoint = Data([0x02]) + Data(
             "CashFusion gives us fungibility.".utf8
         )
-        static let pedersenAlternateBasePublicKey = try! OpalCrypto.Secp256k1.PublicKey(
-            rawRepresentation: pedersenAlternateBasePoint
-        )
+        static let encryptedProofPaddedPlaintextByteCount = 80
+        static let maximumEncryptedProofCiphertextByteCount = 129
         static let supportedParticipantInputSummary =
             "Only standard compressed-key P2PKH participant inputs are supported"
         static let supportedUnlockingScriptSummary =

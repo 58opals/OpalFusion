@@ -29,14 +29,24 @@ extension ProductionWorkflowValidator {
 
         #expect(myProofsList.randomNumber == playerCommitMaterial.randomNumber)
         #expect(myProofsList.encryptedProofs.count == playerCommitMaterial.componentsByCommitmentOrder.count)
+        #expect(
+            myProofsList.encryptedProofs.allSatisfy {
+                $0.count == OpalFusion.Execution.ProtocolPrimitives
+                    .maximumEncryptedProofCiphertextByteCount
+            }
+        )
 
         let decryptedProof = try OpalCrypto.Communication.decrypt(
             OpalCrypto.Communication.Ciphertext(
-                rawRepresentation: Data(myProofsList.encryptedProofs[0])
+                rawRepresentation: Data(myProofsList.encryptedProofs[0]),
+                maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                    .maximumEncryptedProofCiphertextByteCount
             ),
             privateKey: OpalCrypto.Secp256k1.PrivateKey(
                 rawRepresentation: Data(extraInputComponent.communicationPrivateKey)
-            )
+            ),
+            maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                .maximumEncryptedProofCiphertextByteCount
         )
         let parsedProof = try OpalFusion.Wire.CashFusionProofCodec.decode(
             Array(decryptedProof.message)
@@ -51,7 +61,9 @@ extension ProductionWorkflowValidator {
                     rawRepresentation: Data(
                         destinationComponent.initialCommitment.communicationPublicKey
                     )
-                )
+                ),
+                maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                    .maximumEncryptedProofCiphertextByteCount
             ).rawRepresentation
         )
         let validEncryptedProof = try ProductionWorkflowTestFixtures.encryptProof(
@@ -109,6 +121,57 @@ extension ProductionWorkflowValidator {
         }
         #expect(decodedBlames.blames[0].requiresBlockchainLookup == false)
         #expect(decodedBlames.blames[1].requiresBlockchainLookup == true)
+    }
+
+    @Test("Production workflow rejects oversized encrypted proofs before decryption")
+    func validateOversizedEncryptedProofIsUndecryptable() throws {
+        var scenario = try ProductionWorkflowTestFixtures.makeScenario()
+        let playerCommit = try scenario.buildPlayerCommit()
+        let extraInputComponent = try scenario.makeExternalInputComponent()
+
+        try scenario.useSharedRound(
+            allCommitments: playerCommit.initialCommitments + [extraInputComponent.initialCommitment],
+            serializedComponents: scenario.makeLocalSerializedComponents()
+                + [extraInputComponent.serializedComponent]
+        )
+        _ = try scenario.workflow.buildMyProofsList(round: &scenario.round)
+
+        guard let sharedRoundMaterial = scenario.round.executionMaterial.sharedRoundMaterial else {
+            Issue.record("Expected shared production workflow material")
+            return
+        }
+
+        scenario.round.fusionResult = .init(
+            isSuccess: false,
+            transactionSignatures: [],
+            badComponentIndices: []
+        )
+        scenario.round.theirProofsList = .init(
+            proofs: [
+                .init(
+                    encryptedProof: [UInt8](
+                        repeating: 0,
+                        count: OpalFusion.Execution.ProtocolPrimitives
+                            .maximumEncryptedProofCiphertextByteCount + 1
+                    ),
+                    sourceCommitmentIndex: UInt32(
+                        sharedRoundMaterial.allCommitmentBytes.count - 1
+                    ),
+                    destinationKeyIndex: 0
+                )
+            ]
+        )
+
+        let blames = try scenario.workflow.buildBlames(round: &scenario.round)
+        let blame = try #require(blames.blames.first)
+        #expect(blame.reason == "undecryptable")
+        #expect(blame.requiresBlockchainLookup == nil)
+        switch blame.decrypter {
+        case .privateKey:
+            break
+        case .sessionKey:
+            Issue.record("Expected oversized encrypted proof to retain the private-key decrypter")
+        }
     }
 
     @Test("Production workflow fails proof generation when a destination communication key is invalid")

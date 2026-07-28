@@ -11,6 +11,6 @@ extension OpalDiagnostics.TraceID {
             return nil
         }
 
-        return OpalDiagnostics.TraceID(rawValue: roundIdentifier.rawValue)
+        return OpalDiagnostics.TraceID(publicValue: roundIdentifier.rawValue)
     }
 }

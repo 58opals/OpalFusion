@@ -149,7 +149,10 @@ extension OpalFusion.Execution.ProductionWorkflow {
                         recipientPublicKey: OpalCrypto.Secp256k1.PublicKey(
                             rawRepresentation: Data(destinationCommitment.communicationPublicKey)
                         ),
-                        paddedPlaintextLength: 80
+                        paddedPlaintextLength: OpalFusion.Execution.ProtocolPrimitives
+                            .encryptedProofPaddedPlaintextByteCount,
+                        maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                            .maximumEncryptedProofCiphertextByteCount
                     ).rawRepresentation
                 )
             } catch {

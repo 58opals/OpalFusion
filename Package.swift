@@ -20,7 +20,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/58opals/OpalDiagnostics.git",
-            branch: "develop"
+            from: "0.2.0"
         )
     ],
     targets: [

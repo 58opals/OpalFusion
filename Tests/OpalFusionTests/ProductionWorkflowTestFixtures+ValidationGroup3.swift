@@ -88,7 +88,10 @@ extension ProductionWorkflowTestFixtures {
                 recipientPublicKey: OpalCrypto.Secp256k1.PublicKey(
                     rawRepresentation: Data(recipientPublicKey)
                 ),
-                paddedPlaintextLength: 80
+                paddedPlaintextLength: OpalFusion.Execution.ProtocolPrimitives
+                    .encryptedProofPaddedPlaintextByteCount,
+                maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                    .maximumEncryptedProofCiphertextByteCount
             ).rawRepresentation
         )
     }

@@ -42,11 +42,15 @@ extension OpalFusion.Execution.ProductionWorkflow {
             do {
                 decrypted = try OpalCrypto.Communication.decrypt(
                     OpalCrypto.Communication.Ciphertext(
-                        rawRepresentation: Data(relayedProof.encryptedProof)
+                        rawRepresentation: Data(relayedProof.encryptedProof),
+                        maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                            .maximumEncryptedProofCiphertextByteCount
                     ),
                     privateKey: OpalCrypto.Secp256k1.PrivateKey(
                         rawRepresentation: Data(localComponent.communicationPrivateKey)
-                    )
+                    ),
+                    maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                        .maximumEncryptedProofCiphertextByteCount
                 )
             } catch {
                 recordBlameProofValidationFailure(

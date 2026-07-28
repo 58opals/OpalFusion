@@ -12,10 +12,7 @@ extension OpalFusion.Execution {
             baseline: OpalFusion.Transport.BaselineConfiguration
         ) {
             self.baseline = baseline
-            self.pedersenSetup = try! OpalCrypto.Pedersen.Setup(
-                alternateBasePoint: OpalFusion.Execution.ProtocolPrimitives
-                    .pedersenAlternateBasePublicKey
-            )
+            self.pedersenSetup = try! OpalCrypto.Pedersen.Setup()
         }
 
 

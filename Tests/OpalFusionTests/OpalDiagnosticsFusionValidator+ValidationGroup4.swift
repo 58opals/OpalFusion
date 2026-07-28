@@ -35,7 +35,9 @@ extension OpalDiagnosticsFusionValidator {
                         rawRepresentation: Data(
                             destinationComponent.initialCommitment.communicationPublicKey
                         )
-                    )
+                    ),
+                    maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
+                        .maximumEncryptedProofCiphertextByteCount
                 ).rawRepresentation
             )
             scenario.round.fusionResult = .init(
@@ -59,7 +61,11 @@ extension OpalDiagnosticsFusionValidator {
             #expect(blames.blames.first?.reason == "proof decode failed")
             let record = try #require(findDiagnosticRecord(named: OpalDiagnostics.Event.blameProofValidationFailed))
             #expect(record.category == OpalDiagnostics.Category.fusionBlame)
-            #expect(record.traceID == OpalDiagnostics.TraceID(rawValue: scenario.round.identifier!.rawValue))
+            #expect(
+                record.traceID == OpalDiagnostics.TraceID(
+                    publicValue: scenario.round.identifier!.rawValue
+                )
+            )
             #expect(findField("error_code", in: record)?.value == "relayed_proof_validation_failed")
             #expect(findField("error_message", in: record)?.value == "<redacted>")
             #expect(record.fields.contains { $0.value.contains("proof decode failed") } == false)

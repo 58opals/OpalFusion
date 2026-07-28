@@ -5,6 +5,19 @@ import OpalDiagnostics
 import Testing
 
 extension OpalDiagnosticsFusionValidator {
+    @Test("Operational diagnostics explicitly classify safe fields as public")
+    func validateOperationalDiagnosticFieldPrivacy() {
+        let fields: [OpalDiagnostics.Field] = [
+            .payloadByteCount(1),
+            .frameByteCount(2),
+            .retryAttempt(3),
+            .retryDelayMilliseconds(4),
+            .terminal(true)
+        ]
+
+        #expect(fields.allSatisfy { $0.privacy == .public })
+    }
+
     @Test("Workflow failure diagnostics keep branch and reason mappings together")
     func validateWorkflowFailureDiagnosticFields() throws {
         let fields = OpalDiagnostics.Field.workflowFailureFields(
