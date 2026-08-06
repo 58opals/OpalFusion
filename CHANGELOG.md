@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added the Opal Fusion umbrella specification, Mosaic draft protocol and security specifications, and compile-time facade scaffolding for explicit CashFusion, Mosaic, and pre-reservation automatic selection modes.
 - Added this changelog to track public-facing package changes.
 - Added guarded Electron Cash interop test registration and a focused validation-loop script for faster local development checks.
 - Documented the boundary between deterministic local validation, live coordinator proofing, transcript replay, and downstream wallet/app responsibilities.

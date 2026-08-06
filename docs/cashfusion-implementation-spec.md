@@ -1,12 +1,10 @@
 # CashFusion Implementation Spec
 
-This document is the canonical public-safe technical specification for OpalFusion.
-It defines what the package must implement for the first interoperable CashFusion slice, while keeping private execution planning outside this repository.
+This document is the canonical public-safe technical specification for the OpalFusion CashFusion engine. It defines what that engine must implement for the first interoperable CashFusion slice, while keeping private execution planning outside this repository. Shared facade and engine-selection rules live in [`opal-fusion-specification.md`](opal-fusion-specification.md).
 
 ## 1. Package Purpose, Boundaries, and Non-Goals
 
-OpalFusion is the CashFusion protocol and runtime package for the Opal Bitcoin Cash stack.
-It exists to isolate coordinator connectivity, covert transport, round-state handling, commitments, blind-signature flow, and blame handling inside one focused Swift package.
+OpalFusion is the collaborative-transaction protocol package for the Opal Bitcoin Cash stack. Its CashFusion engine isolates coordinator connectivity, covert transport, round-state handling, commitments, blind-signature flow, and blame handling inside one focused Swift package.
 
 ### Purpose
 
@@ -16,7 +14,7 @@ It exists to isolate coordinator connectivity, covert transport, round-state han
 
 ### Boundaries
 
-- `OpalFusion` owns CashFusion protocol/runtime behavior and interoperability.
+- The OpalFusion CashFusion engine owns CashFusion protocol/runtime behavior and interoperability.
 - `OpalCrypto` owns reusable Bitcoin Cash cryptographic primitives.
 - `OpalBase` owns app-facing orchestration, wallet policy, and product-facing integration.
 - `SwiftFulcrum` owns Fulcrum transport responsibilities.
@@ -29,6 +27,8 @@ It exists to isolate coordinator connectivity, covert transport, round-state han
 - Coordinator/server implementation.
 - Multi-coordinator compatibility beyond the Electron Cash reference behavior defined here.
 - Generic Bitcoin Cash networking unrelated to CashFusion coordinator or covert transport behavior.
+- Mosaic protocol behavior, transport, role election, and interoperability, which are specified separately.
+- Protocol-neutral automatic engine selection after the configuration-level scaffold.
 
 ## 2. Normative Upstream References and Pinned Baseline
 
@@ -89,6 +89,7 @@ OpalFusion must implement the client side of one Electron Cash-compatible CashFu
 - Supporting multiple coordinator implementations.
 - Product policy such as when to fuse, how often to fuse, or which tiers a user should prefer.
 - Wallet UI and transaction-history presentation.
+- Mosaic execution or compatibility.
 
 ## 4. End-to-End CashFusion Round Lifecycle
 

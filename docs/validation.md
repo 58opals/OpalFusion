@@ -1,6 +1,6 @@
 # OpalFusion Validation Guide
 
-This guide separates the fast local loops from slow live CashFusion proofing. The default development loop should not depend on waiting for a real coordinator round.
+This guide separates fast deterministic package checks from slow live CashFusion proofing and future Mosaic conformance work. The default development loop should not depend on waiting for a real coordinator round.
 
 ## Default Local Loop
 
@@ -15,6 +15,8 @@ Run a build-only check when you only need package compilation:
 ```bash
 swift build
 ```
+
+The current OpalCrypto dependency compiles a Metal library through a SwiftPM build plugin. Install the matching Xcode Metal Toolchain component before running package builds; a missing component stops the dependency build before OpalFusion sources or tests compile.
 
 Use the validation wrapper when you want stable named loops:
 
@@ -31,11 +33,13 @@ Use the validation wrapper when you want stable named loops:
 
 The wrapper keeps the live Electron Cash coordinator proof disabled for deterministic modes, even when the caller has an interop flag in their shell environment.
 
-The local suite covers native protobuf primitives, official/manual CashFusion bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, and diagnostics.
+The local suite covers the protocol-neutral facade invariants, native protobuf primitives, official/manual CashFusion bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, and diagnostics.
 
 ## Coverage Boundary
 
-Passing `swift test` or `./scripts/run-validation-loop.sh all` means the deterministic package checks passed. It does not prove complete OpalFusion capability, complete Electron Cash compatibility, or successful operation against a real coordinator.
+Passing `swift test` or `./scripts/run-validation-loop.sh all` means the deterministic package checks passed. It does not prove complete OpalFusion capability, complete Electron Cash compatibility, successful operation against a real coordinator, or any live Mosaic support.
+
+The current Mosaic checks lock only API-level draft profile constants and automatic-selection configuration invariants. They do not test discovery, candidate agreement, role election, manifest agreement, commitments, transcript agreement, anonymous transport, signing, blame, retry, or multi-peer execution because those runtimes do not exist yet.
 
 The current local suite does not replace a live coordinator smoke, reviewed transcript replay, wallet/app integration validation, or host-owned policy checks for coin selection, funding, signing authority, persistence, broadcast, retry behavior, and user-facing fusion controls. Those responsibilities remain separate proof gates or downstream integration concerns.
 
@@ -54,6 +58,7 @@ swift test --filter PrimaryRuntimeSessionValidator
 swift test --filter LiveRuntimeDriverValidator
 swift test --filter ProductionWorkflowValidator
 swift test --filter ClientSessionValidator
+swift test --filter FusionFacadeScaffoldValidator
 ```
 
 Use these as fast feedback loops before running broader validation. They are deterministic and do not require coordinator credentials, wallet secrets, live UTXOs, Tor, or funded test material.
@@ -86,5 +91,6 @@ Use capture only after a configured live smoke actually executes and passes the 
 - Run `swift test` after changes that touch examples, public API references, protocol behavior, or validation docs.
 - Run the most relevant focused filter first when changing a narrow layer.
 - Run live smoke only when the goal is coordinator-backed proof and the environment is configured.
+- Update [Opal Fusion Specification](opal-fusion-specification.md), [Mosaic Protocol Specification](mosaic-protocol-specification.md), and [Mosaic Security Model](mosaic-security-model.md) together when shared boundaries or Mosaic invariants change.
 - Update [CashFusion Official Protocol Matrix](cashfusion-official-protocol-matrix.md) when row-level support status or test evidence changes.
 - Update [CashFusion Native Swift Support Statement](cashfusion-native-support-statement.md) when the public support claim or remaining proof gates change.

@@ -1,12 +1,15 @@
 # Opal Fusion
 
-Status: Pilot on `develop`. OpalFusion is not yet a final complete CashFusion support claim; the remaining proof gates are tracked in [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md).
+Status: the CashFusion engine is a pilot on `develop`; Mosaic is a draft specification and API scaffold with no live runtime claim. The remaining CashFusion proof gates are tracked in [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md).
 
-Opal Fusion is the CashFusion protocol and runtime package for the Opal Bitcoin Cash stack. It isolates coordinator connectivity, covert transport, round-state handling, commitments, blind-signature flow, transaction-signature submission, and blame handling behind a small Swift package boundary.
+Opal Fusion is the collaborative-transaction protocol package for the Opal Bitcoin Cash stack. It is the umbrella for the coordinator-based CashFusion compatibility engine and the peer-conducted Mosaic protocol, while OpalBase and Opal Wallet retain wallet policy, funds, signing authority, persistence, broadcast, and user experience.
 
 ## Source Of Truth
 
-- [CashFusion Implementation Spec](docs/cashfusion-implementation-spec.md): normative Electron Cash `4.4.3` protocol behavior, round lifecycle, timing, host seams, and package boundaries.
+- [Opal Fusion Specification](docs/opal-fusion-specification.md): normative product hierarchy, shared facade, engine selection, fallback, and host boundaries.
+- [Mosaic Protocol Specification](docs/mosaic-protocol-specification.md): draft peer-conducted protocol, roles, phases, manifest, transcript, transport contract, and release gates.
+- [Mosaic Security Model](docs/mosaic-security-model.md): Mosaic threats, trust assumptions, safe claims, privacy limits, and review gates.
+- [CashFusion Implementation Spec](docs/cashfusion-implementation-spec.md): normative Electron Cash `4.4.3` CashFusion behavior, round lifecycle, timing, and host seams.
 - [CashFusion Official Protocol Matrix](docs/cashfusion-official-protocol-matrix.md): row-level implementation status and test evidence against the pinned Electron Cash baseline.
 - [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md): current public support claim, intentional exclusions, and remaining proof gates.
 - [Integration Guide](docs/integration-guide.md): how app and OpalBase layers should wire OpalFusion.
@@ -22,7 +25,8 @@ Opal Fusion is the CashFusion protocol and runtime package for the Opal Bitcoin 
 
 ## Boundaries
 
-- Own CashFusion protocol/runtime behavior, coordinator-facing flow, round-state modeling, host integration seams, and interop-specific transport details.
+- Own CashFusion and Mosaic protocol execution, engine-specific transport behavior, shared lifecycle contracts, privacy-safe diagnostics, and host integration seams.
+- Keep the CashFusion fixed coordinator implementation outside this package; the eventual Mosaic engine may let a wallet process act as the ephemeral conductor for one attempt.
 - Do not own wallet UI, product-shell behavior, end-user fusion policy, transaction broadcast, or wallet persistence.
 - Do not own generic Bitcoin Cash app orchestration that belongs in `OpalBase`.
 - Do not own reusable cryptography that belongs in `OpalCrypto`.
@@ -32,7 +36,8 @@ Opal Fusion is the CashFusion protocol and runtime package for the Opal Bitcoin 
 
 - Swift tools version: `6.2`
 - Platforms: `macOS 26`
-- Current live transport support, including the Tor SOCKS5 covert path, is macOS-only in this package.
+- Xcode's Metal Toolchain component, required by the current OpalCrypto build plugin.
+- Current live CashFusion transport support, including the Tor SOCKS5 covert path, is macOS-only in this package. Mosaic has no live transport implementation.
 
 ## Installation
 
@@ -46,7 +51,7 @@ dependencies: [
 
 Do not treat `develop` as a SemVer release. The current pilot is intentionally narrow and remains blocked on repeated coordinator-backed confidence plus reviewed pinned transcript replay before a complete support claim.
 
-## 5-Minute Integration Shape
+## 5-Minute CashFusion Pilot Integration
 
 OpalFusion exposes a conservative public `OpalFusion.Client.Session` wrapper over the internal runtime. The app or OpalBase layer supplies coordinator configuration, join pools, participant reservation material, transaction finalization, and observers.
 
@@ -89,7 +94,30 @@ let snapshot = await session.currentSnapshot
 
 See [Integration Guide](docs/integration-guide.md) for host callback responsibilities, privacy boundaries, and supported participant material.
 
-## Current Pilot Envelope
+## Protocol-Neutral API Scaffold
+
+The package now reserves the protocol-neutral vocabulary without claiming a runnable Mosaic engine. `OpalFusion.Client.Session` remains the live CashFusion entry point; `OpalFusion.Session` intentionally has no public initializer yet.
+
+```swift
+let cashFusion = OpalFusion.CashFusion.Configuration(
+    coordinator: configuration,
+    genesisHash: optionalGenesisHash,
+    joinPools: joinPools
+)
+
+let mosaic = OpalFusion.Mosaic.Configuration()
+
+let automatic = try OpalFusion.Session.AutomaticConfiguration(
+    candidates: [.mosaic(mosaic), .cashFusion(cashFusion)],
+    fallbackPolicy: .beforeReservationOnly
+)
+
+let plannedMode = OpalFusion.Session.Mode.automatic(automatic)
+```
+
+Candidate order is supplied by OpalBase. Cross-engine fallback is permitted only before any wallet reservation; a failed active round becomes a new session attempt rather than an in-place protocol switch.
+
+## Current CashFusion Pilot Envelope
 
 - The supported live path is intentionally limited to compressed-key standard P2PKH participant inputs.
 - Each reserved input must include the compressed public key that matches its standard P2PKH locking script.
@@ -102,6 +130,8 @@ See [Integration Guide](docs/integration-guide.md) for host callback responsibil
 - Wiring OpalFusion into an app or OpalBase layer: [Integration Guide](docs/integration-guide.md)
 - Choosing the right local verification loop: [Validation Guide](docs/validation.md)
 - Understanding maintainers' package map: [Architecture Guide](docs/architecture.md)
+- Checking the shared facade and engine-selection contract: [Opal Fusion Specification](docs/opal-fusion-specification.md)
+- Reviewing the Mosaic design and its limits: [Mosaic Protocol Specification](docs/mosaic-protocol-specification.md) and [Mosaic Security Model](docs/mosaic-security-model.md)
 - Checking normative CashFusion behavior: [CashFusion Implementation Spec](docs/cashfusion-implementation-spec.md)
 - Checking row-level conformance and remaining gaps: [CashFusion Official Protocol Matrix](docs/cashfusion-official-protocol-matrix.md)
 - Checking the current support claim: [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md)

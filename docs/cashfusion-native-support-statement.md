@@ -1,10 +1,10 @@
 # CashFusion Native Swift Support Statement
 
-This statement defines the current OpalFusion CashFusion support claim and the evidence still required before claiming complete official CashFusion support.
+This statement defines only the current OpalFusion CashFusion-engine support claim and the evidence still required before claiming complete official CashFusion support. It makes no Mosaic implementation, interoperability, privacy, or production-readiness claim.
 
 ## Current Support Claim
 
-OpalFusion currently provides a native Swift client implementation for the Electron Cash `4.4.3` CashFusion `alpha13` protocol baseline. The supported scope is the client-side package surface: native protobuf wire handling, primary/covert protocol envelopes, client runtime lifecycle, production workflow materialization, blame/restart handling, and the live transport profile documented in the implementation spec.
+The OpalFusion CashFusion engine currently provides a native Swift client implementation for the Electron Cash `4.4.3` CashFusion `alpha13` protocol baseline. The supported scope is the client-side package surface: native protobuf wire handling, primary/covert protocol envelopes, client runtime lifecycle, production workflow materialization, blame/restart handling, and the live transport profile documented in the implementation spec.
 
 This is not yet a final 100% official CashFusion support claim. That final claim remains blocked until reviewed pinned Electron Cash transcript replay is committed and repeated env-gated live coordinator smoke passes on the supported pilot profile.
 
@@ -36,9 +36,10 @@ Complete support remains dependent on the proof gates below plus downstream vali
 
 ## Intentional Exclusions
 
-- Coordinator/server implementation remains outside this client package.
+- A fixed CashFusion coordinator/server implementation remains outside this client engine.
 - Broad Bitcoin Cash script support beyond the current compressed-key standard P2PKH pilot profile remains deferred.
 - Production coordinator defaults, multi-coordinator selection, app retry policy, wallet UI, and product-facing user policy remain app-owned.
+- Mosaic is covered only by its draft specification and API scaffold; it has no live support claim.
 
 ## Related Documents
 
@@ -49,3 +50,5 @@ Complete support remains dependent on the proof gates below plus downstream vali
 - Fast local validation and focused filters: [`validation.md`](validation.md)
 - App and OpalBase integration: [`integration-guide.md`](integration-guide.md)
 - Maintainer architecture map: [`architecture.md`](architecture.md)
+- Shared facade and engine selection: [`opal-fusion-specification.md`](opal-fusion-specification.md)
+- Mosaic draft and security boundary: [`mosaic-protocol-specification.md`](mosaic-protocol-specification.md) and [`mosaic-security-model.md`](mosaic-security-model.md)
