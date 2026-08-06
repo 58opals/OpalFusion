@@ -3,7 +3,7 @@
 import OpalDiagnostics
 
 public extension OpalFusion.Host {
-    /// Wallet-owned output reservation material for one CashFusion participant component.
+    /// Wallet-owned output reservation material for one collaborative-fusion participant component.
     ///
     /// Locking scripts can encode addresses or address-equivalent material. Treat this value as host-owned and diagnostics-private.
     struct ParticipantOutput: Sendable, Equatable {

@@ -1,6 +1,6 @@
 # Opal Fusion
 
-Status: the CashFusion engine is a pilot on `develop`; Mosaic is a draft specification and API scaffold with no live runtime claim. The remaining CashFusion proof gates are tracked in [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md).
+Status: the CashFusion engine is a pilot on `develop`; Mosaic is a draft specification with a deterministic in-process semantic core, canonical primitive codec, and wallet-host contract, but no discovery, transport, wire-message, or live runtime claim. The remaining CashFusion proof gates are tracked in [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md).
 
 Opal Fusion is the collaborative-transaction protocol package for the Opal Bitcoin Cash stack. It is the umbrella for the coordinator-based CashFusion compatibility engine and the peer-conducted Mosaic protocol, while OpalBase and Opal Wallet retain wallet policy, funds, signing authority, persistence, broadcast, and user experience.
 
@@ -96,7 +96,7 @@ See [Integration Guide](docs/integration-guide.md) for host callback responsibil
 
 ## Protocol-Neutral API Scaffold
 
-The package now reserves the protocol-neutral vocabulary without claiming a runnable Mosaic engine. `OpalFusion.Client.Session` remains the live CashFusion entry point; `OpalFusion.Session` intentionally has no public initializer yet.
+The package now includes the protocol-neutral facade plus an internal peer-local Mosaic semantic core, deterministic multi-peer simulator, canonical primitive codec, and a narrow wallet-host contract. These surfaces consume already-validated facts and do not make Mosaic runnable over a network. `OpalFusion.Client.Session` remains the live CashFusion entry point; `OpalFusion.Session` intentionally has no public initializer yet.
 
 ```swift
 let cashFusion = OpalFusion.CashFusion.Configuration(

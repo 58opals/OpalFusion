@@ -39,7 +39,7 @@ Complete support remains dependent on the proof gates below plus downstream vali
 - A fixed CashFusion coordinator/server implementation remains outside this client engine.
 - Broad Bitcoin Cash script support beyond the current compressed-key standard P2PKH pilot profile remains deferred.
 - Production coordinator defaults, multi-coordinator selection, app retry policy, wallet UI, and product-facing user policy remain app-owned.
-- Mosaic is covered only by its draft specification and API scaffold; it has no live support claim.
+- Mosaic is covered by its draft specification, deterministic in-process semantic core, and integration contracts; it has no live support claim.
 
 ## Related Documents
 

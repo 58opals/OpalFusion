@@ -3,7 +3,7 @@
 import OpalDiagnostics
 
 public extension OpalFusion.Host {
-    /// Wallet-owned input reservation material for one CashFusion participant component.
+    /// Wallet-owned input reservation material for one collaborative-fusion participant component.
     ///
     /// Outpoints, locking scripts, and public keys can identify wallet activity. Treat this whole value as host-owned and diagnostics-private.
     struct ParticipantInput: Sendable, Equatable {

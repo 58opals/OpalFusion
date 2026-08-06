@@ -155,7 +155,7 @@ Before independent review, acceptable wording is limited to:
 
 - "Mosaic is a draft peer-to-peer fusion protocol with no fixed coordinator service."
 - "Mosaic is designed so contributors retain their signing keys."
-- "The current repository contains specification and API scaffolding; no live Mosaic support is claimed."
+- "The current repository contains a deterministic in-process semantic core and integration contracts; no live, interoperable, private, or production-ready Mosaic support is claimed."
 
 The following claims are prohibited without later evidence:
 

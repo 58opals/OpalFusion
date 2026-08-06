@@ -98,7 +98,7 @@ actor SigningTransactionAssembler: OpalFusion.Host.TransactionAssembler {
                 privateKey: OpalCrypto.Secp256k1.PrivateKey(
                     rawRepresentation: Data(participantInputPrivateKey)
                 ),
-                noncePolicy: .bip340Deterministic
+                noncePolicy: .bchDeterministic
             ).rawRepresentation
         )
 

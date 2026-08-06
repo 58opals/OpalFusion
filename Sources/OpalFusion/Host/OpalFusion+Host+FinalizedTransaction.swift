@@ -3,9 +3,9 @@
 import OpalDiagnostics
 
 public extension OpalFusion.Host {
-    /// The host-owned, signed CashFusion transaction bytes returned after wallet-side validation and signing.
+    /// Host-owned signed collaborative-transaction bytes returned after wallet-side validation and signing.
     ///
-    /// OpalFusion consumes these bytes to extract the local covert signatures required by the protocol. Broadcast, persistence, and wallet transaction ownership remain outside this package.
+    /// An engine may consume these bytes to extract its local signatures. Broadcast, persistence, and wallet transaction ownership remain outside this package.
     struct FinalizedTransaction: Sendable, Equatable {
         /// The full BCH wire-format signed fusion transaction bytes returned by the host.
         public let signedFusionTransactionBytes: [UInt8]

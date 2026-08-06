@@ -39,7 +39,7 @@ The local suite covers the protocol-neutral facade invariants, native protobuf p
 
 Passing `swift test` or `./scripts/run-validation-loop.sh all` means the deterministic package checks passed. It does not prove complete OpalFusion capability, complete Electron Cash compatibility, successful operation against a real coordinator, or any live Mosaic support.
 
-The current Mosaic checks lock only API-level draft profile constants and automatic-selection configuration invariants. They do not test discovery, candidate agreement, role election, manifest agreement, commitments, transcript agreement, anonymous transport, signing, blame, retry, or multi-peer execution because those runtimes do not exist yet.
+The current Mosaic checks cover roster and phase invariants, manifest and transcript gates, terminal and retry behavior, peer-local generation guards, deterministic 7–9-peer semantic simulation, Section 8 canonical primitives, and structural wallet-host bindings. They consume already-validated facts and do not prove discovery, named wire-message layouts, control signatures, mailbox encryption, anonymous transport, fee allocation, blame cryptography, or live execution.
 
 The current local suite does not replace a live coordinator smoke, reviewed transcript replay, wallet/app integration validation, or host-owned policy checks for coin selection, funding, signing authority, persistence, broadcast, retry behavior, and user-facing fusion controls. Those responsibilities remain separate proof gates or downstream integration concerns.
 
