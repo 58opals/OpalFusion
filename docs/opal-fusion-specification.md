@@ -1,6 +1,6 @@
 # Opal Fusion Specification
 
-Status: Draft architecture contract. The CashFusion engine has a live pilot implementation. The Mosaic engine and the protocol-neutral session facade are specification and API scaffolding only.
+Status: Draft architecture contract. The CashFusion engine has a live pilot implementation. Mosaic has specification and API scaffolding plus an internal deterministic attempt core, while the live Mosaic engine and protocol-neutral session facade remain unimplemented.
 
 This document defines the Opal Fusion product hierarchy, engine-selection contract, shared session boundary, and source-of-truth order. It does not redefine the CashFusion or Mosaic wire protocols.
 
@@ -36,7 +36,7 @@ The word *serverless* SHOULD NOT be used as a protocol guarantee. Mosaic has no 
 | Engine | Mode case | Protocol identity | Current status |
 |---|---|---|---|
 | CashFusion | `.cashFusion(configuration)` | Electron Cash `alpha13` under the pinned `4.4.3` profile | Live pilot |
-| Mosaic | `.mosaic(configuration)` | `Mosaic/1-draft.1` | Specification and API scaffold |
+| Mosaic | `.mosaic(configuration)` | `Mosaic/1-draft.1` | Specification, API scaffold, and internal attempt core |
 
 An engine identity names protocol semantics, not network topology. Public mode cases therefore MUST use `.cashFusion` and `.mosaic`; `.server` and `.peerToPeer` are not engine identifiers.
 

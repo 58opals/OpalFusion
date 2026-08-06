@@ -16,12 +16,14 @@ OpalFusion contains two named engines: CashFusion for coordinator-based Electron
 
 - `OpalFusion.Client.Session` is the only runnable session. It executes the CashFusion pilot.
 - `OpalFusion.CashFusion.Configuration` aggregates the values consumed by that live client and prepares an engine-specific configuration boundary.
-- `OpalFusion.Mosaic.Configuration`, `ProtocolVersion`, `RosterPolicy`, `Role`, and `TransportProfile` describe the draft profile only. No Mosaic discovery, transport, cryptography, or round runtime is implemented.
+- `OpalFusion.Mosaic.Configuration`, `ProtocolVersion`, `RosterPolicy`, `Role`, and `TransportProfile` describe the draft profile. An internal deterministic attempt reducer enforces the bounded phase, roster, reservation, transcript, and terminal rules, but no Mosaic discovery, transport, cryptography, host integration, or live round runtime is implemented.
 - `OpalFusion.Session.Mode` defines `.cashFusion`, `.mosaic`, and ordered `.automatic` selection.
 - `OpalFusion.Session.AutomaticConfiguration` rejects an empty candidate set and duplicate engines and makes fallback policy explicit.
 - `OpalFusion.Session` intentionally has no public initializer or runtime methods until engine selection and wallet reservation can be enforced as one safe operation.
 
 The package currently uses one Swift target. This keeps the existing CashFusion implementation source-compatible while the common facade is stabilized.
+
+The Mosaic attempt reducer consumes explicitly validated aggregate facts and emits effects for reservation eligibility, signing eligibility, reservation release, and terminal outcomes. It does not define wire messages, perform cryptography, reserve wallet funds, sign transactions, or make the public `OpalFusion.Session` runnable.
 
 ## Current CashFusion Layer Map
 
