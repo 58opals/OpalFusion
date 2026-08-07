@@ -1,6 +1,6 @@
 # Mosaic Opal v0 Conformance Profile
 
-Status: Implemented deterministic conformance profile. Profile identifier: `Mosaic/0-opal.1`. Transport identifier: `nostr-conformance/0-opal.1`. This profile is chipnet-only and does not provide a live Mosaic session, anonymous transport, production cryptography, privacy evidence, or mainnet support.
+Status: Implemented deterministic conformance profile. Profile identifier: `Mosaic/0-opal.1`. Transport identifier: `nostr-conformance/0-opal.1`. This profile is chipnet-only and does not provide a live Mosaic session, anonymous transport, independently reviewed production cryptography, privacy evidence, or mainnet support.
 
 This document freezes the Opal-owned choices needed to validate deterministic cross-package contracts while the generic [`Mosaic/1-draft.1`](mosaic-protocol-specification.md) design remains incomplete. It is not a claim that independent implementations can run a live round.
 
@@ -26,13 +26,13 @@ The default `Mosaic.Configuration()` remains `.draft1` for source behavior compa
 
 The profile selects [RFC 9474](https://www.rfc-editor.org/rfc/rfc9474.html) `RSABSSA-SHA384-PSS-Randomized` with RSA-2048, public exponent 65,537, SHA-384, MGF1-SHA384, a 48-byte PSS salt, and a fresh 32-byte randomized-message prefix. Encoded blinded messages, blind-signature responses, and finalized signatures are each 256 bytes. The attempt uses a fresh, attempt-exclusive signing key. The key identifier is `SHA256` of the validated SubjectPublicKeyInfo document; profile adapters must validate the `id-RSASSA-PSS` parameters described by [RFC 9578](https://www.rfc-editor.org/rfc/rfc9578.html) before treating a key identifier as valid.
 
-OpalCrypto currently validates these parameter and byte-shape contracts only. It intentionally provides no RSA key generation, blinding, evaluation, finalization, or verification implementation. OpalFusion exposes only an internal fail-closed evaluator seam until a vetted provider is integrated.
+OpalCrypto implements this bounded profile with opaque nonpersistent RSA-2048 signing keys, operating-system randomness, strict PSS SubjectPublicKeyInfo validation, client blinding, raw-signing fault checks, finalization, and signature verification. Its client path matches the published RFC 9474 randomized SHA-384/PSS vector. OpalFusion adds an internal attempt-scoped evaluator and contributor-local request/finalization adapter; an explicitly unavailable evaluator remains fail-closed. These operations have not completed independent cryptographic or side-channel review and do not make the profile live or production-ready.
 
 Each contributor has exactly 23 component-authorization request slots numbered `0...22`. The conductor evaluates no request until all 23 slots from every contributor are present. An exact duplicate request is idempotent and reuses the cached response; a different request in an occupied slot terminates the attempt. The ledger never accepts conductor or unknown-contributor requests. A provider failure terminates the attempt.
 
 The canonical component-token input contains the profile/component-authorization domain, chipnet genesis hash, 32-byte round identifier, validated 32-byte authorization-key identifier, and fresh 32-byte nonce. A token's spent identifier is derived from this canonical input, not from the randomized prefix or finalized randomized signature.
 
-These rules constrain issuance and replay accounting. They do not by themselves prove blindness or one-more unforgeability of a future provider.
+These rules constrain issuance and replay accounting. Passing the deterministic and published-vector tests does not itself prove blindness, one-more unforgeability, or side-channel resistance.
 
 ## 3. Transcript And Signing Binding
 
@@ -90,11 +90,11 @@ This rigid transaction contract exists for deterministic chipnet conformance. It
 
 ## 6. Implemented And Deferred Boundaries
 
-Implemented deterministic boundaries include the phase and terminal reducer, roster validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, token replay identifiers, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
+Implemented deterministic boundaries include the phase and terminal reducer, roster validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
 
 The following remain blocked or deferred:
 
-- a vetted RSA blind-signature provider with parameter, fault, timing, and one-more-security review;
+- independent parameter, fault, timing, side-channel, and one-more-security review of the RSA blind-signature provider;
 - complete reviewed component, Pedersen, proof, and named wire-message schemas with golden vectors;
 - discovery proof-of-work and timing values based on device measurements;
 - live Nostr relay and Tor-only transport adapters with traffic-analysis testing;

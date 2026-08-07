@@ -103,7 +103,7 @@ let mode = OpalFusion.Session.Mode.automatic(automatic)
 
 This produces configuration values only. It does not perform availability checks, reserve wallet inputs, instantiate `OpalFusion.Session`, or start Mosaic. OpalBase will eventually supply candidate order and availability policy before OpalFusion pins one engine; after reservation begins, no cross-engine fallback is permitted.
 
-Use `OpalFusion.Mosaic.Configuration(profile: .opalV0)` only for deterministic chipnet conformance work. Selecting it does not make a live Mosaic runtime, relay transport, Tor path, or RSA blind-signature provider available.
+Use `OpalFusion.Mosaic.Configuration(profile: .opalV0)` only for deterministic chipnet conformance work. The profile has an internal RSA blind-signature execution adapter, but selecting it does not make a live Mosaic runtime, relay transport, Tor path, independently reviewed cryptographic deployment, or public session available.
 
 ## Next References
 

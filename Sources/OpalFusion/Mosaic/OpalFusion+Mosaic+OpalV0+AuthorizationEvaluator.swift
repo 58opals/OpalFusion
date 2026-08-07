@@ -3,32 +3,39 @@
 import OpalCrypto
 
 extension OpalFusion.Mosaic.OpalV0 {
-    /// The narrow boundary for a future vetted RSABSSA implementation.
-    struct AuthorizationEvaluator: Sendable {
+    /// Attempt-scoped evaluation of blinded component authorizations.
+    enum AuthorizationEvaluator: Sendable {
         enum Failure: Error, Sendable, Equatable {
             case unavailable
         }
 
-        private let operation: @Sendable (
-            OpalCrypto.RSABSSA.BlindedMessage
-        ) throws -> OpalCrypto.RSABSSA.BlindSignature
+        case active(OpalCrypto.RSABSSA.SigningKey)
+        case unavailable
 
-        init(
-            operation: @escaping @Sendable (
-                OpalCrypto.RSABSSA.BlindedMessage
-            ) throws -> OpalCrypto.RSABSSA.BlindSignature
-        ) {
-            self.operation = operation
+        /// Generates a fresh evaluator for exactly one Mosaic attempt.
+        static func generate() throws -> Self {
+            .active(try OpalCrypto.RSABSSA.SigningKey.generate())
+        }
+
+        /// The verification key that must be committed by the attempt manifest.
+        var verificationKey: OpalCrypto.RSABSSA.VerificationKey? {
+            switch self {
+            case let .active(signingKey):
+                signingKey.verificationKey
+            case .unavailable:
+                nil
+            }
         }
 
         func evaluate(
             _ blindedMessage: OpalCrypto.RSABSSA.BlindedMessage
         ) throws -> OpalCrypto.RSABSSA.BlindSignature {
-            try operation(blindedMessage)
-        }
-
-        static let unavailable = Self { _ in
-            throw Failure.unavailable
+            switch self {
+            case let .active(signingKey):
+                try signingKey.blindSign(blindedMessage)
+            case .unavailable:
+                throw Failure.unavailable
+            }
         }
     }
 }

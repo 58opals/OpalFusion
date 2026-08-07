@@ -203,13 +203,117 @@ struct MosaicOpalV0AuthorizationValidator {
         )
     }
 
-    @Test("Fail closed when no vetted RSABSSA evaluator is installed")
+    @Test("Fail closed when the RSABSSA evaluator is unavailable")
     func failClosedWithoutEvaluator() throws {
         #expect(throws: OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator.Failure.unavailable) {
             _ = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator.unavailable.evaluate(
                 try blindedMessage(1)
             )
         }
+    }
+
+    @Test("Issue and verify one attempt-bound component authorization")
+    func issueAndVerifyAuthorization() throws {
+        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
+            .generate()
+        let verificationKey = try #require(evaluator.verificationKey)
+        let input = try authorizationInput(
+            verificationKey: verificationKey,
+            nonceByte: 0x31
+        )
+        let request = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
+            input: input,
+            using: verificationKey
+        )
+        let response = try evaluator.evaluate(request.blindedMessage)
+        let token = try request.finalize(response)
+
+        #expect(token.input == input)
+        #expect(token.verify(using: verificationKey))
+        #expect(token.spentIdentifier == input.spentIdentifier)
+    }
+
+    @Test("Reject substituted authorization keys and token material")
+    func rejectSubstitutedAuthorizationMaterial() throws {
+        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
+            .generate()
+        let verificationKey = try #require(evaluator.verificationKey)
+        let otherKey = try OpalCrypto.RSABSSA.SigningKey.generate()
+            .verificationKey
+        let input = try authorizationInput(
+            verificationKey: verificationKey,
+            nonceByte: 0x41
+        )
+
+        #expect(
+            throws: OpalFusion.Mosaic.OpalV0.AuthorizationRequest.Failure
+                .verificationKeyIdentifierMismatch
+        ) {
+            _ = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
+                input: input,
+                using: otherKey
+            )
+        }
+
+        let request = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
+            input: input,
+            using: verificationKey
+        )
+        #expect(throws: OpalCrypto.RSABSSA.Error.invalidBlindSignature) {
+            _ = try request.finalize(
+                .init(rawRepresentation: Data(repeating: 0, count: 256))
+            )
+        }
+        let token = try request.finalize(
+            evaluator.evaluate(request.blindedMessage)
+        )
+        #expect(!token.verify(using: otherKey))
+
+        let alteredInput = try authorizationInput(
+            verificationKey: verificationKey,
+            nonceByte: 0x42
+        )
+        let inputSubstitution = OpalFusion.Mosaic.OpalV0.AuthorizationToken(
+            input: alteredInput,
+            messageRandomizer: token.messageRandomizer,
+            signature: token.signature
+        )
+        #expect(!inputSubstitution.verify(using: verificationKey))
+
+        var alteredSignature = token.signature.rawRepresentation
+        alteredSignature[alteredSignature.startIndex] ^= 0x01
+        let signatureSubstitution = OpalFusion.Mosaic.OpalV0.AuthorizationToken(
+            input: input,
+            messageRandomizer: token.messageRandomizer,
+            signature: try .init(rawRepresentation: alteredSignature)
+        )
+        #expect(!signatureSubstitution.verify(using: verificationKey))
+    }
+
+    @Test("Complete the fixed 23-authorization contributor batch")
+    func completeContributorAuthorizationBatch() throws {
+        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
+            .generate()
+        let verificationKey = try #require(evaluator.verificationKey)
+        var spentIdentifiers: Set<[UInt8]> = []
+
+        for slot in 0 ..< 23 {
+            let input = try authorizationInput(
+                verificationKey: verificationKey,
+                nonceByte: UInt8(slot)
+            )
+            let request = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
+                input: input,
+                using: verificationKey
+            )
+            let token = try request.finalize(
+                evaluator.evaluate(request.blindedMessage)
+            )
+            #expect(token.verify(using: verificationKey))
+            spentIdentifiers.insert(token.spentIdentifier)
+        }
+
+        #expect(spentIdentifiers.count == 23)
     }
 
     @Test("Derive replay identity from token input rather than randomized signature")
@@ -281,6 +385,17 @@ struct MosaicOpalV0AuthorizationValidator {
                     role: index == 0 ? .conductor : .contributor
                 )
             }
+        )
+    }
+
+    private func authorizationInput(
+        verificationKey: OpalCrypto.RSABSSA.VerificationKey,
+        nonceByte: UInt8
+    ) throws -> OpalFusion.Mosaic.OpalV0.AuthorizationTokenInput {
+        try .init(
+            roundIdentifier: Array(repeating: 0x21, count: 32),
+            keyIdentifier: [UInt8](verificationKey.keyIdentifier),
+            nonce: Array(repeating: nonceByte, count: 32)
         )
     }
 

@@ -1,6 +1,6 @@
 # Opal Fusion Specification
 
-Status: Draft architecture contract. The CashFusion engine has a live pilot implementation. Mosaic has specification and API scaffolding plus internal aggregate and peer-local attempt cores, an Opal-owned chipnet conformance profile, canonical primitive coding, deterministic simulation, strict NIP-01 event validation, an authenticated NIP-44 boundary, replay and relay-publication guards, deterministic authorization accounting, transcript-bound wallet-host contracts, and no live session; discovery, complete named wire messages, transport adapters, production blind cryptography, live effects, and the protocol-neutral session runtime remain unimplemented.
+Status: Draft architecture contract. The CashFusion engine has a live pilot implementation. Mosaic has specification and API scaffolding plus internal aggregate and peer-local attempt cores, an Opal-owned chipnet conformance profile, canonical primitive coding, deterministic simulation, strict NIP-01 event validation, an authenticated NIP-44 boundary, replay and relay-publication guards, deterministic authorization accounting and bounded RFC 9474 execution, transcript-bound wallet-host contracts, and no live session; discovery, complete named wire messages, transport adapters, independently reviewed cryptographic deployment, live effects, and the protocol-neutral session runtime remain unimplemented.
 
 This document defines the Opal Fusion product hierarchy, engine-selection contract, shared session boundary, and source-of-truth order. It does not redefine the CashFusion or Mosaic wire protocols.
 
@@ -63,7 +63,7 @@ let session = OpalFusion.Session(
 
 The current scaffold publishes the mode and configuration vocabulary but does not publish a runnable protocol-neutral initializer. Until that facade is implemented, `OpalFusion.Client.Session` remains the only live CashFusion session API.
 
-`OpalFusion.CashFusion.Configuration` currently aggregates coordinator connection, optional genesis hash, join-pool, and reconnect values already consumed by the live CashFusion client. `OpalFusion.Mosaic.Configuration` selects one authoritative `.draft1` or `.opalV0` profile and derives its protocol, roster, and transport contracts; it is not a complete deployment configuration and cannot supply relays, anonymous transport, production cryptography, or a runtime.
+`OpalFusion.CashFusion.Configuration` currently aggregates coordinator connection, optional genesis hash, join-pool, and reconnect values already consumed by the live CashFusion client. `OpalFusion.Mosaic.Configuration` selects one authoritative `.draft1` or `.opalV0` profile and derives its protocol, roster, and transport contracts; it is not a complete deployment configuration and cannot supply relays, anonymous transport, independently reviewed cryptography, or a runtime.
 
 ### 5.1 Mode
 

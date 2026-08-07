@@ -64,5 +64,20 @@ extension OpalFusion.Mosaic.OpalV0 {
         var spentIdentifier: [UInt8] {
             input.spentIdentifier
         }
+
+        /// Verifies the input/key binding and randomized RSABSSA signature.
+        func verify(
+            using verificationKey: OpalCrypto.RSABSSA.VerificationKey
+        ) -> Bool {
+            guard Data(input.keyIdentifier)
+                == verificationKey.keyIdentifier else {
+                return false
+            }
+            return signature.verify(
+                message: Data(input.canonicalBytes),
+                messageRandomizer: messageRandomizer,
+                using: verificationKey
+            )
+        }
     }
 }
