@@ -5,7 +5,7 @@ public extension OpalFusion.Host {
     struct MosaicTransactionSigningRequest: Sendable, Equatable {
         public let reservationReference: MosaicReservationReference
         public let roundIdentifier: [UInt8]
-        public let transcriptRoot: [UInt8]
+        public let transcriptBinding: MosaicTranscriptBinding
         public let unsignedTransactionBytes: [UInt8]
         public let spentInputs: [ParticipantInput]
         public let localInputIndices: [Int]
@@ -18,7 +18,7 @@ public extension OpalFusion.Host {
         public init(
             reservationReference: MosaicReservationReference,
             roundIdentifier: [UInt8],
-            transcriptRoot: [UInt8],
+            transcriptBinding: MosaicTranscriptBinding,
             unsignedTransactionBytes: [UInt8],
             spentInputs: [ParticipantInput],
             localInputIndices: [Int],
@@ -33,13 +33,13 @@ public extension OpalFusion.Host {
                     actual: roundIdentifier.count
                 )
             }
-            guard transcriptRoot.count == 32 else {
-                throw MosaicHostContractError.invalidTranscriptRootLength(
-                    actual: transcriptRoot.count
-                )
-            }
             guard !unsignedTransactionBytes.isEmpty else {
                 throw MosaicHostContractError.emptyUnsignedTransaction
+            }
+            guard transcriptBinding.matches(
+                unsignedTransactionBytes: unsignedTransactionBytes
+            ) else {
+                throw MosaicHostContractError.unsignedTransactionTranscriptMismatch
             }
             guard !spentInputs.isEmpty else {
                 throw MosaicHostContractError.emptySpentInputs
@@ -104,7 +104,7 @@ public extension OpalFusion.Host {
 
             self.reservationReference = reservationReference
             self.roundIdentifier = Array(roundIdentifier)
-            self.transcriptRoot = Array(transcriptRoot)
+            self.transcriptBinding = transcriptBinding
             self.unsignedTransactionBytes = Array(unsignedTransactionBytes)
             self.spentInputs = spentInputs
             self.localInputIndices = localInputIndices
@@ -113,6 +113,10 @@ public extension OpalFusion.Host {
             self.minimumExcessFeeSatoshis = minimumExcessFeeSatoshis
             self.maximumExcessFeeSatoshis = maximumExcessFeeSatoshis
             self.transactionProfileIdentifier = transactionProfileIdentifier
+        }
+
+        public var transcriptRoot: [UInt8] {
+            transcriptBinding.transcriptRoot
         }
     }
 }

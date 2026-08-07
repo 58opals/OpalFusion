@@ -28,7 +28,9 @@ struct MosaicHostContractValidator {
         let signingRequest = try OpalFusion.Host.MosaicTransactionSigningRequest(
             reservationReference: reference,
             roundIdentifier: request.roundIdentifier,
-            transcriptRoot: Array(repeating: 0x44, count: 32),
+            transcriptBinding: try makeTranscriptBinding(
+                unsignedTransactionBytes: [0x02, 0x00]
+            ),
             unsignedTransactionBytes: [0x02, 0x00],
             spentInputs: participant.inputs,
             localInputIndices: [0],
@@ -43,6 +45,109 @@ struct MosaicHostContractValidator {
         #expect(signingRequest.reservationReference == reference)
         #expect(signingRequest.roundIdentifier == request.roundIdentifier)
         #expect(signingRequest.localInputIndices == [0])
+        #expect(signingRequest.transcriptRoot == signingRequest.transcriptBinding.transcriptRoot)
+    }
+
+    @Test("Transcript bindings reject malformed digests, wrong roots, and substituted transactions")
+    func rejectInvalidTranscriptBindings() throws {
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .invalidManifestDigestLength(actual: 31)
+        ) {
+            _ = try makeTranscriptBinding(
+                manifestDigest: Array(repeating: 0x41, count: 31),
+                unsignedTransactionBytes: [0x02]
+            )
+        }
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .invalidCommitmentSetDigestLength(actual: 31)
+        ) {
+            _ = try makeTranscriptBinding(
+                commitmentSetDigest: Array(repeating: 0x42, count: 31),
+                unsignedTransactionBytes: [0x02]
+            )
+        }
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .invalidComponentSetDigestLength(actual: 33)
+        ) {
+            _ = try makeTranscriptBinding(
+                componentSetDigest: Array(repeating: 0x43, count: 33),
+                unsignedTransactionBytes: [0x02]
+            )
+        }
+        #expect(throws: OpalFusion.Host.MosaicHostContractError.emptyUnsignedTransaction) {
+            _ = try makeTranscriptBinding(unsignedTransactionBytes: [])
+        }
+
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .invalidTranscriptRootLength(actual: 31)
+        ) {
+            _ = try OpalFusion.Host.MosaicTranscriptBinding(
+                profile: .opalV0,
+                manifestDigest: Array(repeating: 0x41, count: 32),
+                commitmentSetDigest: Array(repeating: 0x42, count: 32),
+                componentSetDigest: Array(repeating: 0x43, count: 32),
+                unsignedTransactionBytes: [0x02],
+                acknowledgedTranscriptRoot: Array(repeating: 0, count: 31)
+            )
+        }
+
+        #expect(throws: OpalFusion.Host.MosaicHostContractError.transcriptRootMismatch) {
+            _ = try OpalFusion.Host.MosaicTranscriptBinding(
+                profile: .opalV0,
+                manifestDigest: Array(repeating: 0x41, count: 32),
+                commitmentSetDigest: Array(repeating: 0x42, count: 32),
+                componentSetDigest: Array(repeating: 0x43, count: 32),
+                unsignedTransactionBytes: [0x02],
+                acknowledgedTranscriptRoot: Array(repeating: 0, count: 32)
+            )
+        }
+
+        let reference = OpalFusion.Host.MosaicReservationReference(
+            identifier: UUID(),
+            generation: 4
+        )
+        let binding = try makeTranscriptBinding(unsignedTransactionBytes: [0x02])
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .unsignedTransactionTranscriptMismatch
+        ) {
+            _ = try OpalFusion.Host.MosaicTransactionSigningRequest(
+                reservationReference: reference,
+                roundIdentifier: Array(repeating: 0x33, count: 32),
+                transcriptBinding: binding,
+                unsignedTransactionBytes: [0x03],
+                spentInputs: [makeInput()],
+                localInputIndices: [0],
+                expectedLocalOutputs: [makeOutput()],
+                feeRateSatoshisPerByte: 1,
+                minimumExcessFeeSatoshis: 100,
+                maximumExcessFeeSatoshis: 200,
+                transactionProfileIdentifier: "mosaic-bch-p2pkh-draft"
+            )
+        }
+
+        let commonManifest = Array(repeating: UInt8(0x41), count: 32)
+        let commonCommitments = Array(repeating: UInt8(0x42), count: 32)
+        let commonComponents = Array(repeating: UInt8(0x43), count: 32)
+        let draftRoot = try OpalFusion.Host.MosaicTranscriptBinding.transcriptRoot(
+            profile: .draft1,
+            manifestDigest: commonManifest,
+            commitmentSetDigest: commonCommitments,
+            componentSetDigest: commonComponents,
+            unsignedTransactionBytes: [0x02]
+        )
+        let opalRoot = try OpalFusion.Host.MosaicTranscriptBinding.transcriptRoot(
+            profile: .opalV0,
+            manifestDigest: commonManifest,
+            commitmentSetDigest: commonCommitments,
+            componentSetDigest: commonComponents,
+            unsignedTransactionBytes: [0x02]
+        )
+        #expect(draftRoot != opalRoot)
     }
 
     @Test("Reservation requests reject malformed attempt, network, round, and profile bindings")

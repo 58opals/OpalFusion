@@ -32,11 +32,14 @@ extension MosaicHostContractValidator {
         spentInputs: [OpalFusion.Host.ParticipantInput]? = nil,
         expectedLocalOutputs: [OpalFusion.Host.ParticipantOutput]? = nil
     ) throws -> OpalFusion.Host.MosaicTransactionSigningRequest {
-        try .init(
+        let unsignedTransactionBytes: [UInt8] = [0x02]
+        return try .init(
             reservationReference: reference,
             roundIdentifier: Array(repeating: 0x33, count: 32),
-            transcriptRoot: Array(repeating: 0x44, count: 32),
-            unsignedTransactionBytes: [0x02],
+            transcriptBinding: try makeTranscriptBinding(
+                unsignedTransactionBytes: unsignedTransactionBytes
+            ),
+            unsignedTransactionBytes: unsignedTransactionBytes,
             spentInputs: spentInputs ?? [makeInput()],
             localInputIndices: localInputIndices,
             expectedLocalOutputs: expectedLocalOutputs ?? [makeOutput()],
@@ -44,6 +47,30 @@ extension MosaicHostContractValidator {
             minimumExcessFeeSatoshis: 100,
             maximumExcessFeeSatoshis: 200,
             transactionProfileIdentifier: "mosaic-bch-p2pkh-draft"
+        )
+    }
+
+    func makeTranscriptBinding(
+        profile: OpalFusion.Mosaic.Profile = .draft1,
+        manifestDigest: [UInt8] = Array(repeating: 0x41, count: 32),
+        commitmentSetDigest: [UInt8] = Array(repeating: 0x42, count: 32),
+        componentSetDigest: [UInt8] = Array(repeating: 0x43, count: 32),
+        unsignedTransactionBytes: [UInt8]
+    ) throws -> OpalFusion.Host.MosaicTranscriptBinding {
+        let root = try OpalFusion.Host.MosaicTranscriptBinding.transcriptRoot(
+            profile: profile,
+            manifestDigest: manifestDigest,
+            commitmentSetDigest: commitmentSetDigest,
+            componentSetDigest: componentSetDigest,
+            unsignedTransactionBytes: unsignedTransactionBytes
+        )
+        return try .init(
+            profile: profile,
+            manifestDigest: manifestDigest,
+            commitmentSetDigest: commitmentSetDigest,
+            componentSetDigest: componentSetDigest,
+            unsignedTransactionBytes: unsignedTransactionBytes,
+            acknowledgedTranscriptRoot: root
         )
     }
 

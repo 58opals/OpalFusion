@@ -7,6 +7,11 @@ public extension OpalFusion.Host {
         case invalidNetworkGenesisHashLength(actual: Int)
         case invalidRoundIdentifierLength(actual: Int)
         case invalidTranscriptRootLength(actual: Int)
+        case invalidManifestDigestLength(actual: Int)
+        case invalidCommitmentSetDigestLength(actual: Int)
+        case invalidComponentSetDigestLength(actual: Int)
+        case transcriptRootMismatch
+        case unsignedTransactionTranscriptMismatch
         case invalidComponentCount(actual: Int)
         case invalidExcessFeeRange(minimum: UInt64, maximum: UInt64)
         case emptyTransactionProfileIdentifier
@@ -14,6 +19,7 @@ public extension OpalFusion.Host {
         case emptyReservationInputs
         case emptyReservationOutputs
         case emptyUnsignedTransaction
+        case unsignedTransactionTooLarge(actual: Int)
         case emptyCompleteTransaction
         case emptySpentInputs
         case emptyLocalInputIndices

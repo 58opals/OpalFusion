@@ -13,6 +13,7 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**, 
 ## 2. Status And Compatibility
 
 - The only identifier defined by this document is `Mosaic/1-draft.1`.
+- [`Mosaic/0-opal.1`](mosaic-v0-profile.md) is a separate Opal-owned chipnet conformance profile that resolves only the deterministic contracts documented there; it does not rename or complete this draft.
 - Implementations MUST reject unknown Mosaic protocol identifiers.
 - Implementations MUST NOT advertise this draft as `Mosaic/1`, CashFusion v2, audited, production-ready, or privacy-equivalent to CashFusion.
 - CashFusion wire compatibility is not a Mosaic goal. Reused cryptographic ideas do not make the protocols wire-compatible.
@@ -274,6 +275,8 @@ The conductor MUST validate:
 - no commitment duplicated within or across contributors.
 
 The conductor returns blind-signature responses only after all valid contributor commitments are present. It then publishes one canonical shuffled commitment set. Every contributor verifies inclusion of its commitments and the expected total count.
+
+The `Mosaic/0-opal.1` conformance profile fixes the authorization variant, request-slot ledger, duplicate-response cache, and replay-identifier derivation described in [`mosaic-v0-profile.md`](mosaic-v0-profile.md). Those deterministic contracts do not constitute a live or reviewed blind-signature implementation.
 
 ## 14. Anonymous Component Submission
 

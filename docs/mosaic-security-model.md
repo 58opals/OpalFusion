@@ -4,6 +4,8 @@ Status: Draft companion to [`mosaic-protocol-specification.md`](mosaic-protocol-
 
 Mosaic is experimental. Neither this document nor the protocol draft is an audit, proof of anonymity, or production-readiness statement.
 
+The implemented [`Mosaic/0-opal.1`](mosaic-v0-profile.md) slice is a chipnet-only deterministic conformance foundation. Its fail-closed RSA seam, issuance accounting, transcript binding, envelope coding, and host contracts reduce ambiguity but do not satisfy the transport, cryptographic-review, interoperability, or privacy release gates below.
+
 ## 1. Security Objectives
 
 Mosaic aims to ensure:
@@ -90,6 +92,7 @@ An implementation that violates one of these rules is not Mosaic-compatible.
 | Relay sees IP address | Tor or reviewed equivalent is mandatory | A global observer may correlate traffic across paths |
 | Relay censors or reorders | Multi-relay replication, signatures, sequence numbers, idempotence | Enough relays can deny liveness or partition participants |
 | Replay from an earlier attempt | Protocol, network, round, phase, sequence, expiry, and payload digest binding | Implementation state loss may reopen replay windows |
+| One-more authorization attempt | Exactly 23 request slots per contributor, all-contributor issuance barrier, cached duplicate response, and spent identifier derived from token input | Security still depends on a vetted RFC 9474 provider and correct persistent replay accounting |
 | Participant submits malformed component | Commitment validation and CashFusion-derived blame | Blame can reveal bounded proof material and does not create durable bans |
 | Participant withholds reveal or signature | Deadlines and abort | Permissionless peers can repeatedly deny liveness |
 | Last revealer selectively aborts role election | Fresh identities and randomness prevent an in-place reroll | Repeated abort-and-rejoin attempts can bias which conductor selections complete |
@@ -146,6 +149,8 @@ OpalFusion never receives mnemonic material or general wallet authority. OpalBas
 - reservation release or commit;
 - transaction broadcast;
 - post-fusion coin separation policy.
+
+The Opal v0 host request includes a recomputable binding from the manifest, commitment set, component set, and exact unsigned transaction bytes to the acknowledged transcript root. This prevents an opaque transcript value from authorizing unrelated bytes, but the reducer and transport must still establish authentic unanimous acknowledgement before the request reaches OpalBase.
 
 Reservation and signing APIs must remain actor-safe and idempotent. A timeout, cancellation, duplicate callback, or stale protocol generation must not leave a UTXO permanently reserved or sign a superseded proposal.
 

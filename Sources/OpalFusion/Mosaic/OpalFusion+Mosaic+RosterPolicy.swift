@@ -28,6 +28,15 @@ public extension OpalFusion.Mosaic {
             componentCountPerContributor: 23
         )
 
+        /// The fixed roster constants for `Mosaic/0-opal.1`.
+        public static let opalV0 = Self(
+            minimumContributorCount: 6,
+            targetContributorCount: 8,
+            conductorCount: 1,
+            maximumCandidateCount: 9,
+            componentCountPerContributor: 23
+        )
+
         private init(
             minimumContributorCount: Int,
             targetContributorCount: Int,
