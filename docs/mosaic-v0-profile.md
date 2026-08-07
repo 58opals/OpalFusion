@@ -51,9 +51,9 @@ Here `bytes(value)` is the Mosaic canonical `u32(length) || value` encoding. A `
 
 The binding proves internal consistency, not unanimity. The attempt reducer remains responsible for requiring every contributor to acknowledge the same root before it emits BCH-signing eligibility. OpalBase must recheck the binding before any signature operation.
 
-## 4. Canonical Component And Message Documents
+## 4. Canonical Component, Aggregate, And Message Documents
 
-The Opal v0 component documents below use the fixed-order canonical encoding from Section 8 of the generic Mosaic specification. They are transport-independent hash documents and subordinate message bodies, not complete `PlayerCommit` or Nostr event bodies. This slice does not define how the subordinate documents compose into complete wire messages or how a large aggregate document is fragmented into the 4,092-byte inner-envelope payload. No field numbers are assigned by this profile.
+The Opal v0 documents below use the fixed-order canonical encoding from Section 8 of the generic Mosaic specification. They are transport-independent hash documents and subordinate message bodies, not complete `PlayerCommit` or Nostr event bodies. This profile defines deterministic fragmentation only for the existing canonical commitment-set and component-set bytes; it does not define complete message composition, a Nostr payload type for fragments, or how fragment delivery interacts with authenticated control sequence numbers. No generic `Mosaic/1-draft.1` field numbers are assigned by this profile.
 
 The profile freezes these primitive representations:
 
@@ -76,6 +76,7 @@ The canonical documents are:
 | Authorization token | round identifier, authorization-key identifier, nonce, randomized-message prefix, finalized signature |
 | Anonymous component payload | round identifier, authorization token, component |
 | Pre-sign acknowledgement payload | round identifier, transcript root |
+| Aggregate fragment | round identifier, aggregate kind as `u8`, aggregate digest, declared aggregate byte count as `u32`, zero-based fragment index as `u8`, fragment count as `u8`, fragment body as canonical bytes |
 
 A component encodes its 32-byte salt commitment, then a `u8` kind and kind-specific fields. The kind values are `0` for input, `1` for output, and `2` for blank. An input then encodes the previous transaction hash in conventional display order, output index as `u32`, and amount as `u64`. An output then encodes the fixed 25-byte P2PKH locking script and amount as `u64`. A blank has no additional fields.
 
@@ -89,7 +90,13 @@ A commitment set is a canonical sorted set of component commitments. A component
 
 `componentSetDigest = SHA256(UTF8(profile + "/component-set") || canonical(componentSet))`.
 
-This slice validates canonical syntax, point/key encodings, fixed counts, P2PKH output form, amount bounds, duplicate rejection, round binding, and deterministic set digests. It does not define or claim validation of the unresolved CashFusion-derived Pedersen sum equation, per-component fee allocation, a complete round manifest, aggregate-document fragmentation, anonymous BCH-signature authorization, or blame proofs. Blame remains disabled for this profile, so an Opal v0 decoder accepts no proof document.
+The aggregate-fragment kind values are `0` for a commitment set and `1` for a component set. This is an Opal v0 subordinate-document enum, not a Nostr event kind. The fixed header is 75 bytes: the two 32-byte fields, kind, declared aggregate byte count, fragment index, fragment count, and the canonical `u32` body-length prefix. Each encoded fragment MUST fit the 4,092-byte raw inner-envelope limit, so the body capacity is exactly 4,017 bytes. The canonical splitter operates on byte boundaries, uses a zero-based index, fills every nonfinal body to 4,017 bytes, and emits one positive-length final remainder. Fragment count is derived as `ceil(declaredAggregateByteCount / 4,017)` and MUST match the encoded count. The largest accepted aggregate document is the 23,924-byte, 184-member commitment set, so no aggregate can require more than six fragments.
+
+A fragment descriptor binds a 32-byte round identifier, aggregate kind, existing domain-separated aggregate digest, and declared canonical byte count. A reassembler is initialized for one expected round and kind, validates that context before indexing, and lets the first valid fragment bind the digest and total. Reordering and byte-identical duplicate indices are accepted. A different body at an occupied index or a competing digest or total terminates the reassembler. No partial aggregate is emitted. Completion concatenates bodies in canonical index order, verifies the existing kind-specific aggregate digest, and then invokes the strict commitment-set or component-set decoder; digest agreement alone cannot admit descending, duplicate, trailing, or structurally invalid members. Success and failure are terminal and discard buffered fragment material. Retry requires a fresh attempt and reassembler.
+
+Fragmentation is a bounded subordinate-document contract only. It does not assign complete authenticated envelopes, sender identities, relay events, delivery deadlines, or sequence layering. Applying the existing padded-envelope codec to an encoded fragment produces the fixed 8,192-byte plaintext, but the fragment codec itself emits variable-length documents and the number of fragments reveals an aggregate size class.
+
+This slice validates canonical syntax, point/key encodings, fixed counts, P2PKH output form, amount bounds, duplicate rejection, round binding, deterministic set digests, and bounded aggregate fragmentation and reassembly. It does not define or claim validation of the unresolved CashFusion-derived Pedersen sum equation, per-component fee allocation, a complete round manifest, anonymous BCH-signature authorization, or blame proofs. Blame remains disabled for this profile, so an Opal v0 decoder accepts no proof document.
 
 ## 5. Nostr Conformance Contract
 
@@ -130,12 +137,12 @@ This rigid transaction contract exists for deterministic chipnet conformance. It
 
 ## 7. Implemented And Deferred Boundaries
 
-Implemented deterministic boundaries include the phase and terminal reducer, roster validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, and pre-sign-acknowledgement documents, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
+Implemented deterministic boundaries include the phase and terminal reducer, roster validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
 
 The following remain blocked or deferred:
 
 - independent parameter, fault, timing, side-channel, and one-more-security review of the RSA blind-signature provider;
-- the unresolved Pedersen sum and fee-allocation algorithms, complete manifest and BCH-signature messages, aggregate-document fragmentation, and any future proof or blame schema;
+- the unresolved Pedersen sum and fee-allocation algorithms, complete manifest and BCH-signature messages, their authenticated fragment-envelope and sequence integration, and any future proof or blame schema;
 - discovery proof-of-work and timing values based on device measurements;
 - live Nostr relay and Tor-only transport adapters with traffic-analysis testing;
 - blame cryptography and any nonterminal blame flow;

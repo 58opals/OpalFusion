@@ -4,7 +4,7 @@ Status: Draft companion to [`mosaic-protocol-specification.md`](mosaic-protocol-
 
 Mosaic is experimental. Neither this document nor the protocol draft is an audit, proof of anonymity, or production-readiness statement.
 
-The implemented [`Mosaic/0-opal.1`](mosaic-v0-profile.md) slice is a chipnet-only deterministic conformance foundation. Its fail-closed RSA seam, issuance accounting, canonical commitment/component documents, transcript binding, envelope coding, and host contracts reduce ambiguity but do not satisfy the remaining schema, transport, cryptographic-review, interoperability, or privacy release gates below.
+The implemented [`Mosaic/0-opal.1`](mosaic-v0-profile.md) slice is a chipnet-only deterministic conformance foundation. Its fail-closed RSA seam, issuance accounting, canonical commitment/component documents, bounded aggregate fragmentation and reassembly, transcript binding, envelope coding, and host contracts reduce ambiguity but do not satisfy the remaining schema, transport, cryptographic-review, interoperability, or privacy release gates below.
 
 ## 1. Security Objectives
 
@@ -134,6 +134,8 @@ The initial Mosaic transport therefore requires:
 - no raw relay URL, peer key, mailbox key, or circuit identifier in diagnostics.
 
 If these properties are unavailable, the safe behavior is to wait or fail. Clearnet fallback is a privacy failure, not a degraded success.
+
+When an encoded Opal v0 aggregate fragment is passed through the existing padded-envelope codec, the resulting plaintext is the fixed 8,192-byte size, but the number of fragments reveals an aggregate size class. The fragment codec itself emits variable-length subordinate documents and does not define live envelope sequencing or publication behavior. Fragmentation is not a full size-hiding or traffic-analysis defense.
 
 OHTTP or another relay construction may become a later transport profile only after it demonstrates an equivalent or explicitly different privacy contract. A transport adapter cannot inherit the `nostr-tor` claim merely because payload encryption succeeds.
 

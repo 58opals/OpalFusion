@@ -28,6 +28,10 @@ extension MosaicOpalV0WireContractValidator {
     static let communicationKeys = try! (0 ..< 185).map { index in
         try publicKeyFixture(scalar: index + 1_000)
     }
+    static let aggregateFragmentRoundIdentifier = [UInt8](
+        repeating: 0xA1,
+        count: 32
+    )
 
     static func bytes(hexadecimal: String) -> [UInt8] {
         let utf8 = Array(hexadecimal.utf8)
@@ -95,6 +99,82 @@ extension MosaicOpalV0WireContractValidator {
             excessFeeSatoshis: 0,
             pedersenTotalNonce: [UInt8](repeating: 0, count: 31) + [0x01]
         )
+    }
+
+    static func makeCommitmentSet(
+        memberCount: Int = 138
+    ) throws -> OpalV0.CommitmentSet {
+        try .init(
+            commitments: (0 ..< memberCount).map(makeCommitment)
+        )
+    }
+
+    static func makeBlankComponentSet(
+        memberCount: Int = 138
+    ) throws -> OpalV0.ComponentSet {
+        try .init(
+            components: (0 ..< memberCount).map(makeBlankComponent)
+        )
+    }
+
+    static func makeOutputComponentSet(
+        memberCount: Int = 138
+    ) throws -> OpalV0.ComponentSet {
+        try .init(
+            components: try (0 ..< memberCount).map { index in
+                try makeOutputComponent(
+                    saltIndex: index,
+                    fill: UInt8(truncatingIfNeeded: index),
+                    amountSatoshis: UInt64(index + 1)
+                )
+            }
+        )
+    }
+
+    static func makeInputComponentSet(
+        memberCount: Int = 138
+    ) throws -> OpalV0.ComponentSet {
+        try .init(
+            components: try (0 ..< memberCount).map { index in
+                try makeInputComponent(
+                    saltIndex: index,
+                    transactionIndex: index + 1_000,
+                    outputIndex: UInt32(index),
+                    amountSatoshis: UInt64(index + 1)
+                )
+            }
+        )
+    }
+
+    static func makeRawAggregateFragments(
+        aggregateKind: OpalV0.AggregateFragment.Kind,
+        canonicalBytes: [UInt8],
+        aggregateDigest: [UInt8]? = nil,
+        roundIdentifier: [UInt8] = aggregateFragmentRoundIdentifier
+    ) throws -> [OpalV0.AggregateFragment] {
+        let digest = aggregateDigest ?? OpalV0.aggregateDigest(
+            domainSuffix: aggregateKind.digestDomainSuffix,
+            canonicalBytes: canonicalBytes
+        )
+        let descriptor = try OpalV0.AggregateFragment.Descriptor(
+            roundIdentifier: roundIdentifier,
+            aggregateKind: aggregateKind,
+            aggregateDigest: digest,
+            declaredAggregateByteCount: canonicalBytes.count
+        )
+        return try (0 ..< descriptor.fragmentCount).map { fragmentIndex in
+            let lowerBound = fragmentIndex
+                * OpalV0.maximumAggregateFragmentBodyByteCount
+            let upperBound = min(
+                lowerBound + OpalV0.maximumAggregateFragmentBodyByteCount,
+                canonicalBytes.count
+            )
+            return try .init(
+                descriptor: descriptor,
+                fragmentIndex: fragmentIndex,
+                body: Array(canonicalBytes[lowerBound ..< upperBound])
+            )
+        }
     }
 
     static func makeAuthorizationToken(

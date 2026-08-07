@@ -6,12 +6,33 @@ extension OpalFusion.Mosaic {
         static let digestByteCount = 32
         static let amountCommitmentByteCount = 65
         static let communicationPublicKeyByteCount = 33
+        static let componentCommitmentByteCount = digestByteCount
+            + amountCommitmentByteCount
+            + communicationPublicKeyByteCount
         static let authorizationMaterialByteCount = 256
         static let p2pkhLockingScriptByteCount = 25
         static let maximumMoneySatoshis: UInt64 = 2_100_000_000_000_000
         static let componentAuthorizationCountPerContributor = 23
         static let paddedInnerPlaintextByteCount = 8_192
         static let maximumInnerPayloadByteCount = 4_092
+        static let aggregateFragmentHeaderByteCount = digestByteCount
+            + 1
+            + digestByteCount
+            + 4
+            + 1
+            + 1
+            + 4
+        static let maximumAggregateFragmentBodyByteCount =
+            maximumInnerPayloadByteCount - aggregateFragmentHeaderByteCount
+        static let maximumAggregateDocumentByteCount = 4
+            + (OpalFusion.Mosaic.RosterPolicy.opalV0.maximumCandidateCount
+                - OpalFusion.Mosaic.RosterPolicy.opalV0.conductorCount)
+            * componentAuthorizationCountPerContributor
+            * componentCommitmentByteCount
+        static let maximumAggregateFragmentCount =
+            (maximumAggregateDocumentByteCount
+                + maximumAggregateFragmentBodyByteCount - 1)
+            / maximumAggregateFragmentBodyByteCount
         static let nip44ContentByteCount = 11_012
         static let maximumEventJSONByteCount = 16_384
         static let chipnetGenesisHash: [UInt8] = [
