@@ -1,8 +1,8 @@
-// OpalFusion+Mosaic+Nostr+Event.swift
+// OpalFusion+Mosaic+NostrNamespace+Event.swift
 
 import OpalCrypto
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     struct Event: Sendable, Equatable {
         let identifier: OpalCrypto.Signature.Digest
         let publicKey: OpalCrypto.Signature.BIP340.VerificationKey

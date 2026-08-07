@@ -1,9 +1,9 @@
-// OpalFusion+Mosaic+Nostr+EventSigner.swift
+// OpalFusion+Mosaic+NostrNamespace+EventSigner.swift
 
 import Foundation
 import OpalCrypto
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     enum EventSigner {
         static func sign(
             _ template: EventTemplate,

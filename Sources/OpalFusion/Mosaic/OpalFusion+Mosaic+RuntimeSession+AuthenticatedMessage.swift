@@ -1,21 +1,6 @@
 // OpalFusion+Mosaic+RuntimeSession+AuthenticatedMessage.swift
 
 extension OpalFusion.Mosaic.RuntimeSession {
-    struct MessageIdentifier: Sendable, Hashable {
-        enum ValidationError: Swift.Error, Sendable, Equatable {
-            case invalidByteCount(actual: Int)
-        }
-
-        let bytes: [UInt8]
-
-        init(bytes: [UInt8]) throws {
-            guard bytes.count == 32 else {
-                throw ValidationError.invalidByteCount(actual: bytes.count)
-            }
-            self.bytes = bytes
-        }
-    }
-
     /// A signed control message after cryptographic and canonical validation.
     struct AuthenticatedMessage: Sendable, Equatable {
         let attemptIdentifier: OpalFusion.Mosaic.LocalAttempt.AttemptIdentifier

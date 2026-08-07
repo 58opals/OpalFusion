@@ -1,6 +1,6 @@
-// OpalFusion+Mosaic+Nostr+EventTemplate.swift
+// OpalFusion+Mosaic+NostrNamespace+EventTemplate.swift
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     struct EventTemplate: Sendable, Equatable {
         let createdAt: UInt64
         let kind: UInt16

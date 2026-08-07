@@ -1,6 +1,6 @@
-// OpalFusion+Mosaic+Nostr.swift
+// OpalFusion+Mosaic+NostrNamespace.swift
 
 extension OpalFusion.Mosaic {
     /// Internal Nostr standards used by transport profiles.
-    enum Nostr {}
+    enum NostrNamespace {}
 }

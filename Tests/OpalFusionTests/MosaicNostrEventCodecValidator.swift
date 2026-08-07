@@ -7,7 +7,7 @@ import Testing
 
 @Suite("Mosaic Nostr event codec validation")
 struct MosaicNostrEventCodecValidator {
-    private var limits: OpalFusion.Mosaic.Nostr.EventCodingLimits {
+    private var limits: OpalFusion.Mosaic.NostrNamespace.EventCodingLimits {
         get throws {
             try .init(
                 maximumEventJSONByteCount: 8_192,
@@ -20,7 +20,7 @@ struct MosaicNostrEventCodecValidator {
 
     @Test("Decode and verify the official NIP-13 signed event")
     func decodeAndVerifyOfficialNIP13SignedEvent() throws {
-        let event = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        let event = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
             Data(Self.officialNIP13Event.utf8),
             limits: limits
         )
@@ -43,14 +43,14 @@ struct MosaicNostrEventCodecValidator {
         let signingKey = try OpalCrypto.Secp256k1.SigningKey(
             rawRepresentation: Data(repeating: 0, count: 31) + Data([1])
         )
-        let template = try OpalFusion.Mosaic.Nostr.EventTemplate(
+        let template = try OpalFusion.Mosaic.NostrNamespace.EventTemplate(
             createdAt: 1_700_000_000,
             kind: 21_059,
             tags: [["p", String(repeating: "0", count: 64)]],
             content: "Mosaic \"mailbox\"\n\\ \u{1F9E9}",
             limits: limits
         )
-        let event = try OpalFusion.Mosaic.Nostr.EventSigner.sign(
+        let event = try OpalFusion.Mosaic.NostrNamespace.EventSigner.sign(
             template,
             using: signingKey,
             auxiliaryRandomness: .init(
@@ -58,11 +58,11 @@ struct MosaicNostrEventCodecValidator {
             ),
             limits: limits
         )
-        let encoded = try OpalFusion.Mosaic.Nostr.EventCodec.encode(
+        let encoded = try OpalFusion.Mosaic.NostrNamespace.EventCodec.encode(
             event,
             limits: limits
         )
-        let decoded = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        let decoded = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
             encoded,
             limits: limits
         )
@@ -84,7 +84,7 @@ struct MosaicNostrEventCodecValidator {
             options: [.prettyPrinted, .sortedKeys]
         )
 
-        let event = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        let event = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
             reordered,
             limits: limits
         )
@@ -96,10 +96,10 @@ struct MosaicNostrEventCodecValidator {
         let duplicate = Self.officialNIP13Event.dropLast()
             + ",\"kind\":1}"
         #expect(
-            throws: OpalFusion.Mosaic.Nostr.EventCodingError
+            throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError
                 .duplicateTopLevelField("kind")
         ) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(duplicate.utf8),
                 limits: limits
             )
@@ -108,10 +108,10 @@ struct MosaicNostrEventCodecValidator {
         let unknown = Self.officialNIP13Event.dropLast()
             + ",\"mosaic\":true}"
         #expect(
-            throws: OpalFusion.Mosaic.Nostr.EventCodingError
+            throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError
                 .unexpectedTopLevelField("mosaic")
         ) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(unknown.utf8),
                 limits: limits
             )
@@ -121,8 +121,8 @@ struct MosaicNostrEventCodecValidator {
             of: "\"kind\":1,",
             with: ""
         )
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.self) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.self) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(missing.utf8),
                 limits: limits
             )
@@ -136,9 +136,9 @@ struct MosaicNostrEventCodecValidator {
             with: "100006d8"
         )
         #expect(
-            throws: OpalFusion.Mosaic.Nostr.EventCodingError.identifierMismatch
+            throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.identifierMismatch
         ) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(changedIdentifier.utf8),
                 limits: limits
             )
@@ -149,10 +149,10 @@ struct MosaicNostrEventCodecValidator {
             with: "aba976\""
         )
         #expect(
-            throws: OpalFusion.Mosaic.Nostr.EventCodingError
+            throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError
                 .signatureVerificationFailed
         ) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(changedSignature.utf8),
                 limits: limits
             )
@@ -163,9 +163,9 @@ struct MosaicNostrEventCodecValidator {
             with: "your own biz"
         )
         #expect(
-            throws: OpalFusion.Mosaic.Nostr.EventCodingError.identifierMismatch
+            throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.identifierMismatch
         ) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(changedContent.utf8),
                 limits: limits
             )
@@ -178,8 +178,8 @@ struct MosaicNostrEventCodecValidator {
             of: "a48380f4",
             with: "A48380F4"
         )
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.self) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.self) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(uppercase.utf8),
                 limits: limits
             )
@@ -189,8 +189,8 @@ struct MosaicNostrEventCodecValidator {
             of: "\"kind\":1",
             with: "\"kind\":65536"
         )
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.invalidJSON) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.invalidJSON) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(oversizedKind.utf8),
                 limits: limits
             )
@@ -200,8 +200,8 @@ struct MosaicNostrEventCodecValidator {
             of: "1651794653",
             with: "-1"
         )
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.invalidJSON) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.invalidJSON) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(negativeTime.utf8),
                 limits: limits
             )
@@ -210,38 +210,38 @@ struct MosaicNostrEventCodecValidator {
 
     @Test("Enforce caller-owned event and string resource limits")
     func enforceCallerOwnedEventAndStringResourceLimits() throws {
-        let tinyEventLimit = try OpalFusion.Mosaic.Nostr.EventCodingLimits(
+        let tinyEventLimit = try OpalFusion.Mosaic.NostrNamespace.EventCodingLimits(
             maximumEventJSONByteCount: 64,
             maximumTagCount: 16,
             maximumTagElementCount: 8,
             maximumStringByteCount: 4_096
         )
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.self) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.self) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(Self.officialNIP13Event.utf8),
                 limits: tinyEventLimit
             )
         }
 
-        let tinyStringLimit = try OpalFusion.Mosaic.Nostr.EventCodingLimits(
+        let tinyStringLimit = try OpalFusion.Mosaic.NostrNamespace.EventCodingLimits(
             maximumEventJSONByteCount: 8_192,
             maximumTagCount: 16,
             maximumTagElementCount: 8,
             maximumStringByteCount: 4
         )
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.self) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.self) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
                 Data(Self.officialNIP13Event.utf8),
                 limits: tinyStringLimit
             )
         }
 
-        let event = try OpalFusion.Mosaic.Nostr.EventCodec.decode(
+        let event = try OpalFusion.Mosaic.NostrNamespace.EventCodec.decode(
             Data(Self.officialNIP13Event.utf8),
             limits: limits
         )
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.self) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodec.encode(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.self) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodec.encode(
                 event,
                 limits: tinyStringLimit
             )
@@ -250,8 +250,8 @@ struct MosaicNostrEventCodecValidator {
 
     @Test("Reject empty tags and invalid resource limits")
     func rejectEmptyTagsAndInvalidResourceLimits() throws {
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.self) {
-            _ = try OpalFusion.Mosaic.Nostr.EventTemplate(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.self) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventTemplate(
                 createdAt: 1,
                 kind: 1,
                 tags: [[]],
@@ -259,8 +259,8 @@ struct MosaicNostrEventCodecValidator {
                 limits: limits
             )
         }
-        #expect(throws: OpalFusion.Mosaic.Nostr.EventCodingError.self) {
-            _ = try OpalFusion.Mosaic.Nostr.EventCodingLimits(
+        #expect(throws: OpalFusion.Mosaic.NostrNamespace.EventCodingError.self) {
+            _ = try OpalFusion.Mosaic.NostrNamespace.EventCodingLimits(
                 maximumEventJSONByteCount: 0,
                 maximumTagCount: 0,
                 maximumTagElementCount: 0,

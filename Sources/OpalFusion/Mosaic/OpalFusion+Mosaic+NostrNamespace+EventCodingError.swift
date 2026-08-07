@@ -1,6 +1,6 @@
-// OpalFusion+Mosaic+Nostr+EventCodingError.swift
+// OpalFusion+Mosaic+NostrNamespace+EventCodingError.swift
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     enum EventCodingError: Swift.Error, Sendable, Equatable {
         case invalidResourceLimit
         case eventJSONByteCountExceedsMaximum(maximum: Int, actual: Int)

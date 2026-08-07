@@ -2,35 +2,20 @@
 
 extension OpalFusion.Mosaic.RuntimeSession {
     struct AuthenticatedReplayIndex: Sendable {
-        enum Decision: Sendable, Equatable {
-            case accepted
-            case duplicate
-            case stale(greatestAcceptedSequence: UInt64)
-            case conflict
-        }
-
-        private struct SequenceKey: Sendable, Hashable {
-            let sender: OpalFusion.Mosaic.Attempt.ControlIdentity
-            let sequence: UInt64
-        }
-
-        private var acceptedIdentifiers: [SequenceKey: MessageIdentifier] = [:]
+        private var acceptedIdentifiers: [
+            OpalFusion.Mosaic.Attempt.ControlIdentity: [UInt64: MessageIdentifier]
+        ] = [:]
         private var greatestSequences: [
             OpalFusion.Mosaic.Attempt.ControlIdentity: UInt64
         ] = [:]
 
         func containsExactDuplicate(_ message: AuthenticatedMessage) -> Bool {
-            acceptedIdentifiers[
-                SequenceKey(sender: message.sender, sequence: message.sequence)
-            ] == message.messageIdentifier
+            acceptedIdentifiers[message.sender]?[message.sequence]
+                == message.messageIdentifier
         }
 
         mutating func record(_ message: AuthenticatedMessage) -> Decision {
-            let key = SequenceKey(
-                sender: message.sender,
-                sequence: message.sequence
-            )
-            if let acceptedIdentifier = acceptedIdentifiers[key] {
+            if let acceptedIdentifier = acceptedIdentifiers[message.sender]?[message.sequence] {
                 return acceptedIdentifier == message.messageIdentifier
                     ? .duplicate
                     : .conflict
@@ -40,7 +25,8 @@ extension OpalFusion.Mosaic.RuntimeSession {
                 return .stale(greatestAcceptedSequence: greatestSequence)
             }
 
-            acceptedIdentifiers[key] = message.messageIdentifier
+            acceptedIdentifiers[message.sender, default: [:]][message.sequence]
+                = message.messageIdentifier
             greatestSequences[message.sender] = message.sequence
             return .accepted
         }

@@ -6,36 +6,6 @@ extension OpalFusion.Mosaic {
     /// Endpoint parsing, relay-set canonicalization, Tor routing, event kinds,
     /// and wire acknowledgements remain adapter-owned release blockers.
     struct RelayPublicationTracker: Sendable {
-        struct Endpoint: Sendable, Hashable {
-            let validatedIdentifier: String
-
-            init(validatedIdentifier: String) {
-                self.validatedIdentifier = validatedIdentifier
-            }
-        }
-
-        enum ValidationError: Swift.Error, Sendable, Equatable {
-            case fewerThanThreeRelays(actual: Int)
-            case duplicateRelay(Endpoint)
-        }
-
-        enum Response: Sendable, Equatable {
-            case accepted
-            case rejected
-        }
-
-        enum RecordError: Swift.Error, Sendable, Equatable {
-            case unknownRelay(Endpoint)
-            case relayNotAttempted(Endpoint)
-            case conflictingResponse(Endpoint)
-        }
-
-        enum Status: Sendable, Equatable {
-            case awaitingResponses
-            case accepted
-            case failed
-        }
-
         let endpoints: [Endpoint]
         private var attemptedEndpoints: Set<Endpoint> = []
         private var responses: [Endpoint: Response] = [:]

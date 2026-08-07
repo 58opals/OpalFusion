@@ -7,20 +7,6 @@ extension OpalFusion.Mosaic {
     /// adapter. This type only prevents one validated authorization from being
     /// used for two different authenticated payloads inside an attempt.
     struct AnonymousReplayIndex: Sendable {
-        struct AuthorizationIdentifier: Sendable, Hashable {
-            let validatedBytes: [UInt8]
-
-            init(validatedBytes: [UInt8]) {
-                self.validatedBytes = validatedBytes
-            }
-        }
-
-        enum Decision: Sendable, Equatable {
-            case accepted
-            case duplicate
-            case conflict
-        }
-
         private var acceptedMessages: [
             AuthorizationIdentifier: RuntimeSession.MessageIdentifier
         ] = [:]

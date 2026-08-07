@@ -1,18 +1,13 @@
-// OpalFusion+Mosaic+Nostr+EncryptedEventCodec.swift
+// OpalFusion+Mosaic+NostrNamespace+EncryptedEventCodec.swift
 
 import OpalCrypto
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     /// NIP-44 content carried only by a validated, signed NIP-01 event.
     ///
     /// Mosaic event kinds, tags, fixed outer sizes, and timing remain injected
     /// profile decisions. This codec does not assign any of them.
     enum EncryptedEventCodec {
-        enum Error: Swift.Error, Sendable, Equatable {
-            case unexpectedKind(expected: UInt16, actual: UInt16)
-            case unexpectedSender
-        }
-
         static func encrypt(
             _ plaintext: String,
             kind: UInt16,

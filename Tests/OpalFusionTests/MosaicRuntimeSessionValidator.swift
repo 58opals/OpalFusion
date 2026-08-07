@@ -362,15 +362,7 @@ struct MosaicRuntimeSessionValidator {
         )
     }
 
-    private struct Fixture {
-        var session: RuntimeSession
-        let roster: Attempt.Roster
-        let attemptIdentifier: LocalAttempt.AttemptIdentifier
-        let generationIdentifier: LocalAttempt.GenerationIdentifier
-        let manifest: Attempt.ManifestIdentifier
-    }
-
-    private func makeFixture() throws -> Fixture {
+    private func makeFixture() throws -> MosaicRuntimeSessionFixture {
         let roster = try Attempt.Roster(
             members: (0 ..< 7).map { index in
                 .init(
@@ -399,7 +391,7 @@ struct MosaicRuntimeSessionValidator {
             materialIdentifier: .init(opaqueBytes: [0xC3]),
             localControlIdentity: roster.contributors[0]
         )
-        return try Fixture(
+        return try MosaicRuntimeSessionFixture(
             session: .init(localAttempt: localAttempt),
             roster: roster,
             attemptIdentifier: attemptIdentifier,
@@ -409,7 +401,7 @@ struct MosaicRuntimeSessionValidator {
     }
 
     private func makeManifestMessage(
-        fixture: Fixture,
+        fixture: MosaicRuntimeSessionFixture,
         sequence: UInt64,
         identifierByte: UInt8 = 0x91,
         phase: Attempt.Phase = .manifestAgreement
@@ -428,7 +420,7 @@ struct MosaicRuntimeSessionValidator {
     }
 
     private func makeMessage(
-        fixture: Fixture,
+        fixture: MosaicRuntimeSessionFixture,
         sequence: UInt64,
         phase: Attempt.Phase,
         identifierByte: UInt8,

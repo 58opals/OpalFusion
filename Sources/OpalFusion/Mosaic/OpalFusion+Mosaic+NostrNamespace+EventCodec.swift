@@ -1,9 +1,9 @@
-// OpalFusion+Mosaic+Nostr+EventCodec.swift
+// OpalFusion+Mosaic+NostrNamespace+EventCodec.swift
 
 import Foundation
 import OpalCrypto
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     enum EventCodec {
         static func identifier(
             publicKey: OpalCrypto.Signature.BIP340.VerificationKey,

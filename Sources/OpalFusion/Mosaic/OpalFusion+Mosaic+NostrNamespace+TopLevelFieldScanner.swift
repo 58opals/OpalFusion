@@ -1,8 +1,8 @@
-// OpalFusion+Mosaic+Nostr+TopLevelFieldScanner.swift
+// OpalFusion+Mosaic+NostrNamespace+TopLevelFieldScanner.swift
 
 import Foundation
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     enum TopLevelFieldScanner {
         static func fields(in data: Data) throws -> [String] {
             let bytes = [UInt8](data)

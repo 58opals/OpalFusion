@@ -1,13 +1,13 @@
-// OpalFusion+Mosaic+Nostr+EventCodec~Encoding.swift
+// OpalFusion+Mosaic+NostrNamespace+EventCodec~Encoding.swift
 
 import Foundation
 import OpalCrypto
 
-extension OpalFusion.Mosaic.Nostr.EventCodec {
+extension OpalFusion.Mosaic.NostrNamespace.EventCodec {
     static func identifierPreimage(
         publicKey: OpalCrypto.Signature.BIP340.VerificationKey,
-        template: OpalFusion.Mosaic.Nostr.EventTemplate,
-        limits: OpalFusion.Mosaic.Nostr.EventCodingLimits
+        template: OpalFusion.Mosaic.NostrNamespace.EventTemplate,
+        limits: OpalFusion.Mosaic.NostrNamespace.EventCodingLimits
     ) throws -> Data {
         try validate(
             tags: template.tags,

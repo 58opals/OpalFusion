@@ -1,6 +1,6 @@
-// OpalFusion+Mosaic+Nostr+EventCodingLimits.swift
+// OpalFusion+Mosaic+NostrNamespace+EventCodingLimits.swift
 
-extension OpalFusion.Mosaic.Nostr {
+extension OpalFusion.Mosaic.NostrNamespace {
     /// Caller-owned parser limits that do not define Mosaic wire constants.
     struct EventCodingLimits: Sendable, Equatable {
         let maximumEventJSONByteCount: Int

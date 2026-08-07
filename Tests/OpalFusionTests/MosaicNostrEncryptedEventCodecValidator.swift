@@ -7,13 +7,13 @@ import Testing
 
 @Suite("Mosaic Nostr authenticated encrypted-event validation")
 struct MosaicNostrEncryptedEventCodecValidator {
-    typealias Nostr = OpalFusion.Mosaic.Nostr
+    typealias NostrNamespace = OpalFusion.Mosaic.NostrNamespace
 
     @Test("Decrypt only after strict outer-event validation")
     func decryptOnlyAfterOuterEventValidation() throws {
         let sender = try signingKey(1)
         let recipient = try signingKey(2)
-        let event = try Nostr.EncryptedEventCodec.encrypt(
+        let event = try NostrNamespace.EncryptedEventCodec.encrypt(
             "authenticated Mosaic payload",
             kind: 31_337,
             createdAt: 1_700_000_000,
@@ -26,10 +26,10 @@ struct MosaicNostrEncryptedEventCodecValidator {
             maximumPlaintextByteCount: 128,
             eventLimits: limits
         )
-        let encoded = try Nostr.EventCodec.encode(event, limits: limits)
-        let validated = try Nostr.EventCodec.decode(encoded, limits: limits)
+        let encoded = try NostrNamespace.EventCodec.encode(event, limits: limits)
+        let validated = try NostrNamespace.EventCodec.decode(encoded, limits: limits)
 
-        let plaintext = try Nostr.EncryptedEventCodec.decrypt(
+        let plaintext = try NostrNamespace.EncryptedEventCodec.decrypt(
             validated,
             expectedKind: 31_337,
             expectedSender: sender.bip340VerificationKey,
@@ -42,8 +42,8 @@ struct MosaicNostrEncryptedEventCodecValidator {
 
         let tampered = String(decoding: encoded, as: UTF8.self)
             .replacingOccurrences(of: "\"content\":\"A", with: "\"content\":\"B")
-        #expect(throws: Nostr.EventCodingError.self) {
-            _ = try Nostr.EventCodec.decode(
+        #expect(throws: NostrNamespace.EventCodingError.self) {
+            _ = try NostrNamespace.EventCodec.decode(
                 Data(tampered.utf8),
                 limits: limits
             )
@@ -55,7 +55,7 @@ struct MosaicNostrEncryptedEventCodecValidator {
         let sender = try signingKey(3)
         let recipient = try signingKey(4)
         let outsider = try signingKey(5)
-        let event = try Nostr.EncryptedEventCodec.encrypt(
+        let event = try NostrNamespace.EncryptedEventCodec.encrypt(
             "x",
             kind: 1_234,
             createdAt: 1,
@@ -70,10 +70,10 @@ struct MosaicNostrEncryptedEventCodecValidator {
         )
 
         #expect(
-            throws: Nostr.EncryptedEventCodec.Error
+            throws: NostrNamespace.EncryptedEventCodec.Error
                 .unexpectedKind(expected: 4_321, actual: 1_234)
         ) {
-            _ = try Nostr.EncryptedEventCodec.decrypt(
+            _ = try NostrNamespace.EncryptedEventCodec.decrypt(
                 event,
                 expectedKind: 4_321,
                 expectedSender: sender.bip340VerificationKey,
@@ -82,8 +82,8 @@ struct MosaicNostrEncryptedEventCodecValidator {
                 maximumPlaintextByteCount: 1
             )
         }
-        #expect(throws: Nostr.EncryptedEventCodec.Error.unexpectedSender) {
-            _ = try Nostr.EncryptedEventCodec.decrypt(
+        #expect(throws: NostrNamespace.EncryptedEventCodec.Error.unexpectedSender) {
+            _ = try NostrNamespace.EncryptedEventCodec.decrypt(
                 event,
                 expectedKind: 1_234,
                 expectedSender: outsider.bip340VerificationKey,
@@ -93,7 +93,7 @@ struct MosaicNostrEncryptedEventCodecValidator {
             )
         }
         #expect(throws: OpalCrypto.Nostr.NIP44.Error.authenticationFailed) {
-            _ = try Nostr.EncryptedEventCodec.decrypt(
+            _ = try NostrNamespace.EncryptedEventCodec.decrypt(
                 event,
                 expectedKind: 1_234,
                 expectedSender: sender.bip340VerificationKey,
@@ -104,7 +104,7 @@ struct MosaicNostrEncryptedEventCodecValidator {
         }
     }
 
-    private var limits: Nostr.EventCodingLimits {
+    private var limits: NostrNamespace.EventCodingLimits {
         get throws {
             try .init(
                 maximumEventJSONByteCount: 8_192,
