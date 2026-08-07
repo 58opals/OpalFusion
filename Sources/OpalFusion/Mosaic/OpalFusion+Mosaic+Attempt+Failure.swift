@@ -4,6 +4,7 @@ extension OpalFusion.Mosaic.Attempt {
     enum AbortReason: Sendable, Equatable {
         case timeout
         case equivocation
+        case invalidAuthenticatedMessage
         case missingRequiredParticipant
     }
 

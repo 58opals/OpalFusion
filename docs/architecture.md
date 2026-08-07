@@ -16,14 +16,14 @@ OpalFusion contains two named engines: CashFusion for coordinator-based Electron
 
 - `OpalFusion.Client.Session` is the only runnable session. It executes the CashFusion pilot.
 - `OpalFusion.CashFusion.Configuration` aggregates the values consumed by that live client and prepares an engine-specific configuration boundary.
-- `OpalFusion.Mosaic.Configuration`, `ProtocolVersion`, `RosterPolicy`, `Role`, and `TransportProfile` describe the draft profile. Internal aggregate and peer-local reducers enforce the bounded phase, roster, reservation, transcript, generation, and terminal rules; canonical Section 8 primitives and a wallet-host contract are implemented, but discovery, named wire messages, transport, live effect driving, and a live round runtime are not.
+- `OpalFusion.Mosaic.Configuration`, `ProtocolVersion`, `RosterPolicy`, `Role`, and `TransportProfile` describe the draft profile. Internal aggregate and peer-local reducers enforce the bounded phase, roster, reservation, transcript, generation, and terminal rules. Canonical Section 8 primitives, strict NIP-01 signed-event validation, an outer-authenticated NIP-44 encrypted-event boundary, replay guards, a three-relay/two-acceptance publication tracker, and wallet-host contracts are implemented. Discovery, profile-owned kinds and tags, named wire messages, live transport, effect driving, and a live round runtime are not.
 - `OpalFusion.Session.Mode` defines `.cashFusion`, `.mosaic`, and ordered `.automatic` selection.
 - `OpalFusion.Session.AutomaticConfiguration` rejects an empty candidate set and duplicate engines and makes fallback policy explicit.
 - `OpalFusion.Session` intentionally has no public initializer or runtime methods until engine selection and wallet reservation can be enforced as one safe operation.
 
 The package currently uses one Swift target. This keeps the existing CashFusion implementation source-compatible while the common facade is stabilized.
 
-The Mosaic attempt reducers consume explicitly validated aggregate facts and emit peer-local effects for reservation eligibility, signing eligibility, reservation release or commit, and terminal outcomes. The package also validates host request bindings and canonical primitive encodings. It does not define named wire-message layouts, perform control-message cryptography, execute wallet effects, or make the public `OpalFusion.Session` runnable.
+The Mosaic attempt reducers consume explicitly validated aggregate facts and emit peer-local effects for reservation eligibility, signing eligibility, reservation release or commit, and terminal outcomes. The package also validates host request bindings, canonical primitive encodings, NIP-01 event identifiers and signatures, NIP-44 encrypted content after outer-event authentication, sender sequences, one-time authorization reuse, and relay acceptance quorum. It does not define Mosaic event kinds or named wire-message layouts, provide blind authorization, execute wallet or network effects, or make the public `OpalFusion.Session` runnable.
 
 ## Current CashFusion Layer Map
 

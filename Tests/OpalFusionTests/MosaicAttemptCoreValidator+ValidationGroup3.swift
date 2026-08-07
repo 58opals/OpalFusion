@@ -34,6 +34,7 @@ extension MosaicAttemptCoreValidator {
     func validateExplicitAbortReasons() throws {
         let reasons: [Attempt.AbortReason] = [
             .equivocation,
+            .invalidAuthenticatedMessage,
             .missingRequiredParticipant,
         ]
 

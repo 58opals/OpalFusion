@@ -14,6 +14,7 @@ public extension OpalFusion.Host {
         case emptyReservationInputs
         case emptyReservationOutputs
         case emptyUnsignedTransaction
+        case emptyCompleteTransaction
         case emptySpentInputs
         case emptyLocalInputIndices
         case emptyExpectedLocalOutputs

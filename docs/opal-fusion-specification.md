@@ -1,6 +1,6 @@
 # Opal Fusion Specification
 
-Status: Draft architecture contract. The CashFusion engine has a live pilot implementation. Mosaic has specification and API scaffolding plus internal aggregate and peer-local attempt cores, canonical primitive coding, deterministic simulation, and a wallet-host contract; discovery, wire messages, transport, live effects, and the protocol-neutral session runtime remain unimplemented.
+Status: Draft architecture contract. The CashFusion engine has a live pilot implementation. Mosaic has specification and API scaffolding plus internal aggregate and peer-local attempt cores, canonical primitive coding, deterministic simulation, strict NIP-01 event validation, an authenticated NIP-44 boundary, replay and relay-publication guards, and wallet-host contracts; discovery, named wire messages, transport adapters, live effects, and the protocol-neutral session runtime remain unimplemented.
 
 This document defines the Opal Fusion product hierarchy, engine-selection contract, shared session boundary, and source-of-truth order. It does not redefine the CashFusion or Mosaic wire protocols.
 
