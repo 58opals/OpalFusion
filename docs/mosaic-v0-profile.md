@@ -51,7 +51,47 @@ Here `bytes(value)` is the Mosaic canonical `u32(length) || value` encoding. A `
 
 The binding proves internal consistency, not unanimity. The attempt reducer remains responsible for requiring every contributor to acknowledge the same root before it emits BCH-signing eligibility. OpalBase must recheck the binding before any signature operation.
 
-## 4. Nostr Conformance Contract
+## 4. Canonical Component And Message Documents
+
+The Opal v0 component documents below use the fixed-order canonical encoding from Section 8 of the generic Mosaic specification. They are transport-independent hash documents and subordinate message bodies, not complete `PlayerCommit` or Nostr event bodies. This slice does not define how the subordinate documents compose into complete wire messages or how a large aggregate document is fragmented into the 4,092-byte inner-envelope payload. No field numbers are assigned by this profile.
+
+The profile freezes these primitive representations:
+
+- hashes, round identifiers, authorization-key identifiers, nonces, salt commitments, and transcript roots are fixed 32-byte fields without length prefixes;
+- Pedersen amount commitments are validated secp256k1 points encoded as canonical 65-byte uncompressed SEC1 values;
+- component communication public keys are validated secp256k1 points encoded as canonical 33-byte compressed SEC1 values;
+- blinded authorization requests, blind-signature responses, and finalized authorization signatures are fixed 256-byte fields;
+- Pedersen total nonces and randomized-message prefixes are validated fixed 32-byte fields;
+- output components contain exactly one standard 25-byte P2PKH locking script: `OP_DUP OP_HASH160 PUSHBYTES_20 <20 bytes> OP_EQUALVERIFY OP_CHECKSIG`;
+- satoshi amounts are positive `u64` values no greater than the Bitcoin Cash maximum money supply, except that a blank component has the implicit amount zero.
+
+The canonical documents are:
+
+| Document | Fixed field order |
+|---|---|
+| Component commitment | salted-component digest, amount commitment, communication public key |
+| Grouped commitment payload | vector of exactly 23 component commitments in contributor slot order, zero excess fee as `u64`, Pedersen total nonce |
+| Authorization request payload | slot as `u8`, blinded request |
+| Authorization response payload | slot as `u8`, blind-signature response |
+| Authorization token | round identifier, authorization-key identifier, nonce, randomized-message prefix, finalized signature |
+| Anonymous component payload | round identifier, authorization token, component |
+| Pre-sign acknowledgement payload | round identifier, transcript root |
+
+A component encodes its 32-byte salt commitment, then a `u8` kind and kind-specific fields. The kind values are `0` for input, `1` for output, and `2` for blank. An input then encodes the previous transaction hash in conventional display order, output index as `u32`, and amount as `u64`. An output then encodes the fixed 25-byte P2PKH locking script and amount as `u64`. A blank has no additional fields.
+
+Authorization slots are exactly `0...22`. Each request and response has a slot-addressed canonical subordinate document and remains subject to the all-contributor issuance barrier in Section 2. The complete `PlayerCommit` composition that binds the grouped commitment to its 23 requests remains deferred. An anonymous component payload must carry a token whose embedded round identifier exactly matches the payload round identifier. Token signature verification and spent-identifier accounting remain mandatory validation steps outside decoding.
+
+Within a grouped commitment and across the aggregate commitment set, salted-component digests, amount commitments, and component communication public keys must each be unique. Across the component set, salt commitments must be unique. These checks reject observable reuse of material that the protocol requires to be fresh; they do not replace cryptographic generation or secret-lifecycle review.
+
+A commitment set is a canonical sorted set of component commitments. A component set is a canonical sorted set of components and additionally rejects duplicate input outpoints. Each set must contain `contributorCount * 23` members for 6–8 contributors, therefore 138–184 members in a multiple of 23. Their digests are:
+
+`commitmentSetDigest = SHA256(UTF8(profile + "/commitment-set") || canonical(commitmentSet))`.
+
+`componentSetDigest = SHA256(UTF8(profile + "/component-set") || canonical(componentSet))`.
+
+This slice validates canonical syntax, point/key encodings, fixed counts, P2PKH output form, amount bounds, duplicate rejection, round binding, and deterministic set digests. It does not define or claim validation of the unresolved CashFusion-derived Pedersen sum equation, per-component fee allocation, a complete round manifest, aggregate-document fragmentation, anonymous BCH-signature authorization, or blame proofs. Blame remains disabled for this profile, so an Opal v0 decoder accepts no proof document.
+
+## 5. Nostr Conformance Contract
 
 The profile assigns three Nostr ephemeral kinds:
 
@@ -69,7 +109,7 @@ Per-sender control sequencing begins at zero and increments by exactly one. An e
 
 No relay client, Tor circuit manager, mailbox adapter, proof-of-work minimum, discovery timing, relay URL set, or live traffic-shaping policy is defined by this profile slice.
 
-## 5. Bitcoin Cash Transaction Contract
+## 6. Bitcoin Cash Transaction Contract
 
 The transaction profile identifier is `bch-chipnet-p2pkh-schnorr/0-opal.1`. A conforming wallet-host policy must require:
 
@@ -88,14 +128,14 @@ The exact fee is `estimatedFinalSignedSize * 1 satoshi`. The estimator must mode
 
 This rigid transaction contract exists for deterministic chipnet conformance. It is not a mainnet fee recommendation or a complete wallet coin-selection policy.
 
-## 6. Implemented And Deferred Boundaries
+## 7. Implemented And Deferred Boundaries
 
-Implemented deterministic boundaries include the phase and terminal reducer, roster validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
+Implemented deterministic boundaries include the phase and terminal reducer, roster validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, and pre-sign-acknowledgement documents, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
 
 The following remain blocked or deferred:
 
 - independent parameter, fault, timing, side-channel, and one-more-security review of the RSA blind-signature provider;
-- complete reviewed component, Pedersen, proof, and named wire-message schemas with golden vectors;
+- the unresolved Pedersen sum and fee-allocation algorithms, complete manifest and BCH-signature messages, aggregate-document fragmentation, and any future proof or blame schema;
 - discovery proof-of-work and timing values based on device measurements;
 - live Nostr relay and Tor-only transport adapters with traffic-analysis testing;
 - blame cryptography and any nonterminal blame flow;

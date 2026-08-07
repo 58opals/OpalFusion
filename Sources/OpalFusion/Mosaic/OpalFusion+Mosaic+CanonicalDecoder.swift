@@ -58,6 +58,10 @@ extension OpalFusion.Mosaic {
             }
         }
 
+        mutating func readFixedBytes(byteCount: Int) throws -> [UInt8] {
+            try readRawBytes(byteCount: byteCount)
+        }
+
         mutating func readBytes() throws -> [UInt8] {
             let byteCount = Int(try readUInt32())
             return try readRawBytes(byteCount: byteCount)

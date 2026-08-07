@@ -39,7 +39,7 @@ The local suite covers the protocol-neutral facade invariants, native protobuf p
 
 Passing `swift test` or `./scripts/run-validation-loop.sh all` means the deterministic package checks passed. It does not prove complete OpalFusion capability, complete Electron Cash compatibility, successful operation against a real coordinator, or any live Mosaic support.
 
-The current Mosaic checks cover roster and phase invariants, manifest and transcript gates, terminal and retry behavior, peer-local generation guards, deterministic 7–9-peer semantic simulation, Section 8 canonical primitives, the Opal v0 profile selector, transcript-to-transaction binding, the 23-slot all-contributor issuance barrier and duplicate cache, bounded RFC 9474 authorization execution and token verification, token replay identifiers, fixed-size inner-envelope boundaries, exact conformance tags and event kinds, strict sequence progression, and structural wallet-host bindings. They consume already-validated protocol facts and do not prove discovery, complete named wire-message layouts, independent cryptographic or side-channel review, mailbox unlinkability, anonymous transport, blame cryptography, or live execution.
+The current Mosaic checks cover roster and phase invariants, manifest and transcript gates, terminal and retry behavior, peer-local generation guards, deterministic 7–9-peer semantic simulation, Section 8 canonical primitives, the Opal v0 profile selector, transcript-to-transaction binding, the 23-slot all-contributor issuance barrier and duplicate cache, bounded RFC 9474 authorization execution and token verification, token replay identifiers, canonical commitment/component/set and bounded message documents with golden vectors, fixed-size inner-envelope boundaries, exact conformance tags and event kinds, strict sequence progression, and structural wallet-host bindings. They consume already-validated protocol facts and do not prove discovery, complete manifest/BCH-signature/fragmentation/proof messages, the Pedersen sum or component-fee algorithms, independent cryptographic or side-channel review, mailbox unlinkability, anonymous transport, blame cryptography, or live execution.
 
 The current local suite does not replace a live coordinator smoke, reviewed transcript replay, wallet/app integration validation, or host-owned policy checks for coin selection, funding, signing authority, persistence, broadcast, retry behavior, and user-facing fusion controls. Those responsibilities remain separate proof gates or downstream integration concerns.
 
@@ -62,6 +62,7 @@ swift test --filter FusionFacadeScaffoldValidator
 swift test --filter MosaicAttemptCoreValidator
 swift test --filter MosaicOpalV0ProfileValidator
 swift test --filter MosaicOpalV0AuthorizationValidator
+swift test --filter MosaicOpalV0WireContractValidator
 swift test --filter MosaicOpalV0TransportContractValidator
 swift test --filter MosaicHostContractValidator
 ```

@@ -39,6 +39,19 @@ extension OpalFusion.Mosaic {
             writeUInt8(value ? 0x01 : 0x00)
         }
 
+        mutating func writeFixedBytes(
+            _ value: [UInt8],
+            byteCount: Int
+        ) throws {
+            guard value.count == byteCount else {
+                throw CanonicalCodingError.invalidFixedByteCount(
+                    expected: byteCount,
+                    actual: value.count
+                )
+            }
+            bytes.append(contentsOf: value)
+        }
+
         mutating func writeBytes(_ value: [UInt8]) throws {
             try writeLength(value.count)
             bytes.append(contentsOf: value)

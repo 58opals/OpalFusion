@@ -4,7 +4,7 @@ Status: Draft companion to [`mosaic-protocol-specification.md`](mosaic-protocol-
 
 Mosaic is experimental. Neither this document nor the protocol draft is an audit, proof of anonymity, or production-readiness statement.
 
-The implemented [`Mosaic/0-opal.1`](mosaic-v0-profile.md) slice is a chipnet-only deterministic conformance foundation. Its fail-closed RSA seam, issuance accounting, transcript binding, envelope coding, and host contracts reduce ambiguity but do not satisfy the transport, cryptographic-review, interoperability, or privacy release gates below.
+The implemented [`Mosaic/0-opal.1`](mosaic-v0-profile.md) slice is a chipnet-only deterministic conformance foundation. Its fail-closed RSA seam, issuance accounting, canonical commitment/component documents, transcript binding, envelope coding, and host contracts reduce ambiguity but do not satisfy the remaining schema, transport, cryptographic-review, interoperability, or privacy release gates below.
 
 ## 1. Security Objectives
 
