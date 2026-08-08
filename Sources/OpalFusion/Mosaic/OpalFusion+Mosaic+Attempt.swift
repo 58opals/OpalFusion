@@ -59,46 +59,67 @@ extension OpalFusion.Mosaic {
 
             case let (
                 .controlRosterAgreement(candidateCount),
-                .controlRosterValidated(controlIdentities)
+                .controlRosterValidated(controlRoster)
             ):
-                guard controlIdentities.count == candidateCount else {
+                guard controlRoster.candidateCount == candidateCount else {
                     return terminate(
                         with: .failed(
                             .controlIdentityCountMismatch(
                                 expected: candidateCount,
-                                actual: controlIdentities.count
+                                actual: controlRoster.candidateCount
                             )
                         )
                     )
                 }
-                var uniqueControlIdentities: Set<ControlIdentity> = []
-                for controlIdentity in controlIdentities {
-                    guard uniqueControlIdentities.insert(controlIdentity).inserted else {
-                        return terminate(
-                            with: .failed(.duplicateControlIdentity(controlIdentity))
-                        )
-                    }
-                }
-                state = .roleSelection(controlIdentities: controlIdentities)
+                state = .roleSelection(.awaitingCommitments(controlRoster))
                 return []
 
             case let (
-                .roleSelection(controlIdentities),
-                .rolesSelected(roster)
+                .roleSelection(.awaitingCommitments(controlRoster)),
+                .roleCommitmentsReceived(commitments)
             ):
-                guard roster.candidateCount == controlIdentities.count,
-                      Set(roster.controlIdentities) == Set(controlIdentities) else {
+                let commitmentSet: RoleCommitmentSet
+                do {
+                    commitmentSet = try .init(
+                        controlRoster: controlRoster,
+                        commitments: commitments
+                    )
+                } catch {
                     return terminate(
-                        with: .failed(.selectedRolesDoNotMatchControlRoster)
+                        with: .failed(.invalidRoleCommitmentSet(error))
                     )
                 }
-                state = .manifestAgreement(roster: roster)
+                state = .roleSelection(
+                    .awaitingElectionValidation(commitmentSet)
+                )
                 return []
 
             case let (
-                .manifestAgreement(roster),
+                .roleSelection(.awaitingElectionValidation(commitmentSet)),
+                .roleElectionValidated(validation)
+            ):
+                let roleElection: RoleElectionResult
+                do {
+                    roleElection = try .init(
+                        profile: configuration.profile,
+                        commitmentSet: commitmentSet,
+                        validation: validation
+                    )
+                } catch {
+                    return terminate(
+                        with: .failed(
+                            .invalidRoleElectionValidation(error)
+                        )
+                    )
+                }
+                state = .manifestAgreement(roleElection: roleElection)
+                return []
+
+            case let (
+                .manifestAgreement(roleElection),
                 .manifestSignaturesValidated(validatedSignatures)
             ):
+                let roster = roleElection.roster
                 let agreement: ManifestAgreement
                 do {
                     agreement = try ManifestAgreement(

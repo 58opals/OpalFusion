@@ -159,6 +159,10 @@ extension MosaicSemanticValidator {
             )
         )
         #expect(
+            retrySimulator.roleElection.controlRosterDigest
+                != originalSimulator.roleElection.controlRosterDigest
+        )
+        #expect(
             Set(retrySimulator.localAttempts.map(\.materialIdentifier)).isDisjoint(
                 with: Set(originalSimulator.localAttempts.map(\.materialIdentifier))
             )

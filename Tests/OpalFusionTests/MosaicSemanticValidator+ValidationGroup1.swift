@@ -17,12 +17,16 @@ extension MosaicSemanticValidator {
                 )
                 #expect(localAttempt.localControlIdentity == member.controlIdentity)
                 #expect(localAttempt.localRole == member.role)
-                #expect(localAttempt.state == .manifestAgreement(roster: simulator.roster))
+                #expect(
+                    localAttempt.state == .manifestAgreement(
+                        roleElection: simulator.roleElection
+                    )
+                )
             }
         }
 
-        let roster = try Self.makeRoster(candidateCount: 7)
-        let validatedAttempt = Self.makeValidatedAttempt(roster: roster)
+        let election = try Self.makeElection(candidateCount: 7)
+        let validatedAttempt = Self.makeValidatedAttempt(election: election)
         let unknownControlIdentity = Self.makeControlIdentity(position: 20)
 
         #expect(

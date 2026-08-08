@@ -6,7 +6,7 @@ struct MosaicSemanticSimulator {
     typealias Attempt = OpalFusion.Mosaic.Attempt
     typealias LocalAttempt = OpalFusion.Mosaic.LocalAttempt
 
-    let roster: Attempt.Roster
+    let roleElection: Attempt.RoleElectionResult
     let attemptIdentifier: LocalAttempt.AttemptIdentifier
     let generationIdentifier: LocalAttempt.GenerationIdentifier
 
@@ -19,9 +19,10 @@ struct MosaicSemanticSimulator {
         generationIdentifier: LocalAttempt.GenerationIdentifier,
         materialIdentifiers: [LocalAttempt.MaterialIdentifier]
     ) throws {
-        guard case let .manifestAgreement(roster) = validatedAttempt.state else {
+        guard case let .manifestAgreement(roleElection) = validatedAttempt.state else {
             throw MosaicSemanticSimulationFailure.attemptNotReady
         }
+        let roster = roleElection.roster
         guard materialIdentifiers.count == roster.members.count else {
             throw MosaicSemanticSimulationFailure.materialIdentifierCountMismatch(
                 expected: roster.members.count,
@@ -29,7 +30,7 @@ struct MosaicSemanticSimulator {
             )
         }
 
-        self.roster = roster
+        self.roleElection = roleElection
         self.attemptIdentifier = attemptIdentifier
         self.generationIdentifier = generationIdentifier
         self.localAttempts = try zip(roster.members, materialIdentifiers).map {
@@ -45,6 +46,10 @@ struct MosaicSemanticSimulator {
         self.effectJournal = Dictionary(
             uniqueKeysWithValues: roster.controlIdentities.map { ($0, []) }
         )
+    }
+
+    var roster: Attempt.Roster {
+        roleElection.roster
     }
 
     mutating func broadcast(

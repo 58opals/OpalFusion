@@ -741,9 +741,18 @@ struct MosaicRuntimeSessionValidator {
         _ = attempt.apply(input: .discoveryCompleted(candidateCount: 7))
         _ = attempt.apply(input: .candidateSetAgreementValidated)
         _ = attempt.apply(
-            input: .controlRosterValidated(roster.controlIdentities)
+            input: .controlRosterValidated(Self.fixtureRoleElection.controlRoster)
         )
-        _ = attempt.apply(input: .rolesSelected(roster))
+        _ = attempt.apply(
+            input: .roleCommitmentsReceived(
+                Self.fixtureRoleElection.commitments
+            )
+        )
+        _ = attempt.apply(
+            input: .roleElectionValidated(
+                Self.fixtureRoleElection.validation
+            )
+        )
         let attemptIdentifier = LocalAttempt.AttemptIdentifier(
             validatedBytes: [0xA1]
         )
@@ -770,15 +779,16 @@ struct MosaicRuntimeSessionValidator {
         profile: .opalV0
     )
 
-    private static let fixtureRoster = try! Attempt.Roster(
-        members: (0 ..< 7).map { index in
-            .init(
-                controlIdentity: MosaicManifestSignatureFixtures
-                    .controlIdentity(scalarByte: UInt8(index + 1)),
-                role: index == 0 ? .conductor : .contributor
+    private static let fixtureRoleElection = try! MosaicRoleElectionFixtures.makeElection(
+        controlIdentities: (0 ..< 7).map { index in
+            MosaicManifestSignatureFixtures.controlIdentity(
+                scalarByte: UInt8(index + 1)
             )
-        }
+        },
+        profile: fixtureConfiguration.profile
     )
+
+    private static let fixtureRoster = fixtureRoleElection.result.roster
 
     private static let fixtureManifest = try! Attempt.ManifestBinding(
         validatedRoundIdentifier: Array(repeating: 0xD4, count: 32),

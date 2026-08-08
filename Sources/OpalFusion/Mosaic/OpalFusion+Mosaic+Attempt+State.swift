@@ -28,8 +28,8 @@ extension OpalFusion.Mosaic.Attempt {
         case discovery
         case candidateSetAgreement(candidateCount: Int)
         case controlRosterAgreement(candidateCount: Int)
-        case roleSelection(controlIdentities: [ControlIdentity])
-        case manifestAgreement(roster: Roster)
+        case roleSelection(RoleSelectionState)
+        case manifestAgreement(roleElection: RoleElectionResult)
         case walletReservation(roster: Roster, manifest: ManifestBinding)
         case groupedCommitment(roster: Roster, manifest: ManifestBinding)
         case anonymousComponentSubmission(roster: Roster, manifest: ManifestBinding)

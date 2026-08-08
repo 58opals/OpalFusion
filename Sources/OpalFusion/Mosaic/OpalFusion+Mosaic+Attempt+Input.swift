@@ -6,7 +6,8 @@ extension OpalFusion.Mosaic.Attempt {
             case discoveryCompleted
             case candidateSetAgreementValidated
             case controlRosterValidated
-            case rolesSelected
+            case roleCommitmentsReceived
+            case roleElectionValidated
             case manifestSignaturesValidated
             case walletReservationsPrepared
             case groupedCommitmentsValidated
@@ -20,8 +21,9 @@ extension OpalFusion.Mosaic.Attempt {
 
         case discoveryCompleted(candidateCount: Int)
         case candidateSetAgreementValidated
-        case controlRosterValidated([ControlIdentity])
-        case rolesSelected(Roster)
+        case controlRosterValidated(ControlRosterBinding)
+        case roleCommitmentsReceived([RoleCommitment])
+        case roleElectionValidated(RoleSeedValidation)
         case manifestSignaturesValidated([ManifestSignatureValidation])
         case walletReservationsPrepared(contributors: [ControlIdentity])
         case groupedCommitmentsValidated(contributors: [ControlIdentity])
@@ -40,8 +42,10 @@ extension OpalFusion.Mosaic.Attempt {
                 .candidateSetAgreementValidated
             case .controlRosterValidated:
                 .controlRosterValidated
-            case .rolesSelected:
-                .rolesSelected
+            case .roleCommitmentsReceived:
+                .roleCommitmentsReceived
+            case .roleElectionValidated:
+                .roleElectionValidated
             case .manifestSignaturesValidated:
                 .manifestSignaturesValidated
             case .walletReservationsPrepared:

@@ -11,8 +11,8 @@ extension OpalFusion.Mosaic.Attempt {
     enum Failure: Error, Sendable, Equatable {
         case invalidCandidateCount(actual: Int)
         case controlIdentityCountMismatch(expected: Int, actual: Int)
-        case duplicateControlIdentity(ControlIdentity)
-        case selectedRolesDoNotMatchControlRoster
+        case invalidRoleCommitmentSet(RoleCommitmentSet.ValidationError)
+        case invalidRoleElectionValidation(RoleElectionResult.ValidationError)
         case invalidManifestAgreement(ManifestAgreement.ValidationError)
         case conductorUsedContributorInput(during: Phase)
         case contributorSetMismatch(during: Phase)

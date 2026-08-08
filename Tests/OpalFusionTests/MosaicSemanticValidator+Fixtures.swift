@@ -37,31 +37,46 @@ extension MosaicSemanticValidator {
         candidateCount: Int,
         identityOffset: UInt8 = 0
     ) throws -> Attempt.Roster {
-        try .init(
-            members: (0 ..< candidateCount).map { position in
-                .init(
-                    controlIdentity: makeControlIdentity(
-                        position: position,
-                        identityOffset: identityOffset
-                    ),
-                    role: position == 0 ? .conductor : .contributor
+        try makeElection(
+            candidateCount: candidateCount,
+            identityOffset: identityOffset
+        ).result.roster
+    }
+
+    static func makeElection(
+        candidateCount: Int,
+        identityOffset: UInt8 = 0
+    ) throws -> MosaicRoleElectionFixtures.Election {
+        try MosaicRoleElectionFixtures.makeElection(
+            controlIdentities: (0 ..< candidateCount).map { position in
+                makeControlIdentity(
+                    position: position,
+                    identityOffset: identityOffset
                 )
-            }
+            },
+            profile: configuration.profile
         )
     }
 
     static func makeValidatedAttempt(
-        roster: Attempt.Roster
+        election: MosaicRoleElectionFixtures.Election
     ) -> Attempt {
         var attempt = Attempt(configuration: configuration)
         _ = attempt.apply(
-            input: .discoveryCompleted(candidateCount: roster.candidateCount)
+            input: .discoveryCompleted(
+                candidateCount: election.controlRoster.candidateCount
+            )
         )
         _ = attempt.apply(input: .candidateSetAgreementValidated)
         _ = attempt.apply(
-            input: .controlRosterValidated(roster.controlIdentities)
+            input: .controlRosterValidated(election.controlRoster)
         )
-        _ = attempt.apply(input: .rolesSelected(roster))
+        _ = attempt.apply(
+            input: .roleCommitmentsReceived(election.commitments)
+        )
+        _ = attempt.apply(
+            input: .roleElectionValidated(election.validation)
+        )
         return attempt
     }
 
@@ -72,12 +87,12 @@ extension MosaicSemanticValidator {
         identityOffset: UInt8 = 0,
         materialOffset: UInt8 = 0x30
     ) throws -> Simulator {
-        let roster = try makeRoster(
+        let election = try makeElection(
             candidateCount: candidateCount,
             identityOffset: identityOffset
         )
         return try Simulator(
-            validatedAttempt: makeValidatedAttempt(roster: roster),
+            validatedAttempt: makeValidatedAttempt(election: election),
             attemptIdentifier: .init(validatedBytes: [attemptByte]),
             generationIdentifier: .init(opaqueBytes: [generationByte]),
             materialIdentifiers: (0 ..< candidateCount).map { position in

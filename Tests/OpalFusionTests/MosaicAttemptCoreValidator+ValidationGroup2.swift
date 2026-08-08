@@ -27,50 +27,36 @@ extension MosaicAttemptCoreValidator {
         }
     }
 
-    @Test("Mosaic attempt rejects incomplete and duplicate control rosters")
-    func validateControlRosterFailures() throws {
+    @Test("Mosaic attempt rejects a control roster that conflicts with discovery")
+    func validateControlRosterCountFailure() throws {
         let baseScenario = try Self.makeScenario(at: .controlRosterAgreement)
-
-        var incompleteAttempt = baseScenario.attempt
-        let incomplete = Array(baseScenario.roster.controlIdentities.dropLast())
+        let mismatchedElection = try Self.makeElection(candidateCount: 8)
         let countFailure = Attempt.Failure.controlIdentityCountMismatch(
             expected: baseScenario.roster.candidateCount,
-            actual: incomplete.count
+            actual: mismatchedElection.controlRoster.candidateCount
         )
+        var attempt = baseScenario.attempt
+
         #expect(
-            incompleteAttempt.apply(
-                input: .controlRosterValidated(incomplete)
+            attempt.apply(
+                input: .controlRosterValidated(
+                    mismatchedElection.controlRoster
+                )
             ) == [.attemptTerminated(.failed(countFailure))]
         )
-        #expect(incompleteAttempt.state == .terminal(.failed(countFailure)))
-
-        var duplicateAttempt = baseScenario.attempt
-        var duplicateIdentities = baseScenario.roster.controlIdentities
-        duplicateIdentities[6] = duplicateIdentities[0]
-        let duplicateFailure = Attempt.Failure.duplicateControlIdentity(
-            duplicateIdentities[0]
-        )
-        #expect(
-            duplicateAttempt.apply(
-                input: .controlRosterValidated(duplicateIdentities)
-            ) == [.attemptTerminated(.failed(duplicateFailure))]
-        )
-        #expect(duplicateAttempt.state == .terminal(.failed(duplicateFailure)))
+        #expect(attempt.state == .terminal(.failed(countFailure)))
     }
 
-    @Test("Mosaic attempt rejects selected roles that do not match the control roster")
-    func validateSelectedRoleIdentityFailure() throws {
+    @Test("Mosaic attempt rejects role-election validation before the commitment barrier")
+    func validateRoleElectionPhaseSkip() throws {
         var scenario = try Self.makeScenario(at: .roleSelection)
-        var mismatchedMembers = scenario.roster.members
-        mismatchedMembers[6] = .init(
-            controlIdentity: Self.controlIdentity(0xFE),
-            role: .contributor
+        let failure = Attempt.Failure.invalidTransition(
+            from: .roleSelection,
+            received: .roleElectionValidated
         )
-        let mismatchedRoster = try Attempt.Roster(members: mismatchedMembers)
-        let failure = Attempt.Failure.selectedRolesDoNotMatchControlRoster
 
         let effects = scenario.attempt.apply(
-            input: .rolesSelected(mismatchedRoster)
+            input: .roleElectionValidated(scenario.election.validation)
         )
 
         #expect(effects == [.attemptTerminated(.failed(failure))])
@@ -244,7 +230,7 @@ extension MosaicAttemptCoreValidator {
 
     @Test("Mosaic transcript agreement requires every contributor exactly once")
     func validateTranscriptUnanimityFailures() throws {
-        let roster = try Self.makeRoster()
+        let roster = try Self.makeElection().result.roster
         let complete = Self.transcriptAcknowledgements(for: roster)
         let missing = Array(complete.dropLast())
         var duplicate = complete
@@ -428,14 +414,16 @@ extension MosaicAttemptCoreValidator {
         )
         let reservedRollbackFailure = Attempt.Failure.invalidTransition(
             from: .groupedCommitment,
-            received: .rolesSelected
+            received: .roleElectionValidated
         )
         let reservedRollbackOutcome = Attempt.Outcome.failed(
             reservedRollbackFailure
         )
         #expect(
             reservedRollbackScenario.attempt.apply(
-                input: .rolesSelected(reservedRollbackScenario.roster)
+                input: .roleElectionValidated(
+                    reservedRollbackScenario.election.validation
+                )
             ) == Self.terminationEffects(
                 outcome: reservedRollbackOutcome,
                 reservationRoster: reservedRollbackScenario.roster

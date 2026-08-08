@@ -30,9 +30,10 @@ extension OpalFusion.Mosaic {
             materialIdentifier: MaterialIdentifier,
             localControlIdentity: Attempt.ControlIdentity
         ) throws {
-            guard case let .manifestAgreement(roster) = validatedAttempt.state else {
+            guard case let .manifestAgreement(roleElection) = validatedAttempt.state else {
                 throw Failure.attemptNotReadyForLocalBinding
             }
+            let roster = roleElection.roster
             guard let localMember = roster.members.first(where: {
                 $0.controlIdentity == localControlIdentity
             }) else {

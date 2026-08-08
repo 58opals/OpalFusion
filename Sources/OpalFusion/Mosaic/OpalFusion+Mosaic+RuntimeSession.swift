@@ -18,11 +18,11 @@ extension OpalFusion.Mosaic {
         }
 
         init(localAttempt: LocalAttempt) throws {
-            guard case let .manifestAgreement(roster) = localAttempt.state else {
+            guard case let .manifestAgreement(roleElection) = localAttempt.state else {
                 throw Failure.attemptNotReady
             }
             self.localAttempt = localAttempt
-            self.roster = roster
+            self.roster = roleElection.roster
         }
 
         mutating func apply(input: Input) -> [Effect] {

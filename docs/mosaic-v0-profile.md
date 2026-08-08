@@ -141,11 +141,12 @@ This rigid transaction contract exists for deterministic chipnet conformance. It
 
 ## 7. Implemented And Deferred Boundaries
 
-Implemented deterministic boundaries include the phase and terminal reducer, roster validation, fixed-width and semantically distinct manifest binding, exact semantic manifest unanimity, profile-separated BIP340 pre-sign acknowledgement validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
+Implemented deterministic boundaries include the phase and terminal reducer, validated control-roster and complete role-commitment barriers, profile-bound role-seed validation integration, reducer-owned big-endian seed-to-roster selection, roster validation, fixed-width and semantically distinct manifest binding, exact semantic manifest unanimity, profile-separated BIP340 pre-sign acknowledgement validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
 
 The following remain blocked or deferred:
 
 - independent parameter, fault, timing, side-channel, and one-more-security review of the RSA blind-signature provider;
+- Opal v0 role-commitment and role-seed domains, the canonical sorted-pair hash document, and a production role-seed validator;
 - the unresolved Pedersen sum and fee-allocation algorithms, complete manifest encoding and digest derivation, BCH-signature messages, their authenticated fragment-envelope and sequence integration, and any future proof or blame schema;
 - discovery proof-of-work and timing values based on device measurements;
 - live Nostr relay and Tor-only transport adapters with traffic-analysis testing;

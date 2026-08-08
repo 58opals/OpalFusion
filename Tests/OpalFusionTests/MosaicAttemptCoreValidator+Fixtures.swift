@@ -7,7 +7,11 @@ extension MosaicAttemptCoreValidator {
 
     struct Scenario {
         var attempt: Attempt
-        let roster: Attempt.Roster
+        let election: MosaicRoleElectionFixtures.Election
+
+        var roster: Attempt.Roster {
+            election.result.roster
+        }
     }
 
     static let configuration = OpalFusion.Mosaic.Configuration(profile: .opalV0)
@@ -47,6 +51,20 @@ extension MosaicAttemptCoreValidator {
         try .init(members: makeMembers(candidateCount: candidateCount))
     }
 
+    static func makeElection(
+        candidateCount: Int = 7,
+        profile: OpalFusion.Mosaic.Profile = .opalV0,
+        roleSeed: [UInt8] = Array(repeating: 0, count: 32)
+    ) throws -> MosaicRoleElectionFixtures.Election {
+        try MosaicRoleElectionFixtures.makeElection(
+            controlIdentities: makeMembers(candidateCount: candidateCount).map(
+                \.controlIdentity
+            ),
+            profile: profile,
+            roleSeed: roleSeed
+        )
+    }
+
     static func manifestSignatureValidations(
         for roster: Attempt.Roster,
         manifest: Attempt.ManifestBinding = manifestA
@@ -63,7 +81,7 @@ extension MosaicAttemptCoreValidator {
 
     private static let manifestASevenCandidateValidations =
         MosaicManifestSignatureFixtures.manifestSignatureValidations(
-            for: try! .init(members: makeMembers(candidateCount: 7)),
+            for: try! makeElection(candidateCount: 7).result.roster,
             binding: manifestA
         )
 
@@ -98,7 +116,8 @@ extension MosaicAttemptCoreValidator {
         candidateCount: Int = 7
     ) throws -> Scenario {
         var attempt = Attempt(configuration: configuration)
-        let roster = try makeRoster(candidateCount: candidateCount)
+        let election = try makeElection(candidateCount: candidateCount)
+        let roster = election.result.roster
 
         if targetPhase.rawValue >= Attempt.Phase.candidateSetAgreement.rawValue {
             _ = attempt.apply(input: .discoveryCompleted(candidateCount: candidateCount))
@@ -108,11 +127,16 @@ extension MosaicAttemptCoreValidator {
         }
         if targetPhase.rawValue >= Attempt.Phase.roleSelection.rawValue {
             _ = attempt.apply(
-                input: .controlRosterValidated(roster.controlIdentities)
+                input: .controlRosterValidated(election.controlRoster)
             )
         }
         if targetPhase.rawValue >= Attempt.Phase.manifestAgreement.rawValue {
-            _ = attempt.apply(input: .rolesSelected(roster))
+            _ = attempt.apply(
+                input: .roleCommitmentsReceived(election.commitments)
+            )
+            _ = attempt.apply(
+                input: .roleElectionValidated(election.validation)
+            )
         }
         if targetPhase.rawValue >= Attempt.Phase.walletReservation.rawValue {
             _ = attempt.apply(
@@ -150,7 +174,7 @@ extension MosaicAttemptCoreValidator {
             )
         }
 
-        return Scenario(attempt: attempt, roster: roster)
+        return Scenario(attempt: attempt, election: election)
     }
 
     static func terminationEffects(

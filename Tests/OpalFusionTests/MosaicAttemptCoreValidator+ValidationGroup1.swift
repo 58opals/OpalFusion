@@ -84,7 +84,8 @@ extension MosaicAttemptCoreValidator {
     @Test("Mosaic attempt follows the complete happy path and emits only bounded effects")
     func validateHappyPath() throws {
         var attempt = Attempt(configuration: Self.configuration)
-        let roster = try Self.makeRoster()
+        let election = try Self.makeElection()
+        let roster = election.result.roster
 
         #expect(attempt.state == .discovery)
 
@@ -100,17 +101,36 @@ extension MosaicAttemptCoreValidator {
 
         #expect(
             attempt.apply(
-                input: .controlRosterValidated(roster.controlIdentities)
+                input: .controlRosterValidated(election.controlRoster)
             ).isEmpty
         )
         #expect(
             attempt.state == .roleSelection(
-                controlIdentities: roster.controlIdentities
+                .awaitingCommitments(election.controlRoster)
             )
         )
 
-        #expect(attempt.apply(input: .rolesSelected(roster)).isEmpty)
-        #expect(attempt.state == .manifestAgreement(roster: roster))
+        #expect(
+            attempt.apply(
+                input: .roleCommitmentsReceived(election.commitments)
+            ).isEmpty
+        )
+        #expect(
+            attempt.state == .roleSelection(
+                .awaitingElectionValidation(election.commitmentSet)
+            )
+        )
+
+        #expect(
+            attempt.apply(
+                input: .roleElectionValidated(election.validation)
+            ).isEmpty
+        )
+        #expect(
+            attempt.state == .manifestAgreement(
+                roleElection: election.result
+            )
+        )
 
         let reservationEffects = attempt.apply(
             input: .manifestSignaturesValidated(
