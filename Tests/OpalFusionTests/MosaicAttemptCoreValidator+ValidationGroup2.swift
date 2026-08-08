@@ -7,7 +7,7 @@ extension MosaicAttemptCoreValidator {
     @Test("Mosaic attempt rejects discovery counts outside the roster bounds")
     func validateDiscoveryCandidateCountFailures() {
         for candidateCount in [6, 10] {
-            var attempt = Attempt()
+            var attempt = Attempt(configuration: Self.configuration)
             let failure = Attempt.Failure.invalidCandidateCount(
                 actual: candidateCount
             )
@@ -219,9 +219,8 @@ extension MosaicAttemptCoreValidator {
         var acknowledgements = Self.transcriptAcknowledgements(
             for: transcriptScenario.roster
         )
-        acknowledgements[acknowledgements.count - 1] = .init(
-            contributor: transcriptScenario.roster.conductor,
-            transcriptRoot: Self.transcriptRootA
+        acknowledgements[acknowledgements.count - 1] = Self.transcriptAcknowledgement(
+            contributor: transcriptScenario.roster.conductor
         )
         let transcriptFailure = Attempt.Failure.conductorUsedContributorInput(
             during: .transcriptAgreement
@@ -251,9 +250,8 @@ extension MosaicAttemptCoreValidator {
         var duplicate = complete
         duplicate[duplicate.count - 1] = duplicate[0]
         var unknown = complete
-        unknown[unknown.count - 1] = .init(
-            contributor: Self.controlIdentity(0xFE),
-            transcriptRoot: Self.transcriptRootA
+        unknown[unknown.count - 1] = Self.transcriptAcknowledgement(
+            contributor: Self.controlIdentity(0xFE)
         )
 
         for acknowledgements in [missing, duplicate, unknown] {
@@ -282,7 +280,7 @@ extension MosaicAttemptCoreValidator {
             for: scenario.roster
         )
         let lastIndex = acknowledgements.count - 1
-        acknowledgements[lastIndex] = .init(
+        acknowledgements[lastIndex] = Self.transcriptAcknowledgement(
             contributor: acknowledgements[lastIndex].contributor,
             transcriptRoot: Self.transcriptRootB
         )
@@ -302,9 +300,104 @@ extension MosaicAttemptCoreValidator {
         #expect(scenario.attempt.state == .terminal(outcome))
     }
 
+    @Test("Mosaic transcript agreement rejects a valid signature for another round")
+    func validateTranscriptRoundMismatchFailure() throws {
+        var scenario = try Self.makeScenario(at: .transcriptAgreement)
+        var acknowledgements = Self.transcriptAcknowledgements(
+            for: scenario.roster
+        )
+        let lastIndex = acknowledgements.count - 1
+        acknowledgements[lastIndex] = Self.transcriptAcknowledgement(
+            contributor: acknowledgements[lastIndex].contributor,
+            manifest: Self.manifestB
+        )
+        let failure = Attempt.Failure.transcriptRoundIdentifierMismatch
+        let outcome = Attempt.Outcome.failed(failure)
+
+        let effects = scenario.attempt.apply(
+            input: .transcriptAgreementValidated(acknowledgements)
+        )
+
+        #expect(
+            effects == Self.terminationEffects(
+                outcome: outcome,
+                reservationRoster: scenario.roster
+            )
+        )
+        #expect(scenario.attempt.state == .terminal(outcome))
+    }
+
+    @Test(
+        "Mosaic transcript agreement rejects mixed and all-wrong profiles",
+        arguments: [false, true]
+    )
+    func validateTranscriptProfileMismatchFailure(
+        allAcknowledgementsUseWrongProfile: Bool
+    ) throws {
+        var scenario = try Self.makeScenario(at: .transcriptAgreement)
+        var acknowledgements = Self.transcriptAcknowledgements(
+            for: scenario.roster
+        )
+        if allAcknowledgementsUseWrongProfile {
+            acknowledgements = scenario.roster.contributors.map {
+                Self.transcriptAcknowledgement(
+                    contributor: $0,
+                    profile: .draft1
+                )
+            }
+        } else {
+            let lastIndex = acknowledgements.count - 1
+            acknowledgements[lastIndex] = Self.transcriptAcknowledgement(
+                contributor: acknowledgements[lastIndex].contributor,
+                profile: .draft1
+            )
+        }
+        let failure = Attempt.Failure.transcriptAcknowledgementProfileMismatch
+        let outcome = Attempt.Outcome.failed(failure)
+
+        let effects = scenario.attempt.apply(
+            input: .transcriptAgreementValidated(acknowledgements)
+        )
+
+        #expect(
+            effects == Self.terminationEffects(
+                outcome: outcome,
+                reservationRoster: scenario.roster
+            )
+        )
+        #expect(effects.allSatisfy { effect in
+            if case .bchSigningEligible = effect {
+                return false
+            }
+            return true
+        })
+        #expect(scenario.attempt.state == .terminal(outcome))
+    }
+
+    @Test("Mosaic transcript agreement is insensitive to acknowledgement order")
+    func acceptPermutedTranscriptAcknowledgements() throws {
+        var scenario = try Self.makeScenario(at: .transcriptAgreement)
+        let acknowledgements = Self.transcriptAcknowledgements(
+            for: scenario.roster
+        ).reversed()
+
+        let effects = scenario.attempt.apply(
+            input: .transcriptAgreementValidated(Array(acknowledgements))
+        )
+
+        #expect(
+            effects == [
+                .bchSigningEligible(
+                    contributors: scenario.roster.contributors,
+                    transcriptRoot: Self.transcriptRootA
+                )
+            ]
+        )
+    }
+
     @Test("Mosaic phase skipping and rollback terminate the attempt")
     func validateInvalidTransitionFailures() throws {
-        var skippedAttempt = Attempt()
+        var skippedAttempt = Attempt(configuration: Self.configuration)
         let skippingFailure = Attempt.Failure.invalidTransition(
             from: .discovery,
             received: .candidateSetAgreementValidated

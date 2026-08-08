@@ -100,6 +100,8 @@ This slice validates canonical syntax, point/key encodings, fixed counts, P2PKH 
 
 The transport-independent attempt core distinguishes the 32-byte core-derived round identifier signed by control identities from the 32-byte digest of the complete signed manifest committed by the transcript. The authenticated runtime validates each embedded BIP340 control signature over the supplied round identifier before it can mint a validation record. The semantic manifest-agreement validator then requires exactly one record for every member of the immutable role-selected roster, requires every record to carry the same pair of identifiers, includes the conductor in unanimity, and emits reservation eligibility only for contributors. This boundary does not define either digest formula or the complete manifest encoding, so it does not yet prove that the supplied complete-manifest digest was derived from the signed document.
 
+At the pre-sign gate, the attempt-bound `Configuration` is the authoritative profile selector. The authenticated runtime derives that profile from its local attempt, accepts only a conductor-published raw acknowledgement set, bounds it to the exact contributor count before cryptographic work, and verifies every contributor's BIP340 signature over `SHA256(UTF8(profile + "/pre-sign-ack") || canonical(preSignAcknowledgement))`. Only sealed validation records reach the semantic reducer, which rechecks the profile and requires every contributor exactly once, the agreed round identifier, and one identical 32-byte transcript root before it emits BCH-signing eligibility. The aggregate acknowledgement-set wrapper and its transport encoding remain deferred.
+
 ## 5. Nostr Conformance Contract
 
 The profile assigns three Nostr ephemeral kinds:
@@ -139,7 +141,7 @@ This rigid transaction contract exists for deterministic chipnet conformance. It
 
 ## 7. Implemented And Deferred Boundaries
 
-Implemented deterministic boundaries include the phase and terminal reducer, roster validation, fixed-width and semantically distinct manifest binding, exact semantic manifest unanimity, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
+Implemented deterministic boundaries include the phase and terminal reducer, roster validation, fixed-width and semantically distinct manifest binding, exact semantic manifest unanimity, profile-separated BIP340 pre-sign acknowledgement validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
 
 The following remain blocked or deferred:
 

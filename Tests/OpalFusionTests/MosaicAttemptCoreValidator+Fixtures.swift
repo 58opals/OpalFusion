@@ -10,6 +10,8 @@ extension MosaicAttemptCoreValidator {
         let roster: Attempt.Roster
     }
 
+    static let configuration = OpalFusion.Mosaic.Configuration(profile: .opalV0)
+
     static let manifestA = try! Attempt.ManifestBinding(
         validatedRoundIdentifier: Array(repeating: 0xA1, count: 32),
         validatedManifestDigest: Array(repeating: 0xA2, count: 32)
@@ -18,8 +20,12 @@ extension MosaicAttemptCoreValidator {
         validatedRoundIdentifier: Array(repeating: 0xB1, count: 32),
         validatedManifestDigest: Array(repeating: 0xB2, count: 32)
     )
-    static let transcriptRootA = Attempt.TranscriptRoot(validatedBytes: [0xC3])
-    static let transcriptRootB = Attempt.TranscriptRoot(validatedBytes: [0xD4])
+    static let transcriptRootA = try! Attempt.TranscriptRoot(
+        validating: Array(repeating: 0xC3, count: 32)
+    )
+    static let transcriptRootB = try! Attempt.TranscriptRoot(
+        validating: Array(repeating: 0xD4, count: 32)
+    )
 
     static func controlIdentity(_ value: UInt8) -> Attempt.ControlIdentity {
         MosaicManifestSignatureFixtures.controlIdentity(scalarByte: value)
@@ -63,18 +69,35 @@ extension MosaicAttemptCoreValidator {
 
     static func transcriptAcknowledgements(
         for roster: Attempt.Roster,
+        manifest: Attempt.ManifestBinding = manifestA,
         transcriptRoot: Attempt.TranscriptRoot = transcriptRootA
-    ) -> [Attempt.TranscriptAcknowledgement] {
-        roster.contributors.map {
-            .init(contributor: $0, transcriptRoot: transcriptRoot)
-        }
+    ) -> [Attempt.TranscriptAcknowledgementValidation] {
+        MosaicManifestSignatureFixtures.transcriptAcknowledgementValidations(
+            for: roster.contributors,
+            binding: manifest,
+            transcriptRoot: transcriptRoot
+        )
+    }
+
+    static func transcriptAcknowledgement(
+        contributor: Attempt.ControlIdentity,
+        manifest: Attempt.ManifestBinding = manifestA,
+        transcriptRoot: Attempt.TranscriptRoot = transcriptRootA,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
+    ) -> Attempt.TranscriptAcknowledgementValidation {
+        MosaicManifestSignatureFixtures.transcriptAcknowledgementValidation(
+            contributor: contributor,
+            binding: manifest,
+            transcriptRoot: transcriptRoot,
+            profile: profile
+        )
     }
 
     static func makeScenario(
         at targetPhase: Attempt.Phase,
         candidateCount: Int = 7
     ) throws -> Scenario {
-        var attempt = Attempt()
+        var attempt = Attempt(configuration: configuration)
         let roster = try makeRoster(candidateCount: candidateCount)
 
         if targetPhase.rawValue >= Attempt.Phase.candidateSetAgreement.rawValue {

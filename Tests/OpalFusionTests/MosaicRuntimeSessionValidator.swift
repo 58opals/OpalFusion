@@ -391,13 +391,14 @@ struct MosaicRuntimeSessionValidator {
             sequence: 3,
             phase: .transcriptAgreement,
             identifierByte: 0x94,
-            fact: .transcriptAgreementValidated(
-                fixture.roster.contributors.map {
-                    .init(
-                        contributor: $0,
-                        transcriptRoot: .init(validatedBytes: [0x55])
+            fact: .transcriptAcknowledgementSet(
+                MosaicManifestSignatureFixtures.transcriptAcknowledgements(
+                    for: fixture.roster.contributors,
+                    binding: fixture.manifest,
+                    transcriptRoot: try .init(
+                        validating: Array(repeating: 0x55, count: 32)
                     )
-                }
+                )
             )
         )
         _ = fixture.session.apply(input: .authenticated(transcript))
@@ -417,6 +418,208 @@ struct MosaicRuntimeSessionValidator {
             // Expected.
         } else {
             Issue.record("Expected a completed terminal attempt")
+        }
+    }
+
+    @Test("Verify a complete signed transcript set before BCH signing eligibility")
+    func verifyCompleteTranscriptAcknowledgementSet() throws {
+        var fixture = try makeFixture()
+        try advanceToTranscriptAgreement(fixture: &fixture)
+        let root = try Attempt.TranscriptRoot(
+            validating: Array(repeating: 0x55, count: 32)
+        )
+        let message = try makeMessage(
+            fixture: fixture,
+            sequence: 3,
+            phase: .transcriptAgreement,
+            identifierByte: 0x94,
+            fact: .transcriptAcknowledgementSet(
+                MosaicManifestSignatureFixtures.transcriptAcknowledgements(
+                    for: fixture.roster.contributors,
+                    binding: fixture.manifest,
+                    transcriptRoot: root
+                )
+            )
+        )
+
+        let effects = fixture.session.apply(input: .authenticated(message))
+
+        #expect(effects.contains { effect in
+            if case .localAttempt(.bchSigningEligible) = effect {
+                return true
+            }
+            return false
+        })
+        #expect(
+            fixture.session.state == .bchSigning(
+                roster: fixture.roster,
+                manifest: fixture.manifest,
+                transcriptRoot: root
+            )
+        )
+    }
+
+    @Test(
+        "Reject hostile transcript set counts before embedded signature parsing",
+        arguments: [-1, 1]
+    )
+    func rejectTranscriptSetCountBeforeVerification(offset: Int) throws {
+        var fixture = try makeFixture()
+        try advanceToTranscriptAgreement(fixture: &fixture)
+        let expectedCount = fixture.roster.contributors.count
+        let actualCount = expectedCount + offset
+        let hostile = Attempt.TranscriptAcknowledgement(
+            contributor: .init(validatedBytes: []),
+            roundIdentifier: [],
+            transcriptRoot: [],
+            rawRepresentation: []
+        )
+        let message = try makeMessage(
+            fixture: fixture,
+            sequence: 3,
+            phase: .transcriptAgreement,
+            identifierByte: 0x95,
+            fact: .transcriptAcknowledgementSet(
+                Array(repeating: hostile, count: actualCount)
+            )
+        )
+
+        let effects = fixture.session.apply(input: .authenticated(message))
+
+        #expect(
+            effects.first == .authenticatedInputRejected(
+                .invalidTranscriptAcknowledgementCount(
+                    expected: expectedCount,
+                    actual: actualCount
+                )
+            )
+        )
+        #expect(effects.allSatisfy { effect in
+            if case .localAttempt(.bchSigningEligible) = effect {
+                return false
+            }
+            return true
+        })
+        if case .terminal(.failed) = fixture.session.state {
+            // Expected.
+        } else {
+            Issue.record("Expected hostile transcript count to terminate")
+        }
+    }
+
+    @Test("Abort an invalid transcript signature without BCH signing eligibility")
+    func abortInvalidTranscriptSignature() throws {
+        var fixture = try makeFixture()
+        try advanceToTranscriptAgreement(fixture: &fixture)
+        let root = try Attempt.TranscriptRoot(
+            validating: Array(repeating: 0x66, count: 32)
+        )
+        var acknowledgements = MosaicManifestSignatureFixtures
+            .transcriptAcknowledgements(
+                for: fixture.roster.contributors,
+                binding: fixture.manifest,
+                transcriptRoot: root
+            )
+        acknowledgements[0] = .init(
+            contributor: acknowledgements[0].contributor,
+            roundIdentifier: acknowledgements[0].roundIdentifier,
+            transcriptRoot: acknowledgements[0].transcriptRoot,
+            rawRepresentation: Array(repeating: 0xFF, count: 64)
+        )
+        let invalid = try makeMessage(
+            fixture: fixture,
+            sequence: 3,
+            phase: .transcriptAgreement,
+            identifierByte: 0x96,
+            fact: .transcriptAcknowledgementSet(acknowledgements)
+        )
+
+        let effects = fixture.session.apply(input: .authenticated(invalid))
+
+        #expect(
+            effects.first == .authenticatedInputRejected(
+                .invalidTranscriptAcknowledgement(.invalidSignature)
+            )
+        )
+        #expect(effects.filter { effect in
+            if case .localAttempt(.walletReservationReleaseRequired) = effect {
+                return true
+            }
+            return false
+        }.count == 1)
+        #expect(effects.allSatisfy { effect in
+            if case .localAttempt(.bchSigningEligible) = effect {
+                return false
+            }
+            return true
+        })
+        #expect(
+            fixture.session.apply(input: .authenticated(invalid))
+                == [.exactDuplicateIgnored]
+        )
+
+        let corrected = try makeMessage(
+            fixture: fixture,
+            sequence: 3,
+            phase: .transcriptAgreement,
+            identifierByte: 0x97,
+            fact: .transcriptAcknowledgementSet(
+                MosaicManifestSignatureFixtures.transcriptAcknowledgements(
+                    for: fixture.roster.contributors,
+                    binding: fixture.manifest,
+                    transcriptRoot: root
+                )
+            )
+        )
+        #expect(
+            fixture.session.apply(input: .authenticated(corrected))
+                == [
+                    .localAttempt(
+                        .inputRejected(.attemptFailure(.inputAfterTermination))
+                    )
+                ]
+        )
+    }
+
+    @Test("Reject a complete transcript set published by a contributor")
+    func rejectNonConductorTranscriptPublisher() throws {
+        var fixture = try makeFixture()
+        try advanceToTranscriptAgreement(fixture: &fixture)
+        let root = try Attempt.TranscriptRoot(
+            validating: Array(repeating: 0x77, count: 32)
+        )
+        let message = try makeMessage(
+            fixture: fixture,
+            sequence: 3,
+            phase: .transcriptAgreement,
+            identifierByte: 0x98,
+            sender: fixture.roster.contributors[0],
+            fact: .transcriptAcknowledgementSet(
+                MosaicManifestSignatureFixtures.transcriptAcknowledgements(
+                    for: fixture.roster.contributors,
+                    binding: fixture.manifest,
+                    transcriptRoot: root
+                )
+            )
+        )
+
+        let effects = fixture.session.apply(input: .authenticated(message))
+
+        #expect(
+            effects.first == .authenticatedInputRejected(
+                .transcriptAcknowledgementPublisherIsNotConductor
+            )
+        )
+        #expect(effects.allSatisfy { effect in
+            if case .localAttempt(.bchSigningEligible) = effect {
+                return false
+            }
+            return true
+        })
+        if case .terminal(.failed) = fixture.session.state {
+            // Expected.
+        } else {
+            Issue.record("Expected non-conductor transcript publisher to terminate")
         }
     }
 
@@ -489,9 +692,52 @@ struct MosaicRuntimeSessionValidator {
         )
     }
 
+    private func advanceToTranscriptAgreement(
+        fixture: inout MosaicRuntimeSessionFixture
+    ) throws {
+        _ = fixture.session.apply(
+            input: .authenticated(
+                try makeManifestMessage(fixture: fixture, sequence: 0)
+            )
+        )
+        _ = fixture.session.apply(
+            input: .hostResult(
+                .walletReservationsPrepared(
+                    contributors: fixture.roster.contributors
+                )
+            )
+        )
+        _ = fixture.session.apply(
+            input: .authenticated(
+                try makeMessage(
+                    fixture: fixture,
+                    sequence: 1,
+                    phase: .groupedCommitment,
+                    identifierByte: 0x92,
+                    fact: .groupedCommitmentsValidated(
+                        contributors: fixture.roster.contributors
+                    )
+                )
+            )
+        )
+        _ = fixture.session.apply(
+            input: .authenticated(
+                try makeMessage(
+                    fixture: fixture,
+                    sequence: 2,
+                    phase: .anonymousComponentSubmission,
+                    identifierByte: 0x93,
+                    fact: .anonymousComponentsValidated(
+                        contributors: fixture.roster.contributors
+                    )
+                )
+            )
+        )
+    }
+
     private func makeFixture() throws -> MosaicRuntimeSessionFixture {
         let roster = Self.fixtureRoster
-        var attempt = Attempt()
+        var attempt = Attempt(configuration: Self.fixtureConfiguration)
         _ = attempt.apply(input: .discoveryCompleted(candidateCount: 7))
         _ = attempt.apply(input: .candidateSetAgreementValidated)
         _ = attempt.apply(
@@ -519,6 +765,10 @@ struct MosaicRuntimeSessionValidator {
             manifest: Self.fixtureManifest
         )
     }
+
+    private static let fixtureConfiguration = OpalFusion.Mosaic.Configuration(
+        profile: .opalV0
+    )
 
     private static let fixtureRoster = try! Attempt.Roster(
         members: (0 ..< 7).map { index in
@@ -564,12 +814,13 @@ struct MosaicRuntimeSessionValidator {
         sequence: UInt64,
         phase: Attempt.Phase,
         identifierByte: UInt8,
+        sender: Attempt.ControlIdentity? = nil,
         fact: RuntimeSession.AuthenticatedFact
     ) throws -> RuntimeSession.AuthenticatedMessage {
         .init(
             attemptIdentifier: fixture.attemptIdentifier,
             generationIdentifier: fixture.generationIdentifier,
-            sender: fixture.roster.conductor,
+            sender: sender ?? fixture.roster.conductor,
             sequence: sequence,
             phase: phase,
             messageIdentifier: try .init(

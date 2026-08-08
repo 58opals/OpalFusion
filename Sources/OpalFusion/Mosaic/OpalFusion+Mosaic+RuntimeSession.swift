@@ -5,8 +5,9 @@ extension OpalFusion.Mosaic {
     ///
     /// Transport and wire adapters remain responsible for canonical decoding,
     /// outer-event signature verification, expiry, network, protocol, and round validation.
-    /// This value owns embedded manifest-signature verification, attempt/generation binding,
-    /// sender membership, replay, sequence, phase, and terminal discipline.
+    /// This value owns embedded manifest and transcript signature verification,
+    /// attempt/generation binding, sender membership, replay, sequence, phase, and terminal
+    /// discipline.
     struct RuntimeSession: Sendable {
         private var localAttempt: LocalAttempt
         private var replayIndex = AuthenticatedReplayIndex()
@@ -112,12 +113,24 @@ extension OpalFusion.Mosaic {
                 )
             }
 
+            if case .transcriptAcknowledgementSet = message.authenticatedFact,
+               message.sender != roster.conductor {
+                return terminateAuthenticatedViolation(
+                    failure: .transcriptAcknowledgementPublisherIsNotConductor,
+                    reason: .invalidAuthenticatedMessage
+                )
+            }
+
             do {
                 return localize(
                     localAttempt.apply(
                         input: try message.validatedLocalInput(
                             expectedManifestSignatureCount:
-                                roster.candidateCount
+                                roster.candidateCount,
+                            expectedTranscriptAcknowledgementCount:
+                                roster.contributors.count,
+                            transcriptAcknowledgementProfile:
+                                localAttempt.configuration.profile
                         )
                     )
                 )

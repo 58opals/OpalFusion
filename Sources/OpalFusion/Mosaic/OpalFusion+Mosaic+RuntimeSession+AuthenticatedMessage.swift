@@ -30,7 +30,9 @@ extension OpalFusion.Mosaic.RuntimeSession {
         }
 
         func validatedLocalInput(
-            expectedManifestSignatureCount: Int
+            expectedManifestSignatureCount: Int,
+            expectedTranscriptAcknowledgementCount: Int,
+            transcriptAcknowledgementProfile: OpalFusion.Mosaic.Profile
         ) throws(OpalFusion.Mosaic.RuntimeSession.Failure)
             -> OpalFusion.Mosaic.LocalAttempt.Input {
             .init(
@@ -38,7 +40,11 @@ extension OpalFusion.Mosaic.RuntimeSession {
                 generationIdentifier: generationIdentifier,
                 validatedFact: try authenticatedFact.attemptInput(
                     expectedManifestSignatureCount:
-                        expectedManifestSignatureCount
+                        expectedManifestSignatureCount,
+                    expectedTranscriptAcknowledgementCount:
+                        expectedTranscriptAcknowledgementCount,
+                    transcriptAcknowledgementProfile:
+                        transcriptAcknowledgementProfile
                 )
             )
         }

@@ -1,29 +1,6 @@
 // OpalFusion+Mosaic+Attempt+Input.swift
 
 extension OpalFusion.Mosaic.Attempt {
-    /// An opaque transcript root that an upstream canonicalization seam has validated.
-    struct TranscriptRoot: Sendable, Hashable {
-        let validatedBytes: [UInt8]
-
-        init(validatedBytes: [UInt8]) {
-            self.validatedBytes = validatedBytes
-        }
-    }
-
-    /// One already signature-validated pre-sign acknowledgement.
-    struct TranscriptAcknowledgement: Sendable, Equatable {
-        let contributor: ControlIdentity
-        let transcriptRoot: TranscriptRoot
-
-        init(
-            contributor: ControlIdentity,
-            transcriptRoot: TranscriptRoot
-        ) {
-            self.contributor = contributor
-            self.transcriptRoot = transcriptRoot
-        }
-    }
-
     enum Input: Sendable, Equatable {
         enum Kind: String, Sendable, Equatable {
             case discoveryCompleted
@@ -49,7 +26,7 @@ extension OpalFusion.Mosaic.Attempt {
         case walletReservationsPrepared(contributors: [ControlIdentity])
         case groupedCommitmentsValidated(contributors: [ControlIdentity])
         case anonymousComponentsValidated(contributors: [ControlIdentity])
-        case transcriptAgreementValidated([TranscriptAcknowledgement])
+        case transcriptAgreementValidated([TranscriptAcknowledgementValidation])
         case signedTransactionValidated(contributorSigners: [ControlIdentity])
         case abort(AbortReason)
         case cancel

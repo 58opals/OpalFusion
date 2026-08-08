@@ -73,6 +73,87 @@ enum MosaicManifestSignatureFixtures {
         }
     }
 
+    static func transcriptAcknowledgement(
+        contributor: Attempt.ControlIdentity,
+        binding: Attempt.ManifestBinding,
+        transcriptRoot: Attempt.TranscriptRoot,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
+    ) -> Attempt.TranscriptAcknowledgement {
+        guard let signingKey = signingKeysByIdentity[contributor] else {
+            preconditionFailure(
+                "Transcript-acknowledgement fixtures require a test control identity."
+            )
+        }
+        let digest = Attempt.TranscriptAcknowledgementValidation.signatureDigest(
+            profile: profile,
+            roundIdentifier: binding.roundIdentifier,
+            transcriptRoot: transcriptRoot.validatedBytes
+        )
+        let auxiliaryRandomness = try! OpalCrypto.Signature.BIP340
+            .AuxiliaryRandomness(
+                rawRepresentation: Data(repeating: 0x5A, count: 32)
+            )
+        let signature = try! signingKey.signBIP340(
+            digest: digest,
+            auxiliaryRandomness: auxiliaryRandomness
+        )
+        return .init(
+            contributor: contributor,
+            roundIdentifier: binding.roundIdentifier,
+            transcriptRoot: transcriptRoot.validatedBytes,
+            rawRepresentation: Array(signature.rawRepresentation)
+        )
+    }
+
+    static func transcriptAcknowledgements(
+        for contributors: [Attempt.ControlIdentity],
+        binding: Attempt.ManifestBinding,
+        transcriptRoot: Attempt.TranscriptRoot,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
+    ) -> [Attempt.TranscriptAcknowledgement] {
+        contributors.map {
+            transcriptAcknowledgement(
+                contributor: $0,
+                binding: binding,
+                transcriptRoot: transcriptRoot,
+                profile: profile
+            )
+        }
+    }
+
+    static func transcriptAcknowledgementValidation(
+        contributor: Attempt.ControlIdentity,
+        binding: Attempt.ManifestBinding,
+        transcriptRoot: Attempt.TranscriptRoot,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
+    ) -> Attempt.TranscriptAcknowledgementValidation {
+        try! .init(
+            validating: transcriptAcknowledgement(
+                contributor: contributor,
+                binding: binding,
+                transcriptRoot: transcriptRoot,
+                profile: profile
+            ),
+            profile: profile
+        )
+    }
+
+    static func transcriptAcknowledgementValidations(
+        for contributors: [Attempt.ControlIdentity],
+        binding: Attempt.ManifestBinding,
+        transcriptRoot: Attempt.TranscriptRoot,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
+    ) -> [Attempt.TranscriptAcknowledgementValidation] {
+        contributors.map {
+            transcriptAcknowledgementValidation(
+                contributor: $0,
+                binding: binding,
+                transcriptRoot: transcriptRoot,
+                profile: profile
+            )
+        }
+    }
+
     private struct KeyMaterial: Sendable {
         let identity: Attempt.ControlIdentity
         let signingKey: OpalCrypto.Secp256k1.SigningKey

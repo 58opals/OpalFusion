@@ -17,6 +17,8 @@ extension OpalFusion.Mosaic.Attempt {
         case conductorUsedContributorInput(during: Phase)
         case contributorSetMismatch(during: Phase)
         case transcriptAgreementNotUnanimous
+        case transcriptAcknowledgementProfileMismatch
+        case transcriptRoundIdentifierMismatch
         case transcriptRootDisagreement
         case invalidTransition(from: Phase, received: Input.Kind)
         case aborted(during: Phase, reason: AbortReason)

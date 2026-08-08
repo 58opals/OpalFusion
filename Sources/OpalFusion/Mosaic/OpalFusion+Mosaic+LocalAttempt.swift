@@ -19,6 +19,10 @@ extension OpalFusion.Mosaic {
             aggregateAttempt.state
         }
 
+        var configuration: OpalFusion.Mosaic.Configuration {
+            aggregateAttempt.configuration
+        }
+
         init(
             validatedAttempt: Attempt,
             attemptIdentifier: AttemptIdentifier,

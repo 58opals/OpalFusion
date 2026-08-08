@@ -83,7 +83,7 @@ extension MosaicAttemptCoreValidator {
 
     @Test("Mosaic attempt follows the complete happy path and emits only bounded effects")
     func validateHappyPath() throws {
-        var attempt = Attempt()
+        var attempt = Attempt(configuration: Self.configuration)
         let roster = try Self.makeRoster()
 
         #expect(attempt.state == .discovery)

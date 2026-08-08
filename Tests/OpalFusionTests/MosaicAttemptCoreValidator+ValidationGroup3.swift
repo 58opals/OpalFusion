@@ -113,10 +113,10 @@ extension MosaicAttemptCoreValidator {
             )
         )
 
-        var failedAttempt = Attempt()
+        var failedAttempt = Attempt(configuration: Self.configuration)
         _ = failedAttempt.apply(input: .discoveryCompleted(candidateCount: 6))
 
-        var cancelledAttempt = Attempt()
+        var cancelledAttempt = Attempt(configuration: Self.configuration)
         _ = cancelledAttempt.apply(input: .cancel)
 
         for terminalAttempt in [
@@ -143,9 +143,9 @@ extension MosaicAttemptCoreValidator {
 
     @Test("Mosaic retry requires a distinct attempt instance")
     func validateFreshAttemptRequiredForRetry() {
-        var originalAttempt = Attempt()
+        var originalAttempt = Attempt(configuration: Self.configuration)
         _ = originalAttempt.apply(input: .retryRequested)
-        let freshAttempt = Attempt()
+        let freshAttempt = Attempt(configuration: Self.configuration)
 
         #expect(
             originalAttempt.state

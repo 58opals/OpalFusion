@@ -7,6 +7,8 @@ extension MosaicSemanticValidator {
     typealias LocalAttempt = OpalFusion.Mosaic.LocalAttempt
     typealias Simulator = MosaicSemanticSimulator
 
+    static let configuration = OpalFusion.Mosaic.Configuration(profile: .opalV0)
+
     static let manifestA = try! Attempt.ManifestBinding(
         validatedRoundIdentifier: Array(repeating: 0xA1, count: 32),
         validatedManifestDigest: Array(repeating: 0xA2, count: 32)
@@ -15,8 +17,12 @@ extension MosaicSemanticValidator {
         validatedRoundIdentifier: Array(repeating: 0xB1, count: 32),
         validatedManifestDigest: Array(repeating: 0xB2, count: 32)
     )
-    static let transcriptRootA = Attempt.TranscriptRoot(validatedBytes: [0xC3])
-    static let transcriptRootB = Attempt.TranscriptRoot(validatedBytes: [0xD4])
+    static let transcriptRootA = try! Attempt.TranscriptRoot(
+        validating: Array(repeating: 0xC3, count: 32)
+    )
+    static let transcriptRootB = try! Attempt.TranscriptRoot(
+        validating: Array(repeating: 0xD4, count: 32)
+    )
 
     static func makeControlIdentity(
         position: Int,
@@ -47,7 +53,7 @@ extension MosaicSemanticValidator {
     static func makeValidatedAttempt(
         roster: Attempt.Roster
     ) -> Attempt {
-        var attempt = Attempt()
+        var attempt = Attempt(configuration: configuration)
         _ = attempt.apply(
             input: .discoveryCompleted(candidateCount: roster.candidateCount)
         )
@@ -152,11 +158,14 @@ extension MosaicSemanticValidator {
 
     static func makeTranscriptAcknowledgements(
         roster: Attempt.Roster,
+        manifest: Attempt.ManifestBinding = manifestA,
         transcriptRoot: Attempt.TranscriptRoot
-    ) -> [Attempt.TranscriptAcknowledgement] {
-        roster.contributors.map {
-            .init(contributor: $0, transcriptRoot: transcriptRoot)
-        }
+    ) -> [Attempt.TranscriptAcknowledgementValidation] {
+        MosaicManifestSignatureFixtures.transcriptAcknowledgementValidations(
+            for: roster.contributors,
+            binding: manifest,
+            transcriptRoot: transcriptRoot
+        )
     }
 
     static func complete(
@@ -191,6 +200,7 @@ extension MosaicSemanticValidator {
             validatedFact: .transcriptAgreementValidated(
                 makeTranscriptAcknowledgements(
                     roster: simulator.roster,
+                    manifest: manifest,
                     transcriptRoot: transcriptRoot
                 )
             )

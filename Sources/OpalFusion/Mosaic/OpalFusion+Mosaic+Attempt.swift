@@ -1,14 +1,16 @@
 // OpalFusion+Mosaic+Attempt.swift
 
 extension OpalFusion.Mosaic {
-    /// A deterministic, transport-independent reducer for one Mosaic attempt.
+    /// A deterministic, transport-independent reducer for one profile-bound Mosaic attempt.
     ///
     /// Construct a new value for every retry. Cryptographic, transport, clock, and host adapters
     /// must validate their own facts before converting them into an `Input`.
     struct Attempt: Sendable {
+        let configuration: Configuration
         private(set) var state: State
 
-        init() {
+        init(configuration: Configuration) {
+            self.configuration = configuration
             self.state = .discovery
         }
 
@@ -38,7 +40,9 @@ extension OpalFusion.Mosaic {
 
             switch (state, input) {
             case let (.discovery, .discoveryCompleted(candidateCount)):
-                guard (7 ... 9).contains(candidateCount) else {
+                let rosterPolicy = configuration.rosterPolicy
+                guard (rosterPolicy.minimumCandidateCount
+                    ... rosterPolicy.maximumCandidateCount).contains(candidateCount) else {
                     return terminate(
                         with: .failed(.invalidCandidateCount(actual: candidateCount))
                     )
@@ -186,6 +190,20 @@ extension OpalFusion.Mosaic {
                 ) else {
                     return terminate(
                         with: .failed(.transcriptAgreementNotUnanimous)
+                    )
+                }
+                guard acknowledgements.allSatisfy({
+                    $0.profile == configuration.profile
+                }) else {
+                    return terminate(
+                        with: .failed(.transcriptAcknowledgementProfileMismatch)
+                    )
+                }
+                guard acknowledgements.allSatisfy({
+                    $0.roundIdentifier == manifest.roundIdentifier
+                }) else {
+                    return terminate(
+                        with: .failed(.transcriptRoundIdentifierMismatch)
                     )
                 }
                 guard let transcriptRoot = acknowledgements.first?.transcriptRoot,

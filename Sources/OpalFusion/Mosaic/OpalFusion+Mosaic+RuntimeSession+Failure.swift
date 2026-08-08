@@ -13,5 +13,10 @@ extension OpalFusion.Mosaic.RuntimeSession {
         case invalidManifestSignature(
             OpalFusion.Mosaic.Attempt.ManifestSignatureValidation.ValidationError
         )
+        case transcriptAcknowledgementPublisherIsNotConductor
+        case invalidTranscriptAcknowledgementCount(expected: Int, actual: Int)
+        case invalidTranscriptAcknowledgement(
+            OpalFusion.Mosaic.Attempt.TranscriptAcknowledgementValidation.ValidationError
+        )
     }
 }
