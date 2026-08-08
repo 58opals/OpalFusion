@@ -8,6 +8,8 @@ extension MosaicAttemptCoreValidator {
     struct Scenario {
         var attempt: Attempt
         let election: MosaicRoleElectionFixtures.Election
+        let transactionPreparation:
+            MosaicUnsignedTransactionTranscriptFixtures.Prepared
 
         var roster: Attempt.Roster {
             election.result.roster
@@ -118,6 +120,8 @@ extension MosaicAttemptCoreValidator {
         var attempt = Attempt(configuration: configuration)
         let election = try makeElection(candidateCount: candidateCount)
         let roster = election.result.roster
+        let transactionPreparation = try MosaicUnsignedTransactionTranscriptFixtures
+            .prepare(roster: roster, manifest: manifestA)
 
         if targetPhase.rawValue >= Attempt.Phase.candidateSetAgreement.rawValue {
             _ = attempt.apply(input: .discoveryCompleted(candidateCount: candidateCount))
@@ -154,27 +158,34 @@ extension MosaicAttemptCoreValidator {
         }
         if targetPhase.rawValue >= Attempt.Phase.anonymousComponentSubmission.rawValue {
             _ = attempt.apply(
-                input: .groupedCommitmentsValidated(
-                    contributors: roster.contributors
+                input: .groupedCommitmentSetReceived(
+                    transactionPreparation.commitmentSet
                 )
             )
         }
         if targetPhase.rawValue >= Attempt.Phase.transcriptAgreement.rawValue {
             _ = attempt.apply(
-                input: .anonymousComponentsValidated(
-                    contributors: roster.contributors
+                input: .anonymousComponentSetReceived(
+                    transactionPreparation.componentSet
                 )
             )
         }
         if targetPhase.rawValue >= Attempt.Phase.bchSigning.rawValue {
             _ = attempt.apply(
                 input: .transcriptAgreementValidated(
-                    transcriptAcknowledgements(for: roster)
+                    transcriptAcknowledgements(
+                        for: roster,
+                        transcriptRoot: transactionPreparation.transcript.transcriptRoot
+                    )
                 )
             )
         }
 
-        return Scenario(attempt: attempt, election: election)
+        return Scenario(
+            attempt: attempt,
+            election: election,
+            transactionPreparation: transactionPreparation
+        )
     }
 
     static func terminationEffects(
@@ -209,19 +220,17 @@ extension MosaicAttemptCoreValidator {
 
     static func contributorInput(
         for phase: Attempt.Phase,
-        contributors: [Attempt.ControlIdentity]
-    ) -> Attempt.Input {
+        contributors: [Attempt.ControlIdentity],
+        roster: Attempt.Roster
+    ) throws -> Attempt.Input {
         switch phase {
         case .walletReservation:
-            .walletReservationsPrepared(contributors: contributors)
-        case .groupedCommitment:
-            .groupedCommitmentsValidated(contributors: contributors)
-        case .anonymousComponentSubmission:
-            .anonymousComponentsValidated(contributors: contributors)
+            return .walletReservationsPrepared(contributors: contributors)
         case .bchSigning:
-            .signedTransactionValidated(contributorSigners: contributors)
+            return .signedTransactionValidated(contributorSigners: contributors)
         case .discovery, .candidateSetAgreement, .controlRosterAgreement,
-             .roleSelection, .manifestAgreement, .transcriptAgreement:
+             .roleSelection, .manifestAgreement, .groupedCommitment,
+             .anonymousComponentSubmission, .transcriptAgreement:
             preconditionFailure("Phase does not consume a contributor-set input")
         }
     }

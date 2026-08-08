@@ -8,7 +8,7 @@ extension MosaicSemanticValidator {
     func validatePartitionAndEquivocationPropagation() throws {
         var simulator = try Self.makeSimulator(candidateCount: 8)
         _ = simulator.broadcast(
-            validatedFact: .manifestSignaturesValidated(
+            attemptInput: .manifestSignaturesValidated(
                 Self.makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: Self.manifestA
@@ -20,19 +20,22 @@ extension MosaicSemanticValidator {
             simulator.roster.controlIdentities[..<partitionBoundary]
         )
         _ = simulator.deliver(
-            validatedFact: .walletReservationsPrepared(
+            attemptInput: .walletReservationsPrepared(
                 contributors: simulator.roster.contributors
             ),
             to: firstPartition
         )
         _ = simulator.deliver(
-            validatedFact: .groupedCommitmentsValidated(
-                contributors: simulator.roster.contributors
+            attemptInput: .groupedCommitmentSetReceived(
+                try MosaicUnsignedTransactionTranscriptFixtures
+                    .makeCommitmentSet(
+                        contributorCount: simulator.roster.contributors.count
+                    )
             ),
             to: firstPartition
         )
 
-        _ = simulator.broadcast(validatedFact: .abort(.equivocation))
+        _ = simulator.broadcast(attemptInput: .abort(.equivocation))
 
         for member in simulator.roster.members {
             let localAttempt = Self.findLocalAttempt(
@@ -59,7 +62,7 @@ extension MosaicSemanticValidator {
     func validateCancellationPropagation() throws {
         var simulator = try Self.makeSimulator()
         _ = simulator.broadcast(
-            validatedFact: .manifestSignaturesValidated(
+            attemptInput: .manifestSignaturesValidated(
                 Self.makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: Self.manifestA
@@ -67,30 +70,38 @@ extension MosaicSemanticValidator {
             )
         )
         _ = simulator.broadcast(
-            validatedFact: .walletReservationsPrepared(
+            attemptInput: .walletReservationsPrepared(
                 contributors: simulator.roster.contributors
             )
         )
         _ = simulator.broadcast(
-            validatedFact: .groupedCommitmentsValidated(
-                contributors: simulator.roster.contributors
+            attemptInput: .groupedCommitmentSetReceived(
+                try MosaicUnsignedTransactionTranscriptFixtures
+                    .makeCommitmentSet(
+                        contributorCount: simulator.roster.contributors.count
+                    )
             )
         )
-        _ = simulator.broadcast(
-            validatedFact: .anonymousComponentsValidated(
-                contributors: simulator.roster.contributors
-            )
+        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+            roster: simulator.roster,
+            manifest: Self.manifestA
         )
         _ = simulator.broadcast(
-            validatedFact: .transcriptAgreementValidated(
+            attemptInput: .anonymousComponentSetReceived(
+                preparation.componentSet
+            )
+        )
+        _ = try simulator.validateTranscriptInclusion(preparation.transcript)
+        _ = simulator.broadcast(
+            attemptInput: .transcriptAgreementValidated(
                 Self.makeTranscriptAcknowledgements(
                     roster: simulator.roster,
-                    transcriptRoot: Self.transcriptRootA
+                    transcriptRoot: preparation.transcript.transcriptRoot
                 )
             )
         )
 
-        _ = simulator.broadcast(validatedFact: .cancel)
+        _ = simulator.broadcast(attemptInput: .cancel)
 
         let cancellation = Attempt.Cancellation.requested(
             during: .bchSigning
@@ -105,6 +116,7 @@ extension MosaicSemanticValidator {
 
             if member.role == .contributor {
                 #expect(Self.countReservationEligibility(in: effects) == 1)
+                #expect(Self.countPreSignRequirements(in: effects) == 1)
                 #expect(Self.countSigningEligibility(in: effects) == 1)
                 #expect(Self.countReleaseRequirements(in: effects) == 1)
             } else {
@@ -117,14 +129,14 @@ extension MosaicSemanticValidator {
     func validateFreshRetryInstance() throws {
         var originalSimulator = try Self.makeSimulator()
         _ = originalSimulator.broadcast(
-            validatedFact: .manifestSignaturesValidated(
+            attemptInput: .manifestSignaturesValidated(
                 Self.makeManifestSignatureValidations(
                     roster: originalSimulator.roster,
                     manifest: Self.manifestA
                 )
             )
         )
-        _ = originalSimulator.broadcast(validatedFact: .retryRequested)
+        _ = originalSimulator.broadcast(attemptInput: .retryRequested)
 
         for member in originalSimulator.roster.members {
             let localAttempt = Self.findLocalAttempt(
@@ -168,10 +180,9 @@ extension MosaicSemanticValidator {
             )
         )
 
-        Self.complete(
+        try Self.complete(
             simulator: &retrySimulator,
-            manifest: Self.manifestB,
-            transcriptRoot: Self.transcriptRootB
+            manifest: Self.manifestB
         )
         for member in retrySimulator.roster.members {
             let localAttempt = Self.findLocalAttempt(

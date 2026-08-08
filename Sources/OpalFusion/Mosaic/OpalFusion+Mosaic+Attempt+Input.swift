@@ -10,8 +10,8 @@ extension OpalFusion.Mosaic.Attempt {
             case roleElectionValidated
             case manifestSignaturesValidated
             case walletReservationsPrepared
-            case groupedCommitmentsValidated
-            case anonymousComponentsValidated
+            case groupedCommitmentSetReceived
+            case anonymousComponentSetReceived
             case transcriptAgreementValidated
             case signedTransactionValidated
             case abort
@@ -26,8 +26,12 @@ extension OpalFusion.Mosaic.Attempt {
         case roleElectionValidated(RoleSeedValidation)
         case manifestSignaturesValidated([ManifestSignatureValidation])
         case walletReservationsPrepared(contributors: [ControlIdentity])
-        case groupedCommitmentsValidated(contributors: [ControlIdentity])
-        case anonymousComponentsValidated(contributors: [ControlIdentity])
+        case groupedCommitmentSetReceived(
+            OpalFusion.Mosaic.OpalV0.CommitmentSet
+        )
+        case anonymousComponentSetReceived(
+            OpalFusion.Mosaic.OpalV0.ComponentSet
+        )
         case transcriptAgreementValidated([TranscriptAcknowledgementValidation])
         case signedTransactionValidated(contributorSigners: [ControlIdentity])
         case abort(AbortReason)
@@ -50,10 +54,10 @@ extension OpalFusion.Mosaic.Attempt {
                 .manifestSignaturesValidated
             case .walletReservationsPrepared:
                 .walletReservationsPrepared
-            case .groupedCommitmentsValidated:
-                .groupedCommitmentsValidated
-            case .anonymousComponentsValidated:
-                .anonymousComponentsValidated
+            case .groupedCommitmentSetReceived:
+                .groupedCommitmentSetReceived
+            case .anonymousComponentSetReceived:
+                .anonymousComponentSetReceived
             case .transcriptAgreementValidated:
                 .transcriptAgreementValidated
             case .signedTransactionValidated:

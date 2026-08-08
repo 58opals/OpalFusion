@@ -28,15 +28,28 @@ extension OpalFusion.Mosaic {
         mutating func apply(input: Input) -> [Effect] {
             switch input {
             case let .local(operation):
-                return localize(
-                    localAttempt.apply(
-                        input: .init(
-                            attemptIdentifier: localAttempt.attemptIdentifier,
-                            generationIdentifier: localAttempt.generationIdentifier,
-                            validatedFact: operation.attemptInput
-                        )
+                let localInput: LocalAttempt.Input
+                switch operation {
+                case .cancel:
+                    localInput = .init(
+                        attemptIdentifier: localAttempt.attemptIdentifier,
+                        generationIdentifier: localAttempt.generationIdentifier,
+                        attemptInput: .cancel
                     )
-                )
+                case .retryRequested:
+                    localInput = .init(
+                        attemptIdentifier: localAttempt.attemptIdentifier,
+                        generationIdentifier: localAttempt.generationIdentifier,
+                        attemptInput: .retryRequested
+                    )
+                case let .transcriptInclusionValidated(validation):
+                    localInput = .init(
+                        attemptIdentifier: localAttempt.attemptIdentifier,
+                        generationIdentifier: localAttempt.generationIdentifier,
+                        validatedTranscriptInclusion: validation
+                    )
+                }
+                return localize(localAttempt.apply(input: localInput))
 
             case let .hostResult(result):
                 return localize(
@@ -44,7 +57,7 @@ extension OpalFusion.Mosaic {
                         input: .init(
                             attemptIdentifier: localAttempt.attemptIdentifier,
                             generationIdentifier: localAttempt.generationIdentifier,
-                            validatedFact: result.attemptInput
+                            attemptInput: result.attemptInput
                         )
                     )
                 )
@@ -120,11 +133,25 @@ extension OpalFusion.Mosaic {
                     reason: .invalidAuthenticatedMessage
                 )
             }
+            switch message.authenticatedFact {
+            case .groupedCommitmentSet,
+                 .anonymousComponentSet:
+                guard message.sender == roster.conductor else {
+                    return terminateAuthenticatedViolation(
+                        failure: .aggregateSetPublisherIsNotConductor(
+                            during: message.phase
+                        ),
+                        reason: .invalidAuthenticatedMessage
+                    )
+                }
+            case .manifestSignatureSet, .transcriptAcknowledgementSet, .abort:
+                break
+            }
 
             do {
                 return localize(
                     localAttempt.apply(
-                        input: try message.validatedLocalInput(
+                        input: try message.localInput(
                             expectedManifestSignatureCount:
                                 roster.candidateCount,
                             expectedTranscriptAcknowledgementCount:
@@ -153,7 +180,7 @@ extension OpalFusion.Mosaic {
                         input: .init(
                             attemptIdentifier: localAttempt.attemptIdentifier,
                             generationIdentifier: localAttempt.generationIdentifier,
-                            validatedFact: .abort(reason)
+                            attemptInput: .abort(reason)
                         )
                     )
                 )

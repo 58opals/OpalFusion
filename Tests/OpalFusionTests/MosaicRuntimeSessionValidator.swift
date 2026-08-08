@@ -367,8 +367,8 @@ struct MosaicRuntimeSessionValidator {
                     sequence: 1,
                     phase: .groupedCommitment,
                     identifierByte: 0x92,
-                    fact: .groupedCommitmentsValidated(
-                        contributors: fixture.roster.contributors
+                    fact: .groupedCommitmentSet(
+                        fixture.transactionPreparation.commitmentSet
                     )
                 )
             )
@@ -380,9 +380,16 @@ struct MosaicRuntimeSessionValidator {
                     sequence: 2,
                     phase: .anonymousComponentSubmission,
                     identifierByte: 0x93,
-                    fact: .anonymousComponentsValidated(
-                        contributors: fixture.roster.contributors
+                    fact: .anonymousComponentSet(
+                        fixture.transactionPreparation.componentSet
                     )
+                )
+            )
+        )
+        _ = fixture.session.apply(
+            input: .local(
+                .transcriptInclusionValidated(
+                    try makeTranscriptInclusionValidation(fixture: fixture)
                 )
             )
         )
@@ -395,9 +402,8 @@ struct MosaicRuntimeSessionValidator {
                 MosaicManifestSignatureFixtures.transcriptAcknowledgements(
                     for: fixture.roster.contributors,
                     binding: fixture.manifest,
-                    transcriptRoot: try .init(
-                        validating: Array(repeating: 0x55, count: 32)
-                    )
+                    transcriptRoot:
+                        fixture.transactionPreparation.transcript.transcriptRoot
                 )
             )
         )
@@ -425,9 +431,7 @@ struct MosaicRuntimeSessionValidator {
     func verifyCompleteTranscriptAcknowledgementSet() throws {
         var fixture = try makeFixture()
         try advanceToTranscriptAgreement(fixture: &fixture)
-        let root = try Attempt.TranscriptRoot(
-            validating: Array(repeating: 0x55, count: 32)
-        )
+        let root = fixture.transactionPreparation.transcript.transcriptRoot
         let message = try makeMessage(
             fixture: fixture,
             sequence: 3,
@@ -453,10 +457,203 @@ struct MosaicRuntimeSessionValidator {
         #expect(
             fixture.session.state == .bchSigning(
                 roster: fixture.roster,
-                manifest: fixture.manifest,
-                transcriptRoot: root
+                transcript: fixture.transactionPreparation.transcript
             )
         )
+    }
+
+    @Test("Require local material inclusion validation before transcript acknowledgement")
+    func requireLocalTranscriptInclusionValidation() throws {
+        var fixture = try makeFixture()
+        try advanceToTranscriptAgreement(
+            fixture: &fixture,
+            validateLocalInclusion: false
+        )
+        let message = try makeMessage(
+            fixture: fixture,
+            sequence: 3,
+            phase: .transcriptAgreement,
+            identifierByte: 0xA4,
+            fact: .transcriptAcknowledgementSet(
+                MosaicManifestSignatureFixtures.transcriptAcknowledgements(
+                    for: fixture.roster.contributors,
+                    binding: fixture.manifest,
+                    transcriptRoot:
+                        fixture.transactionPreparation.transcript.transcriptRoot
+                )
+            )
+        )
+
+        let effects = fixture.session.apply(input: .authenticated(message))
+
+        #expect(
+            fixture.session.state == .terminal(
+                .failed(.transcriptInclusionNotValidated)
+            )
+        )
+        #expect(effects.contains { effect in
+            if case .localAttempt(.walletReservationReleaseRequired) = effect {
+                return true
+            }
+            return false
+        })
+        #expect(effects.allSatisfy { effect in
+            if case .localAttempt(.bchSigningEligible) = effect {
+                return false
+            }
+            return true
+        })
+    }
+
+    @Test("Emit one acknowledgement request for exact local inclusion validation")
+    func acceptTranscriptInclusionValidationOnce() throws {
+        var fixture = try makeFixture()
+        try advanceToTranscriptAgreement(
+            fixture: &fixture,
+            validateLocalInclusion: false
+        )
+        let valid = try makeTranscriptInclusionValidation(fixture: fixture)
+
+        let firstEffects = fixture.session.apply(
+            input: .local(.transcriptInclusionValidated(valid))
+        )
+        #expect(firstEffects == [
+            .localAttempt(
+                .preSignAcknowledgementRequired(
+                    contributor: fixture.roster.contributors[0],
+                    materialIdentifier: fixture.materialIdentifier,
+                    roundIdentifier: fixture.manifest.roundIdentifier,
+                    transcriptRoot:
+                        fixture.transactionPreparation.transcript.transcriptRoot
+                )
+            )
+        ])
+        #expect(
+            fixture.session.apply(
+                input: .local(.transcriptInclusionValidated(valid))
+            ).isEmpty
+        )
+    }
+
+    @Test(
+        "Reject local inclusion validation with any mismatched binding",
+        arguments: InclusionBindingMismatch.allCases
+    )
+    func rejectMismatchedTranscriptInclusionValidation(
+        mismatch: InclusionBindingMismatch
+    ) throws {
+        var mismatchFixture = try makeFixture()
+        try advanceToTranscriptAgreement(
+            fixture: &mismatchFixture,
+            validateLocalInclusion: false
+        )
+        let transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
+        if mismatch == .transcript {
+            transcript = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+                roster: mismatchFixture.roster,
+                manifest: mismatchFixture.manifest,
+                componentSaltOffset: 500
+            ).transcript
+        } else {
+            transcript = mismatchFixture.transactionPreparation.transcript
+        }
+        let mismatchedValidation = try MosaicUnsignedTransactionTranscriptFixtures
+            .makeTranscriptInclusionValidation(
+                attemptIdentifier: mismatch == .attempt
+                    ? .init(validatedBytes: [0xEE])
+                    : mismatchFixture.attemptIdentifier,
+                generationIdentifier: mismatch == .generation
+                    ? .init(opaqueBytes: [0xED])
+                    : mismatchFixture.generationIdentifier,
+                contributor: mismatch == .contributor
+                    ? mismatchFixture.roster.contributors[1]
+                    : mismatchFixture.roster.contributors[0],
+                materialIdentifier: mismatch == .material
+                    ? .init(opaqueBytes: [0xEC])
+                    : mismatchFixture.materialIdentifier,
+                transcript: transcript
+            )
+
+        let mismatchEffects = mismatchFixture.session.apply(
+            input: .local(
+                .transcriptInclusionValidated(mismatchedValidation)
+            )
+        )
+
+        #expect(
+            mismatchFixture.session.state == .terminal(
+                .failed(.invalidTranscriptInclusionValidation)
+            )
+        )
+        #expect(mismatchEffects.contains { effect in
+            if case .localAttempt(.walletReservationReleaseRequired) = effect {
+                return true
+            }
+            return false
+        })
+        #expect(mismatchEffects.allSatisfy { effect in
+            switch effect {
+            case .localAttempt(.preSignAcknowledgementRequired),
+                 .localAttempt(.bchSigningEligible):
+                return false
+            default:
+                return true
+            }
+        })
+    }
+
+    @Test("Reject local inclusion validation before transcript agreement")
+    func rejectPrematureTranscriptInclusionValidation() throws {
+        var fixture = try makeFixture()
+        try advanceToAnonymousComponentSubmission(fixture: &fixture)
+        let validation = try makeTranscriptInclusionValidation(fixture: fixture)
+
+        let effects = fixture.session.apply(
+            input: .local(.transcriptInclusionValidated(validation))
+        )
+
+        #expect(
+            fixture.session.state == .terminal(
+                .failed(.invalidTranscriptInclusionValidation)
+            )
+        )
+        #expect(effects.filter { effect in
+            if case .localAttempt(.walletReservationReleaseRequired) = effect {
+                return true
+            }
+            return false
+        }.count == 1)
+        #expect(containsNoAcknowledgementOrSigningEffect(effects))
+    }
+
+    @Test("Reject local inclusion validation for the elected conductor")
+    func rejectConductorTranscriptInclusionValidation() throws {
+        var fixture = try makeFixture(localRole: .conductor)
+        try advanceToTranscriptAgreement(
+            fixture: &fixture,
+            validateLocalInclusion: false
+        )
+        let validation = try makeTranscriptInclusionValidation(
+            fixture: fixture,
+            contributor: fixture.roster.conductor
+        )
+
+        let effects = fixture.session.apply(
+            input: .local(.transcriptInclusionValidated(validation))
+        )
+
+        #expect(
+            fixture.session.state == .terminal(
+                .failed(.invalidTranscriptInclusionValidation)
+            )
+        )
+        #expect(effects.allSatisfy { effect in
+            if case .localAttempt(.walletReservationReleaseRequired) = effect {
+                return false
+            }
+            return true
+        })
+        #expect(containsNoAcknowledgementOrSigningEffect(effects))
     }
 
     @Test(
@@ -623,6 +820,82 @@ struct MosaicRuntimeSessionValidator {
         }
     }
 
+    @Test("Reject canonical aggregate sets published by a contributor")
+    func rejectNonConductorAggregatePublishers() throws {
+        for phase in [Attempt.Phase.groupedCommitment, .anonymousComponentSubmission] {
+            var fixture = try makeFixture()
+            _ = fixture.session.apply(
+                input: .authenticated(
+                    try makeManifestMessage(fixture: fixture, sequence: 0)
+                )
+            )
+            _ = fixture.session.apply(
+                input: .hostResult(
+                    .walletReservationsPrepared(
+                        contributors: fixture.roster.contributors
+                    )
+                )
+            )
+
+            if phase == .anonymousComponentSubmission {
+                _ = fixture.session.apply(
+                    input: .authenticated(
+                        try makeMessage(
+                            fixture: fixture,
+                            sequence: 1,
+                            phase: .groupedCommitment,
+                            identifierByte: 0xA1,
+                            fact: .groupedCommitmentSet(
+                                fixture.transactionPreparation.commitmentSet
+                            )
+                        )
+                    )
+                )
+            }
+
+            let fact: RuntimeSession.AuthenticatedFact
+            switch phase {
+            case .groupedCommitment:
+                fact = .groupedCommitmentSet(
+                    fixture.transactionPreparation.commitmentSet
+                )
+            case .anonymousComponentSubmission:
+                fact = .anonymousComponentSet(
+                    fixture.transactionPreparation.componentSet
+                )
+            default:
+                preconditionFailure("The test covers only conductor-published aggregate phases.")
+            }
+            let message = try makeMessage(
+                fixture: fixture,
+                sequence: phase == .groupedCommitment ? 1 : 2,
+                phase: phase,
+                identifierByte: 0xA2,
+                sender: fixture.roster.contributors[0],
+                fact: fact
+            )
+
+            let effects = fixture.session.apply(input: .authenticated(message))
+
+            #expect(
+                effects.first == .authenticatedInputRejected(
+                    .aggregateSetPublisherIsNotConductor(during: phase)
+                )
+            )
+            #expect(effects.contains { effect in
+                if case .localAttempt(.walletReservationReleaseRequired) = effect {
+                    return true
+                }
+                return false
+            })
+            if case .terminal(.failed) = fixture.session.state {
+                // Expected.
+            } else {
+                Issue.record("Expected non-conductor aggregate publication to terminate")
+            }
+        }
+    }
+
     @Test("Keep wallet-host results on their explicit provenance boundary")
     func rejectHostResultThatSkipsItsPhase() throws {
         var fixture = try makeFixture()
@@ -693,6 +966,35 @@ struct MosaicRuntimeSessionValidator {
     }
 
     private func advanceToTranscriptAgreement(
+        fixture: inout MosaicRuntimeSessionFixture,
+        validateLocalInclusion: Bool = true
+    ) throws {
+        try advanceToAnonymousComponentSubmission(fixture: &fixture)
+        _ = fixture.session.apply(
+            input: .authenticated(
+                try makeMessage(
+                    fixture: fixture,
+                    sequence: 2,
+                    phase: .anonymousComponentSubmission,
+                    identifierByte: 0x93,
+                    fact: .anonymousComponentSet(
+                        fixture.transactionPreparation.componentSet
+                    )
+                )
+            )
+        )
+        if validateLocalInclusion {
+            _ = fixture.session.apply(
+                input: .local(
+                    .transcriptInclusionValidated(
+                        try makeTranscriptInclusionValidation(fixture: fixture)
+                    )
+                )
+            )
+        }
+    }
+
+    private func advanceToAnonymousComponentSubmission(
         fixture: inout MosaicRuntimeSessionFixture
     ) throws {
         _ = fixture.session.apply(
@@ -714,28 +1016,17 @@ struct MosaicRuntimeSessionValidator {
                     sequence: 1,
                     phase: .groupedCommitment,
                     identifierByte: 0x92,
-                    fact: .groupedCommitmentsValidated(
-                        contributors: fixture.roster.contributors
-                    )
-                )
-            )
-        )
-        _ = fixture.session.apply(
-            input: .authenticated(
-                try makeMessage(
-                    fixture: fixture,
-                    sequence: 2,
-                    phase: .anonymousComponentSubmission,
-                    identifierByte: 0x93,
-                    fact: .anonymousComponentsValidated(
-                        contributors: fixture.roster.contributors
+                    fact: .groupedCommitmentSet(
+                        fixture.transactionPreparation.commitmentSet
                     )
                 )
             )
         )
     }
 
-    private func makeFixture() throws -> MosaicRuntimeSessionFixture {
+    private func makeFixture(
+        localRole: OpalFusion.Mosaic.Role = .contributor
+    ) throws -> MosaicRuntimeSessionFixture {
         let roster = Self.fixtureRoster
         var attempt = Attempt(configuration: Self.fixtureConfiguration)
         _ = attempt.apply(input: .discoveryCompleted(candidateCount: 7))
@@ -759,19 +1050,26 @@ struct MosaicRuntimeSessionValidator {
         let generationIdentifier = LocalAttempt.GenerationIdentifier(
             opaqueBytes: [0xB2]
         )
+        let materialIdentifier = LocalAttempt.MaterialIdentifier(
+            opaqueBytes: [0xC3]
+        )
         let localAttempt = try LocalAttempt(
             validatedAttempt: attempt,
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
-            materialIdentifier: .init(opaqueBytes: [0xC3]),
-            localControlIdentity: roster.contributors[0]
+            materialIdentifier: materialIdentifier,
+            localControlIdentity: localRole == .conductor
+                ? roster.conductor
+                : roster.contributors[0]
         )
         return try MosaicRuntimeSessionFixture(
             session: .init(localAttempt: localAttempt),
             roster: roster,
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
-            manifest: Self.fixtureManifest
+            materialIdentifier: materialIdentifier,
+            manifest: Self.fixtureManifest,
+            transactionPreparation: Self.fixtureTransactionPreparation
         )
     }
 
@@ -799,6 +1097,12 @@ struct MosaicRuntimeSessionValidator {
         MosaicManifestSignatureFixtures.manifestSignatures(
             for: fixtureRoster,
             binding: fixtureManifest
+        )
+
+    private static let fixtureTransactionPreparation = try!
+        MosaicUnsignedTransactionTranscriptFixtures.prepare(
+            roster: fixtureRoster,
+            manifest: fixtureManifest
         )
 
     private func makeManifestMessage(
@@ -838,5 +1142,41 @@ struct MosaicRuntimeSessionValidator {
             ),
             authenticatedFact: fact
         )
+    }
+
+    private func makeTranscriptInclusionValidation(
+        fixture: MosaicRuntimeSessionFixture,
+        contributor: Attempt.ControlIdentity? = nil
+    ) throws -> LocalAttempt.TranscriptInclusionValidation {
+        try MosaicUnsignedTransactionTranscriptFixtures
+            .makeTranscriptInclusionValidation(
+                attemptIdentifier: fixture.attemptIdentifier,
+                generationIdentifier: fixture.generationIdentifier,
+                contributor: contributor ?? fixture.roster.contributors[0],
+                materialIdentifier: fixture.materialIdentifier,
+                transcript: fixture.transactionPreparation.transcript
+            )
+    }
+
+    private func containsNoAcknowledgementOrSigningEffect(
+        _ effects: [RuntimeSession.Effect]
+    ) -> Bool {
+        effects.allSatisfy { effect in
+            switch effect {
+            case .localAttempt(.preSignAcknowledgementRequired),
+                 .localAttempt(.bchSigningEligible):
+                false
+            default:
+                true
+            }
+        }
+    }
+
+    enum InclusionBindingMismatch: CaseIterable, Sendable {
+        case attempt
+        case generation
+        case contributor
+        case material
+        case transcript
     }
 }

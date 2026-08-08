@@ -164,37 +164,55 @@ extension OpalFusion.Mosaic {
 
             case let (
                 .groupedCommitment(roster, manifest),
-                .groupedCommitmentsValidated(contributors)
+                .groupedCommitmentSetReceived(commitmentSet)
             ):
-                if let failure = contributorSetFailure(
-                    contributors,
-                    roster: roster,
-                    phase: .groupedCommitment
-                ) {
-                    return terminate(with: .failed(failure))
+                let validation: CommitmentSetValidation
+                do {
+                    validation = try .init(
+                        profile: configuration.profile,
+                        roster: roster,
+                        commitmentSet: commitmentSet
+                    )
+                } catch {
+                    return terminate(with: .failed(.invalidCommitmentSet(error)))
                 }
                 state = .anonymousComponentSubmission(
                     roster: roster,
-                    manifest: manifest
+                    manifest: manifest,
+                    commitmentSet: validation
                 )
                 return []
 
             case let (
-                .anonymousComponentSubmission(roster, manifest),
-                .anonymousComponentsValidated(contributors)
+                .anonymousComponentSubmission(roster, manifest, commitmentSet),
+                .anonymousComponentSetReceived(componentSet)
             ):
-                if let failure = contributorSetFailure(
-                    contributors,
-                    roster: roster,
-                    phase: .anonymousComponentSubmission
-                ) {
-                    return terminate(with: .failed(failure))
+                let transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
+                do {
+                    transcript = try .init(
+                        roster: roster,
+                        manifest: manifest,
+                        commitmentSet: commitmentSet,
+                        componentSet: componentSet
+                    )
+                } catch {
+                    return terminate(
+                        with: .failed(.invalidUnsignedTransactionTranscript(error))
+                    )
                 }
-                state = .transcriptAgreement(roster: roster, manifest: manifest)
-                return []
+                state = .transcriptAgreement(
+                    roster: roster,
+                    transcript: transcript
+                )
+                return [
+                    .transcriptInclusionValidationRequired(
+                        contributors: roster.contributors,
+                        transcript: transcript
+                    )
+                ]
 
             case let (
-                .transcriptAgreement(roster, manifest),
+                .transcriptAgreement(roster, transcript),
                 .transcriptAgreementValidated(acknowledgements)
             ):
                 let contributors = acknowledgements.map(\.contributor)
@@ -221,7 +239,7 @@ extension OpalFusion.Mosaic {
                     )
                 }
                 guard acknowledgements.allSatisfy({
-                    $0.roundIdentifier == manifest.roundIdentifier
+                    $0.roundIdentifier == transcript.manifest.roundIdentifier
                 }) else {
                     return terminate(
                         with: .failed(.transcriptRoundIdentifierMismatch)
@@ -233,20 +251,29 @@ extension OpalFusion.Mosaic {
                         with: .failed(.transcriptRootDisagreement)
                     )
                 }
+                guard transcriptRoot == transcript.transcriptRoot else {
+                    return terminate(
+                        with: .failed(
+                            .transcriptRootMismatch(
+                                expected: transcript.transcriptRoot,
+                                received: transcriptRoot
+                            )
+                        )
+                    )
+                }
                 state = .bchSigning(
                     roster: roster,
-                    manifest: manifest,
-                    transcriptRoot: transcriptRoot
+                    transcript: transcript
                 )
                 return [
                     .bchSigningEligible(
                         contributors: roster.contributors,
-                        transcriptRoot: transcriptRoot
+                        transcript: transcript
                     )
                 ]
 
             case let (
-                .bchSigning(roster, _, _),
+                .bchSigning(roster, _),
                 .signedTransactionValidated(contributorSigners)
             ):
                 if let failure = contributorSetFailure(
@@ -305,6 +332,13 @@ extension OpalFusion.Mosaic {
             state = .terminal(outcome)
             effects.append(.attemptTerminated(outcome))
             return effects
+        }
+
+        mutating func fail(with failure: Failure) -> [Effect] {
+            guard case .terminal = state else {
+                return terminate(with: .failed(failure))
+            }
+            return [.inputRejected(.inputAfterTermination)]
         }
     }
 }

@@ -13,6 +13,9 @@ extension OpalFusion.Mosaic.RuntimeSession {
         case invalidManifestSignature(
             OpalFusion.Mosaic.Attempt.ManifestSignatureValidation.ValidationError
         )
+        case aggregateSetPublisherIsNotConductor(
+            during: OpalFusion.Mosaic.Attempt.Phase
+        )
         case transcriptAcknowledgementPublisherIsNotConductor
         case invalidTranscriptAcknowledgementCount(expected: Int, actual: Int)
         case invalidTranscriptAcknowledgement(

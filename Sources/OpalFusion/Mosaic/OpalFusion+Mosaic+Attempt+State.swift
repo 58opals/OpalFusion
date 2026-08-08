@@ -32,12 +32,18 @@ extension OpalFusion.Mosaic.Attempt {
         case manifestAgreement(roleElection: RoleElectionResult)
         case walletReservation(roster: Roster, manifest: ManifestBinding)
         case groupedCommitment(roster: Roster, manifest: ManifestBinding)
-        case anonymousComponentSubmission(roster: Roster, manifest: ManifestBinding)
-        case transcriptAgreement(roster: Roster, manifest: ManifestBinding)
-        case bchSigning(
+        case anonymousComponentSubmission(
             roster: Roster,
             manifest: ManifestBinding,
-            transcriptRoot: TranscriptRoot
+            commitmentSet: CommitmentSetValidation
+        )
+        case transcriptAgreement(
+            roster: Roster,
+            transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
+        )
+        case bchSigning(
+            roster: Roster,
+            transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
         )
         case terminal(Outcome)
 
@@ -72,9 +78,9 @@ extension OpalFusion.Mosaic.Attempt {
             switch self {
             case let .walletReservation(roster, _),
                  let .groupedCommitment(roster, _),
-                 let .anonymousComponentSubmission(roster, _),
+                 let .anonymousComponentSubmission(roster, _, _),
                  let .transcriptAgreement(roster, _),
-                 let .bchSigning(roster, _, _):
+                 let .bchSigning(roster, _):
                 roster
             case .discovery, .candidateSetAgreement, .controlRosterAgreement,
                  .roleSelection, .manifestAgreement, .terminal:

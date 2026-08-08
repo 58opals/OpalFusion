@@ -128,8 +128,6 @@ extension MosaicAttemptCoreValidator {
     func validateContributorSetFailures() throws {
         let phases: [Attempt.Phase] = [
             .walletReservation,
-            .groupedCommitment,
-            .anonymousComponentSubmission,
             .bchSigning,
         ]
 
@@ -150,9 +148,10 @@ extension MosaicAttemptCoreValidator {
                 let outcome = Attempt.Outcome.failed(failure)
 
                 let effects = scenario.attempt.apply(
-                    input: Self.contributorInput(
+                    input: try Self.contributorInput(
                         for: phase,
-                        contributors: contributors
+                        contributors: contributors,
+                        roster: scenario.roster
                     )
                 )
 
@@ -171,8 +170,6 @@ extension MosaicAttemptCoreValidator {
     func validateConductorContributionFailures() throws {
         let contributorPhases: [Attempt.Phase] = [
             .walletReservation,
-            .groupedCommitment,
-            .anonymousComponentSubmission,
             .bchSigning,
         ]
 
@@ -186,9 +183,10 @@ extension MosaicAttemptCoreValidator {
             let outcome = Attempt.Outcome.failed(failure)
 
             let effects = scenario.attempt.apply(
-                input: Self.contributorInput(
+                input: try Self.contributorInput(
                     for: phase,
-                    contributors: Array(contributors)
+                    contributors: Array(contributors),
+                    roster: scenario.roster
                 )
             )
 
@@ -226,6 +224,78 @@ extension MosaicAttemptCoreValidator {
         #expect(
             transcriptScenario.attempt.state == .terminal(transcriptOutcome)
         )
+    }
+
+    @Test("Mosaic aggregate validation failures release once and terminate")
+    func validateAggregateConstructionFailures() throws {
+        var commitmentScenario = try Self.makeScenario(at: .groupedCommitment)
+        let oversizedCommitmentSet = try MosaicUnsignedTransactionTranscriptFixtures
+            .makeCommitmentSet(
+                contributorCount: commitmentScenario.roster.contributors.count + 1
+            )
+        let commitmentFailure = Attempt.Failure.invalidCommitmentSet(
+            .invalidMemberCount(expected: 138, actual: 161)
+        )
+        let commitmentOutcome = Attempt.Outcome.failed(commitmentFailure)
+
+        let commitmentEffects = commitmentScenario.attempt.apply(
+            input: .groupedCommitmentSetReceived(oversizedCommitmentSet)
+        )
+
+        #expect(
+            commitmentEffects == Self.terminationEffects(
+                outcome: commitmentOutcome,
+                reservationRoster: commitmentScenario.roster
+            )
+        )
+        #expect(commitmentScenario.attempt.state == .terminal(commitmentOutcome))
+
+        var componentScenario = try Self.makeScenario(
+            at: .anonymousComponentSubmission
+        )
+        let invalidComponents = try componentScenario.transactionPreparation
+            .componentSet.components.map { component in
+                guard case let .input(input) = component.payload else {
+                    return component
+                }
+                return try OpalFusion.Mosaic.OpalV0.Component(
+                    saltCommitment: component.saltCommitment,
+                    payload: .input(
+                        try .init(
+                            previousTransactionHash: input.previousTransactionHash,
+                            outputIndex: input.outputIndex,
+                            amountSatoshis: input.amountSatoshis - 1
+                        )
+                    )
+                )
+            }
+        let invalidComponentSet = try OpalFusion.Mosaic.OpalV0.ComponentSet(
+            components: invalidComponents
+        )
+        let componentFailure = Attempt.Failure.invalidUnsignedTransactionTranscript(
+            .feeMismatch(expected: 185, actual: 184)
+        )
+        let componentOutcome = Attempt.Outcome.failed(componentFailure)
+
+        let componentEffects = componentScenario.attempt.apply(
+            input: .anonymousComponentSetReceived(invalidComponentSet)
+        )
+
+        #expect(
+            componentEffects == Self.terminationEffects(
+                outcome: componentOutcome,
+                reservationRoster: componentScenario.roster
+            )
+        )
+        #expect(componentEffects.allSatisfy { effect in
+            switch effect {
+            case .transcriptInclusionValidationRequired, .bchSigningEligible:
+                false
+            default:
+                true
+            }
+        })
+        #expect(componentScenario.attempt.state == .terminal(componentOutcome))
     }
 
     @Test("Mosaic transcript agreement requires every contributor exactly once")
@@ -364,7 +434,9 @@ extension MosaicAttemptCoreValidator {
     func acceptPermutedTranscriptAcknowledgements() throws {
         var scenario = try Self.makeScenario(at: .transcriptAgreement)
         let acknowledgements = Self.transcriptAcknowledgements(
-            for: scenario.roster
+            for: scenario.roster,
+            transcriptRoot:
+                scenario.transactionPreparation.transcript.transcriptRoot
         ).reversed()
 
         let effects = scenario.attempt.apply(
@@ -375,10 +447,42 @@ extension MosaicAttemptCoreValidator {
             effects == [
                 .bchSigningEligible(
                     contributors: scenario.roster.contributors,
-                    transcriptRoot: Self.transcriptRootA
+                    transcript: scenario.transactionPreparation.transcript
                 )
             ]
         )
+    }
+
+    @Test("Mosaic rejects a unanimous root that differs from its local transcript")
+    func rejectUnanimousForeignTranscriptRoot() throws {
+        var scenario = try Self.makeScenario(at: .transcriptAgreement)
+        let acknowledgements = Self.transcriptAcknowledgements(
+            for: scenario.roster,
+            transcriptRoot: Self.transcriptRootA
+        )
+        let failure = Attempt.Failure.transcriptRootMismatch(
+            expected: scenario.transactionPreparation.transcript.transcriptRoot,
+            received: Self.transcriptRootA
+        )
+        let outcome = Attempt.Outcome.failed(failure)
+
+        let effects = scenario.attempt.apply(
+            input: .transcriptAgreementValidated(acknowledgements)
+        )
+
+        #expect(
+            effects == Self.terminationEffects(
+                outcome: outcome,
+                reservationRoster: scenario.roster
+            )
+        )
+        #expect(effects.allSatisfy { effect in
+            if case .bchSigningEligible = effect {
+                return false
+            }
+            return true
+        })
+        #expect(scenario.attempt.state == .terminal(outcome))
     }
 
     @Test("Mosaic phase skipping and rollback terminate the attempt")

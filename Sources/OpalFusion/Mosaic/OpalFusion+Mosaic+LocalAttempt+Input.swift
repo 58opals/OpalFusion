@@ -1,20 +1,35 @@
 // OpalFusion+Mosaic+LocalAttempt+Input.swift
 
 extension OpalFusion.Mosaic.LocalAttempt {
-    /// One already-validated aggregate semantic fact routed to a peer-local attempt generation.
+    /// One attempt-bound aggregate fact or contributor-local validation.
     struct Input: Sendable, Equatable {
+        enum Payload: Sendable, Equatable {
+            case aggregate(OpalFusion.Mosaic.Attempt.Input)
+            case transcriptInclusion(TranscriptInclusionValidation)
+        }
+
         let attemptIdentifier: AttemptIdentifier
         let generationIdentifier: GenerationIdentifier
-        let validatedFact: OpalFusion.Mosaic.Attempt.Input
+        let payload: Payload
 
         init(
             attemptIdentifier: AttemptIdentifier,
             generationIdentifier: GenerationIdentifier,
-            validatedFact: OpalFusion.Mosaic.Attempt.Input
+            attemptInput: OpalFusion.Mosaic.Attempt.Input
         ) {
             self.attemptIdentifier = attemptIdentifier
             self.generationIdentifier = generationIdentifier
-            self.validatedFact = validatedFact
+            self.payload = .aggregate(attemptInput)
+        }
+
+        init(
+            attemptIdentifier: AttemptIdentifier,
+            generationIdentifier: GenerationIdentifier,
+            validatedTranscriptInclusion: TranscriptInclusionValidation
+        ) {
+            self.attemptIdentifier = attemptIdentifier
+            self.generationIdentifier = generationIdentifier
+            self.payload = .transcriptInclusion(validatedTranscriptInclusion)
         }
     }
 }

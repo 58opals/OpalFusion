@@ -29,7 +29,7 @@ extension OpalFusion.Mosaic.RuntimeSession {
             self.authenticatedFact = authenticatedFact
         }
 
-        func validatedLocalInput(
+        func localInput(
             expectedManifestSignatureCount: Int,
             expectedTranscriptAcknowledgementCount: Int,
             transcriptAcknowledgementProfile: OpalFusion.Mosaic.Profile
@@ -38,7 +38,7 @@ extension OpalFusion.Mosaic.RuntimeSession {
             .init(
                 attemptIdentifier: attemptIdentifier,
                 generationIdentifier: generationIdentifier,
-                validatedFact: try authenticatedFact.attemptInput(
+                attemptInput: try authenticatedFact.attemptInput(
                     expectedManifestSignatureCount:
                         expectedManifestSignatureCount,
                     expectedTranscriptAcknowledgementCount:
@@ -53,7 +53,7 @@ extension OpalFusion.Mosaic.RuntimeSession {
             .init(
                 attemptIdentifier: attemptIdentifier,
                 generationIdentifier: generationIdentifier,
-                validatedFact: .abort(.invalidAuthenticatedMessage)
+                attemptInput: .abort(.invalidAuthenticatedMessage)
             )
         }
     }

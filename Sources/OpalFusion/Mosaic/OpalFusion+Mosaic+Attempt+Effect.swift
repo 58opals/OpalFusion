@@ -8,9 +8,13 @@ extension OpalFusion.Mosaic.Attempt {
         )
         /// A future host adapter must idempotently release reservations created after eligibility.
         case walletReservationReleaseRequired(contributors: [ControlIdentity])
+        case transcriptInclusionValidationRequired(
+            contributors: [ControlIdentity],
+            transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
+        )
         case bchSigningEligible(
             contributors: [ControlIdentity],
-            transcriptRoot: TranscriptRoot
+            transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
         )
         case attemptTerminated(Outcome)
         case inputRejected(Failure)

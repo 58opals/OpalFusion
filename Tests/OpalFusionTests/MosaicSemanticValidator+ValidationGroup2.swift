@@ -24,7 +24,7 @@ extension MosaicSemanticValidator {
         let wrongAttemptInput = LocalAttempt.Input(
             attemptIdentifier: wrongAttemptIdentifier,
             generationIdentifier: simulator.generationIdentifier,
-            validatedFact: manifestFact
+            attemptInput: manifestFact
         )
 
         #expect(
@@ -49,7 +49,7 @@ extension MosaicSemanticValidator {
         let wrongGenerationInput = LocalAttempt.Input(
             attemptIdentifier: simulator.attemptIdentifier,
             generationIdentifier: wrongGenerationIdentifier,
-            validatedFact: manifestFact
+            attemptInput: manifestFact
         )
         #expect(
             simulator.deliver(input: wrongGenerationInput, to: contributor)
@@ -74,7 +74,7 @@ extension MosaicSemanticValidator {
         )
 
         let correctEffects = simulator.deliver(
-            validatedFact: manifestFact,
+            attemptInput: manifestFact,
             to: [contributor]
         )
         #expect(
@@ -88,7 +88,7 @@ extension MosaicSemanticValidator {
     func validateReorderedFutureFactFailure() throws {
         var simulator = try Self.makeSimulator()
         _ = simulator.broadcast(
-            validatedFact: .walletReservationsPrepared(
+            attemptInput: .walletReservationsPrepared(
                 contributors: simulator.roster.contributors
             )
         )
@@ -112,7 +112,7 @@ extension MosaicSemanticValidator {
     func validateOmissionAndTimeoutPropagation() throws {
         var simulator = try Self.makeSimulator(candidateCount: 9)
         _ = simulator.broadcast(
-            validatedFact: .manifestSignaturesValidated(
+            attemptInput: .manifestSignaturesValidated(
                 Self.makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: Self.manifestA
@@ -126,14 +126,17 @@ extension MosaicSemanticValidator {
             $0 != omittedContributor
         }
         _ = simulator.deliver(
-            validatedFact: .walletReservationsPrepared(
+            attemptInput: .walletReservationsPrepared(
                 contributors: simulator.roster.contributors
             ),
             to: advancedRecipients
         )
         _ = simulator.deliver(
-            validatedFact: .groupedCommitmentsValidated(
-                contributors: simulator.roster.contributors
+            attemptInput: .groupedCommitmentSetReceived(
+                try MosaicUnsignedTransactionTranscriptFixtures
+                    .makeCommitmentSet(
+                        contributorCount: simulator.roster.contributors.count
+                    )
             ),
             to: advancedRecipients
         )
@@ -145,7 +148,7 @@ extension MosaicSemanticValidator {
                     manifest: Self.manifestA
                 )
         )
-        _ = simulator.broadcast(validatedFact: .abort(.timeout))
+        _ = simulator.broadcast(attemptInput: .abort(.timeout))
 
         for member in simulator.roster.members {
             let localAttempt = Self.findLocalAttempt(

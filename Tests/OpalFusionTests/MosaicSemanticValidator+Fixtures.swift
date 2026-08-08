@@ -185,11 +185,14 @@ extension MosaicSemanticValidator {
 
     static func complete(
         simulator: inout Simulator,
-        manifest: Attempt.ManifestBinding = manifestA,
-        transcriptRoot: Attempt.TranscriptRoot = transcriptRootA
-    ) {
+        manifest: Attempt.ManifestBinding = manifestA
+    ) throws {
+        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+            roster: simulator.roster,
+            manifest: manifest
+        )
         _ = simulator.broadcast(
-            validatedFact: .manifestSignaturesValidated(
+            attemptInput: .manifestSignaturesValidated(
                 makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: manifest
@@ -197,31 +200,32 @@ extension MosaicSemanticValidator {
             )
         )
         _ = simulator.broadcast(
-            validatedFact: .walletReservationsPrepared(
+            attemptInput: .walletReservationsPrepared(
                 contributors: simulator.roster.contributors
             )
         )
         _ = simulator.broadcast(
-            validatedFact: .groupedCommitmentsValidated(
-                contributors: simulator.roster.contributors
+            attemptInput: .groupedCommitmentSetReceived(
+                preparation.commitmentSet
             )
         )
         _ = simulator.broadcast(
-            validatedFact: .anonymousComponentsValidated(
-                contributors: simulator.roster.contributors
+            attemptInput: .anonymousComponentSetReceived(
+                preparation.componentSet
             )
         )
+        _ = try simulator.validateTranscriptInclusion(preparation.transcript)
         _ = simulator.broadcast(
-            validatedFact: .transcriptAgreementValidated(
+            attemptInput: .transcriptAgreementValidated(
                 makeTranscriptAcknowledgements(
                     roster: simulator.roster,
                     manifest: manifest,
-                    transcriptRoot: transcriptRoot
+                    transcriptRoot: preparation.transcript.transcriptRoot
                 )
             )
         )
         _ = simulator.broadcast(
-            validatedFact: .signedTransactionValidated(
+            attemptInput: .signedTransactionValidated(
                 contributorSigners: simulator.roster.contributors
             )
         )
@@ -259,6 +263,26 @@ extension MosaicSemanticValidator {
         }
     }
 
+    static func countPreSignRequirements(
+        in effects: [LocalAttempt.Effect]
+    ) -> Int {
+        effects.reduce(into: 0) { count, effect in
+            if case .preSignAcknowledgementRequired = effect {
+                count += 1
+            }
+        }
+    }
+
+    static func countTranscriptInclusionRequirements(
+        in effects: [LocalAttempt.Effect]
+    ) -> Int {
+        effects.reduce(into: 0) { count, effect in
+            if case .transcriptInclusionValidationRequired = effect {
+                count += 1
+            }
+        }
+    }
+
     static func countReleaseRequirements(
         in effects: [LocalAttempt.Effect]
     ) -> Int {
@@ -283,6 +307,8 @@ extension MosaicSemanticValidator {
         in effects: [LocalAttempt.Effect]
     ) -> Int {
         countReservationEligibility(in: effects)
+            + countTranscriptInclusionRequirements(in: effects)
+            + countPreSignRequirements(in: effects)
             + countSigningEligibility(in: effects)
             + countReleaseRequirements(in: effects)
             + countCommitRequirements(in: effects)

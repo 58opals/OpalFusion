@@ -11,11 +11,11 @@ extension OpalFusion.Mosaic.RuntimeSession {
             binding: OpalFusion.Mosaic.Attempt.ManifestBinding,
             signatures: [OpalFusion.Mosaic.Attempt.ManifestSignature]
         )
-        case groupedCommitmentsValidated(
-            contributors: [OpalFusion.Mosaic.Attempt.ControlIdentity]
+        case groupedCommitmentSet(
+            OpalFusion.Mosaic.OpalV0.CommitmentSet
         )
-        case anonymousComponentsValidated(
-            contributors: [OpalFusion.Mosaic.Attempt.ControlIdentity]
+        case anonymousComponentSet(
+            OpalFusion.Mosaic.OpalV0.ComponentSet
         )
         case transcriptAcknowledgementSet(
             [OpalFusion.Mosaic.Attempt.TranscriptAcknowledgement]
@@ -50,10 +50,10 @@ extension OpalFusion.Mosaic.RuntimeSession {
                     }
                 }
                 return .manifestSignaturesValidated(validations)
-            case let .groupedCommitmentsValidated(contributors):
-                return .groupedCommitmentsValidated(contributors: contributors)
-            case let .anonymousComponentsValidated(contributors):
-                return .anonymousComponentsValidated(contributors: contributors)
+            case let .groupedCommitmentSet(commitmentSet):
+                return .groupedCommitmentSetReceived(commitmentSet)
+            case let .anonymousComponentSet(componentSet):
+                return .anonymousComponentSetReceived(componentSet)
             case let .transcriptAcknowledgementSet(acknowledgements):
                 guard acknowledgements.count
                     == expectedTranscriptAcknowledgementCount else {

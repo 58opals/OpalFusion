@@ -166,52 +166,63 @@ extension MosaicAttemptCoreValidator {
             )
         )
 
+        let transactionPreparation = try MosaicUnsignedTransactionTranscriptFixtures
+            .prepare(roster: roster, manifest: Self.manifestA)
         #expect(
             attempt.apply(
-                input: .groupedCommitmentsValidated(
-                    contributors: roster.contributors
+                input: .groupedCommitmentSetReceived(
+                    transactionPreparation.commitmentSet
                 )
             ).isEmpty
         )
         #expect(
             attempt.state == .anonymousComponentSubmission(
                 roster: roster,
-                manifest: Self.manifestA
+                manifest: Self.manifestA,
+                commitmentSet: transactionPreparation.commitmentValidation
             )
         )
 
+        let acknowledgementEffects = attempt.apply(
+            input: .anonymousComponentSetReceived(
+                transactionPreparation.componentSet
+            )
+        )
         #expect(
-            attempt.apply(
-                input: .anonymousComponentsValidated(
-                    contributors: roster.contributors
+            acknowledgementEffects == [
+                .transcriptInclusionValidationRequired(
+                    contributors: roster.contributors,
+                    transcript: transactionPreparation.transcript
                 )
-            ).isEmpty
+            ]
         )
         #expect(
             attempt.state == .transcriptAgreement(
                 roster: roster,
-                manifest: Self.manifestA
+                transcript: transactionPreparation.transcript
             )
         )
 
         let signingEffects = attempt.apply(
             input: .transcriptAgreementValidated(
-                Self.transcriptAcknowledgements(for: roster)
+                Self.transcriptAcknowledgements(
+                    for: roster,
+                    transcriptRoot: transactionPreparation.transcript.transcriptRoot
+                )
             )
         )
         #expect(
             signingEffects == [
                 .bchSigningEligible(
                     contributors: roster.contributors,
-                    transcriptRoot: Self.transcriptRootA
+                    transcript: transactionPreparation.transcript
                 )
             ]
         )
         #expect(
             attempt.state == .bchSigning(
                 roster: roster,
-                manifest: Self.manifestA,
-                transcriptRoot: Self.transcriptRootA
+                transcript: transactionPreparation.transcript
             )
         )
 

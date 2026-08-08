@@ -14,12 +14,22 @@ extension OpalFusion.Mosaic.Attempt {
         case invalidRoleCommitmentSet(RoleCommitmentSet.ValidationError)
         case invalidRoleElectionValidation(RoleElectionResult.ValidationError)
         case invalidManifestAgreement(ManifestAgreement.ValidationError)
+        case invalidCommitmentSet(CommitmentSetValidation.ValidationError)
+        case invalidUnsignedTransactionTranscript(
+            OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript.ValidationError
+        )
         case conductorUsedContributorInput(during: Phase)
         case contributorSetMismatch(during: Phase)
         case transcriptAgreementNotUnanimous
         case transcriptAcknowledgementProfileMismatch
         case transcriptRoundIdentifierMismatch
         case transcriptRootDisagreement
+        case transcriptRootMismatch(
+            expected: TranscriptRoot,
+            received: TranscriptRoot
+        )
+        case transcriptInclusionNotValidated
+        case invalidTranscriptInclusionValidation
         case invalidTransition(from: Phase, received: Input.Kind)
         case aborted(during: Phase, reason: AbortReason)
         case inPlaceRetryNotPermitted

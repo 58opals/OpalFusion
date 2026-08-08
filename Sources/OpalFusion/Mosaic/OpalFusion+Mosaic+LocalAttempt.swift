@@ -14,6 +14,7 @@ extension OpalFusion.Mosaic {
         private var aggregateAttempt: Attempt
         private(set) var hasReservationEligibility: Bool
         private(set) var hasReservationDisposition: Bool
+        private var hasTranscriptInclusionValidation: Bool
 
         var state: Attempt.State {
             aggregateAttempt.state
@@ -48,6 +49,7 @@ extension OpalFusion.Mosaic {
             self.localRole = localMember.role
             self.hasReservationEligibility = false
             self.hasReservationDisposition = false
+            self.hasTranscriptInclusionValidation = false
         }
 
         mutating func apply(input: Input) -> [Effect] {
@@ -72,8 +74,59 @@ extension OpalFusion.Mosaic {
                 ]
             }
 
-            let aggregateEffects = aggregateAttempt.apply(input: input.validatedFact)
-            return localize(aggregateEffects: aggregateEffects)
+            switch input.payload {
+            case let .aggregate(attemptInput):
+                if case .transcriptAgreementValidated = attemptInput,
+                   localRole == .contributor,
+                   !hasTranscriptInclusionValidation {
+                    return localize(
+                        aggregateEffects: aggregateAttempt.fail(
+                            with: .transcriptInclusionNotValidated
+                        )
+                    )
+                }
+                return localize(
+                    aggregateEffects: aggregateAttempt.apply(input: attemptInput)
+                )
+
+            case let .transcriptInclusion(validation):
+                return apply(transcriptInclusionValidation: validation)
+            }
+        }
+
+        private mutating func apply(
+            transcriptInclusionValidation validation: TranscriptInclusionValidation
+        ) -> [Effect] {
+            if case .terminal = aggregateAttempt.state {
+                return [.inputRejected(.attemptFailure(.inputAfterTermination))]
+            }
+            guard localRole == .contributor,
+                  case let .transcriptAgreement(roster, transcript) = aggregateAttempt.state,
+                  roster.contributors.contains(localControlIdentity),
+                  validation.attemptIdentifier == attemptIdentifier,
+                  validation.generationIdentifier == generationIdentifier,
+                  validation.contributor == localControlIdentity,
+                  validation.materialIdentifier == materialIdentifier,
+                  validation.transcript == transcript else {
+                return localize(
+                    aggregateEffects: aggregateAttempt.fail(
+                        with: .invalidTranscriptInclusionValidation
+                    )
+                )
+            }
+            if hasTranscriptInclusionValidation {
+                return []
+            }
+
+            hasTranscriptInclusionValidation = true
+            return [
+                .preSignAcknowledgementRequired(
+                    contributor: localControlIdentity,
+                    materialIdentifier: materialIdentifier,
+                    roundIdentifier: transcript.manifest.roundIdentifier,
+                    transcriptRoot: transcript.transcriptRoot
+                )
+            ]
         }
 
         private mutating func localize(
@@ -97,7 +150,22 @@ extension OpalFusion.Mosaic {
                         )
                     )
 
-                case let .bchSigningEligible(contributors, transcriptRoot):
+                case let .transcriptInclusionValidationRequired(
+                    contributors,
+                    transcript
+                ):
+                    guard isEligibleContributor(in: contributors) else {
+                        continue
+                    }
+                    localEffects.append(
+                        .transcriptInclusionValidationRequired(
+                            contributor: localControlIdentity,
+                            materialIdentifier: materialIdentifier,
+                            transcript: transcript
+                        )
+                    )
+
+                case let .bchSigningEligible(contributors, transcript):
                     guard isEligibleContributor(in: contributors) else {
                         continue
                     }
@@ -105,7 +173,7 @@ extension OpalFusion.Mosaic {
                         .bchSigningEligible(
                             contributor: localControlIdentity,
                             materialIdentifier: materialIdentifier,
-                            transcriptRoot: transcriptRoot
+                            transcript: transcript
                         )
                     )
 

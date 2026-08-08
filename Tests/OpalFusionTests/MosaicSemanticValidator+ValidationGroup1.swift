@@ -49,7 +49,7 @@ extension MosaicSemanticValidator {
         for candidateCount in 7 ... 9 {
             var simulator = try Self.makeSimulator(candidateCount: candidateCount)
 
-            Self.complete(simulator: &simulator)
+            try Self.complete(simulator: &simulator)
 
             for member in simulator.roster.members {
                 let localAttempt = Self.findLocalAttempt(
@@ -61,6 +61,8 @@ extension MosaicSemanticValidator {
                 #expect(localAttempt.state == .terminal(.completed))
                 if member.role == .contributor {
                     #expect(Self.countReservationEligibility(in: effects) == 1)
+                    #expect(Self.countTranscriptInclusionRequirements(in: effects) == 1)
+                    #expect(Self.countPreSignRequirements(in: effects) == 1)
                     #expect(Self.countSigningEligibility(in: effects) == 1)
                     #expect(Self.countReleaseRequirements(in: effects) == 0)
                     #expect(Self.countCommitRequirements(in: effects) == 1)
@@ -84,9 +86,9 @@ extension MosaicSemanticValidator {
                 manifest: Self.manifestA
             )
         )
-        _ = simulator.broadcast(validatedFact: manifestFact)
+        _ = simulator.broadcast(attemptInput: manifestFact)
 
-        _ = simulator.broadcast(validatedFact: manifestFact)
+        _ = simulator.broadcast(attemptInput: manifestFact)
 
         let failure = Attempt.Failure.invalidTransition(
             from: .walletReservation,
@@ -109,7 +111,7 @@ extension MosaicSemanticValidator {
             }
         }
 
-        let terminalDuplicateEffects = simulator.broadcast(validatedFact: manifestFact)
+        let terminalDuplicateEffects = simulator.broadcast(attemptInput: manifestFact)
         for member in simulator.roster.members {
             #expect(
                 terminalDuplicateEffects[member.controlIdentity]

@@ -53,16 +53,16 @@ struct MosaicSemanticSimulator {
     }
 
     mutating func broadcast(
-        validatedFact: Attempt.Input
+        attemptInput: Attempt.Input
     ) -> [Attempt.ControlIdentity: [LocalAttempt.Effect]] {
         deliver(
-            validatedFact: validatedFact,
+            attemptInput: attemptInput,
             to: roster.controlIdentities
         )
     }
 
     mutating func deliver(
-        validatedFact: Attempt.Input,
+        attemptInput: Attempt.Input,
         to recipients: [Attempt.ControlIdentity]
     ) -> [Attempt.ControlIdentity: [LocalAttempt.Effect]] {
         var deliveryEffects: [Attempt.ControlIdentity: [LocalAttempt.Effect]] = [:]
@@ -75,7 +75,7 @@ struct MosaicSemanticSimulator {
             let input = LocalAttempt.Input(
                 attemptIdentifier: attemptIdentifier,
                 generationIdentifier: generationIdentifier,
-                validatedFact: validatedFact
+                attemptInput: attemptInput
             )
             let effects = localAttempts[localAttemptIndex].apply(input: input)
             deliveryEffects[localControlIdentity] = effects
@@ -98,5 +98,37 @@ struct MosaicSemanticSimulator {
         let effects = localAttempts[localAttemptIndex].apply(input: input)
         effectJournal[recipient, default: []].append(contentsOf: effects)
         return effects
+    }
+
+    mutating func validateTranscriptInclusion(
+        _ transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
+    ) throws -> [Attempt.ControlIdentity: [LocalAttempt.Effect]] {
+        var validationEffects: [Attempt.ControlIdentity: [LocalAttempt.Effect]] = [:]
+
+        for localAttemptIndex in localAttempts.indices {
+            let localAttempt = localAttempts[localAttemptIndex]
+            guard localAttempt.localRole == .contributor else {
+                continue
+            }
+            let validation = try MosaicUnsignedTransactionTranscriptFixtures
+                .makeTranscriptInclusionValidation(
+                    attemptIdentifier: attemptIdentifier,
+                    generationIdentifier: generationIdentifier,
+                    contributor: localAttempt.localControlIdentity,
+                    materialIdentifier: localAttempt.materialIdentifier,
+                    transcript: transcript
+                )
+            let input = LocalAttempt.Input(
+                attemptIdentifier: attemptIdentifier,
+                generationIdentifier: generationIdentifier,
+                validatedTranscriptInclusion: validation
+            )
+            let effects = localAttempts[localAttemptIndex].apply(input: input)
+            validationEffects[localAttempt.localControlIdentity] = effects
+            effectJournal[localAttempt.localControlIdentity, default: []]
+                .append(contentsOf: effects)
+        }
+
+        return validationEffects
     }
 }
