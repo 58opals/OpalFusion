@@ -98,6 +98,8 @@ Fragmentation is a bounded subordinate-document contract only. It does not assig
 
 This slice validates canonical syntax, point/key encodings, fixed counts, P2PKH output form, amount bounds, duplicate rejection, round binding, deterministic set digests, and bounded aggregate fragmentation and reassembly. It does not define or claim validation of the unresolved CashFusion-derived Pedersen sum equation, per-component fee allocation, a complete round manifest, anonymous BCH-signature authorization, or blame proofs. Blame remains disabled for this profile, so an Opal v0 decoder accepts no proof document.
 
+The transport-independent attempt core distinguishes the 32-byte core-derived round identifier signed by control identities from the 32-byte digest of the complete signed manifest committed by the transcript. Its semantic manifest-agreement validator accepts only an already-signature-validated record for every member of the immutable role-selected roster, requires every record to carry the same pair of identifiers, includes the conductor in unanimity, and emits reservation eligibility only for contributors. This boundary does not define either digest formula, the complete manifest encoding, or control-signature verification; those remain adapter and schema work below.
+
 ## 5. Nostr Conformance Contract
 
 The profile assigns three Nostr ephemeral kinds:
@@ -137,12 +139,12 @@ This rigid transaction contract exists for deterministic chipnet conformance. It
 
 ## 7. Implemented And Deferred Boundaries
 
-Implemented deterministic boundaries include the phase and terminal reducer, roster validation, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
+Implemented deterministic boundaries include the phase and terminal reducer, roster validation, fixed-width and semantically distinct manifest binding, exact semantic manifest unanimity, one authoritative profile selector, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
 
 The following remain blocked or deferred:
 
 - independent parameter, fault, timing, side-channel, and one-more-security review of the RSA blind-signature provider;
-- the unresolved Pedersen sum and fee-allocation algorithms, complete manifest and BCH-signature messages, their authenticated fragment-envelope and sequence integration, and any future proof or blame schema;
+- the unresolved Pedersen sum and fee-allocation algorithms, complete manifest encoding and digest derivation, manifest control-signature verification, BCH-signature messages, their authenticated fragment-envelope and sequence integration, and any future proof or blame schema;
 - discovery proof-of-work and timing values based on device measurements;
 - live Nostr relay and Tor-only transport adapters with traffic-analysis testing;
 - blame cryptography and any nonterminal blame flow;

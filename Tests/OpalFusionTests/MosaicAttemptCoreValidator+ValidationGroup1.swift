@@ -113,8 +113,8 @@ extension MosaicAttemptCoreValidator {
         #expect(attempt.state == .manifestAgreement(roster: roster))
 
         let reservationEffects = attempt.apply(
-            input: .manifestAgreementValidated(
-                Self.manifestAcknowledgements(for: roster)
+            input: .manifestSignaturesValidated(
+                Self.manifestSignatureValidations(for: roster)
             )
         )
         #expect(

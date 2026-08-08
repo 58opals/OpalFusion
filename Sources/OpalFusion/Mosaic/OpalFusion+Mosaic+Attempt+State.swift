@@ -30,13 +30,13 @@ extension OpalFusion.Mosaic.Attempt {
         case controlRosterAgreement(candidateCount: Int)
         case roleSelection(controlIdentities: [ControlIdentity])
         case manifestAgreement(roster: Roster)
-        case walletReservation(roster: Roster, manifest: ManifestIdentifier)
-        case groupedCommitment(roster: Roster, manifest: ManifestIdentifier)
-        case anonymousComponentSubmission(roster: Roster, manifest: ManifestIdentifier)
-        case transcriptAgreement(roster: Roster, manifest: ManifestIdentifier)
+        case walletReservation(roster: Roster, manifest: ManifestBinding)
+        case groupedCommitment(roster: Roster, manifest: ManifestBinding)
+        case anonymousComponentSubmission(roster: Roster, manifest: ManifestBinding)
+        case transcriptAgreement(roster: Roster, manifest: ManifestBinding)
         case bchSigning(
             roster: Roster,
-            manifest: ManifestIdentifier,
+            manifest: ManifestBinding,
             transcriptRoot: TranscriptRoot
         )
         case terminal(Outcome)

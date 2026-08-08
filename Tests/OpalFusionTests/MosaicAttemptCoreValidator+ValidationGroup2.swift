@@ -80,22 +80,33 @@ extension MosaicAttemptCoreValidator {
     @Test("Mosaic manifest agreement requires every roster member exactly once")
     func validateManifestUnanimityFailures() throws {
         let roster = try Self.makeRoster()
-        let complete = Self.manifestAcknowledgements(for: roster)
+        let complete = Self.manifestSignatureValidations(for: roster)
         let missing = Array(complete.dropLast())
         var duplicate = complete
         duplicate[6] = duplicate[0]
         var unknown = complete
         unknown[6] = .init(
             signer: Self.controlIdentity(0xFE),
-            manifest: Self.manifestA
+            binding: Self.manifestA
         )
 
-        for acknowledgements in [missing, duplicate, unknown] {
+        let expectedFailures: [Attempt.ManifestAgreement.ValidationError] = [
+            .missingSigners([roster.controlIdentities[6]]),
+            .duplicateSigner(roster.controlIdentities[0]),
+            .unknownSigner(Self.controlIdentity(0xFE)),
+        ]
+
+        for (validatedSignatures, validationError) in zip(
+            [missing, duplicate, unknown],
+            expectedFailures
+        ) {
             var scenario = try Self.makeScenario(at: .manifestAgreement)
-            let failure = Attempt.Failure.manifestAgreementNotUnanimous
+            let failure = Attempt.Failure.invalidManifestAgreement(
+                validationError
+            )
 
             let effects = scenario.attempt.apply(
-                input: .manifestAgreementValidated(acknowledgements)
+                input: .manifestSignaturesValidated(validatedSignatures)
             )
 
             #expect(effects == [.attemptTerminated(.failed(failure))])
@@ -103,20 +114,22 @@ extension MosaicAttemptCoreValidator {
         }
     }
 
-    @Test("Mosaic manifest agreement rejects differing manifest identifiers")
+    @Test("Mosaic manifest agreement rejects differing manifest bindings")
     func validateManifestDisagreementFailure() throws {
         var scenario = try Self.makeScenario(at: .manifestAgreement)
-        var acknowledgements = Self.manifestAcknowledgements(
+        var validatedSignatures = Self.manifestSignatureValidations(
             for: scenario.roster
         )
-        acknowledgements[6] = .init(
-            signer: acknowledgements[6].signer,
-            manifest: Self.manifestB
+        validatedSignatures[6] = .init(
+            signer: validatedSignatures[6].signer,
+            binding: Self.manifestB
         )
-        let failure = Attempt.Failure.manifestDisagreement
+        let failure = Attempt.Failure.invalidManifestAgreement(
+            .bindingDisagreement
+        )
 
         let effects = scenario.attempt.apply(
-            input: .manifestAgreementValidated(acknowledgements)
+            input: .manifestSignaturesValidated(validatedSignatures)
         )
 
         #expect(effects == [.attemptTerminated(.failed(failure))])

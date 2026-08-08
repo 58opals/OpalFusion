@@ -7,5 +7,5 @@ struct MosaicRuntimeSessionFixture {
     let roster: OpalFusion.Mosaic.Attempt.Roster
     let attemptIdentifier: OpalFusion.Mosaic.LocalAttempt.AttemptIdentifier
     let generationIdentifier: OpalFusion.Mosaic.LocalAttempt.GenerationIdentifier
-    let manifest: OpalFusion.Mosaic.Attempt.ManifestIdentifier
+    let manifest: OpalFusion.Mosaic.Attempt.ManifestBinding
 }

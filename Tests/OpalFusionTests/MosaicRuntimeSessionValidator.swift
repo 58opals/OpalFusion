@@ -396,7 +396,10 @@ struct MosaicRuntimeSessionValidator {
             roster: roster,
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
-            manifest: .init(validatedBytes: [0xD4])
+            manifest: try .init(
+                validatedRoundIdentifier: Array(repeating: 0xD4, count: 32),
+                validatedManifestDigest: Array(repeating: 0xD5, count: 32)
+            )
         )
     }
 
@@ -411,9 +414,9 @@ struct MosaicRuntimeSessionValidator {
             sequence: sequence,
             phase: phase,
             identifierByte: identifierByte,
-            fact: .manifestAgreementValidated(
+            fact: .manifestSignaturesValidated(
                 fixture.roster.controlIdentities.map {
-                    .init(signer: $0, manifest: fixture.manifest)
+                    .init(signer: $0, binding: fixture.manifest)
                 }
             )
         )

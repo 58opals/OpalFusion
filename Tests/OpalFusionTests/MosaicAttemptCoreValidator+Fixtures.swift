@@ -10,8 +10,14 @@ extension MosaicAttemptCoreValidator {
         let roster: Attempt.Roster
     }
 
-    static let manifestA = Attempt.ManifestIdentifier(validatedBytes: [0xA1])
-    static let manifestB = Attempt.ManifestIdentifier(validatedBytes: [0xB2])
+    static let manifestA = try! Attempt.ManifestBinding(
+        validatedRoundIdentifier: Array(repeating: 0xA1, count: 32),
+        validatedManifestDigest: Array(repeating: 0xA2, count: 32)
+    )
+    static let manifestB = try! Attempt.ManifestBinding(
+        validatedRoundIdentifier: Array(repeating: 0xB1, count: 32),
+        validatedManifestDigest: Array(repeating: 0xB2, count: 32)
+    )
     static let transcriptRootA = Attempt.TranscriptRoot(validatedBytes: [0xC3])
     static let transcriptRootB = Attempt.TranscriptRoot(validatedBytes: [0xD4])
 
@@ -35,12 +41,12 @@ extension MosaicAttemptCoreValidator {
         try .init(members: makeMembers(candidateCount: candidateCount))
     }
 
-    static func manifestAcknowledgements(
+    static func manifestSignatureValidations(
         for roster: Attempt.Roster,
-        manifest: Attempt.ManifestIdentifier = manifestA
-    ) -> [Attempt.ManifestAcknowledgement] {
+        manifest: Attempt.ManifestBinding = manifestA
+    ) -> [Attempt.ManifestSignatureValidation] {
         roster.controlIdentities.map {
-            .init(signer: $0, manifest: manifest)
+            .init(signer: $0, binding: manifest)
         }
     }
 
@@ -76,8 +82,8 @@ extension MosaicAttemptCoreValidator {
         }
         if targetPhase.rawValue >= Attempt.Phase.walletReservation.rawValue {
             _ = attempt.apply(
-                input: .manifestAgreementValidated(
-                    manifestAcknowledgements(for: roster)
+                input: .manifestSignaturesValidated(
+                    manifestSignatureValidations(for: roster)
                 )
             )
         }

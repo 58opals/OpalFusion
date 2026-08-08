@@ -5,8 +5,8 @@ extension OpalFusion.Mosaic.RuntimeSession {
     ///
     /// Local cancellation, retry, and wallet-host results are intentionally absent.
     enum AuthenticatedFact: Sendable, Equatable {
-        case manifestAgreementValidated(
-            [OpalFusion.Mosaic.Attempt.ManifestAcknowledgement]
+        case manifestSignaturesValidated(
+            [OpalFusion.Mosaic.Attempt.ManifestSignatureValidation]
         )
         case groupedCommitmentsValidated(
             contributors: [OpalFusion.Mosaic.Attempt.ControlIdentity]
@@ -21,8 +21,8 @@ extension OpalFusion.Mosaic.RuntimeSession {
 
         var attemptInput: OpalFusion.Mosaic.Attempt.Input {
             switch self {
-            case let .manifestAgreementValidated(acknowledgements):
-                .manifestAgreementValidated(acknowledgements)
+            case let .manifestSignaturesValidated(validatedSignatures):
+                .manifestSignaturesValidated(validatedSignatures)
             case let .groupedCommitmentsValidated(contributors):
                 .groupedCommitmentsValidated(contributors: contributors)
             case let .anonymousComponentsValidated(contributors):

@@ -8,8 +8,8 @@ extension MosaicSemanticValidator {
     func validatePartitionAndEquivocationPropagation() throws {
         var simulator = try Self.makeSimulator(candidateCount: 8)
         _ = simulator.broadcast(
-            validatedFact: .manifestAgreementValidated(
-                Self.makeManifestAcknowledgements(
+            validatedFact: .manifestSignaturesValidated(
+                Self.makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: Self.manifestA
                 )
@@ -59,8 +59,8 @@ extension MosaicSemanticValidator {
     func validateCancellationPropagation() throws {
         var simulator = try Self.makeSimulator()
         _ = simulator.broadcast(
-            validatedFact: .manifestAgreementValidated(
-                Self.makeManifestAcknowledgements(
+            validatedFact: .manifestSignaturesValidated(
+                Self.makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: Self.manifestA
                 )
@@ -117,8 +117,8 @@ extension MosaicSemanticValidator {
     func validateFreshRetryInstance() throws {
         var originalSimulator = try Self.makeSimulator()
         _ = originalSimulator.broadcast(
-            validatedFact: .manifestAgreementValidated(
-                Self.makeManifestAcknowledgements(
+            validatedFact: .manifestSignaturesValidated(
+                Self.makeManifestSignatureValidations(
                     roster: originalSimulator.roster,
                     manifest: Self.manifestA
                 )

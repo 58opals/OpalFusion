@@ -12,8 +12,8 @@ extension MosaicSemanticValidator {
             for: contributor,
             in: simulator
         ).state
-        let manifestFact = Attempt.Input.manifestAgreementValidated(
-            Self.makeManifestAcknowledgements(
+        let manifestFact = Attempt.Input.manifestSignaturesValidated(
+            Self.makeManifestSignatureValidations(
                 roster: simulator.roster,
                 manifest: Self.manifestA
             )
@@ -112,8 +112,8 @@ extension MosaicSemanticValidator {
     func validateOmissionAndTimeoutPropagation() throws {
         var simulator = try Self.makeSimulator(candidateCount: 9)
         _ = simulator.broadcast(
-            validatedFact: .manifestAgreementValidated(
-                Self.makeManifestAcknowledgements(
+            validatedFact: .manifestSignaturesValidated(
+                Self.makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: Self.manifestA
                 )

@@ -5,7 +5,7 @@ extension OpalFusion.Mosaic.LocalAttempt {
         case walletReservationEligible(
             contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
             materialIdentifier: MaterialIdentifier,
-            manifest: OpalFusion.Mosaic.Attempt.ManifestIdentifier
+            manifest: OpalFusion.Mosaic.Attempt.ManifestBinding
         )
         case bchSigningEligible(
             contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,

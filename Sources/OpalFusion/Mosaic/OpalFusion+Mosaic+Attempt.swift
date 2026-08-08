@@ -93,26 +93,33 @@ extension OpalFusion.Mosaic {
 
             case let (
                 .manifestAgreement(roster),
-                .manifestAgreementValidated(acknowledgements)
+                .manifestSignaturesValidated(validatedSignatures)
             ):
-                let signers = acknowledgements.map(\.signer)
-                guard identitiesExactlyMatch(
-                    signers,
-                    expected: roster.controlIdentities
-                ) else {
+                let agreement: ManifestAgreement
+                do {
+                    agreement = try ManifestAgreement(
+                        roster: roster,
+                        validatedSignatures: validatedSignatures
+                    )
+                } catch let validationError as ManifestAgreement.ValidationError {
                     return terminate(
-                        with: .failed(.manifestAgreementNotUnanimous)
+                        with: .failed(
+                            .invalidManifestAgreement(validationError)
+                        )
+                    )
+                } catch {
+                    preconditionFailure(
+                        "ManifestAgreement only throws its declared validation errors."
                     )
                 }
-                guard let manifest = acknowledgements.first?.manifest,
-                      acknowledgements.allSatisfy({ $0.manifest == manifest }) else {
-                    return terminate(with: .failed(.manifestDisagreement))
-                }
-                state = .walletReservation(roster: roster, manifest: manifest)
+                state = .walletReservation(
+                    roster: roster,
+                    manifest: agreement.binding
+                )
                 return [
                     .walletReservationEligible(
                         contributors: roster.contributors,
-                        manifest: manifest
+                        manifest: agreement.binding
                     )
                 ]
 

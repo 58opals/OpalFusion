@@ -74,8 +74,8 @@ extension MosaicSemanticValidator {
     @Test("Duplicate delivery follows aggregate terminal semantics without repeating reservation disposition")
     func validateDuplicateDeliverySemantics() throws {
         var simulator = try Self.makeSimulator()
-        let manifestFact = Attempt.Input.manifestAgreementValidated(
-            Self.makeManifestAcknowledgements(
+        let manifestFact = Attempt.Input.manifestSignaturesValidated(
+            Self.makeManifestSignatureValidations(
                 roster: simulator.roster,
                 manifest: Self.manifestA
             )
@@ -86,7 +86,7 @@ extension MosaicSemanticValidator {
 
         let failure = Attempt.Failure.invalidTransition(
             from: .walletReservation,
-            received: .manifestAgreementValidated
+            received: .manifestSignaturesValidated
         )
         for member in simulator.roster.members {
             let localAttempt = Self.findLocalAttempt(

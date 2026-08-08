@@ -7,8 +7,14 @@ extension MosaicSemanticValidator {
     typealias LocalAttempt = OpalFusion.Mosaic.LocalAttempt
     typealias Simulator = MosaicSemanticSimulator
 
-    static let manifestA = Attempt.ManifestIdentifier(validatedBytes: [0xA1])
-    static let manifestB = Attempt.ManifestIdentifier(validatedBytes: [0xB2])
+    static let manifestA = try! Attempt.ManifestBinding(
+        validatedRoundIdentifier: Array(repeating: 0xA1, count: 32),
+        validatedManifestDigest: Array(repeating: 0xA2, count: 32)
+    )
+    static let manifestB = try! Attempt.ManifestBinding(
+        validatedRoundIdentifier: Array(repeating: 0xB1, count: 32),
+        validatedManifestDigest: Array(repeating: 0xB2, count: 32)
+    )
     static let transcriptRootA = Attempt.TranscriptRoot(validatedBytes: [0xC3])
     static let transcriptRootB = Attempt.TranscriptRoot(validatedBytes: [0xD4])
 
@@ -72,12 +78,12 @@ extension MosaicSemanticValidator {
         )
     }
 
-    static func makeManifestAcknowledgements(
+    static func makeManifestSignatureValidations(
         roster: Attempt.Roster,
-        manifest: Attempt.ManifestIdentifier
-    ) -> [Attempt.ManifestAcknowledgement] {
+        manifest: Attempt.ManifestBinding
+    ) -> [Attempt.ManifestSignatureValidation] {
         roster.controlIdentities.map {
-            .init(signer: $0, manifest: manifest)
+            .init(signer: $0, binding: manifest)
         }
     }
 
@@ -92,12 +98,12 @@ extension MosaicSemanticValidator {
 
     static func complete(
         simulator: inout Simulator,
-        manifest: Attempt.ManifestIdentifier = manifestA,
+        manifest: Attempt.ManifestBinding = manifestA,
         transcriptRoot: Attempt.TranscriptRoot = transcriptRootA
     ) {
         _ = simulator.broadcast(
-            validatedFact: .manifestAgreementValidated(
-                makeManifestAcknowledgements(
+            validatedFact: .manifestSignaturesValidated(
+                makeManifestSignatureValidations(
                     roster: simulator.roster,
                     manifest: manifest
                 )

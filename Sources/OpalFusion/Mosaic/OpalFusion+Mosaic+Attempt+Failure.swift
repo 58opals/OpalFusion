@@ -13,8 +13,7 @@ extension OpalFusion.Mosaic.Attempt {
         case controlIdentityCountMismatch(expected: Int, actual: Int)
         case duplicateControlIdentity(ControlIdentity)
         case selectedRolesDoNotMatchControlRoster
-        case manifestAgreementNotUnanimous
-        case manifestDisagreement
+        case invalidManifestAgreement(ManifestAgreement.ValidationError)
         case conductorUsedContributorInput(during: Phase)
         case contributorSetMismatch(during: Phase)
         case transcriptAgreementNotUnanimous
