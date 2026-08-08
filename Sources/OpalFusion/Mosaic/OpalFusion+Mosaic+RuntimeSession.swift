@@ -4,9 +4,9 @@ extension OpalFusion.Mosaic {
     /// Routes already-authenticated post-admission facts into one local attempt.
     ///
     /// Transport and wire adapters remain responsible for canonical decoding,
-    /// signature verification, expiry, network, protocol, and round validation.
-    /// This value owns attempt/generation binding, sender membership, replay,
-    /// sequence, phase, and terminal discipline.
+    /// outer-event signature verification, expiry, network, protocol, and round validation.
+    /// This value owns embedded manifest-signature verification, attempt/generation binding,
+    /// sender membership, replay, sequence, phase, and terminal discipline.
     struct RuntimeSession: Sendable {
         private var localAttempt: LocalAttempt
         private var replayIndex = AuthenticatedReplayIndex()
@@ -77,7 +77,11 @@ extension OpalFusion.Mosaic {
                 if replayIndex.containsExactDuplicate(message) {
                     return [.exactDuplicateIgnored]
                 }
-                return localize(localAttempt.apply(input: message.localInput))
+                return localize(
+                    localAttempt.apply(
+                        input: message.terminalRejectionInput()
+                    )
+                )
             }
 
             switch replayIndex.record(message) {
@@ -108,7 +112,21 @@ extension OpalFusion.Mosaic {
                 )
             }
 
-            return localize(localAttempt.apply(input: message.localInput))
+            do {
+                return localize(
+                    localAttempt.apply(
+                        input: try message.validatedLocalInput(
+                            expectedManifestSignatureCount:
+                                roster.candidateCount
+                        )
+                    )
+                )
+            } catch {
+                return terminateAuthenticatedViolation(
+                    failure: error,
+                    reason: .invalidAuthenticatedMessage
+                )
+            }
         }
 
         private mutating func terminateAuthenticatedViolation(

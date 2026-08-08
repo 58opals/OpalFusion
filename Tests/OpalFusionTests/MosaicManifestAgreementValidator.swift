@@ -50,7 +50,10 @@ struct MosaicManifestAgreementValidator {
         let roster = try makeRoster(candidateCount: candidateCount)
         let binding = try makeBinding(roundByte: 0x31, manifestByte: 0x32)
         let validations = roster.controlIdentities.reversed().map {
-            Attempt.ManifestSignatureValidation(signer: $0, binding: binding)
+            MosaicManifestSignatureFixtures.manifestSignatureValidation(
+                signer: $0,
+                binding: binding
+            )
         }
 
         let agreement = try Attempt.ManifestAgreement(
@@ -67,7 +70,10 @@ struct MosaicManifestAgreementValidator {
         let roster = try makeRoster(candidateCount: 7)
         let binding = try makeBinding(roundByte: 0x41, manifestByte: 0x42)
         let contributorValidations = roster.contributors.map {
-            Attempt.ManifestSignatureValidation(signer: $0, binding: binding)
+            MosaicManifestSignatureFixtures.manifestSignatureValidation(
+                signer: $0,
+                binding: binding
+            )
         }
 
         #expect(
@@ -90,15 +96,16 @@ struct MosaicManifestAgreementValidator {
 
         for conflictingBinding in [changedRound, changedManifest] {
             var validations = roster.controlIdentities.map {
-                Attempt.ManifestSignatureValidation(
+                MosaicManifestSignatureFixtures.manifestSignatureValidation(
                     signer: $0,
                     binding: common
                 )
             }
-            validations[validations.count - 1] = .init(
-                signer: validations[validations.count - 1].signer,
-                binding: conflictingBinding
-            )
+            validations[validations.count - 1] = MosaicManifestSignatureFixtures
+                .manifestSignatureValidation(
+                    signer: validations[validations.count - 1].signer,
+                    binding: conflictingBinding
+                )
 
             #expect(
                 throws: Attempt.ManifestAgreement.ValidationError
@@ -126,9 +133,10 @@ struct MosaicManifestAgreementValidator {
         try .init(
             members: (0 ..< candidateCount).map { index in
                 .init(
-                    controlIdentity: .init(
-                        validatedBytes: [UInt8(index + 1)]
-                    ),
+                    controlIdentity: MosaicManifestSignatureFixtures
+                        .controlIdentity(
+                            scalarByte: UInt8(index + 1)
+                        ),
                     role: index == 0 ? .conductor : .contributor
                 )
             }

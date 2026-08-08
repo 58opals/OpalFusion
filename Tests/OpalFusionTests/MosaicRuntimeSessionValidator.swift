@@ -34,6 +34,133 @@ struct MosaicRuntimeSessionValidator {
         )
     }
 
+    @Test("Abort invalid embedded manifest signatures without reservation")
+    func abortInvalidManifestSignatureAndKeepReplayTerminal() throws {
+        var fixture = try makeFixture()
+        let valid = try makeManifestMessage(fixture: fixture, sequence: 0)
+        guard case let .manifestSignatureSet(binding, signatures) =
+            valid.authenticatedFact
+        else {
+            Issue.record("Expected a manifest signature set fixture")
+            return
+        }
+        var invalidSignatures = signatures
+        invalidSignatures[0] = .init(
+            signer: invalidSignatures[0].signer,
+            rawRepresentation: Array(repeating: 0xFF, count: 64)
+        )
+        let invalid = RuntimeSession.AuthenticatedMessage(
+            attemptIdentifier: valid.attemptIdentifier,
+            generationIdentifier: valid.generationIdentifier,
+            sender: valid.sender,
+            sequence: valid.sequence,
+            phase: valid.phase,
+            messageIdentifier: valid.messageIdentifier,
+            authenticatedFact: .manifestSignatureSet(
+                binding: binding,
+                signatures: invalidSignatures
+            )
+        )
+
+        let firstEffects = fixture.session.apply(input: .authenticated(invalid))
+
+        #expect(
+            firstEffects.first
+                == .authenticatedInputRejected(
+                    .invalidManifestSignature(.invalidSignature)
+                )
+        )
+        #expect(firstEffects.allSatisfy { effect in
+            if case .localAttempt(.walletReservationEligible) = effect {
+                return false
+            }
+            return true
+        })
+        #expect(
+            fixture.session.state == .terminal(
+                .failed(
+                    .aborted(
+                        during: .manifestAgreement,
+                        reason: .invalidAuthenticatedMessage
+                    )
+                )
+            )
+        )
+        #expect(
+            fixture.session.apply(input: .authenticated(invalid))
+                == [.exactDuplicateIgnored]
+        )
+
+        let corrected = try makeManifestMessage(
+            fixture: fixture,
+            sequence: 0,
+            identifierByte: 0x92
+        )
+        #expect(
+            fixture.session.apply(input: .authenticated(corrected))
+                == [
+                    .localAttempt(
+                        .inputRejected(.attemptFailure(.inputAfterTermination))
+                    )
+                ]
+        )
+    }
+
+    @Test("Reject oversized manifest signature sets before cryptographic work")
+    func rejectOversizedManifestSignatureSetBeforeVerification() throws {
+        var fixture = try makeFixture()
+        let valid = try makeManifestMessage(fixture: fixture, sequence: 0)
+        guard case let .manifestSignatureSet(binding, _) =
+            valid.authenticatedFact
+        else {
+            Issue.record("Expected a manifest signature set fixture")
+            return
+        }
+        let hostileSignature = Attempt.ManifestSignature(
+            signer: .init(validatedBytes: []),
+            rawRepresentation: []
+        )
+        let actualCount = fixture.roster.candidateCount + 1
+        let oversized = RuntimeSession.AuthenticatedMessage(
+            attemptIdentifier: valid.attemptIdentifier,
+            generationIdentifier: valid.generationIdentifier,
+            sender: valid.sender,
+            sequence: valid.sequence,
+            phase: valid.phase,
+            messageIdentifier: valid.messageIdentifier,
+            authenticatedFact: .manifestSignatureSet(
+                binding: binding,
+                signatures: Array(
+                    repeating: hostileSignature,
+                    count: actualCount
+                )
+            )
+        )
+
+        let effects = fixture.session.apply(input: .authenticated(oversized))
+
+        #expect(
+            effects.first
+                == .authenticatedInputRejected(
+                    .invalidManifestSignatureCount(
+                        expected: fixture.roster.candidateCount,
+                        actual: actualCount
+                    )
+                )
+        )
+        #expect(effects.allSatisfy { effect in
+            if case .localAttempt(.walletReservationEligible) = effect {
+                return false
+            }
+            return true
+        })
+        if case .terminal(.failed) = fixture.session.state {
+            // Expected.
+        } else {
+            Issue.record("Expected oversized signature input to terminate")
+        }
+    }
+
     @Test("Abort on one sender reusing a sequence for a different message")
     func abortOnSequenceConflict() throws {
         var fixture = try makeFixture()
@@ -363,14 +490,7 @@ struct MosaicRuntimeSessionValidator {
     }
 
     private func makeFixture() throws -> MosaicRuntimeSessionFixture {
-        let roster = try Attempt.Roster(
-            members: (0 ..< 7).map { index in
-                .init(
-                    controlIdentity: .init(validatedBytes: [UInt8(index + 1)]),
-                    role: index == 0 ? .conductor : .contributor
-                )
-            }
-        )
+        let roster = Self.fixtureRoster
         var attempt = Attempt()
         _ = attempt.apply(input: .discoveryCompleted(candidateCount: 7))
         _ = attempt.apply(input: .candidateSetAgreementValidated)
@@ -396,12 +516,30 @@ struct MosaicRuntimeSessionValidator {
             roster: roster,
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
-            manifest: try .init(
-                validatedRoundIdentifier: Array(repeating: 0xD4, count: 32),
-                validatedManifestDigest: Array(repeating: 0xD5, count: 32)
-            )
+            manifest: Self.fixtureManifest
         )
     }
+
+    private static let fixtureRoster = try! Attempt.Roster(
+        members: (0 ..< 7).map { index in
+            .init(
+                controlIdentity: MosaicManifestSignatureFixtures
+                    .controlIdentity(scalarByte: UInt8(index + 1)),
+                role: index == 0 ? .conductor : .contributor
+            )
+        }
+    )
+
+    private static let fixtureManifest = try! Attempt.ManifestBinding(
+        validatedRoundIdentifier: Array(repeating: 0xD4, count: 32),
+        validatedManifestDigest: Array(repeating: 0xD5, count: 32)
+    )
+
+    private static let fixtureManifestSignatures =
+        MosaicManifestSignatureFixtures.manifestSignatures(
+            for: fixtureRoster,
+            binding: fixtureManifest
+        )
 
     private func makeManifestMessage(
         fixture: MosaicRuntimeSessionFixture,
@@ -414,10 +552,9 @@ struct MosaicRuntimeSessionValidator {
             sequence: sequence,
             phase: phase,
             identifierByte: identifierByte,
-            fact: .manifestSignaturesValidated(
-                fixture.roster.controlIdentities.map {
-                    .init(signer: $0, binding: fixture.manifest)
-                }
+            fact: .manifestSignatureSet(
+                binding: fixture.manifest,
+                signatures: Self.fixtureManifestSignatures
             )
         )
     }

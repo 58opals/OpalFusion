@@ -85,10 +85,11 @@ extension MosaicAttemptCoreValidator {
         var duplicate = complete
         duplicate[6] = duplicate[0]
         var unknown = complete
-        unknown[6] = .init(
-            signer: Self.controlIdentity(0xFE),
-            binding: Self.manifestA
-        )
+        unknown[6] = MosaicManifestSignatureFixtures
+            .manifestSignatureValidation(
+                signer: Self.controlIdentity(0xFE),
+                binding: Self.manifestA
+            )
 
         let expectedFailures: [Attempt.ManifestAgreement.ValidationError] = [
             .missingSigners([roster.controlIdentities[6]]),
@@ -120,10 +121,11 @@ extension MosaicAttemptCoreValidator {
         var validatedSignatures = Self.manifestSignatureValidations(
             for: scenario.roster
         )
-        validatedSignatures[6] = .init(
-            signer: validatedSignatures[6].signer,
-            binding: Self.manifestB
-        )
+        validatedSignatures[6] = MosaicManifestSignatureFixtures
+            .manifestSignatureValidation(
+                signer: validatedSignatures[6].signer,
+                binding: Self.manifestB
+            )
         let failure = Attempt.Failure.invalidManifestAgreement(
             .bindingDisagreement
         )

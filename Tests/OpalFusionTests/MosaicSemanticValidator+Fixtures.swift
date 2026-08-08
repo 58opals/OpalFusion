@@ -22,7 +22,9 @@ extension MosaicSemanticValidator {
         position: Int,
         identityOffset: UInt8 = 0
     ) -> Attempt.ControlIdentity {
-        .init(validatedBytes: [identityOffset &+ UInt8(position + 1)])
+        MosaicManifestSignatureFixtures.controlIdentity(
+            scalarByte: identityOffset &+ UInt8(position + 1)
+        )
     }
 
     static func makeRoster(
@@ -82,9 +84,70 @@ extension MosaicSemanticValidator {
         roster: Attempt.Roster,
         manifest: Attempt.ManifestBinding
     ) -> [Attempt.ManifestSignatureValidation] {
-        roster.controlIdentities.map {
-            .init(signer: $0, binding: manifest)
+        let cachedValidations: [Attempt.ManifestSignatureValidation]?
+        if manifest == manifestA {
+            switch roster.candidateCount {
+            case 7:
+                cachedValidations = manifestASevenCandidateValidations
+            case 8:
+                cachedValidations = manifestAEightCandidateValidations
+            case 9:
+                cachedValidations = manifestANineCandidateValidations
+            default:
+                cachedValidations = nil
+            }
+        } else if manifest == manifestB, roster.candidateCount == 7 {
+            cachedValidations = manifestBRetryValidations
+        } else {
+            cachedValidations = nil
         }
+        if let cachedValidations,
+           roster.controlIdentities == cachedValidations.map(\.signer) {
+            return cachedValidations
+        }
+        return MosaicManifestSignatureFixtures.manifestSignatureValidations(
+            for: roster,
+            binding: manifest
+        )
+    }
+
+    private static let manifestASevenCandidateValidations =
+        cachedManifestValidations(
+            candidateCount: 7,
+            binding: manifestA
+        )
+
+    private static let manifestAEightCandidateValidations =
+        cachedManifestValidations(
+            candidateCount: 8,
+            binding: manifestA
+        )
+
+    private static let manifestANineCandidateValidations =
+        cachedManifestValidations(
+            candidateCount: 9,
+            binding: manifestA
+        )
+
+    private static let manifestBRetryValidations = cachedManifestValidations(
+        candidateCount: 7,
+        identityOffset: 0x40,
+        binding: manifestB
+    )
+
+    private static func cachedManifestValidations(
+        candidateCount: Int,
+        identityOffset: UInt8 = 0,
+        binding: Attempt.ManifestBinding
+    ) -> [Attempt.ManifestSignatureValidation] {
+        let roster = try! makeRoster(
+            candidateCount: candidateCount,
+            identityOffset: identityOffset
+        )
+        return MosaicManifestSignatureFixtures.manifestSignatureValidations(
+            for: roster,
+            binding: binding
+        )
     }
 
     static func makeTranscriptAcknowledgements(

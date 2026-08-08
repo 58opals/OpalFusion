@@ -22,7 +22,7 @@ extension MosaicAttemptCoreValidator {
     static let transcriptRootB = Attempt.TranscriptRoot(validatedBytes: [0xD4])
 
     static func controlIdentity(_ value: UInt8) -> Attempt.ControlIdentity {
-        .init(validatedBytes: [value])
+        MosaicManifestSignatureFixtures.controlIdentity(scalarByte: value)
     }
 
     static func makeMembers(
@@ -45,10 +45,21 @@ extension MosaicAttemptCoreValidator {
         for roster: Attempt.Roster,
         manifest: Attempt.ManifestBinding = manifestA
     ) -> [Attempt.ManifestSignatureValidation] {
-        roster.controlIdentities.map {
-            .init(signer: $0, binding: manifest)
+        if manifest == manifestA,
+           roster.controlIdentities == manifestASevenCandidateValidations.map(\.signer) {
+            return manifestASevenCandidateValidations
         }
+        return MosaicManifestSignatureFixtures.manifestSignatureValidations(
+            for: roster,
+            binding: manifest
+        )
     }
+
+    private static let manifestASevenCandidateValidations =
+        MosaicManifestSignatureFixtures.manifestSignatureValidations(
+            for: try! .init(members: makeMembers(candidateCount: 7)),
+            binding: manifestA
+        )
 
     static func transcriptAcknowledgements(
         for roster: Attempt.Roster,

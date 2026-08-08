@@ -29,11 +29,25 @@ extension OpalFusion.Mosaic.RuntimeSession {
             self.authenticatedFact = authenticatedFact
         }
 
-        var localInput: OpalFusion.Mosaic.LocalAttempt.Input {
+        func validatedLocalInput(
+            expectedManifestSignatureCount: Int
+        ) throws(OpalFusion.Mosaic.RuntimeSession.Failure)
+            -> OpalFusion.Mosaic.LocalAttempt.Input {
             .init(
                 attemptIdentifier: attemptIdentifier,
                 generationIdentifier: generationIdentifier,
-                validatedFact: authenticatedFact.attemptInput
+                validatedFact: try authenticatedFact.attemptInput(
+                    expectedManifestSignatureCount:
+                        expectedManifestSignatureCount
+                )
+            )
+        }
+
+        func terminalRejectionInput() -> OpalFusion.Mosaic.LocalAttempt.Input {
+            .init(
+                attemptIdentifier: attemptIdentifier,
+                generationIdentifier: generationIdentifier,
+                validatedFact: .abort(.invalidAuthenticatedMessage)
             )
         }
     }

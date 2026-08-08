@@ -3,9 +3,9 @@
 extension OpalFusion.Mosaic.Attempt {
     /// The two distinct manifest identities established by an upstream canonical-document seam.
     ///
-    /// Control identities sign `roundIdentifier`, which identifies the manifest core. The
-    /// transcript commits to `manifestDigest`, which identifies the complete signed manifest.
-    /// This semantic type deliberately does not define the still-unresolved manifest wire schema.
+    /// Control identities sign `roundIdentifier`, which identifies the manifest core. A future
+    /// canonical-document seam must derive `manifestDigest` from the complete signed manifest
+    /// before the transcript commits to it. This type validates width and semantic agreement only.
     struct ManifestBinding: Sendable, Hashable {
         enum ValidationError: Error, Sendable, Equatable {
             case invalidRoundIdentifierByteCount(actual: Int)
@@ -32,23 +32,6 @@ extension OpalFusion.Mosaic.Attempt {
 
             self.roundIdentifier = Array(validatedRoundIdentifier)
             self.manifestDigest = Array(validatedManifestDigest)
-        }
-    }
-
-    /// One control signature that an upstream cryptographic seam validated over a round identifier.
-    ///
-    /// The seam must also prove that the signature belongs to the complete manifest represented by
-    /// `binding.manifestDigest`; this value only carries that already-validated semantic result.
-    struct ManifestSignatureValidation: Sendable, Equatable {
-        let signer: ControlIdentity
-        let binding: ManifestBinding
-
-        init(
-            signer: ControlIdentity,
-            binding: ManifestBinding
-        ) {
-            self.signer = signer
-            self.binding = binding
         }
     }
 }

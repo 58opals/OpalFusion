@@ -9,5 +9,9 @@ extension OpalFusion.Mosaic.RuntimeSession {
         case staleSequence(greatestAccepted: UInt64, received: UInt64)
         case sequenceConflict
         case phaseMismatch
+        case invalidManifestSignatureCount(expected: Int, actual: Int)
+        case invalidManifestSignature(
+            OpalFusion.Mosaic.Attempt.ManifestSignatureValidation.ValidationError
+        )
     }
 }
