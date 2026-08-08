@@ -338,8 +338,22 @@ struct MosaicOpalV0AuthorizationValidator {
             signature: try .init(rawRepresentation: Data(repeating: 0x42, count: 256))
         )
 
-        #expect(input.canonicalBytes.contains(0x21))
-        #expect(input.spentIdentifier.count == 32)
+        let expectedCanonicalHexadecimal =
+            "0000002d4d6f736169632f302d6f70616c2e312f636f6d706f6e656e742d" +
+            "617574686f72697a6174696f6e2f696e70757400000020000000001dd410c4" +
+            "9a788668ce26751718cc797474d3152a5fc073dd44fd9f7b00000020212121" +
+            "21212121212121212121212121212121212121212121212121212121210000" +
+            "002022222222222222222222222222222222222222222222222222222222" +
+            "22222222000000202323232323232323232323232323232323232323232323" +
+            "232323232323232323"
+        #expect(
+            MosaicOpalV0WireContractValidator.hexadecimal(input.canonicalBytes)
+                == expectedCanonicalHexadecimal
+        )
+        #expect(
+            MosaicOpalV0WireContractValidator.hexadecimal(input.spentIdentifier)
+                == "3282805aa111a448750800b79823e40e6e268575a38e95f9f9f196644a5d71c6"
+        )
         #expect(tokenA.spentIdentifier == tokenB.spentIdentifier)
     }
 

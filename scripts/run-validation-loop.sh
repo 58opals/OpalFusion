@@ -16,6 +16,7 @@ Modes:
   runtime         Run primary/covert runtime and live-driver loopback tests.
   workflow        Run production workflow tests.
   client          Run public client session tests.
+  mosaic          Run the bounded Mosaic conformance and facade tests.
   interop-parser  Run Electron Cash interop parser/environment tests only.
   --help          Show this usage.
 USAGE
@@ -95,6 +96,10 @@ case "$mode" in
     ;;
   client)
     run_filter ClientSessionValidator
+    ;;
+  mosaic)
+    run_test --no-parallel --filter Mosaic
+    run_filter FusionFacadeScaffoldValidator
     ;;
   interop-parser)
     run_filter ElectronCashInteropValidator

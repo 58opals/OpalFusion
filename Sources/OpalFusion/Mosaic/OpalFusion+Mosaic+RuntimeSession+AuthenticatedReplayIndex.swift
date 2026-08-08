@@ -14,11 +14,25 @@ extension OpalFusion.Mosaic.RuntimeSession {
                 == message.messageIdentifier
         }
 
-        mutating func record(_ message: AuthenticatedMessage) -> Decision {
+        mutating func record(
+            _ message: AuthenticatedMessage,
+            profile: OpalFusion.Mosaic.Profile
+        ) -> Decision {
             if let acceptedIdentifier = acceptedIdentifiers[message.sender]?[message.sequence] {
                 return acceptedIdentifier == message.messageIdentifier
                     ? .duplicate
                     : .conflict
+            }
+            if profile == .opalV0 {
+                let expectedSequence = greatestSequences[message.sender].map {
+                    $0 + 1
+                } ?? 0
+                guard message.sequence == expectedSequence else {
+                    return .gap(
+                        expectedSequence: expectedSequence,
+                        receivedSequence: message.sequence
+                    )
+                }
             }
             if let greatestSequence = greatestSequences[message.sender],
                message.sequence < greatestSequence {

@@ -30,7 +30,7 @@ OpalCrypto implements this bounded profile with opaque nonpersistent RSA-2048 si
 
 Each contributor has exactly 23 component-authorization request slots numbered `0...22`. The conductor evaluates no request until all 23 slots from every contributor are present. An exact duplicate request is idempotent and reuses the cached response; a different request in an occupied slot terminates the attempt. The ledger never accepts conductor or unknown-contributor requests. A provider failure terminates the attempt.
 
-The canonical component-token input contains the profile/component-authorization domain, chipnet genesis hash, 32-byte round identifier, validated 32-byte authorization-key identifier, and fresh 32-byte nonce. A token's spent identifier is derived from this canonical input, not from the randomized prefix or finalized randomized signature.
+The canonical component-token input is `text("Mosaic/0-opal.1/component-authorization/input") || bytes(chipnetGenesisHash) || bytes(roundIdentifier) || bytes(authorizationKeyIdentifier) || bytes(nonce)`, where `text` and each `bytes` field use the canonical `u32` length prefix from the generic specification. The spent identifier is `SHA256(UTF8("Mosaic/0-opal.1/component-authorization/spent") || canonicalTokenInput)`. It is derived from the canonical input, not from the randomized prefix or finalized randomized signature. The tests pin the complete input and spent-identifier bytes.
 
 These rules constrain issuance and replay accounting. Passing the deterministic and published-vector tests does not itself prove blindness, one-more unforgeability, or side-channel resistance.
 
@@ -47,7 +47,7 @@ The wallet-host transcript binding carries four 32-byte digests:
 
 `transcriptRoot = SHA256(UTF8(profile + "/transcript") || bytes(manifestDigest) || bytes(commitmentSetDigest) || bytes(componentSetDigest) || bytes(unsignedTransactionDigest))`.
 
-Here `bytes(value)` is the Mosaic canonical `u32(length) || value` encoding. A `MosaicTranscriptBinding` validates all digest lengths, recomputes the unsigned-transaction digest from the exact bytes, and rejects an acknowledged root that differs from the recomputed root. `MosaicTransactionSigningRequest` requires this binding and rejects substituted transaction bytes.
+Here `bytes(value)` is the Mosaic canonical `u32(length) || value` encoding. A `MosaicTranscriptBinding` validates all digest lengths, recomputes the unsigned-transaction digest from the exact bytes, and rejects an acknowledged root that differs from the recomputed root. `MosaicTransactionSigningRequest` requires this binding and rejects substituted transaction bytes. The executable host binding supports only `.opalV0`; `.draft1` fails closed because its complete manifest and canonical hash documents are not frozen.
 
 The binding proves internal consistency, not unanimity. The attempt reducer remains responsible for requiring every contributor to acknowledge the same root before it emits BCH-signing eligibility. OpalBase must recheck the binding before any signature operation.
 
@@ -57,7 +57,7 @@ The Opal v0 documents below use the fixed-order canonical encoding from Section 
 
 The profile freezes these primitive representations:
 
-- hashes, round identifiers, authorization-key identifiers, nonces, salt commitments, and transcript roots are fixed 32-byte fields without length prefixes;
+- hashes, round identifiers, authorization-key identifiers, nonces, salt commitments, and transcript roots are fixed 32-byte fields without length prefixes inside the subordinate documents below; the component-token input above deliberately wraps its fixed values as canonical `bytes` fields;
 - Pedersen amount commitments are validated secp256k1 points encoded as canonical 65-byte uncompressed SEC1 values;
 - component communication public keys are validated secp256k1 points encoded as canonical 33-byte compressed SEC1 values;
 - blinded authorization requests, blind-signature responses, and finalized authorization signatures are fixed 256-byte fields;
@@ -141,7 +141,7 @@ This rigid transaction contract exists for deterministic chipnet conformance. It
 
 ## 7. Implemented And Deferred Boundaries
 
-Implemented deterministic boundaries include the phase and terminal reducer, validated control-roster and complete role-commitment barriers, profile-bound role-seed validation integration, reducer-owned big-endian seed-to-roster selection, roster validation, fixed-width and semantically distinct manifest binding, exact semantic manifest unanimity, profile-separated BIP340 pre-sign acknowledgement validation, one authoritative profile selector, exact aggregate commitment/component cardinality validation, deterministic unsigned version-2 transaction construction from the canonical component set, canonical input/output ordering, BCH aggregate-money-range checks, exact one-satoshi-per-estimated-final-byte aggregate fee validation, locally derived transcript-root gating, an exact attempt/generation/contributor/material/transcript-bound local inclusion-validation token, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict sequence progression, and host request validation.
+Implemented deterministic boundaries include the phase and terminal reducer, validated control-roster and complete role-commitment barriers, profile-bound role-seed validation integration, reducer-owned big-endian seed-to-roster selection, roster validation, fixed-width and semantically distinct manifest binding, exact semantic manifest unanimity, profile-separated BIP340 pre-sign acknowledgement validation, one authoritative profile selector, exact aggregate commitment/component cardinality validation, deterministic unsigned version-2 transaction construction from the canonical component set, canonical input/output ordering, BCH aggregate-money-range checks, exact one-satoshi-per-estimated-final-byte aggregate fee validation, locally derived transcript-root gating, an exact attempt/generation/contributor/material/transcript-bound local inclusion-validation token, transcript-to-transaction binding, authorization issuance accounting, attempt-scoped RSA blind-signature evaluation, contributor request finalization and token verification, token replay identifiers, canonical Opal v0 component, commitment, set, authorization-message, anonymous-submission, pre-sign-acknowledgement, and aggregate-fragment documents, bounded aggregate fragmentation and terminal reassembly, fixed-size inner-envelope coding, exact profile tags and kinds, strict per-sender runtime sequence progression, generation-bound host-result handling, `.draft1` transcript-binding rejection, and host request validation.
 
 The following remain blocked or deferred:
 

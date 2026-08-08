@@ -63,6 +63,61 @@ extension MosaicAttemptCoreValidator {
         #expect(scenario.attempt.state == .terminal(.failed(failure)))
     }
 
+    @Test("Mosaic rejects phase skipping and rollback across every active phase")
+    func validateMonotonicPhaseBoundary() throws {
+        for phase in Attempt.Phase.allCases where phase != .bchSigning {
+            var scenario = try Self.makeScenario(at: phase)
+            let failure = Attempt.Failure.invalidTransition(
+                from: phase,
+                received: .signedTransactionValidated
+            )
+            let outcome = Attempt.Outcome.failed(failure)
+
+            let effects = scenario.attempt.apply(
+                input: .signedTransactionValidated(
+                    contributorSigners: scenario.roster.contributors
+                )
+            )
+
+            #expect(
+                effects == Self.terminationEffects(
+                    outcome: outcome,
+                    reservationRoster: Self.expectedReservationRoster(
+                        during: phase,
+                        roster: scenario.roster
+                    )
+                )
+            )
+            #expect(scenario.attempt.state == .terminal(outcome))
+        }
+
+        for phase in Attempt.Phase.allCases where phase != .discovery {
+            var scenario = try Self.makeScenario(at: phase)
+            let failure = Attempt.Failure.invalidTransition(
+                from: phase,
+                received: .discoveryCompleted
+            )
+            let outcome = Attempt.Outcome.failed(failure)
+
+            let effects = scenario.attempt.apply(
+                input: .discoveryCompleted(
+                    candidateCount: scenario.roster.candidateCount
+                )
+            )
+
+            #expect(
+                effects == Self.terminationEffects(
+                    outcome: outcome,
+                    reservationRoster: Self.expectedReservationRoster(
+                        during: phase,
+                        roster: scenario.roster
+                    )
+                )
+            )
+            #expect(scenario.attempt.state == .terminal(outcome))
+        }
+    }
+
     @Test("Mosaic manifest agreement requires every roster member exactly once")
     func validateManifestUnanimityFailures() throws {
         let roster = try Self.makeRoster()

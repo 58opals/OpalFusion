@@ -15,7 +15,7 @@ extension OpalFusion.Mosaic.Attempt {
         init(
             roster: Roster,
             validatedSignatures: [ManifestSignatureValidation]
-        ) throws {
+        ) throws(ValidationError) {
             let expectedSigners = Set(roster.controlIdentities)
             var recordedSigners: Set<ControlIdentity> = []
             var commonBinding: ManifestBinding?

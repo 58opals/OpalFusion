@@ -126,15 +126,11 @@ extension OpalFusion.Mosaic {
                         roster: roster,
                         validatedSignatures: validatedSignatures
                     )
-                } catch let validationError as ManifestAgreement.ValidationError {
+                } catch {
                     return terminate(
                         with: .failed(
-                            .invalidManifestAgreement(validationError)
+                            .invalidManifestAgreement(error)
                         )
-                    )
-                } catch {
-                    preconditionFailure(
-                        "ManifestAgreement only throws its declared validation errors."
                     )
                 }
                 state = .walletReservation(

@@ -4,10 +4,11 @@ import Foundation
 import OpalCrypto
 
 public extension OpalFusion.Host {
-    /// Recomputable transcript material that binds a Mosaic signing request to exact transaction bytes.
+    /// Recomputable Opal-v0 transcript material that binds a signing request to exact transaction bytes.
     ///
     /// Construction proves that the supplied transcript root matches these digests. The attempt reducer
-    /// remains responsible for requiring every contributor to acknowledge that root before this value is used.
+    /// remains responsible for requiring every contributor to acknowledge that root before this value is
+    /// used. Other Mosaic profiles fail closed until their transcript documents are frozen.
     struct MosaicTranscriptBinding: Sendable, Equatable {
         public let profile: OpalFusion.Mosaic.Profile
         public let manifestDigest: [UInt8]
@@ -24,6 +25,9 @@ public extension OpalFusion.Host {
             unsignedTransactionBytes: [UInt8],
             acknowledgedTranscriptRoot: [UInt8]
         ) throws {
+            guard profile == .opalV0 else {
+                throw MosaicHostContractError.unsupportedProfile(profile)
+            }
             try Self.validateDigestLengths(
                 manifestDigest: manifestDigest,
                 commitmentSetDigest: commitmentSetDigest,
@@ -66,7 +70,7 @@ public extension OpalFusion.Host {
             self.transcriptRoot = Array(acknowledgedTranscriptRoot)
         }
 
-        /// Computes the root contributors must acknowledge for the supplied material.
+        /// Computes the Opal-v0 root contributors must acknowledge for the supplied material.
         public static func transcriptRoot(
             profile: OpalFusion.Mosaic.Profile,
             manifestDigest: [UInt8],
@@ -74,6 +78,9 @@ public extension OpalFusion.Host {
             componentSetDigest: [UInt8],
             unsignedTransactionBytes: [UInt8]
         ) throws -> [UInt8] {
+            guard profile == .opalV0 else {
+                throw MosaicHostContractError.unsupportedProfile(profile)
+            }
             try validateDigestLengths(
                 manifestDigest: manifestDigest,
                 commitmentSetDigest: commitmentSetDigest,

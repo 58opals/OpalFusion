@@ -52,15 +52,7 @@ extension OpalFusion.Mosaic {
                 return localize(localAttempt.apply(input: localInput))
 
             case let .hostResult(result):
-                return localize(
-                    localAttempt.apply(
-                        input: .init(
-                            attemptIdentifier: localAttempt.attemptIdentifier,
-                            generationIdentifier: localAttempt.generationIdentifier,
-                            attemptInput: result.attemptInput
-                        )
-                    )
-                )
+                return localize(localAttempt.apply(input: result.localInput))
 
             case let .authenticated(message):
                 return receive(message)
@@ -98,11 +90,22 @@ extension OpalFusion.Mosaic {
                 )
             }
 
-            switch replayIndex.record(message) {
+            switch replayIndex.record(
+                message,
+                profile: localAttempt.configuration.profile
+            ) {
             case .accepted:
                 break
             case .duplicate:
                 return [.exactDuplicateIgnored]
+            case let .gap(expectedSequence, receivedSequence):
+                return terminateAuthenticatedViolation(
+                    failure: .sequenceGap(
+                        expected: expectedSequence,
+                        received: receivedSequence
+                    ),
+                    reason: .invalidAuthenticatedMessage
+                )
             case let .stale(greatestAcceptedSequence):
                 return [
                     .authenticatedInputRejected(

@@ -164,10 +164,10 @@ struct MosaicRuntimeSessionValidator {
     @Test("Abort on one sender reusing a sequence for a different message")
     func abortOnSequenceConflict() throws {
         var fixture = try makeFixture()
-        let original = try makeManifestMessage(fixture: fixture, sequence: 4)
+        let original = try makeManifestMessage(fixture: fixture, sequence: 0)
         var conflicting = try makeManifestMessage(
             fixture: fixture,
-            sequence: 4,
+            sequence: 0,
             identifierByte: 0x92
         )
         conflicting = .init(
@@ -226,32 +226,99 @@ struct MosaicRuntimeSessionValidator {
         )
     }
 
-    @Test("Reject stale sequence without rolling back or terminating")
-    func rejectStaleSequenceWithoutRollback() throws {
+    @Test("Opal v0 terminates when a sender's first sequence is not zero")
+    func rejectNonzeroFirstSequence() throws {
+        var fixture = try makeFixture()
+        let message = try makeManifestMessage(
+            fixture: fixture,
+            sequence: 1
+        )
+        let effects = fixture.session.apply(input: .authenticated(message))
+
+        #expect(
+            effects.first == .authenticatedInputRejected(
+                .sequenceGap(expected: 0, received: 1)
+            )
+        )
+        #expect(
+            fixture.session.state == .terminal(
+                .failed(
+                    .aborted(
+                        during: .manifestAgreement,
+                        reason: .invalidAuthenticatedMessage
+                    )
+                )
+            )
+        )
+    }
+
+    @Test("Opal v0 terminates on a gap after an accepted sequence")
+    func rejectSequenceGap() throws {
         var fixture = try makeFixture()
         _ = fixture.session.apply(
             input: .authenticated(
-                try makeManifestMessage(fixture: fixture, sequence: 8)
+                try makeManifestMessage(fixture: fixture, sequence: 0)
             )
         )
-        let stale = try RuntimeSession.AuthenticatedMessage(
-            attemptIdentifier: fixture.attemptIdentifier,
-            generationIdentifier: fixture.generationIdentifier,
-            sender: fixture.roster.conductor,
-            sequence: 7,
+        let gap = try makeMessage(
+            fixture: fixture,
+            sequence: 2,
             phase: .walletReservation,
-            messageIdentifier: .init(bytes: Array(repeating: 0x44, count: 32)),
-            authenticatedFact: .abort(.timeout)
+            identifierByte: 0x44,
+            fact: .abort(.timeout)
         )
 
-        let effects = fixture.session.apply(input: .authenticated(stale))
+        let effects = fixture.session.apply(input: .authenticated(gap))
 
         #expect(
-            effects == [
-                .authenticatedInputRejected(
-                    .staleSequence(greatestAccepted: 8, received: 7)
+            effects.first == .authenticatedInputRejected(
+                .sequenceGap(expected: 1, received: 2)
+            )
+        )
+        #expect(effects.contains { effect in
+            if case .localAttempt(.walletReservationReleaseRequired) = effect {
+                return true
+            }
+            return false
+        })
+        #expect(
+            fixture.session.state == .terminal(
+                .failed(
+                    .aborted(
+                        during: .walletReservation,
+                        reason: .invalidAuthenticatedMessage
+                    )
                 )
-            ]
+            )
+        )
+    }
+
+    @Test("Generic draft accepts gaps and rejects unseen stale sequences")
+    func retainGenericDraftReplayPolicy() throws {
+        var fixture = try makeFixture(profile: .draft1)
+        let first = try makeManifestMessage(
+            fixture: fixture,
+            sequence: 7
+        )
+
+        _ = fixture.session.apply(input: .authenticated(first))
+        #expect(
+            fixture.session.apply(input: .authenticated(first))
+                == [.exactDuplicateIgnored]
+        )
+
+        let stale = try makeManifestMessage(
+            fixture: fixture,
+            sequence: 6,
+            identifierByte: 0x92
+        )
+        #expect(
+            fixture.session.apply(input: .authenticated(stale))
+                == [
+                    .authenticatedInputRejected(
+                        .staleSequence(greatestAccepted: 7, received: 6)
+                    )
+                ]
         )
         #expect(
             fixture.session.state
@@ -265,7 +332,7 @@ struct MosaicRuntimeSessionValidator {
     @Test("Reject wrong attempt generation and sender before replay mutation")
     func rejectBindingsBeforeReplayMutation() throws {
         var fixture = try makeFixture()
-        let valid = try makeManifestMessage(fixture: fixture, sequence: 3)
+        let valid = try makeManifestMessage(fixture: fixture, sequence: 0)
         let wrongAttempt = RuntimeSession.AuthenticatedMessage(
             attemptIdentifier: .init(validatedBytes: [0xFE]),
             generationIdentifier: valid.generationIdentifier,
@@ -335,7 +402,7 @@ struct MosaicRuntimeSessionValidator {
         var abortFixture = try makeFixture()
         let aborting = try makeManifestMessage(
             fixture: abortFixture,
-            sequence: 1,
+            sequence: 0,
             phase: .walletReservation
         )
         _ = abortFixture.session.apply(input: .authenticated(aborting))
@@ -356,6 +423,8 @@ struct MosaicRuntimeSessionValidator {
         _ = fixture.session.apply(
             input: .hostResult(
                 .walletReservationsPrepared(
+                    attemptIdentifier: fixture.attemptIdentifier,
+                    generationIdentifier: fixture.generationIdentifier,
                     contributors: fixture.roster.contributors
                 )
             )
@@ -411,6 +480,8 @@ struct MosaicRuntimeSessionValidator {
         _ = fixture.session.apply(
             input: .hostResult(
                 .signedTransactionValidated(
+                    attemptIdentifier: fixture.attemptIdentifier,
+                    generationIdentifier: fixture.generationIdentifier,
                     contributorSigners: fixture.roster.contributors
                 )
             )
@@ -787,7 +858,7 @@ struct MosaicRuntimeSessionValidator {
         )
         let message = try makeMessage(
             fixture: fixture,
-            sequence: 3,
+            sequence: 0,
             phase: .transcriptAgreement,
             identifierByte: 0x98,
             sender: fixture.roster.contributors[0],
@@ -832,6 +903,8 @@ struct MosaicRuntimeSessionValidator {
             _ = fixture.session.apply(
                 input: .hostResult(
                     .walletReservationsPrepared(
+                        attemptIdentifier: fixture.attemptIdentifier,
+                        generationIdentifier: fixture.generationIdentifier,
                         contributors: fixture.roster.contributors
                     )
                 )
@@ -868,7 +941,7 @@ struct MosaicRuntimeSessionValidator {
             }
             let message = try makeMessage(
                 fixture: fixture,
-                sequence: phase == .groupedCommitment ? 1 : 2,
+                sequence: 0,
                 phase: phase,
                 identifierByte: 0xA2,
                 sender: fixture.roster.contributors[0],
@@ -896,6 +969,102 @@ struct MosaicRuntimeSessionValidator {
         }
     }
 
+    @Test("Reject a stale reservation result without advancing the current generation")
+    func rejectStaleReservationResult() throws {
+        var fixture = try makeFixture()
+        _ = fixture.session.apply(
+            input: .authenticated(
+                try makeManifestMessage(fixture: fixture, sequence: 0)
+            )
+        )
+        let staleGeneration = LocalAttempt.GenerationIdentifier(
+            opaqueBytes: [0xEE]
+        )
+        let expectedState = fixture.session.state
+
+        let effects = fixture.session.apply(
+            input: .hostResult(
+                .walletReservationsPrepared(
+                    attemptIdentifier: fixture.attemptIdentifier,
+                    generationIdentifier: staleGeneration,
+                    contributors: fixture.roster.contributors
+                )
+            )
+        )
+
+        #expect(
+            effects == [
+                .localAttempt(
+                    .inputRejected(
+                        .generationIdentifierMismatch(
+                            expected: fixture.generationIdentifier,
+                            received: staleGeneration
+                        )
+                    )
+                )
+            ]
+        )
+        #expect(fixture.session.state == expectedState)
+    }
+
+    @Test("Reject a stale signing result without committing the current attempt")
+    func rejectStaleSigningResult() throws {
+        var fixture = try makeFixture()
+        try advanceToTranscriptAgreement(fixture: &fixture)
+        _ = fixture.session.apply(
+            input: .authenticated(
+                try makeMessage(
+                    fixture: fixture,
+                    sequence: 3,
+                    phase: .transcriptAgreement,
+                    identifierByte: 0xB1,
+                    fact: .transcriptAcknowledgementSet(
+                        MosaicManifestSignatureFixtures.transcriptAcknowledgements(
+                            for: fixture.roster.contributors,
+                            binding: fixture.manifest,
+                            transcriptRoot: fixture.transactionPreparation.transcript
+                                .transcriptRoot
+                        )
+                    )
+                )
+            )
+        )
+        let staleAttempt = LocalAttempt.AttemptIdentifier(
+            validatedBytes: [0xEF]
+        )
+        let expectedState = fixture.session.state
+
+        let effects = fixture.session.apply(
+            input: .hostResult(
+                .signedTransactionValidated(
+                    attemptIdentifier: staleAttempt,
+                    generationIdentifier: fixture.generationIdentifier,
+                    contributorSigners: fixture.roster.contributors
+                )
+            )
+        )
+
+        #expect(
+            effects == [
+                .localAttempt(
+                    .inputRejected(
+                        .attemptIdentifierMismatch(
+                            expected: fixture.attemptIdentifier,
+                            received: staleAttempt
+                        )
+                    )
+                )
+            ]
+        )
+        #expect(fixture.session.state == expectedState)
+        #expect(effects.allSatisfy { effect in
+            if case .localAttempt(.walletReservationCommitRequired) = effect {
+                return false
+            }
+            return true
+        })
+    }
+
     @Test("Keep wallet-host results on their explicit provenance boundary")
     func rejectHostResultThatSkipsItsPhase() throws {
         var fixture = try makeFixture()
@@ -903,6 +1072,8 @@ struct MosaicRuntimeSessionValidator {
         let effects = fixture.session.apply(
             input: .hostResult(
                 .signedTransactionValidated(
+                    attemptIdentifier: fixture.attemptIdentifier,
+                    generationIdentifier: fixture.generationIdentifier,
                     contributorSigners: fixture.roster.contributors
                 )
             )
@@ -1005,6 +1176,8 @@ struct MosaicRuntimeSessionValidator {
         _ = fixture.session.apply(
             input: .hostResult(
                 .walletReservationsPrepared(
+                    attemptIdentifier: fixture.attemptIdentifier,
+                    generationIdentifier: fixture.generationIdentifier,
                     contributors: fixture.roster.contributors
                 )
             )
@@ -1025,23 +1198,31 @@ struct MosaicRuntimeSessionValidator {
     }
 
     private func makeFixture(
-        localRole: OpalFusion.Mosaic.Role = .contributor
+        localRole: OpalFusion.Mosaic.Role = .contributor,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> MosaicRuntimeSessionFixture {
-        let roster = Self.fixtureRoster
-        var attempt = Attempt(configuration: Self.fixtureConfiguration)
+        let configuration = OpalFusion.Mosaic.Configuration(profile: profile)
+        let roleElection = profile == Self.fixtureConfiguration.profile
+            ? Self.fixtureRoleElection
+            : try MosaicRoleElectionFixtures.makeElection(
+                controlIdentities: Self.fixtureControlIdentities,
+                profile: profile
+            )
+        let roster = roleElection.result.roster
+        var attempt = Attempt(configuration: configuration)
         _ = attempt.apply(input: .discoveryCompleted(candidateCount: 7))
         _ = attempt.apply(input: .candidateSetAgreementValidated)
         _ = attempt.apply(
-            input: .controlRosterValidated(Self.fixtureRoleElection.controlRoster)
+            input: .controlRosterValidated(roleElection.controlRoster)
         )
         _ = attempt.apply(
             input: .roleCommitmentsReceived(
-                Self.fixtureRoleElection.commitments
+                roleElection.commitments
             )
         )
         _ = attempt.apply(
             input: .roleElectionValidated(
-                Self.fixtureRoleElection.validation
+                roleElection.validation
             )
         )
         let attemptIdentifier = LocalAttempt.AttemptIdentifier(
@@ -1077,12 +1258,14 @@ struct MosaicRuntimeSessionValidator {
         profile: .opalV0
     )
 
+    private static let fixtureControlIdentities = (0 ..< 7).map { index in
+        MosaicManifestSignatureFixtures.controlIdentity(
+            scalarByte: UInt8(index + 1)
+        )
+    }
+
     private static let fixtureRoleElection = try! MosaicRoleElectionFixtures.makeElection(
-        controlIdentities: (0 ..< 7).map { index in
-            MosaicManifestSignatureFixtures.controlIdentity(
-                scalarByte: UInt8(index + 1)
-            )
-        },
+        controlIdentities: fixtureControlIdentities,
         profile: fixtureConfiguration.profile
     )
 

@@ -6,6 +6,7 @@ extension OpalFusion.Mosaic.RuntimeSession {
         case attemptIdentifierMismatch
         case generationIdentifierMismatch
         case senderNotInRoster
+        case sequenceGap(expected: UInt64, received: UInt64)
         case staleSequence(greatestAccepted: UInt64, received: UInt64)
         case sequenceConflict
         case phaseMismatch

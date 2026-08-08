@@ -64,6 +64,14 @@ public extension OpalFusion.Host {
             }) else {
                 throw MosaicHostContractError.nonASCIITransactionProfileIdentifier
             }
+            let expectedTransactionProfileIdentifier =
+                transcriptBinding.profile.transactionProfileIdentifier
+            guard transactionProfileIdentifier == expectedTransactionProfileIdentifier else {
+                throw MosaicHostContractError.transactionProfileIdentifierMismatch(
+                    expected: expectedTransactionProfileIdentifier,
+                    actual: transactionProfileIdentifier
+                )
+            }
 
             for (index, spentInput) in spentInputs.enumerated() {
                 guard spentInput.outpointTransactionHashBytes.count == 32 else {

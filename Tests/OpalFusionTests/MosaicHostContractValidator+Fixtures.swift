@@ -11,7 +11,7 @@ extension MosaicHostContractValidator {
         componentCount: Int = 2,
         minimumExcessFeeSatoshis: UInt64 = 100,
         maximumExcessFeeSatoshis: UInt64 = 200,
-        transactionProfileIdentifier: String = "mosaic-bch-p2pkh-draft"
+        transactionProfileIdentifier: String = "bch-chipnet-p2pkh-schnorr/0-opal.1"
     ) throws -> OpalFusion.Host.MosaicReservationRequest {
         try .init(
             attemptIdentifier: attemptIdentifier,
@@ -46,12 +46,12 @@ extension MosaicHostContractValidator {
             feeRateSatoshisPerByte: 1,
             minimumExcessFeeSatoshis: 100,
             maximumExcessFeeSatoshis: 200,
-            transactionProfileIdentifier: "mosaic-bch-p2pkh-draft"
+            transactionProfileIdentifier: "bch-chipnet-p2pkh-schnorr/0-opal.1"
         )
     }
 
     func makeTranscriptBinding(
-        profile: OpalFusion.Mosaic.Profile = .draft1,
+        profile: OpalFusion.Mosaic.Profile = .opalV0,
         manifestDigest: [UInt8] = Array(repeating: 0x41, count: 32),
         commitmentSetDigest: [UInt8] = Array(repeating: 0x42, count: 32),
         componentSetDigest: [UInt8] = Array(repeating: 0x43, count: 32),

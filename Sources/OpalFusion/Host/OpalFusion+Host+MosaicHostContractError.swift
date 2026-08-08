@@ -3,6 +3,7 @@
 public extension OpalFusion.Host {
     /// Structural failures in the Mosaic wallet-host contract.
     enum MosaicHostContractError: Error, Sendable, Equatable {
+        case unsupportedProfile(OpalFusion.Mosaic.Profile)
         case emptyAttemptIdentifier
         case invalidNetworkGenesisHashLength(actual: Int)
         case invalidRoundIdentifierLength(actual: Int)
@@ -16,6 +17,7 @@ public extension OpalFusion.Host {
         case invalidExcessFeeRange(minimum: UInt64, maximum: UInt64)
         case emptyTransactionProfileIdentifier
         case nonASCIITransactionProfileIdentifier
+        case transactionProfileIdentifierMismatch(expected: String, actual: String)
         case emptyReservationInputs
         case emptyReservationOutputs
         case emptyUnsignedTransaction

@@ -166,33 +166,6 @@ struct MosaicOpalV0TransportContractValidator {
         }
     }
 
-    @Test("Require sequence zero then exact increments")
-    func requireStrictSequenceProgression() {
-        var tracker = OpalV0.SequenceTracker()
-        #expect(tracker.record(sequence: 0, messageIdentifier: [0x10]) == .accepted)
-        #expect(
-            tracker.record(sequence: 0, messageIdentifier: [0x10]) == .exactDuplicate
-        )
-        #expect(tracker.record(sequence: 1, messageIdentifier: [0x11]) == .accepted)
-
-        var gapTracker = OpalV0.SequenceTracker()
-        #expect(
-            gapTracker.record(sequence: 1, messageIdentifier: [0x11])
-                == .terminated(.sequenceGap(expected: 0, received: 1))
-        )
-        #expect(
-            gapTracker.record(sequence: 0, messageIdentifier: [0x10])
-                == .rejected(.inputAfterTermination)
-        )
-
-        var conflictTracker = OpalV0.SequenceTracker()
-        _ = conflictTracker.record(sequence: 0, messageIdentifier: [0x10])
-        #expect(
-            conflictTracker.record(sequence: 0, messageIdentifier: [0x12])
-                == .terminated(.sequenceConflict(sequence: 0))
-        )
-    }
-
     private func validateRoundTrip(payload: [UInt8]) throws {
         let encoded = try OpalV0.PaddedEnvelopeCodec.encode(payload)
         #expect(encoded.utf8.count == OpalV0.paddedInnerPlaintextByteCount)
