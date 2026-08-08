@@ -118,7 +118,7 @@ The inner plaintext is exactly 8,192 ASCII bytes. It contains an eight-character
 
 Per-sender control sequencing begins at zero and increments by exactly one. An exact duplicate identifier at an accepted sequence is idempotent. A gap or conflicting identifier at the same sequence terminates the attempt.
 
-No relay client, Tor circuit manager, mailbox adapter, proof-of-work minimum, discovery timing, relay URL set, or live traffic-shaping policy is defined by this profile slice.
+The package implements strict NIP-01 client-frame encoding, relay-frame decoding, and one-connection subscription/publication correlation over an injected Tor-only WebSocket capability. No concrete WebSocket connection, Tor circuit manager, mailbox-to-runtime adapter, proof-of-work minimum, discovery timing, relay URL set, reconnect behavior, or live traffic-shaping policy is defined by this profile slice.
 
 ## 6. Bitcoin Cash Transaction Contract
 
@@ -149,9 +149,9 @@ The following remain blocked or deferred:
 - Opal v0 role-commitment and role-seed domains, the canonical sorted-pair hash document, and a production role-seed validator;
 - the unresolved Pedersen sum and per-component fee-allocation algorithms, commitment-opening/component-linkage contract and production local-inclusion validator, complete manifest encoding and digest derivation, previous-output-backed wallet validation and reservation-to-component mapping, BCH-signature messages and complete transaction assembly, their authenticated fragment-envelope and sequence integration, and any future proof or blame schema;
 - discovery proof-of-work and timing values based on device measurements;
-- live Nostr relay and Tor-only transport adapters with traffic-analysis testing;
+- a concrete Nostr WebSocket connection, verified Tor-only routing and circuit isolation, mailbox-to-runtime integration, and traffic-analysis testing;
 - blame cryptography and any nonterminal blame flow;
-- a runnable public `OpalFusion.Session` and production effect driver;
+- a runnable public `OpalFusion.Session` and failure-aware production effect executor;
 - multi-device chipnet round evidence, fuzzing of every parser, and independent protocol/security review;
 - any mainnet enablement or privacy/support claim.
 

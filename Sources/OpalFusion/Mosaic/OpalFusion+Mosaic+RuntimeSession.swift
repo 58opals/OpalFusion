@@ -17,6 +17,10 @@ extension OpalFusion.Mosaic {
             localAttempt.state
         }
 
+        var configuration: OpalFusion.Mosaic.Configuration {
+            localAttempt.configuration
+        }
+
         init(localAttempt: LocalAttempt) throws {
             guard case let .manifestAgreement(roleElection) = localAttempt.state else {
                 throw Failure.attemptNotReady
