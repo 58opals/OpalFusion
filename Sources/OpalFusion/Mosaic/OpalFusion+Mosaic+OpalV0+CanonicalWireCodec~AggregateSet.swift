@@ -8,10 +8,12 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
     }
 
     static func decodeCommitmentSet(
-        from encodedBytes: [UInt8]
+        from encodedBytes: [UInt8],
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> OpalFusion.Mosaic.OpalV0.CommitmentSet {
         try OpalFusion.Mosaic.CanonicalDecoder.decode(from: encodedBytes) { decoder in
             try .init(
+                profile: profile,
                 commitments: decoder.readSortedSet(
                     readingValueWith: readComponentCommitment
                 )
@@ -26,10 +28,12 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
     }
 
     static func decodeComponentSet(
-        from encodedBytes: [UInt8]
+        from encodedBytes: [UInt8],
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> OpalFusion.Mosaic.OpalV0.ComponentSet {
         try OpalFusion.Mosaic.CanonicalDecoder.decode(from: encodedBytes) { decoder in
             try .init(
+                profile: profile,
                 components: decoder.readSortedSet(
                     readingValueWith: readComponent
                 )

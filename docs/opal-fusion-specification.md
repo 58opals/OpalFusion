@@ -1,6 +1,6 @@
 # Opal Fusion Specification
 
-Status: Draft architecture contract. The CashFusion engine has a live pilot implementation. Mosaic has specification and API scaffolding plus internal aggregate and peer-local attempt cores, an Opal-owned chipnet conformance profile, canonical primitive and Opal v0 component-document coding, bounded aggregate fragmentation and reassembly, deterministic simulation, strict NIP-01 event and relay-frame validation, an injected one-relay correlation session, an authenticated NIP-44 boundary, BIP340 manifest-round and contributor pre-sign acknowledgement validation, strict Opal-v0 per-sender runtime sequencing, generation-bound host-result handling, deterministic Opal v0 unsigned-transaction construction, locally derived transcript-root gating, a fail-closed contributor-local inclusion-validation boundary, replay and relay-publication guards, deterministic authorization accounting and bounded RFC 9474 execution, Opal-v0-only transcript-bound wallet-host contracts, and an internal post-admission runtime-session driver; the production commitment-opening/inclusion validator, previous-output-backed wallet validation, discovery, complete manifest/BCH-signature/proof messages, fragment-to-authenticated-envelope integration, a concrete Tor/WebSocket connection, mailbox-to-runtime integration, independently reviewed cryptographic deployment, production effect execution, and a public live session remain unimplemented.
+Status: Draft architecture contract. CashFusion has a live pilot implementation. Mosaic has internal aggregate and peer-local attempt cores, the chipnet-only `Mosaic/0-opal.1` conformance profile, and the additive `Mosaic/0-opal-mainnet-alpha.1` deterministic contract profile. The mainnet-alpha profile freezes role hashing, complete manifest, PlayerCommit, aggregate reservation and strict typed reassembly, authenticated control-envelope admission, pre-sign acknowledgement, BCH signature-set, exact complete-transaction assembly, and profile-separated authorization/transcript vectors without enabling its runtime driver. Discovery, commitment-opening/component linkage, previous-output resolution, anonymous BCH-signature authorization, mailbox-to-runtime integration, a concrete Tor route, failure-aware host effect execution and recovery, independent review, public Mosaic session execution, and mainnet broadcast remain unimplemented or explicitly gated.
 
 This document defines the Opal Fusion product hierarchy, engine-selection contract, shared session boundary, and source-of-truth order. It does not redefine the CashFusion or Mosaic wire protocols.
 
@@ -15,8 +15,9 @@ The following documents own distinct scopes:
 1. This document owns the Opal Fusion hierarchy, shared facade, and engine-selection rules.
 2. [`cashfusion-implementation-spec.md`](cashfusion-implementation-spec.md) owns the pinned Electron Cash `4.4.3` CashFusion `alpha13` client behavior.
 3. [`mosaic-protocol-specification.md`](mosaic-protocol-specification.md) owns the Mosaic protocol.
-4. [`mosaic-security-model.md`](mosaic-security-model.md) owns Mosaic threat assumptions, privacy limits, and release gates.
-5. [`architecture.md`](architecture.md) is the maintainer map and MUST defer to the preceding normative documents when wording differs.
+4. [`mosaic-v0-profile.md`](mosaic-v0-profile.md) and [`mosaic-mainnet-alpha-profile.md`](mosaic-mainnet-alpha-profile.md) own their respective Opal profile contracts.
+5. [`mosaic-security-model.md`](mosaic-security-model.md) owns Mosaic threat assumptions, privacy limits, and release gates.
+6. [`architecture.md`](architecture.md) is the maintainer map and MUST defer to the preceding normative documents when wording differs.
 
 No document may describe Mosaic as CashFusion v2. CashFusion and Mosaic are separate protocols implemented beneath one Opal Fusion facade.
 
@@ -36,7 +37,7 @@ The word *serverless* SHOULD NOT be used as a protocol guarantee. Mosaic has no 
 | Engine | Mode case | Protocol identity | Current status |
 |---|---|---|---|
 | CashFusion | `.cashFusion(configuration)` | Electron Cash `alpha13` under the pinned `4.4.3` profile | Live pilot |
-| Mosaic | `.mosaic(configuration)` | `Mosaic/1-draft.1` or chipnet-only `Mosaic/0-opal.1` | Deterministic conformance foundation with bounded internal relay/runtime adapters; no live session |
+| Mosaic | `.mosaic(configuration)` | `Mosaic/1-draft.1`, chipnet-only `Mosaic/0-opal.1`, or contract-only `Mosaic/0-opal-mainnet-alpha.1` | Deterministic foundations with bounded internal adapters; only Opal v0 reaches the internal runtime driver; no live session |
 
 An engine identity names protocol semantics, not network topology. Public mode cases therefore MUST use `.cashFusion` and `.mosaic`; `.server` and `.peerToPeer` are not engine identifiers.
 
@@ -63,7 +64,7 @@ let session = OpalFusion.Session(
 
 The current scaffold publishes the mode and configuration vocabulary but does not publish a runnable protocol-neutral initializer. Until that facade is implemented, `OpalFusion.Client.Session` remains the only live CashFusion session API.
 
-`OpalFusion.CashFusion.Configuration` currently aggregates coordinator connection, optional genesis hash, join-pool, and reconnect values already consumed by the live CashFusion client. `OpalFusion.Mosaic.Configuration` selects one authoritative `.draft1` or `.opalV0` profile and derives its protocol, roster, and transport contracts; it is not a complete deployment configuration and cannot supply relays, anonymous transport, independently reviewed cryptography, or a runtime.
+`OpalFusion.CashFusion.Configuration` currently aggregates coordinator connection, optional genesis hash, join-pool, and reconnect values already consumed by the live CashFusion client. `OpalFusion.Mosaic.Configuration` selects one authoritative `.draft1`, `.opalV0`, or `.opalMainnetAlpha` profile and derives its protocol, roster, and transport contracts. It is not a complete deployment configuration and cannot supply relays, anonymous transport, independently reviewed cryptography, wallet execution, broadcast permission, or a public runtime.
 
 ### 5.1 Mode
 
@@ -193,6 +194,7 @@ CashFusion wire messages, timing, coordinator state, and compatibility fixtures 
 
 - `CashFusion alpha13-compatible` is an interoperability claim and requires the evidence in the CashFusion support statement.
 - `Mosaic draft` means the semantic design is under review and is not an interoperability, privacy, or production-readiness claim.
+- `Mosaic mainnet-alpha contract foundation` means only that the deterministic profile bytes and fail-closed validation boundaries in [`mosaic-mainnet-alpha-profile.md`](mosaic-mainnet-alpha-profile.md) are implemented; it is not a live-engine or mainnet-readiness claim.
 - `Mosaic/1` MUST NOT be published until canonical wire encoding, transport identifiers, test vectors, deterministic simulation, and independent security review gates are complete.
 - A change to a signed field, canonical encoding, domain separator, transaction construction rule, or required phase is a Mosaic protocol-version change.
 - Documentation and internal refactoring that preserve all observable protocol bytes do not require a protocol-version change.

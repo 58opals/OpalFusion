@@ -18,7 +18,7 @@ extension OpalFusion.Mosaic {
             runtimeSession: RuntimeSession,
             dependencies: Dependencies
         ) throws {
-            guard runtimeSession.configuration.profile == .opalV0 else {
+            guard runtimeSession.configuration.profile.supportsRuntimeSessionDriver else {
                 throw InitializationError.unsupportedProfile(
                     runtimeSession.configuration.profile
                 )

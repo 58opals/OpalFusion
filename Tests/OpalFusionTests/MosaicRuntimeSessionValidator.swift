@@ -1092,6 +1092,37 @@ struct MosaicRuntimeSessionValidator {
         }
     }
 
+    @Test("Reject legacy aggregate wallet-host markers on mainnet-alpha")
+    func rejectLegacyMainnetHostResult() throws {
+        var fixture = try makeFixture(profile: .opalMainnetAlpha)
+        let outcome = Attempt.Outcome.failed(
+            .aborted(
+                during: .manifestAgreement,
+                reason: .invalidAuthenticatedMessage
+            )
+        )
+
+        let effects = fixture.session.apply(
+            input: .hostResult(
+                .walletReservationsPrepared(
+                    attemptIdentifier: fixture.attemptIdentifier,
+                    generationIdentifier: fixture.generationIdentifier,
+                    contributors: fixture.roster.contributors
+                )
+            )
+        )
+
+        #expect(
+            effects == [
+                .hostResultRejected(
+                    .unsupportedLegacyHostResultProfile(.opalMainnetAlpha)
+                ),
+                .localAttempt(.attemptTerminated(outcome)),
+            ]
+        )
+        #expect(fixture.session.state == .terminal(outcome))
+    }
+
     @Test("Require a 32-byte authenticated message identifier")
     func requireMessageIdentifierWidth() {
         #expect(

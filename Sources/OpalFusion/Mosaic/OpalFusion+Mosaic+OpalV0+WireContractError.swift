@@ -2,6 +2,7 @@
 
 extension OpalFusion.Mosaic.OpalV0 {
     enum WireContractError: Error, Sendable, Equatable {
+        case unsupportedProfile(OpalFusion.Mosaic.Profile)
         case invalidSaltedComponentDigestLength(actual: Int)
         case invalidAmountCommitment
         case invalidCommunicationPublicKey

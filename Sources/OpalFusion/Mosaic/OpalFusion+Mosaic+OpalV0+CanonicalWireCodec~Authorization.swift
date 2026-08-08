@@ -71,12 +71,12 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
     }
 
     static func decodeAuthorizationToken(
-        from encodedBytes: [UInt8]
+        from encodedBytes: [UInt8],
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> OpalFusion.Mosaic.OpalV0.AuthorizationToken {
-        try OpalFusion.Mosaic.CanonicalDecoder.decode(
-            from: encodedBytes,
-            readingValueWith: readAuthorizationToken
-        )
+        try OpalFusion.Mosaic.CanonicalDecoder.decode(from: encodedBytes) { decoder in
+            try readAuthorizationToken(from: &decoder, profile: profile)
+        }
     }
 
     static func writeAuthorizationToken(
@@ -106,9 +106,11 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
     }
 
     static func readAuthorizationToken(
-        from decoder: inout OpalFusion.Mosaic.CanonicalDecoder
+        from decoder: inout OpalFusion.Mosaic.CanonicalDecoder,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> OpalFusion.Mosaic.OpalV0.AuthorizationToken {
         let input = try OpalFusion.Mosaic.OpalV0.AuthorizationTokenInput(
+            profile: profile,
             roundIdentifier: decoder.readFixedBytes(
                 byteCount: OpalFusion.Mosaic.OpalV0.digestByteCount
             ),

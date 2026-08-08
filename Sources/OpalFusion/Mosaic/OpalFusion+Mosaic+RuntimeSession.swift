@@ -56,6 +56,28 @@ extension OpalFusion.Mosaic {
                 return localize(localAttempt.apply(input: localInput))
 
             case let .hostResult(result):
+                guard configuration.profile == .opalV0 else {
+                    let failure = Failure.unsupportedLegacyHostResultProfile(
+                        configuration.profile
+                    )
+                    var effects: [Effect] = [.hostResultRejected(failure)]
+                    effects.append(
+                        contentsOf: localize(
+                            localAttempt.apply(
+                                input: .init(
+                                    attemptIdentifier:
+                                        localAttempt.attemptIdentifier,
+                                    generationIdentifier:
+                                        localAttempt.generationIdentifier,
+                                    attemptInput: .abort(
+                                        .invalidAuthenticatedMessage
+                                    )
+                                )
+                            )
+                        )
+                    )
+                    return effects
+                }
                 return localize(localAttempt.apply(input: result.localInput))
 
             case let .authenticated(message):

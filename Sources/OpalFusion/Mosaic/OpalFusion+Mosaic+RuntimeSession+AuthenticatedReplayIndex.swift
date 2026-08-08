@@ -23,7 +23,7 @@ extension OpalFusion.Mosaic.RuntimeSession {
                     ? .duplicate
                     : .conflict
             }
-            if profile == .opalV0 {
+            if profile.supportsExecutableCore {
                 let expectedSequence = greatestSequences[message.sender].map {
                     $0 + 1
                 } ?? 0

@@ -18,6 +18,7 @@ extension OpalFusion.Mosaic.RuntimeSession {
             during: OpalFusion.Mosaic.Attempt.Phase
         )
         case transcriptAcknowledgementPublisherIsNotConductor
+        case unsupportedLegacyHostResultProfile(OpalFusion.Mosaic.Profile)
         case invalidTranscriptAcknowledgementCount(expected: Int, actual: Int)
         case invalidTranscriptAcknowledgement(
             OpalFusion.Mosaic.Attempt.TranscriptAcknowledgementValidation.ValidationError

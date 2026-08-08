@@ -24,6 +24,25 @@ struct MosaicRuntimeSessionDriverValidator {
         }
     }
 
+    @Test("Keep mainnet-alpha runtime driving fail closed until admission is complete")
+    func rejectMainnetAlphaProfile() throws {
+        let source = MosaicRuntimeSessionDriverInputProbe()
+        let sink = MosaicRuntimeSessionDriverOutputProbe()
+
+        #expect(
+            throws: Driver.InitializationError.unsupportedProfile(
+                .opalMainnetAlpha
+            )
+        ) {
+            _ = try Driver(
+                runtimeSession: MosaicRuntimeSessionDriverFixture.makeSession(
+                    profile: .opalMainnetAlpha
+                ),
+                dependencies: dependencies(source: source, sink: sink)
+            )
+        }
+    }
+
     @Test("Reject an already-terminal session before opening an input source")
     func rejectTerminalSession() throws {
         let source = MosaicRuntimeSessionDriverInputProbe()

@@ -16,13 +16,14 @@ extension OpalFusion.Mosaic.OpalV0 {
     }
 
     static func aggregateDigest(
+        profile: OpalFusion.Mosaic.Profile = .opalV0,
         domainSuffix: String,
         canonicalBytes: [UInt8]
     ) -> [UInt8] {
         [UInt8](
             OpalCrypto.Hashing.sha256(
                 Data(
-                    "\(OpalFusion.Mosaic.Profile.opalV0.rawValue)/\(domainSuffix)".utf8
+                    "\(profile.rawValue)/\(domainSuffix)".utf8
                 )
                     + Data(canonicalBytes)
             )

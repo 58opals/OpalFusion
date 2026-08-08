@@ -18,14 +18,18 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
     }
 
     static func decodeAnonymousComponent(
-        from encodedBytes: [UInt8]
+        from encodedBytes: [UInt8],
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> OpalFusion.Mosaic.OpalV0.AnonymousComponentPayload {
         try OpalFusion.Mosaic.CanonicalDecoder.decode(from: encodedBytes) { decoder in
             try .init(
                 roundIdentifier: decoder.readFixedBytes(
                     byteCount: OpalFusion.Mosaic.OpalV0.digestByteCount
                 ),
-                authorizationToken: readAuthorizationToken(from: &decoder),
+                authorizationToken: readAuthorizationToken(
+                    from: &decoder,
+                    profile: profile
+                ),
                 component: readComponent(from: &decoder)
             )
         }

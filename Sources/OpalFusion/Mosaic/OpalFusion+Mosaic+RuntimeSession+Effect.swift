@@ -5,5 +5,6 @@ extension OpalFusion.Mosaic.RuntimeSession {
         case localAttempt(OpalFusion.Mosaic.LocalAttempt.Effect)
         case exactDuplicateIgnored
         case authenticatedInputRejected(Failure)
+        case hostResultRejected(Failure)
     }
 }

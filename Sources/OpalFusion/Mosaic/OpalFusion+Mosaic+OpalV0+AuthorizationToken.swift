@@ -6,11 +6,13 @@ import OpalCrypto
 extension OpalFusion.Mosaic.OpalV0 {
     struct AuthorizationTokenInput: Sendable, Equatable {
         enum ValidationError: Error, Sendable, Equatable {
+            case unsupportedProfile(OpalFusion.Mosaic.Profile)
             case invalidRoundIdentifierLength(actual: Int)
             case invalidKeyIdentifierLength(actual: Int)
             case invalidNonceLength(actual: Int)
         }
 
+        let profile: OpalFusion.Mosaic.Profile
         let roundIdentifier: [UInt8]
         let keyIdentifier: [UInt8]
         let nonce: [UInt8]
@@ -18,10 +20,15 @@ extension OpalFusion.Mosaic.OpalV0 {
         let spentIdentifier: [UInt8]
 
         init(
+            profile: OpalFusion.Mosaic.Profile = .opalV0,
             roundIdentifier: [UInt8],
             keyIdentifier: [UInt8],
             nonce: [UInt8]
         ) throws {
+            guard profile.supportsExecutableCore,
+                  let networkGenesisHash = profile.networkGenesisHash else {
+                throw ValidationError.unsupportedProfile(profile)
+            }
             guard roundIdentifier.count == 32 else {
                 throw ValidationError.invalidRoundIdentifierLength(
                     actual: roundIdentifier.count
@@ -36,20 +43,21 @@ extension OpalFusion.Mosaic.OpalV0 {
                 throw ValidationError.invalidNonceLength(actual: nonce.count)
             }
             var encoder = OpalFusion.Mosaic.CanonicalEncoder()
-            try encoder.writeText("Mosaic/0-opal.1/component-authorization/input")
-            try encoder.writeBytes(OpalFusion.Mosaic.OpalV0.chipnetGenesisHash)
+            try encoder.writeText("\(profile.rawValue)/component-authorization/input")
+            try encoder.writeBytes(networkGenesisHash)
             try encoder.writeBytes(roundIdentifier)
             try encoder.writeBytes(keyIdentifier)
             try encoder.writeBytes(nonce)
             let canonicalBytes = encoder.encodedBytes
 
+            self.profile = profile
             self.roundIdentifier = Array(roundIdentifier)
             self.keyIdentifier = Array(keyIdentifier)
             self.nonce = Array(nonce)
             self.canonicalBytes = canonicalBytes
             self.spentIdentifier = [UInt8](
                 OpalCrypto.Hashing.sha256(
-                    Data("Mosaic/0-opal.1/component-authorization/spent".utf8)
+                    Data("\(profile.rawValue)/component-authorization/spent".utf8)
                         + Data(canonicalBytes)
                 )
             )

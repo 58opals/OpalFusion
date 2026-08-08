@@ -114,6 +114,7 @@ extension OpalFusion.Mosaic.OpalV0 {
             }
 
             let recomputedDigest = OpalFusion.Mosaic.OpalV0.aggregateDigest(
+                profile: .opalV0,
                 domainSuffix: descriptor.aggregateKind.digestDomainSuffix,
                 canonicalBytes: canonicalBytes
             )

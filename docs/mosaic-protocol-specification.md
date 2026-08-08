@@ -14,11 +14,12 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**, 
 
 - The only identifier defined by this document is `Mosaic/1-draft.1`.
 - [`Mosaic/0-opal.1`](mosaic-v0-profile.md) is a separate Opal-owned chipnet conformance profile that resolves only the deterministic contracts documented there; it does not rename or complete this draft.
+- [`Mosaic/0-opal-mainnet-alpha.1`](mosaic-mainnet-alpha-profile.md) is a separate additive contract profile. Its mainnet genesis and transaction rules are frozen for deterministic implementation work, but its runtime driver, live transport, wallet execution, and broadcast remain fail closed.
 - The checked-in `Mosaic/0-opal.1` implementation constructs and binds the deterministic unsigned transaction and fails closed unless a contributor-local validation token is sealed to the exact attempt material and transcript. It does not yet implement the profile-owned commitment-opening/component-linkage validator that may produce that token in production.
 - Implementations MUST reject unknown Mosaic protocol identifiers.
 - Implementations MUST NOT advertise this draft as `Mosaic/1`, CashFusion v2, audited, production-ready, or privacy-equivalent to CashFusion.
 - CashFusion wire compatibility is not a Mosaic goal. Reused cryptographic ideas do not make the protocols wire-compatible.
-- Mainnet execution remains prohibited until the release gates in Section 18 are complete.
+- Mainnet execution remains prohibited until the release gates in Section 18 and the remaining gates in the selected profile are complete.
 
 ## 3. Goals
 

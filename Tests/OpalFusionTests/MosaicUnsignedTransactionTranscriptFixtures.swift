@@ -21,10 +21,12 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
         componentSaltOffset: Int = 0
     ) throws -> Prepared {
         let commitmentSet = try makeCommitmentSet(
-            contributorCount: roster.contributors.count
+            contributorCount: roster.contributors.count,
+            profile: profile
         )
         let componentSet = try makeBalancedComponentSet(
             contributorCount: roster.contributors.count,
+            profile: profile,
             saltOffset: componentSaltOffset
         )
         let commitmentValidation = try Attempt.CommitmentSetValidation(
@@ -33,6 +35,7 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
             commitmentSet: commitmentSet
         )
         let transcript = try OpalV0.UnsignedTransactionTranscript(
+            profile: profile,
             roster: roster,
             manifest: manifest,
             commitmentSet: commitmentValidation,
@@ -47,11 +50,13 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
     }
 
     static func makeCommitmentSet(
-        contributorCount: Int
+        contributorCount: Int,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> OpalV0.CommitmentSet {
         let memberCount = contributorCount
             * OpalV0.componentAuthorizationCountPerContributor
         return try .init(
+            profile: profile,
             commitments: (0 ..< memberCount).map {
                 try MosaicOpalV0WireContractValidator.makeCommitment(index: $0)
             }
@@ -60,6 +65,7 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
 
     static func makeBalancedComponentSet(
         contributorCount: Int,
+        profile: OpalFusion.Mosaic.Profile = .opalV0,
         saltOffset: Int = 0
     ) throws -> OpalV0.ComponentSet {
         let memberCount = contributorCount
@@ -96,7 +102,7 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
                 )
             }
         )
-        return try .init(components: components)
+        return try .init(profile: profile, components: components)
     }
 
     static func indexedDigest(_ index: Int) -> [UInt8] {

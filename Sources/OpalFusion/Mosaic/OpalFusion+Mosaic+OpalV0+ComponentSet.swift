@@ -9,11 +9,18 @@ extension OpalFusion.Mosaic.OpalV0 {
             let outputIndex: UInt32
         }
 
+        let profile: OpalFusion.Mosaic.Profile
         let components: [Component]
         let canonicalBytes: [UInt8]
         let digest: [UInt8]
 
-        init(components: [Component]) throws {
+        init(
+            profile: OpalFusion.Mosaic.Profile = .opalV0,
+            components: [Component]
+        ) throws {
+            guard profile.supportsExecutableCore else {
+                throw WireContractError.unsupportedProfile(profile)
+            }
             guard OpalFusion.Mosaic.OpalV0.isValidAggregateMemberCount(
                 components.count
             ) else {
@@ -67,9 +74,11 @@ extension OpalFusion.Mosaic.OpalV0 {
             }
             let canonicalBytes = encoder.encodedBytes
 
+            self.profile = profile
             self.components = sortedComponents
             self.canonicalBytes = canonicalBytes
             self.digest = OpalFusion.Mosaic.OpalV0.aggregateDigest(
+                profile: profile,
                 domainSuffix: "component-set",
                 canonicalBytes: canonicalBytes
             )

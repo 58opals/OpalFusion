@@ -2,11 +2,18 @@
 
 extension OpalFusion.Mosaic.OpalV0 {
     struct CommitmentSet: Sendable, Equatable {
+        let profile: OpalFusion.Mosaic.Profile
         let commitments: [ComponentCommitment]
         let canonicalBytes: [UInt8]
         let digest: [UInt8]
 
-        init(commitments: [ComponentCommitment]) throws {
+        init(
+            profile: OpalFusion.Mosaic.Profile = .opalV0,
+            commitments: [ComponentCommitment]
+        ) throws {
+            guard profile.supportsExecutableCore else {
+                throw WireContractError.unsupportedProfile(profile)
+            }
             guard OpalFusion.Mosaic.OpalV0.isValidAggregateMemberCount(
                 commitments.count
             ) else {
@@ -42,9 +49,11 @@ extension OpalFusion.Mosaic.OpalV0 {
             }
             let canonicalBytes = encoder.encodedBytes
 
+            self.profile = profile
             self.commitments = sortedCommitments
             self.canonicalBytes = canonicalBytes
             self.digest = OpalFusion.Mosaic.OpalV0.aggregateDigest(
+                profile: profile,
                 domainSuffix: "commitment-set",
                 canonicalBytes: canonicalBytes
             )

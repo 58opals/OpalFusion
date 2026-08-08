@@ -67,7 +67,8 @@ enum MosaicRuntimeSessionDriverFixture {
         let transactionPreparation = try
             MosaicUnsignedTransactionTranscriptFixtures.prepare(
                 roster: election.result.roster,
-                manifest: manifest
+                manifest: manifest,
+                profile: profile == .draft1 ? .opalV0 : profile
             )
         let fixture = MosaicRuntimeSessionFixture(
             session: runtimeSession,

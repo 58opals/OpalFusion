@@ -8,5 +8,8 @@ public extension OpalFusion.Mosaic {
 
         /// The Opal-owned nonmainnet conformance profile.
         case opalV0 = "Mosaic/0-opal.1"
+
+        /// The additive Opal-owned mainnet-alpha protocol identity.
+        case opalMainnetAlpha = "Mosaic/0-opal-mainnet-alpha.1"
     }
 }

@@ -186,6 +186,7 @@ extension OpalFusion.Mosaic {
                 let transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
                 do {
                     transcript = try .init(
+                        profile: configuration.profile,
                         roster: roster,
                         manifest: manifest,
                         commitmentSet: commitmentSet,

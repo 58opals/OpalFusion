@@ -5,6 +5,10 @@ extension OpalFusion.Mosaic.Attempt {
     struct CommitmentSetValidation: Sendable, Equatable {
         enum ValidationError: Error, Sendable, Equatable {
             case unsupportedProfile(OpalFusion.Mosaic.Profile)
+            case profileMismatch(
+                expected: OpalFusion.Mosaic.Profile,
+                actual: OpalFusion.Mosaic.Profile
+            )
             case invalidMemberCount(expected: Int, actual: Int)
         }
 
@@ -20,8 +24,14 @@ extension OpalFusion.Mosaic.Attempt {
             roster: Roster,
             commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet
         ) throws(ValidationError) {
-            guard profile == .opalV0 else {
+            guard profile.supportsExecutableCore else {
                 throw .unsupportedProfile(profile)
+            }
+            guard commitmentSet.profile == profile else {
+                throw .profileMismatch(
+                    expected: profile,
+                    actual: commitmentSet.profile
+                )
             }
 
             let contributorCount = roster.contributors.count

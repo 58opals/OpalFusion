@@ -7,6 +7,9 @@ extension OpalFusion.Mosaic.OpalV0 {
     /// reservation ownership, and wallet policy remain host responsibilities.
     struct UnsignedTransactionTranscript: Sendable, Equatable {
         enum ValidationError: Error, Sendable, Equatable {
+            case unsupportedProfile(OpalFusion.Mosaic.Profile)
+            case commitmentSetProfileMismatch
+            case componentSetProfileMismatch
             case contributorRosterMismatch
             case invalidComponentCount(expected: Int, actual: Int)
             case missingInput
@@ -20,6 +23,7 @@ extension OpalFusion.Mosaic.OpalV0 {
             case feeMismatch(expected: UInt64, actual: UInt64)
         }
 
+        let profile: OpalFusion.Mosaic.Profile
         let contributors: [OpalFusion.Mosaic.Attempt.ControlIdentity]
         let manifest: OpalFusion.Mosaic.Attempt.ManifestBinding
         let commitmentSet: CommitmentSet
@@ -32,11 +36,21 @@ extension OpalFusion.Mosaic.OpalV0 {
         let transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot
 
         init(
+            profile: OpalFusion.Mosaic.Profile = .opalV0,
             roster: OpalFusion.Mosaic.Attempt.Roster,
             manifest: OpalFusion.Mosaic.Attempt.ManifestBinding,
             commitmentSet: OpalFusion.Mosaic.Attempt.CommitmentSetValidation,
             componentSet: ComponentSet
         ) throws(ValidationError) {
+            guard profile.supportsExecutableCore else {
+                throw .unsupportedProfile(profile)
+            }
+            guard commitmentSet.commitmentSet.profile == profile else {
+                throw .commitmentSetProfileMismatch
+            }
+            guard componentSet.profile == profile else {
+                throw .componentSetProfileMismatch
+            }
             let contributorCount = roster.contributors.count
             guard commitmentSet.contributors == roster.contributors else {
                 throw .contributorRosterMismatch
@@ -165,14 +179,14 @@ extension OpalFusion.Mosaic.OpalV0 {
             let transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot
             do {
                 let root = try OpalFusion.Host.MosaicTranscriptBinding.transcriptRoot(
-                    profile: .opalV0,
+                    profile: profile,
                     manifestDigest: manifest.manifestDigest,
                     commitmentSetDigest: commitmentSet.digest,
                     componentSetDigest: componentSet.digest,
                     unsignedTransactionBytes: unsignedTransactionBytes
                 )
                 transcriptBinding = try .init(
-                    profile: .opalV0,
+                    profile: profile,
                     manifestDigest: manifest.manifestDigest,
                     commitmentSetDigest: commitmentSet.digest,
                     componentSetDigest: componentSet.digest,
@@ -186,6 +200,7 @@ extension OpalFusion.Mosaic.OpalV0 {
                 )
             }
 
+            self.profile = profile
             self.contributors = roster.contributors
             self.manifest = manifest
             self.commitmentSet = commitmentSet.commitmentSet
