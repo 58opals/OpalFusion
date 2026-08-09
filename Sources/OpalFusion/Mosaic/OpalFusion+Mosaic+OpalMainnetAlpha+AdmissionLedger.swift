@@ -97,6 +97,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        mutating func terminateForRuntimeSessionBridgeMismatch() -> [Effect] {
+            guard case .active = state else {
+                return [.inputRejected(.inputAfterTermination)]
+            }
+            return terminate(with: .failed(.runtimeSessionBridgeMismatch))
+        }
+
         func phaseTransitionRequest(
             to nextContext: PhaseContext
         ) -> PhaseTransitionRequest? {
@@ -109,6 +116,32 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 from: currentContext,
                 to: nextContext
             )
+        }
+
+        /// Returns a transition request only after every locally observable admission
+        /// prerequisite for the immediate successor is present.
+        ///
+        /// This is a non-authorizing readiness query. The owning reducer must still validate
+        /// the returned request and seal a `PhaseTransitionValidation` before synchronization.
+        func phaseTransitionRequestIfReady(
+            to nextContext: PhaseContext
+        ) -> PhaseTransitionRequest? {
+            guard case let .active(currentContext) = state else {
+                return nil
+            }
+            let request = PhaseTransitionRequest(
+                attemptIdentifier: attemptIdentifier,
+                generationIdentifier: generationIdentifier,
+                from: currentContext,
+                to: nextContext
+            )
+            guard phaseTransitionFailure(
+                for: request,
+                from: currentContext
+            ) == nil else {
+                return nil
+            }
+            return request
         }
 
         /// Synchronizes one transition that an owning reducer or local host path validated.
@@ -125,36 +158,42 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard request.generationIdentifier == generationIdentifier else {
                 return [.inputRejected(.generationIdentifierMismatch)]
             }
+            if let failure = phaseTransitionFailure(
+                for: request,
+                from: currentContext
+            ) {
+                return terminate(with: .failed(failure))
+            }
+            state = .active(request.to)
+            return [.phaseAdvanced(request.to)]
+        }
+
+        private func phaseTransitionFailure(
+            for request: PhaseTransitionRequest,
+            from currentContext: PhaseContext
+        ) -> Failure? {
             guard request.from == currentContext else {
-                return terminate(
-                    with: .failed(.phaseTransitionValidationMismatch)
-                )
+                return .phaseTransitionValidationMismatch
             }
             guard activeAggregates.isEmpty else {
-                return terminate(
-                    with: .failed(.activeAggregateRunPreventsPhaseAdvance)
-                )
+                return .activeAggregateRunPreventsPhaseAdvance
             }
             let currentPhase = currentContext.phase
             let nextContext = request.to
             let nextPhase = nextContext.phase
             guard nextPhase.rawValue == currentPhase.rawValue + 1 else {
-                return terminate(
-                    with: .failed(
-                        .invalidPhaseTransition(from: currentPhase, to: nextPhase)
-                    )
+                return .invalidPhaseTransition(
+                    from: currentPhase,
+                    to: nextPhase
                 )
             }
             guard nextPhase != .bchSigning else {
-                return terminate(with: .failed(.bchSigningAdmissionUnavailable))
+                return .bchSigningAdmissionUnavailable
             }
             guard phaseAdvancePrerequisiteIsSatisfied(nextContext) else {
-                return terminate(
-                    with: .failed(.phaseAdvancePrerequisiteMissing(nextPhase))
-                )
+                return .phaseAdvancePrerequisiteMissing(nextPhase)
             }
-            state = .active(nextContext)
-            return [.phaseAdvanced(nextContext)]
+            return nil
         }
 
         mutating func receiveAnonymousComponent<Validator>(

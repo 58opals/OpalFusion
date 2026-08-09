@@ -109,6 +109,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case preSignAcknowledgementSetDoesNotMatchCollection
         case bchSigningAdmissionUnavailable
         case unsupportedAnonymousBCHSignature
+        case runtimeSessionBridgeMismatch
         case inPlaceRetryNotPermitted
         case inputAfterTermination
     }

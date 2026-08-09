@@ -88,6 +88,28 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         )
     }
 
+    static func makeValidatedAttempt(
+        election: MosaicRoleElectionFixtures.Election
+    ) -> Attempt {
+        var attempt = Attempt(
+            configuration: .init(profile: .opalMainnetAlpha)
+        )
+        _ = attempt.apply(
+            input: .discoveryCompleted(
+                candidateCount: election.controlRoster.candidateCount
+            )
+        )
+        _ = attempt.apply(input: .candidateSetAgreementValidated)
+        _ = attempt.apply(
+            input: .controlRosterValidated(election.controlRoster)
+        )
+        _ = attempt.apply(
+            input: .roleCommitmentsReceived(election.commitments)
+        )
+        _ = attempt.apply(input: .roleElectionValidated(election.validation))
+        return attempt
+    }
+
     static func aggregateRun(
         canonicalBytes: [UInt8],
         kind: Alpha.AggregateKind,
