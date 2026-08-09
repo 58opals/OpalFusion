@@ -29,13 +29,13 @@ struct MosaicMainnetAlphaContractValidator {
         let profile = OpalFusion.Mosaic.Profile.opalMainnetAlpha
         let configuration = OpalFusion.Mosaic.Configuration(profile: profile)
 
-        #expect(profile.rawValue == "Mosaic/0-opal-mainnet-alpha.2")
+        #expect(profile.rawValue == "Mosaic/0-opal-mainnet-alpha.3")
         #expect(profile.protocolVersion == .opalMainnetAlpha)
         #expect(profile.transportProfile == .nostrTorOpalMainnetAlpha)
         #expect(profile.rosterPolicy == .opalMainnetAlpha)
         #expect(
             profile.transactionProfileIdentifier
-                == "bch-mainnet-p2pkh-schnorr/0-opal-mainnet-alpha.2"
+                == "bch-mainnet-p2pkh-schnorr/0-opal-mainnet-alpha.3"
         )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
@@ -55,12 +55,12 @@ struct MosaicMainnetAlphaContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 election.commitments[0].commitment
-            ) == "0a659aa11484d98ebd1f55f9f00801368f704ab9eefd41f0a7c5b79b38ef5e3b"
+            ) == "be0d827bc29c22b6ce32ae72d1c0a2cff1865a10bee33ad9db66bf095c784e4b"
         )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 election.validation.roleSeed
-            ) == "c63fbc68ac2cc58c99f162a01ab014f67dea9c11a6a5341fa08db552153825f9"
+            ) == "dc588c2de25862e0bf254b6f1da1c4a071ed6dc202000025ffe1a9b6357ea361"
         )
         #expect(election.result.profile == .opalMainnetAlpha)
         #expect(election.result.roster.candidateCount == 7)
@@ -111,12 +111,12 @@ struct MosaicMainnetAlphaContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 manifest.core.roundIdentifier
-            ) == "f942471d6fda5924e493fc07163588e67053d0c0488c4dde748ec36b1dd0d468"
+            ) == "5f335b91fdfb0cea5fc08fec35b722dadd06ec4ee0fa8517ef5c1c0ee13ea596"
         )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 manifest.binding.manifestDigest
-            ) == "8741512c775f6c75346d5c59674b44d073f9009c2644c827286286675adb0cb6"
+            ) == "08c0379ee747d4ce8a86b6b98b7474c6128e6811a1269e1ba609833c8a6b4a2d"
         )
         #expect(manifest.binding.roundIdentifier == manifest.core.roundIdentifier)
         #expect(manifest.binding.manifestDigest.count == 32)
@@ -175,22 +175,41 @@ struct MosaicMainnetAlphaContractValidator {
     @Test("Round-trip PlayerCommit and enforce exact slot correspondence")
     func roundTripPlayerCommit() throws {
         let election = try MosaicMainnetAlphaFixtures.makeElection()
+        let manifest = try MosaicMainnetAlphaFixtures.makeManifest(
+            election: election,
+            verificationKey: MosaicMainnetAlphaFixtures.rsaVerificationKey()
+        )
         let playerCommit = try Alpha.PlayerCommit(
-            roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
+            roundIdentifier: manifest.core.roundIdentifier,
             contributor: election.result.roster.contributors[0],
             groupedCommitment: MosaicOpalV0WireContractValidator
-                .makeGroupedCommitment(),
+                .makeMainnetGroupedCommitment(),
             authorizationRequests: MosaicMainnetAlphaFixtures
                 .makeAuthorizationRequests()
         )
         let decoded = try Codec.decodePlayerCommit(
             from: Codec.encodePlayerCommit(playerCommit)
         )
+        let semanticValidation = try Alpha.PlayerCommitSemanticValidation(
+            validating: playerCommit,
+            against: manifest
+        )
         #expect(decoded == playerCommit)
+        #expect(semanticValidation.requiredExcessFeeSatoshis == 2)
+        #expect(playerCommit.canonicalBytes.count == 9_013)
+        #expect(
+            MosaicOpalV0WireContractValidator.hexadecimal(
+                [UInt8](
+                    OpalCrypto.Hashing.sha256(
+                        Data(playerCommit.canonicalBytes)
+                    )
+                )
+            ) == "6ee9a6a951e134bf2a28f010883b8825ca4b46904991622a077f62fdc6efea4e"
+        )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 playerCommit.digest
-            ) == "ca9602bb99cacf7617c45ec788eab7cea20be588df22b83be0342f3ea3bff891"
+            ) == "149f4a8f8cc0506ebbb746d19b968a1dfbf803607f181c0bd148e0071a7f3531"
         )
 
         var requests = try MosaicMainnetAlphaFixtures.makeAuthorizationRequests()
@@ -200,10 +219,10 @@ struct MosaicMainnetAlphaContractValidator {
             actual: 1
         )) {
             _ = try Alpha.PlayerCommit(
-                roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
+                roundIdentifier: manifest.core.roundIdentifier,
                 contributor: election.result.roster.contributors[0],
                 groupedCommitment: MosaicOpalV0WireContractValidator
-                    .makeGroupedCommitment(),
+                    .makeMainnetGroupedCommitment(),
                 authorizationRequests: requests
             )
         }
@@ -323,7 +342,7 @@ struct MosaicMainnetAlphaContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 envelope.messageDigest
-            ) == "36c11ac8a578359bcffddc70721bf7a81d94b3c0019a2e96b6959759d3526870"
+            ) == "d962da4dbebb09570c263d984520484ac2121d3446f1d47bea860335d4e5af6d"
         )
         let encodedEnvelopeDigest = MosaicOpalV0WireContractValidator
             .hexadecimal(
@@ -333,7 +352,7 @@ struct MosaicMainnetAlphaContractValidator {
             )
         #expect(
             encodedEnvelopeDigest
-                == "d0a61533355a6b345f7bcf10df6dff0e302c2a889e5d4176b563147dd3922eb7"
+                == "9b0afd3b0b2374545c81e8daf4764b2cd4515d7b2208b1dceae089c68c3ae1c2"
         )
         #expect(throws: Alpha.ContractError.outerEventIdentityMismatch) {
             try envelope.validateOuterEventIdentity(
@@ -371,7 +390,7 @@ struct MosaicMainnetAlphaContractValidator {
             )
         #expect(
             encodedEnvelopeDigest
-                == "2ad4e9e4ea5ac857d4f4414ffd333c6308ef9191164c6fe8150f2dc5221dd88a"
+                == "cee3313aafb770dfafc574e608afaf0db7608e2cf654cd578411b02b9a7e7f41"
         )
         try envelope.validateOuterEventIdentity(
             Array(communicationKey.dropFirst())
@@ -421,7 +440,7 @@ struct MosaicMainnetAlphaContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 signatureSet.digest
-            ) == "1688cfcaf4fdf398cc222f21e01bf3833f9bcc724d26ca7ec02f89e633b7e194"
+            ) == "6b0fb620c8f1cc8ac4b16d3a1d4cd9249eeb9098d8e9c001cf90548786091273"
         )
         #expect(signatureSet.entries.map(\.inputIndex) == [0])
         #expect(throws: Alpha.ContractError.invalidSignatureSetCount(
@@ -482,7 +501,7 @@ struct MosaicMainnetAlphaContractValidator {
             roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
             contributor: contributor,
             groupedCommitment: MosaicOpalV0WireContractValidator
-                .makeGroupedCommitment(),
+                .makeMainnetGroupedCommitment(),
             authorizationRequests: MosaicMainnetAlphaFixtures
                 .makeAuthorizationRequests()
         )
@@ -743,7 +762,7 @@ struct MosaicMainnetAlphaContractValidator {
             keyIdentifier: [UInt8](repeating: 0x81, count: 32),
             nonce: [UInt8](repeating: 0x82, count: 32)
         )
-        let expectedTokenInput = "0000003b4d6f736169632f302d6f70616c2d6d61696e6e65742d616c7068612e322f636f6d706f6e656e742d617574686f72697a6174696f6e2f696e70757400000020000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f000000207171717171717171717171717171717171717171717171717171717171717171000000208181818181818181818181818181818181818181818181818181818181818181000000208282828282828282828282828282828282828282828282828282828282828282"
+        let expectedTokenInput = "0000003b4d6f736169632f302d6f70616c2d6d61696e6e65742d616c7068612e332f636f6d706f6e656e742d617574686f72697a6174696f6e2f696e70757400000020000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f000000207171717171717171717171717171717171717171717171717171717171717171000000208181818181818181818181818181818181818181818181818181818181818181000000208282828282828282828282828282828282828282828282828282828282828282"
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 tokenInput.canonicalBytes
@@ -752,7 +771,7 @@ struct MosaicMainnetAlphaContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 tokenInput.spentIdentifier
-            ) == "6e624d947fc4631022132bf79f6d4b4fe80173e89de11a447428aab46ba2debf"
+            ) == "2346d2b72deba0f540dd8bef220c5a40e61552a240beda0d68885420e8d41b10"
         )
         let opalV0Input = try OpalFusion.Mosaic.OpalV0.AuthorizationTokenInput(
             roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
@@ -775,17 +794,17 @@ struct MosaicMainnetAlphaContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 preparation.commitmentSet.digest
-            ) == "fc59d1190cebd7aef3b08c60666244c4b5dd871ffe7a0af26575876bd0fd2f85"
+            ) == "7f7b1f2f4255bad7367fbc10435cf83387d6c007c37579e534792f1b509fca4a"
         )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 preparation.componentSet.digest
-            ) == "bc85640e5c56b8f5013264c8cf77af9bec6186e6d9582041cb935370a6ea59dc"
+            ) == "aa5cc51133b54ac1b145b921ff171c040c6f2d30ddc5f7363ac4fc74d3c84db8"
         )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 preparation.transcript.transcriptRoot.validatedBytes
-            ) == "07f68d2131f81fa60def9f6046e070bd258e1c1b118f9193e25737424a51203e"
+            ) == "1ed456adbfb9af6b2039c53dd75a3d9d94fcc4640097bb446d2315a1dc25c022"
         )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
@@ -878,7 +897,7 @@ struct MosaicMainnetAlphaContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 payload.digest
-            ) == "3b88af516ef8cdfca134b6148aa7019507ff312d4d68f9b063af05a24c338f5f"
+            ) == "51a24184b02433ffde0a78645612354dae7ce0f3ed894fdafc7b872b03be1039"
         )
         let publicationContext = try Alpha.AggregatePublicationContext(
             roundIdentifier: manifest.binding.roundIdentifier,

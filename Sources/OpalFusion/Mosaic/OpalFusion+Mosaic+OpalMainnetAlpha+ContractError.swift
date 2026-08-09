@@ -27,6 +27,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         case poolIdentifierMismatch
         case invalidAuthorizationRequestCount(actual: Int)
         case invalidAuthorizationRequestSlot(expected: Int, actual: Int)
+        case groupedCommitmentProfileMismatch(OpalFusion.Mosaic.Profile)
         case invalidAuthorizationResponseCount(actual: Int)
         case invalidAuthorizationResponseSlot(expected: Int, actual: Int)
         case invalidPreSignAcknowledgementCount(expected: Int, actual: Int)

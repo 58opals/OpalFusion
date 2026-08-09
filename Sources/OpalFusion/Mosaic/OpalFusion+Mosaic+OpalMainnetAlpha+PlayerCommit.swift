@@ -38,6 +38,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             } catch {
                 throw ContractError.invalidControlIdentity
             }
+            guard groupedCommitment.profile == .opalMainnetAlpha else {
+                throw ContractError.groupedCommitmentProfileMismatch(
+                    groupedCommitment.profile
+                )
+            }
             guard authorizationRequests.count
                 == OpalFusion.Mosaic.OpalMainnetAlpha
                     .componentCountPerContributor else {

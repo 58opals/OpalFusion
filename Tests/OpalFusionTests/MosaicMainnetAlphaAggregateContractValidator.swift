@@ -32,7 +32,7 @@ struct MosaicMainnetAlphaAggregateContractValidator {
         #expect(try Codec.decodeAuthorizationResponseSet(from: encoded) == responseSet)
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(responseSet.digest)
-                == "d6c9888b23c2ee72d46e48ecd43a2cc4215c373a9a4183db914e6042cf53dbd7"
+            == "40a4b22911edf2bc743d3cb8f1f5d0dcfee99a75b18549a6efc5ab6bf5368c72"
         )
 
         let reservation = try Alpha.AggregateReservation(
@@ -46,7 +46,7 @@ struct MosaicMainnetAlphaAggregateContractValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 try Codec.encodeAggregateReservation(reservation)
-            ) == "03d6c9888b23c2ee72d46e48ecd43a2cc4215c373a9a4183db914e6042cf53dbd70000177b02"
+            ) == "0340a4b22911edf2bc743d3cb8f1f5d0dcfee99a75b18549a6efc5ab6bf5368c720000177b02"
         )
 
         #expect(throws: Alpha.ContractError.invalidAuthorizationResponseCount(
@@ -234,7 +234,7 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
             contributor: contributor,
             groupedCommitment: MosaicOpalV0WireContractValidator
-                .makeGroupedCommitment(),
+                .makeMainnetGroupedCommitment(),
             authorizationRequests: payloads
         )
         let invalidSet = try makeResponseSet(
@@ -334,9 +334,9 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             ) == acknowledgementSet
         )
         let expectedDigests = [
-            7: "649350ee0ee9d85580480554ec4efb5908693cd9d581fe1f5fc0a5cd03559e32",
-            8: "c3e49fe62c1b40f9eb23d2a8bca61e3ffc3e9ee5c8a0b23ec4ee0c30474a6107",
-            9: "e127d4b472a41e77a0a365c911cccbd500bb21c9f14b1a32df3e35bb5412e510",
+            7: "49d3c05f5de79fd954e0015e8ae404ee2674c9157ec6e5027c3b8399de4b7077",
+            8: "8e187b648e2acde72930c3b30f725014afeb5b8177c317c96fd107ff6b5ade6c",
+            9: "ff900c337c7ef07d47a6c23521e6e7e53bb702bd760bf29047c01061d8a2bb07",
         ]
         let expectedDigest = try #require(expectedDigests[candidateCount])
         #expect(
@@ -458,7 +458,7 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
             contributor: roster.contributors[0],
             groupedCommitment: MosaicOpalV0WireContractValidator
-                .makeGroupedCommitment(),
+                .makeMainnetGroupedCommitment(),
             authorizationRequests: MosaicMainnetAlphaFixtures
                 .makeAuthorizationRequests()
         )
@@ -552,10 +552,15 @@ struct MosaicMainnetAlphaAggregateContractValidator {
                 roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
                 contributor: contributor,
                 groupedCommitment: .init(
+                    profile: .opalMainnetAlpha,
                     commitments: Array(
                         commitmentSet.commitments[lower ..< upper]
                     ),
-                    excessFeeSatoshis: 0,
+                    excessFeeSatoshis: try Alpha.ContributionFeePolicy
+                        .requiredExcessFeeSatoshis(
+                            for: contributor,
+                            in: election.result.roster
+                        ),
                     pedersenTotalNonce:
                         [UInt8](repeating: 0, count: 31) + [UInt8(index + 1)]
                 ),

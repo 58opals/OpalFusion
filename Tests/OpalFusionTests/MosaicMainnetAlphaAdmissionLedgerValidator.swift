@@ -557,6 +557,95 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
     }
 
+    @Test("Reject PlayerCommit fee-share and Pedersen-balance violations")
+    func rejectInvalidPlayerCommitSemantics() throws {
+        var wrongShareHarness = try Fixture.makeHarness(localRole: .conductor)
+        _ = try admitManifestAndAdvanceWallet(harness: &wrongShareHarness)
+        let contributors = wrongShareHarness.election.result.roster.contributors
+            .sorted {
+                $0.validatedBytes.lexicographicallyPrecedes($1.validatedBytes)
+            }
+        let commitmentGroups = try MosaicUnsignedTransactionTranscriptFixtures
+            .makeMainnetCommitmentGroups(contributorCount: contributors.count)
+        let wrongShareGroup = commitmentGroups[4]
+        let wrongShareCommit = try Alpha.PlayerCommit(
+            roundIdentifier: wrongShareHarness.manifest.core.roundIdentifier,
+            contributor: contributors[0],
+            groupedCommitment: try .init(
+                profile: .opalMainnetAlpha,
+                commitments: wrongShareGroup.commitments,
+                excessFeeSatoshis: wrongShareGroup.excessFeeSatoshis,
+                pedersenTotalNonce: wrongShareGroup.pedersenTotalNonce
+            ),
+            authorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests()
+        )
+        let wrongShareRun = try Fixture.aggregateRun(
+            canonicalBytes: wrongShareCommit.canonicalBytes,
+            kind: .playerCommit,
+            sender: wrongShareCommit.contributor,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: wrongShareHarness
+        )
+        let wrongShareEffects = Fixture.admit(
+            wrongShareRun,
+            to: &wrongShareHarness.ledger
+        )
+        #expect(
+            wrongShareEffects.last == .attemptTerminated(
+                .failed(
+                    .playerCommitSemanticValidationFailed(
+                        .excessFeeMismatch(expected: 2, actual: 1)
+                    )
+                )
+            )
+        )
+        #expect(!wrongShareEffects.contains(.playerCommitAdmitted(wrongShareCommit)))
+
+        var wrongBalanceHarness = try Fixture.makeHarness(localRole: .conductor)
+        _ = try admitManifestAndAdvanceWallet(harness: &wrongBalanceHarness)
+        let exactGroup = commitmentGroups[0]
+        let wrongBalanceCommit = try Alpha.PlayerCommit(
+            roundIdentifier: wrongBalanceHarness.manifest.core.roundIdentifier,
+            contributor: contributors[0],
+            groupedCommitment: try .init(
+                profile: .opalMainnetAlpha,
+                commitments: exactGroup.commitments,
+                excessFeeSatoshis: exactGroup.excessFeeSatoshis,
+                pedersenTotalNonce: [UInt8](repeating: 0, count: 31) + [0x7F]
+            ),
+            authorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests()
+        )
+        let wrongBalanceRun = try Fixture.aggregateRun(
+            canonicalBytes: wrongBalanceCommit.canonicalBytes,
+            kind: .playerCommit,
+            sender: wrongBalanceCommit.contributor,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: wrongBalanceHarness
+        )
+        let wrongBalanceEffects = Fixture.admit(
+            wrongBalanceRun,
+            to: &wrongBalanceHarness.ledger
+        )
+        #expect(
+            wrongBalanceEffects.last == .attemptTerminated(
+                .failed(
+                    .playerCommitSemanticValidationFailed(
+                        .pedersenBalanceMismatch
+                    )
+                )
+            )
+        )
+        #expect(
+            !wrongBalanceEffects.contains(
+                .playerCommitAdmitted(wrongBalanceCommit)
+            )
+        )
+    }
+
     @Test(
         "Require one response set for every contributor",
         arguments: [7, 8, 9]
@@ -2022,14 +2111,20 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         let lowerBound = contributorIndex * Alpha.componentCountPerContributor
         let upperBound = lowerBound + Alpha.componentCountPerContributor
+        let commitmentGroup = try MosaicUnsignedTransactionTranscriptFixtures
+            .makeMainnetCommitmentGroups(
+                contributorCount: sortedContributors.count
+            )[contributorIndex]
+        try #require(
+            commitmentGroup.commitments
+                == Array(commitmentSet.commitments[lowerBound ..< upperBound])
+        )
         let groupedCommitment = try OpalFusion.Mosaic.OpalV0
             .GroupedCommitmentPayload(
-                commitments: Array(
-                    commitmentSet.commitments[lowerBound ..< upperBound]
-                ),
-                excessFeeSatoshis: 0,
-                pedersenTotalNonce:
-                    [UInt8](repeating: 0, count: 31) + [0xA5]
+                profile: .opalMainnetAlpha,
+                commitments: commitmentGroup.commitments,
+                excessFeeSatoshis: commitmentGroup.excessFeeSatoshis,
+                pedersenTotalNonce: commitmentGroup.pedersenTotalNonce
             )
         var requests: [OpalFusion.Mosaic.OpalV0.AuthorizationRequest] = []
         var requestPayloads: [

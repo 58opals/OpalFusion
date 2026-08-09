@@ -1,14 +1,16 @@
 # Mosaic Mainnet-Alpha Profile
 
-Status: Frozen deterministic contract profile. Profile identifier: `Mosaic/0-opal-mainnet-alpha.2`. Transport identifier: `nostr-tor/0-opal-mainnet-alpha.2`. Transaction profile identifier: `bch-mainnet-p2pkh-schnorr/0-opal-mainnet-alpha.2`.
+Status: Frozen deterministic contract profile. Profile identifier: `Mosaic/0-opal-mainnet-alpha.3`. Transport identifier: `nostr-tor/0-opal-mainnet-alpha.3`. Transaction profile identifier: `bch-mainnet-p2pkh-schnorr/0-opal-mainnet-alpha.3`.
 
 This profile freezes an additive mainnet-targeted canonical contract without enabling a runnable Mosaic session, a live transport, wallet execution, broadcast, or a production-support claim. An internal admission-only ledger seals admitted documents through transcript agreement to one attempt, generation, and round-scoped per-sender sequence epoch, but it has no conversion to runtime inputs, does not authorize phase transitions, and refuses BCH-signing or complete-transaction admission. The post-admission runtime driver deliberately rejects this profile until commitment linkage, previous-output authority, anonymous BCH-signature authorization, the runtime bridge, effect execution, recovery, and transport gates in Section 12 are complete. No test or package default may spend or broadcast mainnet funds.
 
 ## 1. Compatibility And Versioning
 
-`Mosaic/0-opal-mainnet-alpha.2` is distinct from the chipnet-only [`Mosaic/0-opal.1`](mosaic-v0-profile.md) conformance profile and from `Mosaic/1-draft.1`. It supersedes the contract-only `Mosaic/0-opal-mainnet-alpha.1` identifier because alpha.2 assigns aggregate kinds 3 and 5 and freezes the post-admission control-sequence epoch. Implementations MUST reject cross-profile bytes. Adding this profile MUST NOT change any `Mosaic/0-opal.1` default, domain, canonical byte, tag, event kind, digest, or golden vector.
+`Mosaic/0-opal-mainnet-alpha.3` is distinct from the chipnet-only [`Mosaic/0-opal.1`](mosaic-v0-profile.md) conformance profile and from `Mosaic/1-draft.1`. It supersedes alpha.2 because alpha.2's zero-excess rule omitted the fixed ten bytes of every supported BCH transaction and therefore could not satisfy its own exact one-satoshi-per-final-byte policy. Alpha.3 retains alpha.2's aggregate kinds 3 and 5 and post-admission control-sequence epoch while assigning that fixed overhead deterministically across contributors. Implementations MUST reject cross-profile bytes. Adding this profile MUST NOT change any `Mosaic/0-opal.1` default, domain, canonical byte, tag, event kind, digest, or golden vector.
 
 Any change to a field, field order, width, enum value, domain separator, transaction rule, or signature-authorization rule defined here requires a new profile identifier. Unresolved transport and cryptographic contracts listed in Section 12 are not implicitly defined by this identifier.
+
+Alpha.3 also extends the public Mosaic reservation and signing requests with `requiredExcessFeeSatoshis`, because the prior minimum/maximum range cannot identify one contributor's roster-derived share. The source-compatible legacy initializers remain available only for singleton ranges and fail closed for an ambiguous range; host integrations that used a range MUST pass the exact required value explicitly.
 
 ## 2. Fixed Parameters
 
@@ -21,8 +23,9 @@ Any change to a field, field order, width, enum value, domain separator, transac
 | Contributors | 6–8 |
 | Components per contributor | 23 |
 | Fee rate | Exactly 1 satoshi per estimated final signed byte |
-| Minimum excess fee | 0 satoshis |
-| Maximum excess fee | 0 satoshis |
+| Minimum contributor excess fee | 1 satoshi |
+| Maximum contributor excess fee | 2 satoshis |
+| Fixed transaction overhead | 10 bytes and therefore 10 satoshis |
 | BCH transaction version | 2 |
 | BCH lock time | 0 |
 | BCH input sequence | `0xffffffff` |
@@ -39,7 +42,7 @@ Role values are `0 = conductor` and `1 = contributor`. Phase values are the redu
 
 ## 4. Domains And Role Election
 
-Every profile domain is exact UTF-8 `"Mosaic/0-opal-mainnet-alpha.2/" || suffix` with no terminating zero. The role documents are:
+Every profile domain is exact UTF-8 `"Mosaic/0-opal-mainnet-alpha.3/" || suffix` with no terminating zero. The role documents are:
 
 ```text
 roleCommitment = SHA256(domain("role-commitment") || controlRosterDigest32 || controlKey32 || randomness32)
@@ -62,7 +65,7 @@ The vector is sorted by control key, covers the complete 7–9-member control ro
 8. contributor control-key vector sorted by key;
 9. opaque pool identifier as 32 fixed bytes;
 10. component count as `u8`, exactly 23;
-11. fee rate, minimum excess, and maximum excess as three `u64` values, exactly `1, 0, 0`;
+11. fee rate, minimum excess, and maximum excess as three `u64` values, exactly `1, 1, 2`;
 12. validated RFC 9578 RSA-PSS SubjectPublicKeyInfo as canonical bytes, selecting the existing RSA-2048 authorization profile;
 13. contributor-nonce-allocation digest as 32 fixed bytes;
 14. transport profile identifier as canonical text;
@@ -88,7 +91,13 @@ roundIdentifier32 || contributorControlKey32 || canonical(GroupedCommitmentPaylo
 
 It contains exactly 23 grouped commitments and exactly 23 authorization requests. Request slots are the ascending values `0...22`, and slot `i` corresponds to grouped commitment `i`. Its digest is `SHA256(domain("player-commit") || canonical(PlayerCommit))`.
 
-A control envelope may admit a PlayerCommit reservation only during wallet reservation and only from the same contributor control key encoded by the document. This syntactic and identity binding does not replace the still-deferred Pedersen, commitment-opening, lease-to-material, or per-component fee validation.
+A standard P2PKH input contributes `amount - 141` satoshis, a standard P2PKH output contributes `-(amount + 34)` satoshis, and a blank contributes zero. The 141-byte input and 34-byte output charges cover every component-derived byte. The remaining transaction fields are the four-byte version, one-byte input count, one-byte output count, and four-byte lock time. Counts remain one byte because this profile permits at most 184 nonblank components, so the fixed overhead is exactly ten bytes and ten satoshis.
+
+Let `n` be the 6–8 contributor count, order contributors lexicographically by their 32-byte one-time control identity, let `base = 10 / n`, and let `remainder = 10 % n` using unsigned integer division. Contributors at indices below `remainder` MUST declare `base + 1` excess satoshis and the rest MUST declare `base`. The resulting vectors are `[2,2,2,2,1,1]`, `[2,2,2,1,1,1,1]`, and `[2,2,1,1,1,1,1,1]`; every vector totals exactly ten. A conductor has no share. A PlayerCommit whose declared excess differs from its roster-derived share is invalid.
+
+For each PlayerCommit, the sum of all 23 Pedersen commitment points MUST equal a commitment to the exact roster-derived excess using the published total nonce and OpalCrypto's canonical Pedersen setup. This group equation proves the declared aggregate balance but does not prove that any disclosed component opens a particular member commitment.
+
+A control envelope may admit a PlayerCommit reservation only during wallet reservation and only from the same contributor control key encoded by the document. Structural admission alone does not authorize phase advancement. The implemented semantic validation additionally binds the exact manifest round, contributor role, roster-derived excess share, and grouped Pedersen equation. Salt construction, individual commitment openings, lease-to-material construction, privacy-preserving anonymous linkage, and contributor nonce-allocation derivation remain explicitly deferred.
 
 ## 7. Aggregate Reservation And Fragmentation
 
@@ -112,7 +121,7 @@ An individual pre-sign submission contains `roundIdentifier32 || transcriptRoot3
 
 ## 9. Anonymous Component Boundary
 
-The anonymous envelope freezes protocol, network, round, phase, compressed communication key, recipient event key, per-mailbox sequence, payload type, payload digest, expiry, and payload fields. Admission requires the authenticated outer sender identity and the receiving mailbox identity, binds both to the envelope, and rejects an expiry earlier than the caller-supplied current Unix second. Anonymous component admission additionally requires a mainnet-alpha authorization token whose round and RSA key match the manifest and a sealed validator that proves the communication key and disclosed component belong to an admitted commitment. The package models this validator boundary but intentionally provides no production implementation while the commitment-opening/linkage contract remains unresolved.
+The anonymous envelope freezes protocol, network, round, phase, compressed communication key, recipient event key, per-mailbox sequence, payload type, payload digest, expiry, and payload fields. Admission requires the authenticated outer sender identity and the receiving mailbox identity, binds both to the envelope, and rejects an expiry earlier than the caller-supplied current Unix second. Anonymous component admission additionally requires a mainnet-alpha authorization token whose round and RSA key match the manifest and a sealed validator for the still-unresolved component-admission proof. The published grouped-commitment communication key MUST NOT be reused directly as the anonymous envelope identity because direct equality would reveal the contributor-to-component linkage to the conductor. This profile does not yet freeze a privacy-preserving proof relating a disclosed component to an admitted commitment, so the package models the validator boundary but provides no production implementation.
 
 The individual anonymous BCH-signature payload shape is modeled for deterministic transaction assembly, but runtime admission remains fail closed. The generic protocol requires one-time authorization and committed mailbox linkage for signature submissions; this profile does not invent the missing issuance and replay document.
 
@@ -126,7 +135,7 @@ OpalBase remains authoritative. It MUST independently fetch or validate every pr
 
 ## 11. Implemented Evidence Boundary
 
-Deterministic tests pin the profile selectors and genesis hash; role commitment and seed; manifest round and complete-manifest digests; PlayerCommit; authorization input and spent identifier; authorization-response-set and complete acknowledgement-set bytes, digests, sizes, ordering, and fragment boundaries; commitment-set, component-set, unsigned-transaction, and transcript digests; control and anonymous envelope fingerprints; strict aggregate reassembly; BCH signature-set ordering; 100-byte unlocking-script assembly; and complete-transaction digest. The admission ledger additionally proves roster-derived zero sequence epochs, attempt/generation/foreign-round routing rejection, per-sender replay and concurrent fragment isolation, exact manifest-core binding, one roster-wide conductor response stream, 6–8-contributor PlayerCommit and response-set barriers, contributor-local finalization before wallet-reservation advancement, conductor-only authorized anonymous-component intake with one-time sender and mailbox identities, transcript-root agreement, conductor-local collection and exact portable publication of every contributor acknowledgement, attempt- and generation-bound phase synchronization, terminal absorption, in-place retry rejection, and stale delivery-routing rejection by a distinct fresh instance. It explicitly terminates before BCH signing and complete-transaction admission. Separate profile-contract tests prove previous-output-backed complete-transaction assembly. A profile-neutral internal coordinator also proves ordered late-lease release, the no-release boundary after signing may have begun, exact complete-transaction commit, and recovery-required failure behavior against injected seams. Cross-profile, foreign-round, wrong-publisher, wrong-phase, malformed canonical aggregate, sequence conflict, local PlayerCommit-digest mismatch, invalid blind response, wrong acknowledgement root, wrong outpoint, wrong P2PKH script, and invalid BCH signature negatives fail closed.
+Deterministic tests pin the profile selectors and genesis hash; the canonical 6–8-contributor fixed-overhead allocation; exact component and final-fee arithmetic; grouped-commitment profile bounds and Pedersen sum validation; role commitment and seed; manifest round and complete-manifest digests; PlayerCommit; authorization input and spent identifier; authorization-response-set and complete acknowledgement-set bytes, digests, sizes, ordering, and fragment boundaries; commitment-set, component-set, unsigned-transaction, and transcript digests; control and anonymous envelope fingerprints; strict aggregate reassembly; BCH signature-set ordering; 100-byte unlocking-script assembly; and complete-transaction digest. The admission ledger additionally proves roster-derived zero sequence epochs, attempt/generation/foreign-round routing rejection, per-sender replay and concurrent fragment isolation, exact manifest-core binding, one roster-wide conductor response stream, 6–8-contributor PlayerCommit and response-set barriers, contributor-local finalization before wallet-reservation advancement, conductor-only authorized anonymous-component intake with one-time sender and mailbox identities, transcript-root agreement, conductor-local collection and exact portable publication of every contributor acknowledgement, attempt- and generation-bound phase synchronization, terminal absorption, in-place retry rejection, and stale delivery-routing rejection by a distinct fresh instance. It explicitly terminates before BCH signing and complete-transaction admission. Separate profile-contract tests prove previous-output-backed complete-transaction assembly. A profile-neutral internal coordinator also proves ordered late-lease release, the no-release boundary after signing may have begun, exact complete-transaction commit, and recovery-required failure behavior against injected seams. Cross-profile, foreign-round, wrong-publisher, wrong-phase, malformed canonical aggregate, sequence conflict, wrong excess share, invalid grouped Pedersen balance, local PlayerCommit-digest mismatch, invalid blind response, wrong acknowledgement root, wrong outpoint, wrong P2PKH script, and invalid BCH signature negatives fail closed.
 
 The internal runtime driver still rejects `.opalMainnetAlpha`, and legacy identity-array host markers terminate a mainnet-alpha runtime session. These are release guards, not missing test coverage.
 
@@ -137,7 +146,7 @@ The following are intentionally unresolved or external and MUST remain fail clos
 - canonical availability beacon, candidate-set, admission, pool, relay-set, contributor-nonce-allocation, and discovery documents;
 - proof-of-work minimums, discovery and pre-manifest timing values, concrete post-manifest deadline values, Nostr event kinds and tags, relay URL normalization, endpoint provisioning, reconnect behavior, and pre-manifest sequencing;
 - a concrete Tor WebSocket implementation with reviewed circuit isolation and no clearnet fallback;
-- the Pedersen balance equation, per-component fee allocation, commitment-opening/component-linkage validator, production local inclusion validator, and lease-to-component material builder;
+- salt and salted-component formulas, individual commitment-opening/component-linkage validation, a privacy-preserving anonymous linkage proof, a production local inclusion validator, and a lease-to-component material builder;
 - the BCH-signature one-time authorization/replay document;
 - conversion of sealed admission-ledger output into mainnet runtime facts, production mailbox integration, and production composition of the internal failure-aware coordinator with sealed mainnet material and host-result provenance;
 - ordered previous-output resolution, durable encrypted attempt journal loading, crash recovery execution, app-owned broadcast policy, and a mainnet-disabled end-to-end host integration proof;

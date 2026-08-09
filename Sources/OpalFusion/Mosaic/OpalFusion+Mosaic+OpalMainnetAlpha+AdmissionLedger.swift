@@ -546,10 +546,27 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 || playerCommit.contributor == localControlIdentity else {
                 return [.inputRejected(.playerCommitAdmissionUnavailable)]
             }
+            guard let manifest else {
+                return terminate(
+                    with: .failed(
+                        .phaseAdvancePrerequisiteMissing(.walletReservation)
+                    )
+                )
+            }
             let contributor = playerCommit.contributor
             guard playerCommits[contributor] == nil else {
                 return terminate(
                     with: .failed(.conflictingDocument(.playerCommit(contributor)))
+                )
+            }
+            do {
+                _ = try PlayerCommitSemanticValidation(
+                    validating: playerCommit,
+                    against: manifest
+                )
+            } catch let error {
+                return terminate(
+                    with: .failed(.playerCommitSemanticValidationFailed(error))
                 )
             }
             playerCommits[contributor] = playerCommit

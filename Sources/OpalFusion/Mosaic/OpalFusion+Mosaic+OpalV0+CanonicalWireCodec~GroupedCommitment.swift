@@ -4,6 +4,10 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
     static func encodeGroupedCommitment(
         _ payload: OpalFusion.Mosaic.OpalV0.GroupedCommitmentPayload
     ) throws -> [UInt8] {
+        guard payload.profile == .opalV0 else {
+            throw OpalFusion.Mosaic.OpalV0.WireContractError
+                .unsupportedProfile(payload.profile)
+        }
         var encoder = OpalFusion.Mosaic.CanonicalEncoder()
         try encoder.writeVector(payload.commitments) { encoder, commitment in
             try writeComponentCommitment(commitment, to: &encoder)

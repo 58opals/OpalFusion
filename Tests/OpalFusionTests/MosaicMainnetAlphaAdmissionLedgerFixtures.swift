@@ -203,21 +203,27 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet
     ) throws -> [Alpha.PlayerCommit] {
         let slotCount = Alpha.componentCountPerContributor
+        let commitmentGroups = try MosaicUnsignedTransactionTranscriptFixtures
+            .makeMainnetCommitmentGroups(
+                contributorCount: harness.election.result.roster.contributors.count
+            )
         let contributors = harness.election.result.roster.contributors.sorted {
             $0.validatedBytes.lexicographicallyPrecedes($1.validatedBytes)
         }
         return try contributors.enumerated().map { contributorIndex, contributor in
             let lowerBound = contributorIndex * slotCount
             let upperBound = lowerBound + slotCount
+            let commitmentGroup = commitmentGroups[contributorIndex]
+            precondition(
+                Array(commitmentSet.commitments[lowerBound ..< upperBound])
+                    == commitmentGroup.commitments
+            )
             let groupedCommitment = try OpalFusion.Mosaic.OpalV0
                 .GroupedCommitmentPayload(
-                    commitments: Array(
-                        commitmentSet.commitments[lowerBound ..< upperBound]
-                    ),
-                    excessFeeSatoshis: 0,
-                    pedersenTotalNonce:
-                        [UInt8](repeating: 0, count: 31)
-                        + [UInt8(contributorIndex + 1)]
+                    profile: .opalMainnetAlpha,
+                    commitments: commitmentGroup.commitments,
+                    excessFeeSatoshis: commitmentGroup.excessFeeSatoshis,
+                    pedersenTotalNonce: commitmentGroup.pedersenTotalNonce
                 )
             return try Alpha.PlayerCommit(
                 roundIdentifier: harness.manifest.core.roundIdentifier,

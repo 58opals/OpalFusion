@@ -17,17 +17,23 @@ enum MosaicMainnetAlphaFixtures {
         case authorizationEvaluatorUnavailable
     }
 
-    private struct RSAFixture {
-        let authorizationEvaluator: OpalV0.AuthorizationEvaluator?
-        let verificationKey: OpalCrypto.RSABSSA.VerificationKey?
+    private static let authorizationEvaluatorFixture: OpalV0.AuthorizationEvaluator?
+        = {
+            // Security.framework can transiently decline nonpersistent RSA key
+            // generation under a heavily loaded test host. Keep the fixture
+            // test-process-scoped, bounded, and lazy while preserving the real
+            // OpalCrypto key-generation and blind-signing path. The future
+            // production attempt-material owner must enforce key freshness.
+            for _ in 0 ..< 3 {
+                if let evaluator = try? OpalV0.AuthorizationEvaluator.generate() {
+                    return evaluator
+                }
+            }
+            return nil
+        }()
 
-        init() {
-            authorizationEvaluator = try? .generate()
-            verificationKey = Self.makeVerificationKey()
-        }
-
-        private static func makeVerificationKey()
-            -> OpalCrypto.RSABSSA.VerificationKey? {
+    private static let rsaVerificationKeyFixture: OpalCrypto.RSABSSA.VerificationKey?
+        = {
             let hexadecimal = [
                 "30820152303d06092a864886f70d01010a3030a00d300b0609608648016503040202",
                 "a11a301806092a864886f70d010108300b0609608648016503040202a20302013003",
@@ -48,14 +54,11 @@ enum MosaicMainnetAlphaFixtures {
                     )
                 )
             )
-        }
-    }
-
-    private static let rsaFixture = RSAFixture()
+        }()
 
     static func authorizationEvaluator() throws
         -> OpalV0.AuthorizationEvaluator {
-        guard let authorizationEvaluator = rsaFixture.authorizationEvaluator
+        guard let authorizationEvaluator = authorizationEvaluatorFixture
         else {
             throw FixtureError.authorizationEvaluatorUnavailable
         }
@@ -64,7 +67,7 @@ enum MosaicMainnetAlphaFixtures {
 
     static func rsaVerificationKey() throws
         -> OpalCrypto.RSABSSA.VerificationKey {
-        guard let verificationKey = rsaFixture.verificationKey else {
+        guard let verificationKey = rsaVerificationKeyFixture else {
             throw FixtureError.rsaVerificationKeyUnavailable
         }
         return verificationKey

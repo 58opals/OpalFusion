@@ -516,6 +516,7 @@ struct MosaicRuntimeCoordinatorValidator {
                     feeRateSatoshisPerByte: 1,
                     minimumExcessFeeSatoshis: 0,
                     maximumExcessFeeSatoshis: 0,
+                    requiredExcessFeeSatoshis: 0,
                     transactionProfileIdentifier: eligibility.context.profile
                         .transactionProfileIdentifier
                 )
@@ -580,6 +581,7 @@ struct MosaicRuntimeCoordinatorValidator {
                     feeRateSatoshisPerByte: 1,
                     minimumExcessFeeSatoshis: 0,
                     maximumExcessFeeSatoshis: 0,
+                    requiredExcessFeeSatoshis: 0,
                     transactionProfileIdentifier: eligibility.context.profile
                         .transactionProfileIdentifier
                 )

@@ -12,6 +12,12 @@ extension OpalFusion.Mosaic.OpalV0 {
         case duplicateAmountCommitment
         case duplicateCommunicationPublicKey
         case nonzeroExcessFee(actual: UInt64)
+        case invalidExcessFee(
+            profile: OpalFusion.Mosaic.Profile,
+            minimum: UInt64,
+            maximum: UInt64,
+            actual: UInt64
+        )
         case invalidPedersenTotalNonce
         case invalidAuthorizationSlot(actual: Int)
         case invalidSaltCommitmentLength(actual: Int)

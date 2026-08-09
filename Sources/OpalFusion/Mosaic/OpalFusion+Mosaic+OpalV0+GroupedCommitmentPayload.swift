@@ -6,11 +6,13 @@ import OpalCrypto
 extension OpalFusion.Mosaic.OpalV0 {
     /// One contributor's fixed 23-slot commitment document.
     struct GroupedCommitmentPayload: Sendable, Equatable {
+        let profile: OpalFusion.Mosaic.Profile
         let commitments: [ComponentCommitment]
         let excessFeeSatoshis: UInt64
         let pedersenTotalNonce: [UInt8]
 
         init(
+            profile: OpalFusion.Mosaic.Profile = .opalV0,
             commitments: [ComponentCommitment],
             excessFeeSatoshis: UInt64,
             pedersenTotalNonce: [UInt8]
@@ -29,10 +31,28 @@ extension OpalFusion.Mosaic.OpalV0 {
             try OpalFusion.Mosaic.OpalV0.validateCommitmentFieldUniqueness(
                 commitments
             )
-            guard excessFeeSatoshis == 0 else {
-                throw WireContractError.nonzeroExcessFee(
-                    actual: excessFeeSatoshis
-                )
+            switch profile {
+            case .opalV0:
+                guard excessFeeSatoshis == 0 else {
+                    throw WireContractError.nonzeroExcessFee(
+                        actual: excessFeeSatoshis
+                    )
+                }
+            case .opalMainnetAlpha:
+                let minimum = OpalFusion.Mosaic.OpalMainnetAlpha
+                    .minimumExcessFeeSatoshis
+                let maximum = OpalFusion.Mosaic.OpalMainnetAlpha
+                    .maximumExcessFeeSatoshis
+                guard (minimum ... maximum).contains(excessFeeSatoshis) else {
+                    throw WireContractError.invalidExcessFee(
+                        profile: profile,
+                        minimum: minimum,
+                        maximum: maximum,
+                        actual: excessFeeSatoshis
+                    )
+                }
+            case .draft1:
+                throw WireContractError.unsupportedProfile(profile)
             }
 
             let validatedNonce: OpalCrypto.Pedersen.Nonce
@@ -44,6 +64,7 @@ extension OpalFusion.Mosaic.OpalV0 {
                 throw WireContractError.invalidPedersenTotalNonce
             }
 
+            self.profile = profile
             self.commitments = commitments
             self.excessFeeSatoshis = excessFeeSatoshis
             self.pedersenTotalNonce = [UInt8](validatedNonce.rawRepresentation)

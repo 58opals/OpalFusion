@@ -38,6 +38,7 @@ struct MosaicHostContractValidator {
             feeRateSatoshisPerByte: request.feeRateSatoshisPerByte,
             minimumExcessFeeSatoshis: request.minimumExcessFeeSatoshis,
             maximumExcessFeeSatoshis: request.maximumExcessFeeSatoshis,
+            requiredExcessFeeSatoshis: request.requiredExcessFeeSatoshis,
             transactionProfileIdentifier: request.transactionProfileIdentifier
         )
 
@@ -45,7 +46,22 @@ struct MosaicHostContractValidator {
         #expect(signingRequest.reservationReference == reference)
         #expect(signingRequest.roundIdentifier == request.roundIdentifier)
         #expect(signingRequest.localInputIndices == [0])
+        #expect(request.requiredExcessFeeSatoshis == 0)
+        #expect(signingRequest.requiredExcessFeeSatoshis == 0)
         #expect(signingRequest.transcriptRoot == signingRequest.transcriptBinding.transcriptRoot)
+
+        let mainnetRequest = try makeReservationRequest(
+            networkGenesisHash: try #require(
+                OpalFusion.Mosaic.Profile.opalMainnetAlpha.networkGenesisHash
+            ),
+            componentCount: 23,
+            minimumExcessFeeSatoshis: 1,
+            maximumExcessFeeSatoshis: 2,
+            requiredExcessFeeSatoshis: 2,
+            transactionProfileIdentifier: OpalFusion.Mosaic.Profile
+                .opalMainnetAlpha.transactionProfileIdentifier
+        )
+        #expect(mainnetRequest.requiredExcessFeeSatoshis == 2)
     }
 
     @Test("Transcript bindings reject malformed digests, wrong roots, and substituted transactions")
@@ -126,6 +142,7 @@ struct MosaicHostContractValidator {
                 feeRateSatoshisPerByte: 1,
                 minimumExcessFeeSatoshis: 100,
                 maximumExcessFeeSatoshis: 200,
+                requiredExcessFeeSatoshis: 100,
                 transactionProfileIdentifier: "mosaic-bch-p2pkh-draft"
             )
         }
@@ -149,6 +166,7 @@ struct MosaicHostContractValidator {
                 feeRateSatoshisPerByte: 1,
                 minimumExcessFeeSatoshis: 100,
                 maximumExcessFeeSatoshis: 200,
+                requiredExcessFeeSatoshis: 100,
                 transactionProfileIdentifier: OpalFusion.Mosaic.Profile.draft1
                     .transactionProfileIdentifier
             )
@@ -230,6 +248,35 @@ struct MosaicHostContractValidator {
                 maximumExcessFeeSatoshis: 9
             )
         }
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .requiredExcessFeeOutsideRange(
+                    required: 3,
+                    minimum: 1,
+                    maximum: 2
+                )
+        ) {
+            _ = try makeReservationRequest(
+                minimumExcessFeeSatoshis: 1,
+                maximumExcessFeeSatoshis: 2,
+                requiredExcessFeeSatoshis: 3
+            )
+        }
+
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .requiredExcessFeeUnavailable(minimum: 1, maximum: 2)
+        ) {
+            _ = try makeLegacyReservationRequest(
+                minimumExcessFeeSatoshis: 1,
+                maximumExcessFeeSatoshis: 2
+            )
+        }
+        let legacyRequest = try makeLegacyReservationRequest(
+            minimumExcessFeeSatoshis: 0,
+            maximumExcessFeeSatoshis: 0
+        )
+        #expect(legacyRequest.requiredExcessFeeSatoshis == 0)
     }
 
     @Test("Reservation leases require both wallet inputs and fresh outputs")
@@ -274,6 +321,37 @@ struct MosaicHostContractValidator {
         #expect(throws: OpalFusion.Host.MosaicHostContractError.emptyLocalInputIndices) {
             _ = try makeSigningRequest(reference: reference, localInputIndices: [])
         }
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .requiredExcessFeeOutsideRange(
+                    required: 3,
+                    minimum: 1,
+                    maximum: 2
+                )
+        ) {
+            _ = try makeSigningRequest(
+                reference: reference,
+                minimumExcessFeeSatoshis: 1,
+                maximumExcessFeeSatoshis: 2,
+                requiredExcessFeeSatoshis: 3
+            )
+        }
+        #expect(
+            throws: OpalFusion.Host.MosaicHostContractError
+                .requiredExcessFeeUnavailable(minimum: 1, maximum: 2)
+        ) {
+            _ = try makeLegacySigningRequest(
+                reference: reference,
+                minimumExcessFeeSatoshis: 1,
+                maximumExcessFeeSatoshis: 2
+            )
+        }
+        let legacyRequest = try makeLegacySigningRequest(
+            reference: reference,
+            minimumExcessFeeSatoshis: 0,
+            maximumExcessFeeSatoshis: 0
+        )
+        #expect(legacyRequest.requiredExcessFeeSatoshis == 0)
     }
 
     @Test("Signing requests reject malformed spent inputs and expected local outputs")

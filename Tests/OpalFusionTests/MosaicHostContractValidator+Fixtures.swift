@@ -9,8 +9,9 @@ extension MosaicHostContractValidator {
         networkGenesisHash: [UInt8] = Array(repeating: 0x22, count: 32),
         roundIdentifier: [UInt8] = Array(repeating: 0x33, count: 32),
         componentCount: Int = 2,
-        minimumExcessFeeSatoshis: UInt64 = 100,
-        maximumExcessFeeSatoshis: UInt64 = 200,
+        minimumExcessFeeSatoshis: UInt64 = 0,
+        maximumExcessFeeSatoshis: UInt64 = 0,
+        requiredExcessFeeSatoshis: UInt64 = 0,
         transactionProfileIdentifier: String = "bch-chipnet-p2pkh-schnorr/0-opal.1"
     ) throws -> OpalFusion.Host.MosaicReservationRequest {
         try .init(
@@ -22,7 +23,26 @@ extension MosaicHostContractValidator {
             feeRateSatoshisPerByte: 1,
             minimumExcessFeeSatoshis: minimumExcessFeeSatoshis,
             maximumExcessFeeSatoshis: maximumExcessFeeSatoshis,
+            requiredExcessFeeSatoshis: requiredExcessFeeSatoshis,
             transactionProfileIdentifier: transactionProfileIdentifier
+        )
+    }
+
+    func makeLegacyReservationRequest(
+        minimumExcessFeeSatoshis: UInt64,
+        maximumExcessFeeSatoshis: UInt64
+    ) throws -> OpalFusion.Host.MosaicReservationRequest {
+        try .init(
+            attemptIdentifier: [0x11],
+            networkGenesisHash: Array(repeating: 0x22, count: 32),
+            roundIdentifier: Array(repeating: 0x33, count: 32),
+            expiresAt: Date(timeIntervalSince1970: 1_800_000_000),
+            componentCount: 23,
+            feeRateSatoshisPerByte: 1,
+            minimumExcessFeeSatoshis: minimumExcessFeeSatoshis,
+            maximumExcessFeeSatoshis: maximumExcessFeeSatoshis,
+            transactionProfileIdentifier: OpalFusion.Mosaic.Profile.opalV0
+                .transactionProfileIdentifier
         )
     }
 
@@ -30,7 +50,10 @@ extension MosaicHostContractValidator {
         reference: OpalFusion.Host.MosaicReservationReference,
         localInputIndices: [Int] = [0],
         spentInputs: [OpalFusion.Host.ParticipantInput]? = nil,
-        expectedLocalOutputs: [OpalFusion.Host.ParticipantOutput]? = nil
+        expectedLocalOutputs: [OpalFusion.Host.ParticipantOutput]? = nil,
+        minimumExcessFeeSatoshis: UInt64 = 0,
+        maximumExcessFeeSatoshis: UInt64 = 0,
+        requiredExcessFeeSatoshis: UInt64 = 0
     ) throws -> OpalFusion.Host.MosaicTransactionSigningRequest {
         let unsignedTransactionBytes: [UInt8] = [0x02]
         return try .init(
@@ -44,9 +67,34 @@ extension MosaicHostContractValidator {
             localInputIndices: localInputIndices,
             expectedLocalOutputs: expectedLocalOutputs ?? [makeOutput()],
             feeRateSatoshisPerByte: 1,
-            minimumExcessFeeSatoshis: 100,
-            maximumExcessFeeSatoshis: 200,
+            minimumExcessFeeSatoshis: minimumExcessFeeSatoshis,
+            maximumExcessFeeSatoshis: maximumExcessFeeSatoshis,
+            requiredExcessFeeSatoshis: requiredExcessFeeSatoshis,
             transactionProfileIdentifier: "bch-chipnet-p2pkh-schnorr/0-opal.1"
+        )
+    }
+
+    func makeLegacySigningRequest(
+        reference: OpalFusion.Host.MosaicReservationReference,
+        minimumExcessFeeSatoshis: UInt64,
+        maximumExcessFeeSatoshis: UInt64
+    ) throws -> OpalFusion.Host.MosaicTransactionSigningRequest {
+        let unsignedTransactionBytes: [UInt8] = [0x02]
+        return try .init(
+            reservationReference: reference,
+            roundIdentifier: Array(repeating: 0x33, count: 32),
+            transcriptBinding: try makeTranscriptBinding(
+                unsignedTransactionBytes: unsignedTransactionBytes
+            ),
+            unsignedTransactionBytes: unsignedTransactionBytes,
+            spentInputs: [makeInput()],
+            localInputIndices: [0],
+            expectedLocalOutputs: [makeOutput()],
+            feeRateSatoshisPerByte: 1,
+            minimumExcessFeeSatoshis: minimumExcessFeeSatoshis,
+            maximumExcessFeeSatoshis: maximumExcessFeeSatoshis,
+            transactionProfileIdentifier: OpalFusion.Mosaic.Profile.opalV0
+                .transactionProfileIdentifier
         )
     }
 

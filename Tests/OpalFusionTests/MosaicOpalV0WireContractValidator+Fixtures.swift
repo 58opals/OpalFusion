@@ -101,6 +101,17 @@ extension MosaicOpalV0WireContractValidator {
         )
     }
 
+    static func makeMainnetGroupedCommitment() throws -> OpalV0.GroupedCommitmentPayload {
+        let group = try MosaicUnsignedTransactionTranscriptFixtures
+            .makeMainnetCommitmentGroups(contributorCount: 6)[0]
+        return try OpalV0.GroupedCommitmentPayload(
+            profile: .opalMainnetAlpha,
+            commitments: group.commitments,
+            excessFeeSatoshis: group.excessFeeSatoshis,
+            pedersenTotalNonce: group.pedersenTotalNonce
+        )
+    }
+
     static func makeCommitmentSet(
         memberCount: Int = 138
     ) throws -> OpalV0.CommitmentSet {

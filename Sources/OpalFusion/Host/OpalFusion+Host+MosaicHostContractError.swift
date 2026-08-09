@@ -15,6 +15,12 @@ public extension OpalFusion.Host {
         case unsignedTransactionTranscriptMismatch
         case invalidComponentCount(actual: Int)
         case invalidExcessFeeRange(minimum: UInt64, maximum: UInt64)
+        case requiredExcessFeeUnavailable(minimum: UInt64, maximum: UInt64)
+        case requiredExcessFeeOutsideRange(
+            required: UInt64,
+            minimum: UInt64,
+            maximum: UInt64
+        )
         case emptyTransactionProfileIdentifier
         case nonASCIITransactionProfileIdentifier
         case transactionProfileIdentifierMismatch(expected: String, actual: String)

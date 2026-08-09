@@ -81,6 +81,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case conflictingDocument(DocumentSlot)
         case completeManifestCoreMismatch
         case playerCommitSetIncomplete
+        case playerCommitSemanticValidationFailed(
+            OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommitSemanticValidation
+                .ValidationError
+        )
         case commitmentSetInvalid(
             OpalFusion.Mosaic.Attempt.CommitmentSetValidation.ValidationError
         )

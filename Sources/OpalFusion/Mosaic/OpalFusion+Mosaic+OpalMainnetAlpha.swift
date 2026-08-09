@@ -1,7 +1,7 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha.swift
 
 extension OpalFusion.Mosaic {
-    /// Internal constants frozen by `Mosaic/0-opal-mainnet-alpha.2`.
+    /// Internal constants frozen by `Mosaic/0-opal-mainnet-alpha.3`.
     enum OpalMainnetAlpha {
         static let mainnetGenesisHash: [UInt8] = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68,
@@ -12,8 +12,9 @@ extension OpalFusion.Mosaic {
 
         static let componentCountPerContributor = 23
         static let feeRateSatoshisPerByte: UInt64 = 1
-        static let minimumExcessFeeSatoshis: UInt64 = 0
-        static let maximumExcessFeeSatoshis: UInt64 = 0
+        static let minimumExcessFeeSatoshis: UInt64 = 1
+        static let maximumExcessFeeSatoshis: UInt64 = 2
+        static let fixedTransactionOverheadByteCount = 10
         static let opaquePoolIdentifierByteCount = 32
         static let bchSchnorrSignatureByteCount = 64
         static let compressedPublicKeyByteCount = 33

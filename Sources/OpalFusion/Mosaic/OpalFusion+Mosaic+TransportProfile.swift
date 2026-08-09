@@ -12,6 +12,6 @@ public extension OpalFusion.Mosaic {
         /// Tor-only Nostr transport contract for the additive mainnet alpha.
         ///
         /// Event-kind assignments and concrete relay/Tor provisioning remain deployment gates.
-        case nostrTorOpalMainnetAlpha = "nostr-tor/0-opal-mainnet-alpha.2"
+        case nostrTorOpalMainnetAlpha = "nostr-tor/0-opal-mainnet-alpha.3"
     }
 }

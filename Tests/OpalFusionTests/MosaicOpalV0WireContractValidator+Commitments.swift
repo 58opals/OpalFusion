@@ -167,5 +167,15 @@ extension MosaicOpalV0WireContractValidator {
                 pedersenTotalNonce: [UInt8](repeating: 0xFF, count: 32)
             )
         }
+
+        let mainnetPayload = try OpalV0.GroupedCommitmentPayload(
+            profile: .opalMainnetAlpha,
+            commitments: commitments,
+            excessFeeSatoshis: 1,
+            pedersenTotalNonce: nonce
+        )
+        #expect(throws: WireContractError.unsupportedProfile(.opalMainnetAlpha)) {
+            _ = try Codec.encodeGroupedCommitment(mainnetPayload)
+        }
     }
 }

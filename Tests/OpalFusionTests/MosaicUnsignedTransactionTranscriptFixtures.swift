@@ -1,5 +1,7 @@
 // MosaicUnsignedTransactionTranscriptFixtures.swift
 
+import Foundation
+import OpalCrypto
 @testable import OpalFusion
 
 enum MosaicUnsignedTransactionTranscriptFixtures {
@@ -13,6 +15,19 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
         let commitmentValidation: Attempt.CommitmentSetValidation
         let transcript: OpalV0.UnsignedTransactionTranscript
     }
+
+    struct MainnetCommitmentGroup: Sendable, Equatable {
+        let commitments: [OpalV0.ComponentCommitment]
+        let excessFeeSatoshis: UInt64
+        let pedersenTotalNonce: [UInt8]
+    }
+
+    private static let sixContributorMainnetCommitmentGroups = try!
+        buildMainnetCommitmentGroups(contributorCount: 6)
+    private static let sevenContributorMainnetCommitmentGroups = try!
+        buildMainnetCommitmentGroups(contributorCount: 7)
+    private static let eightContributorMainnetCommitmentGroups = try!
+        buildMainnetCommitmentGroups(contributorCount: 8)
 
     static func prepare(
         roster: Attempt.Roster,
@@ -53,6 +68,14 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
         contributorCount: Int,
         profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> OpalV0.CommitmentSet {
+        if profile == .opalMainnetAlpha {
+            return try .init(
+                profile: profile,
+                commitments: makeMainnetCommitmentGroups(
+                    contributorCount: contributorCount
+                ).flatMap(\.commitments)
+            )
+        }
         let memberCount = contributorCount
             * OpalV0.componentAuthorizationCountPerContributor
         return try .init(
@@ -61,6 +84,70 @@ enum MosaicUnsignedTransactionTranscriptFixtures {
                 try MosaicOpalV0WireContractValidator.makeCommitment(index: $0)
             }
         )
+    }
+
+    static func makeMainnetCommitmentGroups(
+        contributorCount: Int
+    ) throws -> [MainnetCommitmentGroup] {
+        switch contributorCount {
+        case 6:
+            return sixContributorMainnetCommitmentGroups
+        case 7:
+            return sevenContributorMainnetCommitmentGroups
+        case 8:
+            return eightContributorMainnetCommitmentGroups
+        default:
+            return try buildMainnetCommitmentGroups(
+                contributorCount: contributorCount
+            )
+        }
+    }
+
+    private static func buildMainnetCommitmentGroups(
+        contributorCount: Int
+    ) throws -> [MainnetCommitmentGroup] {
+        let setup = try OpalCrypto.Pedersen.Setup()
+        let slotCount = OpalV0.componentAuthorizationCountPerContributor
+        let baseShare = OpalFusion.Mosaic.OpalMainnetAlpha
+            .fixedTransactionOverheadByteCount / contributorCount
+        let remainder = OpalFusion.Mosaic.OpalMainnetAlpha
+            .fixedTransactionOverheadByteCount % contributorCount
+
+        return try (0 ..< contributorCount).map { contributorIndex in
+            let excessFeeSatoshis = UInt64(
+                baseShare + (contributorIndex < remainder ? 1 : 0)
+            )
+            let pedersenCommitments = try (0 ..< slotCount).map { slot in
+                let globalIndex = contributorIndex * slotCount + slot
+                return try setup.commit(
+                    amount: slot == 0 ? Int64(excessFeeSatoshis) : 0,
+                    nonce: .init(
+                        rawRepresentation: Data(
+                            indexedDigest(40_000 + globalIndex)
+                        )
+                    )
+                )
+            }
+            let combined = try setup.combine(pedersenCommitments)
+            let commitments = try pedersenCommitments.enumerated().map {
+                slot, pedersenCommitment in
+                let globalIndex = contributorIndex * slotCount + slot
+                return try OpalV0.ComponentCommitment(
+                    saltedComponentDigest: indexedDigest(globalIndex),
+                    amountCommitment: [UInt8](
+                        pedersenCommitment.point.uncompressedRepresentation
+                    ),
+                    communicationPublicKey:
+                        MosaicOpalV0WireContractValidator
+                            .communicationKeys[globalIndex].compressed
+                )
+            }
+            return .init(
+                commitments: commitments,
+                excessFeeSatoshis: excessFeeSatoshis,
+                pedersenTotalNonce: [UInt8](combined.nonce.rawRepresentation)
+            )
+        }
     }
 
     static func makeBalancedComponentSet(

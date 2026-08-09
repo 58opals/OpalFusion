@@ -346,7 +346,7 @@ struct MosaicOpalV0AuthorizationValidator {
             roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
             contributor: contributor,
             groupedCommitment: MosaicOpalV0WireContractValidator
-                .makeGroupedCommitment(),
+                .makeMainnetGroupedCommitment(),
             authorizationRequests: try requests.enumerated().map {
                 slot, request in
                 try .init(

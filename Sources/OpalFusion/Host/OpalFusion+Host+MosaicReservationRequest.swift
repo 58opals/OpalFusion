@@ -13,6 +13,7 @@ public extension OpalFusion.Host {
         public let feeRateSatoshisPerByte: UInt64
         public let minimumExcessFeeSatoshis: UInt64
         public let maximumExcessFeeSatoshis: UInt64
+        public let requiredExcessFeeSatoshis: UInt64
         public let transactionProfileIdentifier: String
 
         public init(
@@ -24,6 +25,7 @@ public extension OpalFusion.Host {
             feeRateSatoshisPerByte: UInt64,
             minimumExcessFeeSatoshis: UInt64,
             maximumExcessFeeSatoshis: UInt64,
+            requiredExcessFeeSatoshis: UInt64,
             transactionProfileIdentifier: String
         ) throws {
             guard !attemptIdentifier.isEmpty else {
@@ -48,6 +50,14 @@ public extension OpalFusion.Host {
                     maximum: maximumExcessFeeSatoshis
                 )
             }
+            guard (minimumExcessFeeSatoshis ... maximumExcessFeeSatoshis)
+                .contains(requiredExcessFeeSatoshis) else {
+                throw MosaicHostContractError.requiredExcessFeeOutsideRange(
+                    required: requiredExcessFeeSatoshis,
+                    minimum: minimumExcessFeeSatoshis,
+                    maximum: maximumExcessFeeSatoshis
+                )
+            }
             guard !transactionProfileIdentifier.isEmpty else {
                 throw MosaicHostContractError.emptyTransactionProfileIdentifier
             }
@@ -65,7 +75,47 @@ public extension OpalFusion.Host {
             self.feeRateSatoshisPerByte = feeRateSatoshisPerByte
             self.minimumExcessFeeSatoshis = minimumExcessFeeSatoshis
             self.maximumExcessFeeSatoshis = maximumExcessFeeSatoshis
+            self.requiredExcessFeeSatoshis = requiredExcessFeeSatoshis
             self.transactionProfileIdentifier = transactionProfileIdentifier
+        }
+
+        /// Preserves source compatibility for profiles whose fee range selects one exact value.
+        /// Callers using a non-singleton range must migrate to the initializer that supplies
+        /// `requiredExcessFeeSatoshis` explicitly.
+        @available(
+            *,
+            deprecated,
+            message: "Pass requiredExcessFeeSatoshis explicitly."
+        )
+        public init(
+            attemptIdentifier: [UInt8],
+            networkGenesisHash: [UInt8],
+            roundIdentifier: [UInt8],
+            expiresAt: Date,
+            componentCount: Int,
+            feeRateSatoshisPerByte: UInt64,
+            minimumExcessFeeSatoshis: UInt64,
+            maximumExcessFeeSatoshis: UInt64,
+            transactionProfileIdentifier: String
+        ) throws {
+            guard minimumExcessFeeSatoshis == maximumExcessFeeSatoshis else {
+                throw MosaicHostContractError.requiredExcessFeeUnavailable(
+                    minimum: minimumExcessFeeSatoshis,
+                    maximum: maximumExcessFeeSatoshis
+                )
+            }
+            try self.init(
+                attemptIdentifier: attemptIdentifier,
+                networkGenesisHash: networkGenesisHash,
+                roundIdentifier: roundIdentifier,
+                expiresAt: expiresAt,
+                componentCount: componentCount,
+                feeRateSatoshisPerByte: feeRateSatoshisPerByte,
+                minimumExcessFeeSatoshis: minimumExcessFeeSatoshis,
+                maximumExcessFeeSatoshis: maximumExcessFeeSatoshis,
+                requiredExcessFeeSatoshis: minimumExcessFeeSatoshis,
+                transactionProfileIdentifier: transactionProfileIdentifier
+            )
         }
     }
 }

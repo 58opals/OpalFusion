@@ -20,6 +20,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
             )
             let groupedCommitment = try OpalFusion.Mosaic.OpalV0
                 .GroupedCommitmentPayload(
+                    profile: .opalMainnetAlpha,
                     commitments: decoder.readVector(
                         readingValueWith: OpalFusion.Mosaic.OpalV0
                             .CanonicalWireCodec.readComponentCommitment
