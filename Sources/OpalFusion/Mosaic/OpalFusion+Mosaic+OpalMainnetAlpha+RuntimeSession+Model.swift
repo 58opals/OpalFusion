@@ -7,6 +7,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
     typealias MaterialIdentifier = OpalFusion.Mosaic.LocalAttempt.MaterialIdentifier
     typealias ControlIdentity = OpalFusion.Mosaic.Attempt.ControlIdentity
 
+    struct Context: Sendable, Equatable {
+        let attemptIdentifier: AttemptIdentifier
+        let generationIdentifier: GenerationIdentifier
+        let materialIdentifier: MaterialIdentifier
+        let localControlIdentity: ControlIdentity
+        let localRole: OpalFusion.Mosaic.Role
+        let roster: OpalFusion.Mosaic.Attempt.Roster
+    }
+
     enum InitializationError: Error, Sendable, Equatable {
         case unsupportedProfile(OpalFusion.Mosaic.Profile)
         case attemptNotReady

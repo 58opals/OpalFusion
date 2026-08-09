@@ -89,6 +89,7 @@ actor MosaicRuntimeCoordinatorSignalProbe {
 actor MosaicRuntimeCoordinatorHostProbe:
     OpalFusion.Host.MosaicCompleteTransactionHost {
     enum ProbeFailure: Error {
+        case reservation
         case completeCommit
         case release
     }
@@ -98,6 +99,7 @@ actor MosaicRuntimeCoordinatorHostProbe:
     let reserveSuspension: MosaicRuntimeCoordinatorSuspensionProbe?
     let signingSuspension: MosaicRuntimeCoordinatorSuspensionProbe?
 
+    private var shouldFailReservation = false
     private var shouldFailCompleteCommit = false
     private var shouldFailRelease = false
     private(set) var reservationRequests: [
@@ -131,6 +133,10 @@ actor MosaicRuntimeCoordinatorHostProbe:
         shouldFailCompleteCommit = true
     }
 
+    func failReservation() {
+        shouldFailReservation = true
+    }
+
     func failRelease() {
         shouldFailRelease = true
     }
@@ -140,6 +146,9 @@ actor MosaicRuntimeCoordinatorHostProbe:
     ) async throws -> OpalFusion.Host.MosaicReservationLease {
         reservationRequests.append(request)
         await reserveSuspension?.suspendIfArmed()
+        guard !shouldFailReservation else {
+            throw ProbeFailure.reservation
+        }
         return lease
     }
 

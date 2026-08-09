@@ -69,6 +69,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             admissionLedger.state
         }
 
+        var context: Context {
+            .init(
+                attemptIdentifier: attemptIdentifier,
+                generationIdentifier: generationIdentifier,
+                materialIdentifier: materialIdentifier,
+                localControlIdentity: localControlIdentity,
+                localRole: localRole,
+                roster: roster
+            )
+        }
+
         init(
             validatedAttempt: OpalFusion.Mosaic.Attempt,
             attemptIdentifier: AttemptIdentifier,

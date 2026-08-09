@@ -26,6 +26,10 @@ final class MosaicRuntimeCoordinatorDispositionGate: Sendable {
         ) = output else {
             return
         }
+        requestRelease()
+    }
+
+    func requestRelease() {
         storage.withLock { $0.isReleaseRequested = true }
     }
 
