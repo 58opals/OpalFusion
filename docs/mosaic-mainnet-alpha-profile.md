@@ -158,4 +158,4 @@ The following are intentionally unresolved or external and MUST remain fail clos
 
 Until every relevant gate is complete, safe wording is limited to “deterministic mainnet-alpha contract foundation.” It is not a live Mosaic engine, a mainnet-ready wallet feature, an anonymity claim, or permission to use real funds.
 
-The non-normative [Alpha.4 Design Proposal](mosaic-mainnet-alpha4-design-proposal.md) records one review-ready resolution for the salt, local material, purpose-separated signature authorization, mailbox, and privacy-proof decisions. It has no protocol or implementation authority until explicitly approved and incorporated here with golden vectors.
+The non-normative [Alpha.4 Design Proposal](mosaic-mainnet-alpha4-design-proposal.md) records one review-ready resolution for the salt, local material, component-bound purpose-separated authorization, mailbox, and honest-wallet safety-boundary decisions. It recommends an explicit CashFusion-derived off-commitment/accountability tradeoff instead of a new happy-path membership proof. It has no protocol or implementation authority until explicitly approved and incorporated here with golden vectors.
