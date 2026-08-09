@@ -30,8 +30,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
         let materialIdentifier: MaterialIdentifier
         let contributor: ControlIdentity
         let manifest: OpalFusion.Mosaic.OpalMainnetAlpha.RoundManifest
-        let reservationReference: OpalFusion.Host.MosaicReservationReference
+        let reservationLease: OpalFusion.Host.MosaicReservationLease
         let playerCommit: OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommit
+
+        var reservationReference: OpalFusion.Host.MosaicReservationReference {
+            reservationLease.reference
+        }
     }
 
     protocol ReservationPublicationValidating: Sendable {
@@ -43,8 +47,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
     /// Records an externally validated reservation-publication binding.
     ///
     /// The bridge cannot mint this value. A later production material owner must verify that the
-    /// reservation reference is live and that the exact `PlayerCommit` was derived from its
-    /// attempt-, generation-, material-, manifest-, and contributor-bound lease material.
+    /// reservation lease is live and that the exact `PlayerCommit` was derived from its
+    /// attempt-, generation-, material-, manifest-, and contributor-bound contents.
     struct ReservationPublicationValidation: Sendable, Equatable {
         enum ValidationError: Error, Sendable, Equatable {
             case rejected

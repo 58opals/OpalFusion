@@ -249,7 +249,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 await releaseIfNeeded()
                 return
             }
-            guard validation.request.reservationReference == lease.reference else {
+            guard validation.request.reservationLease == lease else {
                 failAndStop(.reservationPublicationLeaseMismatch)
                 return
             }

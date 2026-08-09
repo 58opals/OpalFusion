@@ -18,6 +18,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         struct Validation: Sendable, Equatable {
             let transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot
             let spentInputs: [OpalFusion.Host.ParticipantInput]
+
+            fileprivate init(
+                transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot,
+                spentInputs: [OpalFusion.Host.ParticipantInput]
+            ) {
+                self.transcriptRoot = transcriptRoot
+                self.spentInputs = spentInputs
+            }
         }
 
         private let source: any OpalFusion.Host.MosaicPreviousOutputSource

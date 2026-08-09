@@ -314,7 +314,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             harness: harness,
             commitmentSet: preparation.commitmentSet
         )
-        let request = reservationPublicationRequest(
+        let request = try reservationPublicationRequest(
             harness: harness,
             playerCommit: playerCommit,
             attemptIdentifier: .init(
@@ -412,7 +412,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             )
         }
 
-        let request = reservationPublicationRequest(
+        let request = try reservationPublicationRequest(
             harness: harness,
             playerCommit: playerCommit,
             generationIdentifier: generationIdentifier,
@@ -451,7 +451,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             harness: harness,
             commitmentSet: preparation.commitmentSet
         )
-        let request = reservationPublicationRequest(
+        let request = try reservationPublicationRequest(
             harness: harness,
             playerCommit: playerCommit
         )
@@ -495,7 +495,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             profile: .opalMainnetAlpha
         )
         let expectedReference = reservationReference()
-        let request = reservationPublicationRequest(
+        let request = try reservationPublicationRequest(
             harness: harness,
             playerCommit: try localPlayerCommit(
                 harness: harness,
@@ -528,7 +528,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             manifest: harness.admission.manifest.binding,
             profile: .opalMainnetAlpha
         )
-        let request = reservationPublicationRequest(
+        let request = try reservationPublicationRequest(
             harness: harness,
             playerCommit: try localPlayerCommit(
                 harness: harness,
@@ -754,7 +754,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             )
         )
         #expect(harness.session.state == .active(.walletReservation))
-        let publicationRequest = reservationPublicationRequest(
+        let publicationRequest = try reservationPublicationRequest(
             harness: harness,
             playerCommit: material.playerCommit
         )
@@ -901,8 +901,9 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         contributor: Session.ControlIdentity? = nil,
         manifest: Alpha.RoundManifest? = nil,
         reservationReference: OpalFusion.Host.MosaicReservationReference? = nil
-    ) -> Session.ReservationPublicationRequest {
-        .init(
+    ) throws -> Session.ReservationPublicationRequest {
+        let reference = reservationReference ?? self.reservationReference()
+        return .init(
             attemptIdentifier:
                 attemptIdentifier ?? harness.admission.attemptIdentifier,
             generationIdentifier:
@@ -913,9 +914,36 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             contributor:
                 contributor ?? harness.admission.localControlIdentity,
             manifest: manifest ?? harness.admission.manifest,
-            reservationReference:
-                reservationReference ?? self.reservationReference(),
+            reservationLease: try reservationLease(reference: reference),
             playerCommit: playerCommit
+        )
+    }
+
+    private func reservationLease(
+        reference: OpalFusion.Host.MosaicReservationReference
+    ) throws -> OpalFusion.Host.MosaicReservationLease {
+        try .init(
+            reference: reference,
+            expiresAt: Date(timeIntervalSince1970: 1_900_000_000),
+            participantReservation: .init(
+                inputs: [
+                    .init(
+                        outpointTransactionHashBytes: [UInt8](
+                            repeating: 0x31,
+                            count: 32
+                        ),
+                        outpointIndex: 0,
+                        amountSatoshis: 100_000,
+                        lockingScriptBytes: [0x51]
+                    ),
+                ],
+                outputs: [
+                    .init(
+                        lockingScriptBytes: [0x51],
+                        amountSatoshis: 99_000
+                    ),
+                ]
+            )
         )
     }
 
