@@ -68,6 +68,11 @@ run_filter() {
   run_test --filter "$filter_name"
 }
 
+run_serial_filter() {
+  local filter_name="$1"
+  run_test --no-parallel --filter "$filter_name"
+}
+
 case "$mode" in
   --help|-h)
     usage
@@ -98,7 +103,10 @@ case "$mode" in
     run_filter ClientSessionValidator
     ;;
   mosaic)
-    run_test --no-parallel --filter Mosaic
+    run_test --filter Mosaic \
+      --skip 'MosaicMainnetAlphaAdmissionLedgerValidator|MosaicOpalV0AuthorizationValidator'
+    run_serial_filter MosaicMainnetAlphaAdmissionLedgerValidator
+    run_serial_filter MosaicOpalV0AuthorizationValidator
     run_filter FusionFacadeScaffoldValidator
     ;;
   interop-parser)

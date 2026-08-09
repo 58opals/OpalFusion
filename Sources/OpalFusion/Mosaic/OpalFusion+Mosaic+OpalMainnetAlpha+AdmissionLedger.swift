@@ -5,8 +5,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     ///
     /// The ledger authenticates no transport and performs no wallet work. Its phase can advance
     /// only to the immediate successor after an owning reducer has independently authorized that
-    /// transition. The explicit sequence baselines are supplied by pre-manifest transport state;
-    /// this type does not choose the still-unfrozen sequence epoch.
+    /// transition. Every roster identity starts a fresh per-round control sequence at zero.
     struct AdmissionLedger: Sendable {
         private struct ActiveAggregate: Sendable {
             let binding: AggregateReservationBinding
@@ -22,6 +21,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private let attemptIdentifier: AttemptIdentifier
         private let generationIdentifier: GenerationIdentifier
+        private let localControlIdentity: ControlIdentity
         private let localRole: OpalFusion.Mosaic.Role
         private let proposalValidation: ManifestProposalValidation
         private let roster: OpalFusion.Mosaic.Attempt.Roster
@@ -36,12 +36,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private var manifest: RoundManifest?
         private var playerCommits: [ControlIdentity: PlayerCommit] = [:]
+        private var authorizationResponseSets: [
+            ControlIdentity: AuthorizationResponseSet
+        ] = [:]
+        private var authorizationResponseValidation:
+            AuthorizationResponseSetValidation?
         private var commitmentValidation: OpalFusion.Mosaic.Attempt
             .CommitmentSetValidation?
         private var transcript: Transcript?
         private var acknowledgements: [
             ControlIdentity: PreSignAcknowledgementSubmission
         ] = [:]
+        private var acknowledgementSet: PreSignAcknowledgementSet?
 
         private var acceptedAnonymousComponents: [AcceptedAnonymousComponent] = []
 
@@ -49,8 +55,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             attemptIdentifier: AttemptIdentifier,
             generationIdentifier: GenerationIdentifier,
             localControlIdentity: ControlIdentity,
-            proposalValidation: ManifestProposalValidation,
-            expectedFirstControlSequenceBySender: [ControlIdentity: UInt64]
+            proposalValidation: ManifestProposalValidation
         ) throws(InitializationError) {
             let roster = proposalValidation.core.roster
             guard let localMember = roster.members.first(where: {
@@ -58,19 +63,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }) else {
                 throw .localControlIdentityNotInRoster(localControlIdentity)
             }
-            guard Set(expectedFirstControlSequenceBySender.keys)
-                == Set(roster.controlIdentities),
-                expectedFirstControlSequenceBySender.count
-                    == roster.controlIdentities.count else {
-                throw .controlSequenceRosterMismatch
-            }
             self.attemptIdentifier = attemptIdentifier
             self.generationIdentifier = generationIdentifier
+            self.localControlIdentity = localControlIdentity
             self.localRole = localMember.role
             self.proposalValidation = proposalValidation
             self.roster = roster
             self.roundIdentifier = proposalValidation.core.roundIdentifier
-            self.nextControlSequenceBySender = expectedFirstControlSequenceBySender
+            self.nextControlSequenceBySender = Dictionary(
+                uniqueKeysWithValues: roster.controlIdentities.map { ($0, 0) }
+            )
         }
 
         mutating func apply(input: Input) -> [Effect] {
@@ -85,6 +87,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             switch input {
             case let .control(delivery):
                 return receive(delivery)
+            case let .authorizationResponseSetValidated(delivery):
+                return receiveAuthorizationResponseValidation(delivery)
             case .cancel:
                 let phase = currentPhase
                 return terminate(with: .cancelled(during: phase))
@@ -304,16 +308,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard let expectedSequence = nextControlSequenceBySender[sender] else {
                 return [.inputRejected(.senderNotInRoster)]
             }
-            guard envelope.sequence >= expectedSequence else {
-                return [
-                    .inputRejected(
-                        .staleSequence(
-                            expected: expectedSequence,
-                            received: envelope.sequence
-                        )
-                    )
-                ]
-            }
             guard envelope.sequence == expectedSequence else {
                 return terminate(
                     with: .failed(
@@ -468,9 +462,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case (.manifestAgreement, .completeManifest):
                 return .manifest(proposalValidation.context)
             case (.walletReservation, .playerCommit),
+                 (.walletReservation, .authorizationResponseSet),
                  (.groupedCommitment, .commitmentSet),
                  (.anonymousComponentSubmission, .componentSet):
                 return .profileOnly
+            case (.transcriptAgreement, .preSignAcknowledgementSet):
+                return .preSignAcknowledgementSet(roster: roster)
             default:
                 throw ContractError.aggregateDecodingContextMismatch(kind)
             }
@@ -514,10 +511,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return receiveManifest(manifest)
             case let .playerCommit(playerCommit):
                 return receivePlayerCommit(playerCommit)
+            case let .authorizationResponseSet(responseSet):
+                return receiveAuthorizationResponseSet(responseSet)
             case let .commitmentSet(commitmentSet):
                 return receiveCommitmentSet(commitmentSet)
             case let .componentSet(componentSet):
                 return receiveComponentSet(componentSet)
+            case let .preSignAcknowledgementSet(acknowledgementSet):
+                return receivePreSignAcknowledgementSet(acknowledgementSet)
             case .bchSignatureSet, .completeTransaction:
                 return terminate(with: .failed(.bchSigningAdmissionUnavailable))
             }
@@ -541,7 +542,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private mutating func receivePlayerCommit(
             _ playerCommit: PlayerCommit
         ) -> [Effect] {
-            guard localRole == .conductor else {
+            guard localRole == .conductor
+                || playerCommit.contributor == localControlIdentity else {
                 return [.inputRejected(.playerCommitAdmissionUnavailable)]
             }
             let contributor = playerCommit.contributor
@@ -558,6 +560,81 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
             }
             return effects
+        }
+
+        private mutating func receiveAuthorizationResponseSet(
+            _ responseSet: AuthorizationResponseSet
+        ) -> [Effect] {
+            let contributor = responseSet.contributor
+            guard authorizationResponseSets[contributor] == nil else {
+                return terminate(
+                    with: .failed(
+                        .conflictingDocument(
+                            .authorizationResponseSet(contributor)
+                        )
+                    )
+                )
+            }
+            let playerCommit = playerCommits[contributor]
+            if localRole == .conductor || contributor == localControlIdentity {
+                guard let playerCommit,
+                      responseSet.roundIdentifier == roundIdentifier,
+                      responseSet.playerCommitDigest == playerCommit.digest else {
+                    return terminate(
+                        with: .failed(
+                            .authorizationResponseSetPlayerCommitMismatch
+                        )
+                    )
+                }
+            }
+            authorizationResponseSets[contributor] = responseSet
+            var effects: [Effect] = [
+                .authorizationResponseSetAdmitted(responseSet)
+            ]
+            if localRole == .contributor,
+               contributor == localControlIdentity,
+               let playerCommit {
+                effects.append(
+                    .authorizationResponseSetValidationRequired(
+                        responseSet,
+                        playerCommit: playerCommit
+                    )
+                )
+            }
+            return effects
+        }
+
+        private mutating func receiveAuthorizationResponseValidation(
+            _ delivery: AuthorizationResponseValidationDelivery
+        ) -> [Effect] {
+            guard delivery.attemptIdentifier == attemptIdentifier else {
+                return [.inputRejected(.attemptIdentifierMismatch)]
+            }
+            guard delivery.generationIdentifier == generationIdentifier else {
+                return [.inputRejected(.generationIdentifierMismatch)]
+            }
+            guard currentPhase == .walletReservation,
+                  localRole == .contributor,
+                  authorizationResponseValidation == nil,
+                  let manifest,
+                  delivery.validation.verificationKeyIdentifier
+                    == [UInt8](
+                        manifest.core.blindSigningVerificationKey.keyIdentifier
+                    ),
+                  authorizationResponseSets[localControlIdentity]
+                    == delivery.validation.responseSet,
+                  delivery.validation.responseSet.contributor
+                    == localControlIdentity else {
+                return terminate(
+                    with: .failed(.authorizationResponseSetValidationMismatch)
+                )
+            }
+            authorizationResponseValidation = delivery.validation
+            return [
+                .authorizationResponsesValidated(
+                    delivery.validation.authorizationTokens
+                )
+            ]
         }
 
         private mutating func receiveCommitmentSet(
@@ -703,6 +780,30 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             return effects
         }
 
+        private mutating func receivePreSignAcknowledgementSet(
+            _ set: PreSignAcknowledgementSet
+        ) -> [Effect] {
+            guard acknowledgementSet == nil else {
+                return terminate(
+                    with: .failed(
+                        .conflictingDocument(.preSignAcknowledgementSet)
+                    )
+                )
+            }
+            if localRole == .conductor {
+                guard acknowledgements.count == roster.contributors.count,
+                      set.submissions == sortedAcknowledgements else {
+                    return terminate(
+                        with: .failed(
+                            .preSignAcknowledgementSetDoesNotMatchCollection
+                        )
+                    )
+                }
+            }
+            acknowledgementSet = set
+            return [.preSignAcknowledgementSetAdmitted(set)]
+        }
+
         private func phaseAdvancePrerequisiteIsSatisfied(
             _ nextContext: PhaseContext
         ) -> Bool {
@@ -712,8 +813,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case .walletReservation:
                 return manifest != nil
             case .groupedCommitment:
-                return localRole == .contributor
-                    || playerCommits.count == roster.contributors.count
+                if localRole == .conductor {
+                    return playerCommits.count == roster.contributors.count
+                        && authorizationResponseSets.count
+                            == roster.contributors.count
+                }
+                return playerCommits[localControlIdentity] != nil
+                    && authorizationResponseSets.count
+                        == roster.contributors.count
+                    && authorizationResponseSets[localControlIdentity] != nil
+                    && authorizationResponseValidation != nil
             case .anonymousComponentSubmission:
                 return commitmentValidation != nil
             case let .transcriptAgreement(expectedTranscript):

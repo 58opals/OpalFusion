@@ -23,6 +23,13 @@ extension OpalFusion.Mosaic.OpalV0 {
             case inputAfterTermination
         }
 
+        enum IssuedResponseError: Error, Sendable, Equatable {
+            case issuanceIncomplete
+            case unknownContributor
+            case requestCountMismatch(actual: Int)
+            case requestMismatch(slot: Int)
+        }
+
         struct RequestKey: Sendable, Hashable {
             let contributor: OpalFusion.Mosaic.Attempt.ControlIdentity
             let slot: Int
@@ -168,6 +175,41 @@ extension OpalFusion.Mosaic.OpalV0 {
                     }
                     return lhs.key.slot < rhs.key.slot
                 }
+        }
+
+        func issuedResponses(
+            for contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
+            matching expectedRequests: [AuthorizationRequestPayload]
+        ) throws -> [AuthorizationResponsePayload] {
+            guard phase == .issued else {
+                throw IssuedResponseError.issuanceIncomplete
+            }
+            guard roster.contributors.contains(contributor) else {
+                throw IssuedResponseError.unknownContributor
+            }
+            guard expectedRequests.count
+                == OpalFusion.Mosaic.OpalV0
+                    .componentAuthorizationCountPerContributor else {
+                throw IssuedResponseError.requestCountMismatch(
+                    actual: expectedRequests.count
+                )
+            }
+            return try (0 ..< OpalFusion.Mosaic.OpalV0
+                .componentAuthorizationCountPerContributor).map { slot in
+                let key = RequestKey(contributor: contributor, slot: slot)
+                let expectedRequest = expectedRequests[slot]
+                guard expectedRequest.slot == slot,
+                      requests[key] == expectedRequest.blindedMessage else {
+                    throw IssuedResponseError.requestMismatch(slot: slot)
+                }
+                guard let blindSignature = responses[key] else {
+                    throw IssuedResponseError.issuanceIncomplete
+                }
+                return try AuthorizationResponsePayload(
+                    slot: slot,
+                    blindSignature: blindSignature
+                )
+            }
         }
 
         private mutating func terminate(with failure: Failure) -> [Effect] {

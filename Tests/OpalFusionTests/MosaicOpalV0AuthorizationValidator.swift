@@ -214,8 +214,8 @@ struct MosaicOpalV0AuthorizationValidator {
 
     @Test("Issue and verify one attempt-bound component authorization")
     func issueAndVerifyAuthorization() throws {
-        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
-            .generate()
+        let evaluator = try MosaicMainnetAlphaFixtures
+            .authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
         let input = try authorizationInput(
             verificationKey: verificationKey,
@@ -235,11 +235,10 @@ struct MosaicOpalV0AuthorizationValidator {
 
     @Test("Reject substituted authorization keys and token material")
     func rejectSubstitutedAuthorizationMaterial() throws {
-        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
-            .generate()
+        let evaluator = try MosaicMainnetAlphaFixtures
+            .authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
-        let otherKey = try OpalCrypto.RSABSSA.SigningKey.generate()
-            .verificationKey
+        let otherKey = try MosaicMainnetAlphaFixtures.rsaVerificationKey()
         let input = try authorizationInput(
             verificationKey: verificationKey,
             nonceByte: 0x41
@@ -292,8 +291,8 @@ struct MosaicOpalV0AuthorizationValidator {
 
     @Test("Complete the fixed 23-authorization contributor batch")
     func completeContributorAuthorizationBatch() throws {
-        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
-            .generate()
+        let evaluator = try MosaicMainnetAlphaFixtures
+            .authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
         var spentIdentifiers: Set<[UInt8]> = []
 
@@ -314,6 +313,80 @@ struct MosaicOpalV0AuthorizationValidator {
         }
 
         #expect(spentIdentifiers.count == 23)
+    }
+
+    @Test("Bind response validation to one manifest key and 23 replay identities")
+    func rejectInvalidResponseValidationBindings() throws {
+        typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
+        typealias OpalV0 = OpalFusion.Mosaic.OpalV0
+
+        let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
+        let verificationKey = try #require(evaluator.verificationKey)
+        let foreignVerificationKey = try MosaicMainnetAlphaFixtures
+            .rsaVerificationKey()
+        #expect(verificationKey != foreignVerificationKey)
+
+        let election = try MosaicMainnetAlphaFixtures.makeElection()
+        let contributor = election.result.roster.contributors[0]
+        let input = try OpalV0.AuthorizationTokenInput(
+            profile: .opalMainnetAlpha,
+            roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
+            keyIdentifier: [UInt8](verificationKey.keyIdentifier),
+            nonce: [UInt8](repeating: 0x51, count: 32)
+        )
+        let request = try OpalV0.AuthorizationRequest(
+            input: input,
+            using: verificationKey
+        )
+        let requests = Array(
+            repeating: request,
+            count: Alpha.componentCountPerContributor
+        )
+        let playerCommit = try Alpha.PlayerCommit(
+            roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
+            contributor: contributor,
+            groupedCommitment: MosaicOpalV0WireContractValidator
+                .makeGroupedCommitment(),
+            authorizationRequests: try requests.enumerated().map {
+                slot, request in
+                try .init(
+                    slot: slot,
+                    blindedMessage: request.blindedMessage
+                )
+            }
+        )
+        let blindSignature = try evaluator.evaluate(request.blindedMessage)
+        let responseSet = try Alpha.AuthorizationResponseSet(
+            roundIdentifier: playerCommit.roundIdentifier,
+            contributor: contributor,
+            playerCommitDigest: playerCommit.digest,
+            responses: try (0 ..< Alpha.componentCountPerContributor).map {
+                try .init(slot: $0, blindSignature: blindSignature)
+            }
+        )
+
+        #expect(
+            throws: Alpha.AuthorizationResponseSetValidation.ValidationError
+                .verificationKeyMismatch(slot: 0)
+        ) {
+            _ = try Alpha.AuthorizationResponseSetValidation(
+                validating: responseSet,
+                playerCommit: playerCommit,
+                requests: requests,
+                blindSigningVerificationKey: foreignVerificationKey
+            )
+        }
+        #expect(
+            throws: Alpha.AuthorizationResponseSetValidation.ValidationError
+                .duplicateAuthorizationSpentIdentifier(slot: 1)
+        ) {
+            _ = try Alpha.AuthorizationResponseSetValidation(
+                validating: responseSet,
+                playerCommit: playerCommit,
+                requests: requests,
+                blindSigningVerificationKey: verificationKey
+            )
+        }
     }
 
     @Test("Derive replay identity from token input rather than randomized signature")

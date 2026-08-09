@@ -9,7 +9,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
 
     enum InitializationError: Error, Sendable, Equatable {
         case localControlIdentityNotInRoster(ControlIdentity)
-        case controlSequenceRosterMismatch
     }
 
     enum PhaseContext: Sendable, Equatable {
@@ -52,9 +51,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
     enum DocumentSlot: Sendable, Equatable {
         case completeManifest
         case playerCommit(ControlIdentity)
+        case authorizationResponseSet(ControlIdentity)
         case commitmentSet
         case componentSet
         case preSignAcknowledgement(ControlIdentity)
+        case preSignAcknowledgementSet
     }
 
     enum Failure: Error, Sendable, Equatable {
@@ -64,7 +65,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case senderNotInRoster
         case outerEventIdentityMismatch
         case expiredEnvelope
-        case staleSequence(expected: UInt64, received: UInt64)
         case sequenceGap(expected: UInt64, received: UInt64)
         case sequenceConflict(sender: ControlIdentity, sequence: UInt64)
         case sequenceExhausted(sender: ControlIdentity)
@@ -85,6 +85,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
             OpalFusion.Mosaic.Attempt.CommitmentSetValidation.ValidationError
         )
         case playerCommitAdmissionUnavailable
+        case authorizationResponseSetPlayerCommitMismatch
+        case authorizationResponseSetValidationMismatch
         case commitmentSetDoesNotMatchPlayerCommits
         case anonymousComponentAdmissionUnavailable
         case anonymousComponentAdmissionRejected(ContractError)
@@ -100,6 +102,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         )
         case preSignAcknowledgementAdmissionUnavailable
         case transcriptAcknowledgementMismatch
+        case preSignAcknowledgementSetDoesNotMatchCollection
         case bchSigningAdmissionUnavailable
         case unsupportedAnonymousBCHSignature
         case inPlaceRetryNotPermitted
@@ -132,6 +135,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         let to: PhaseContext
     }
 
+    struct AuthorizationResponseValidationDelivery: Sendable, Equatable {
+        let attemptIdentifier: AttemptIdentifier
+        let generationIdentifier: GenerationIdentifier
+        let validation: OpalFusion.Mosaic.OpalMainnetAlpha
+            .AuthorizationResponseSetValidation
+    }
+
     protocol PhaseTransitionValidating: Sendable {
         func validatePhaseTransition(_ request: PhaseTransitionRequest) throws
     }
@@ -150,6 +160,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
 
     enum Input: Sendable, Equatable {
         case control(ControlDelivery)
+        case authorizationResponseSetValidated(
+            AuthorizationResponseValidationDelivery
+        )
         case cancel
         case retryRequested
     }
@@ -181,6 +194,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case playerCommitUnanimityReached(
             [OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommit]
         )
+        case authorizationResponseSetAdmitted(
+            OpalFusion.Mosaic.OpalMainnetAlpha.AuthorizationResponseSet
+        )
+        case authorizationResponseSetValidationRequired(
+            OpalFusion.Mosaic.OpalMainnetAlpha.AuthorizationResponseSet,
+            playerCommit: OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommit
+        )
+        case authorizationResponsesValidated(
+            [OpalFusion.Mosaic.OpalV0.AuthorizationToken]
+        )
         case commitmentSetAdmitted(OpalFusion.Mosaic.OpalV0.CommitmentSet)
         case componentSetAdmitted(
             OpalFusion.Mosaic.OpalV0.ComponentSet,
@@ -197,6 +220,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case preSignAcknowledgementCollectionComplete(
             [OpalFusion.Mosaic.OpalMainnetAlpha
                 .PreSignAcknowledgementSubmission]
+        )
+        case preSignAcknowledgementSetAdmitted(
+            OpalFusion.Mosaic.OpalMainnetAlpha.PreSignAcknowledgementSet
         )
         case phaseAdvanced(PhaseContext)
         case attemptTerminated(Outcome)

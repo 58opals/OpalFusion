@@ -152,11 +152,17 @@ extension MainnetAlpha.ControlEnvelope {
         case .playerCommit:
             expectedPhase = .walletReservation
             validPublisher = roster.contributors.contains(sender)
+        case .authorizationResponseSet:
+            expectedPhase = .walletReservation
+            validPublisher = sender == roster.conductor
         case .commitmentSet:
             expectedPhase = .groupedCommitment
             validPublisher = sender == roster.conductor
         case .componentSet:
             expectedPhase = .anonymousComponentSubmission
+            validPublisher = sender == roster.conductor
+        case .preSignAcknowledgementSet:
+            expectedPhase = .transcriptAgreement
             validPublisher = sender == roster.conductor
         case .bchSignatureSet, .completeTransaction:
             expectedPhase = .bchSigning
@@ -244,6 +250,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     == context.roundIdentifier else {
                     throw ContractError.aggregateRoundMismatch
                 }
+            case let .authorizationResponseSet(responseSet):
+                guard context.phase == .walletReservation,
+                      context.sender == conductor,
+                      context.roster.contributors.contains(
+                        responseSet.contributor
+                      ) else {
+                    throw ContractError.aggregatePublisherMismatch
+                }
+                guard responseSet.roundIdentifier
+                    == context.roundIdentifier else {
+                    throw ContractError.aggregateRoundMismatch
+                }
             case let .commitmentSet(commitmentSet):
                 guard context.phase == .groupedCommitment,
                       context.sender == conductor,
@@ -255,6 +273,19 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                       context.sender == conductor,
                       componentSet.profile == .opalMainnetAlpha else {
                     throw ContractError.aggregatePublisherMismatch
+                }
+            case let .preSignAcknowledgementSet(acknowledgementSet):
+                guard context.phase == .transcriptAgreement,
+                      context.sender == conductor else {
+                    throw ContractError.aggregatePublisherMismatch
+                }
+                guard acknowledgementSet.roundIdentifier
+                    == context.roundIdentifier else {
+                    throw ContractError.aggregateRoundMismatch
+                }
+                guard acknowledgementSet.transcriptRoot
+                    == context.transcriptRoot else {
+                    throw ContractError.aggregateTranscriptMismatch
                 }
             case let .bchSignatureSet(signatureSet):
                 guard context.phase == .bchSigning,

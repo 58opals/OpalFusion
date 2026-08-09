@@ -37,7 +37,7 @@ public extension OpalFusion.Mosaic {
             componentCountPerContributor: 23
         )
 
-        /// The fixed roster constants for `Mosaic/0-opal-mainnet-alpha.1`.
+        /// The fixed roster constants for `Mosaic/0-opal-mainnet-alpha.2`.
         public static let opalMainnetAlpha = Self(
             minimumContributorCount: 6,
             targetContributorCount: 8,

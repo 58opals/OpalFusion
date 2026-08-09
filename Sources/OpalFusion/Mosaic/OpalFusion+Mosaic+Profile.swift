@@ -15,7 +15,7 @@ public extension OpalFusion.Mosaic {
         ///
         /// Selecting this profile does not provide relay endpoints, a Tor route, wallet policy,
         /// broadcast permission, or a runnable public session.
-        case opalMainnetAlpha = "Mosaic/0-opal-mainnet-alpha.1"
+        case opalMainnetAlpha = "Mosaic/0-opal-mainnet-alpha.2"
 
         public var protocolVersion: ProtocolVersion {
             switch self {
@@ -47,7 +47,7 @@ public extension OpalFusion.Mosaic {
             case .draft1: "mosaic-bch-p2pkh-draft"
             case .opalV0: "bch-chipnet-p2pkh-schnorr/0-opal.1"
             case .opalMainnetAlpha:
-                "bch-mainnet-p2pkh-schnorr/0-opal-mainnet-alpha.1"
+                "bch-mainnet-p2pkh-schnorr/0-opal-mainnet-alpha.2"
             }
         }
 

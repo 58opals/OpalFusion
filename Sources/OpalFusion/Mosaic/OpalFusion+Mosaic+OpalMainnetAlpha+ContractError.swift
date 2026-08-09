@@ -27,6 +27,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         case poolIdentifierMismatch
         case invalidAuthorizationRequestCount(actual: Int)
         case invalidAuthorizationRequestSlot(expected: Int, actual: Int)
+        case invalidAuthorizationResponseCount(actual: Int)
+        case invalidAuthorizationResponseSlot(expected: Int, actual: Int)
+        case invalidPreSignAcknowledgementCount(expected: Int, actual: Int)
+        case invalidPreSignAcknowledgementContributor
         case invalidAggregateByteCount(actual: Int)
         case invalidAggregateFragmentCount(expected: Int, actual: Int)
         case invalidAggregateFragmentIndex(index: Int, count: Int)
@@ -78,6 +82,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case relaySetDigest
             case roundIdentifier
             case manifestDigest
+            case playerCommitDigest
             case transcriptRoot
             case aggregateDigest
             case payloadDigest

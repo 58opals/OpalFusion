@@ -1,7 +1,7 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha.swift
 
 extension OpalFusion.Mosaic {
-    /// Internal constants frozen by `Mosaic/0-opal-mainnet-alpha.1`.
+    /// Internal constants frozen by `Mosaic/0-opal-mainnet-alpha.2`.
     enum OpalMainnetAlpha {
         static let mainnetGenesisHash: [UInt8] = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68,
@@ -35,6 +35,17 @@ extension OpalFusion.Mosaic {
             + 4
             + componentCountPerContributor
                 * (1 + OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount)
+
+        static let authorizationResponseSetCanonicalByteCount = 32 + 32 + 32
+            + 4
+            + componentCountPerContributor
+                * (1 + OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount)
+
+        static func preSignAcknowledgementSetCanonicalByteCount(
+            contributorCount: Int
+        ) -> Int {
+            32 + 32 + 4 + contributorCount * (32 + bchSchnorrSignatureByteCount)
+        }
 
         static func completeManifestCanonicalByteCount(
             candidateCount: Int

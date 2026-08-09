@@ -5,7 +5,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         case commitmentSet = 0
         case componentSet = 1
         case playerCommit = 2
+        case authorizationResponseSet = 3
         case completeManifest = 4
+        case preSignAcknowledgementSet = 5
         case bchSignatureSet = 6
         case completeTransaction = 7
 
@@ -14,7 +16,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case .commitmentSet: "commitment-set"
             case .componentSet: "component-set"
             case .playerCommit: "player-commit"
+            case .authorizationResponseSet: "authorization-response-set"
             case .completeManifest: "complete-manifest"
+            case .preSignAcknowledgementSet: "pre-sign-acknowledgement-set"
             case .bchSignatureSet: "bch-signature-set"
             case .completeTransaction: "complete-transaction"
             }
@@ -31,10 +35,20 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case .playerCommit:
                 return byteCount == OpalFusion.Mosaic.OpalMainnetAlpha
                     .playerCommitCanonicalByteCount
+            case .authorizationResponseSet:
+                return byteCount == OpalFusion.Mosaic.OpalMainnetAlpha
+                    .authorizationResponseSetCanonicalByteCount
             case .completeManifest:
                 return (7 ... 9).contains {
                     byteCount == OpalFusion.Mosaic.OpalMainnetAlpha
                         .completeManifestCanonicalByteCount(candidateCount: $0)
+                }
+            case .preSignAcknowledgementSet:
+                return (6 ... 8).contains {
+                    byteCount == OpalFusion.Mosaic.OpalMainnetAlpha
+                        .preSignAcknowledgementSetCanonicalByteCount(
+                            contributorCount: $0
+                        )
                 }
             case .bchSignatureSet:
                 let fixedByteCount = 68
@@ -60,7 +74,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         case commitmentSet(OpalFusion.Mosaic.OpalV0.CommitmentSet)
         case componentSet(OpalFusion.Mosaic.OpalV0.ComponentSet)
         case playerCommit(PlayerCommit)
+        case authorizationResponseSet(AuthorizationResponseSet)
         case completeManifest(RoundManifest)
+        case preSignAcknowledgementSet(PreSignAcknowledgementSet)
         case bchSignatureSet(BCHSignatureSet)
         case completeTransaction(CompleteTransactionPayload)
     }
@@ -68,6 +84,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     enum AggregateDecodingContext: Sendable, Equatable {
         case profileOnly
         case manifest(ManifestProposalContext)
+        case preSignAcknowledgementSet(
+            roster: OpalFusion.Mosaic.Attempt.Roster
+        )
         case bchSignatureSet(expectedInputCount: Int)
         case completeTransaction(
             expectedTranscript: OpalFusion.Mosaic.OpalV0
@@ -79,7 +98,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case (.profileOnly, .commitmentSet),
                  (.profileOnly, .componentSet),
                  (.profileOnly, .playerCommit),
+                 (.profileOnly, .authorizationResponseSet),
                  (.manifest, .completeManifest),
+                 (.preSignAcknowledgementSet, .preSignAcknowledgementSet),
                  (.bchSignatureSet, .bchSignatureSet),
                  (.completeTransaction, .completeTransaction):
                 true
@@ -116,11 +137,27 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return .playerCommit(
                     try CanonicalWireCodec.decodePlayerCommit(from: bytes)
                 )
+            case (.profileOnly, .authorizationResponseSet):
+                return .authorizationResponseSet(
+                    try CanonicalWireCodec.decodeAuthorizationResponseSet(
+                        from: bytes
+                    )
+                )
             case let (.manifest(context), .completeManifest):
                 return .completeManifest(
                     try CanonicalWireCodec.decodeManifest(
                         from: bytes,
                         expectedContext: context
+                    )
+                )
+            case let (
+                .preSignAcknowledgementSet(roster),
+                .preSignAcknowledgementSet
+            ):
+                return .preSignAcknowledgementSet(
+                    try CanonicalWireCodec.decodePreSignAcknowledgementSet(
+                        from: bytes,
+                        roster: roster
                     )
                 )
             case let (.bchSignatureSet(expectedInputCount), .bchSignatureSet):

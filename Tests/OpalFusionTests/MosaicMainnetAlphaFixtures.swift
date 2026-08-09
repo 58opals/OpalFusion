@@ -12,26 +12,62 @@ enum MosaicMainnetAlphaFixtures {
     static let roundIdentifier = [UInt8](repeating: 0x71, count: 32)
     static let transcriptRoot = [UInt8](repeating: 0x72, count: 32)
 
+    enum FixtureError: Error {
+        case rsaVerificationKeyUnavailable
+        case authorizationEvaluatorUnavailable
+    }
+
+    private struct RSAFixture {
+        let authorizationEvaluator: OpalV0.AuthorizationEvaluator?
+        let verificationKey: OpalCrypto.RSABSSA.VerificationKey?
+
+        init() {
+            authorizationEvaluator = try? .generate()
+            verificationKey = Self.makeVerificationKey()
+        }
+
+        private static func makeVerificationKey()
+            -> OpalCrypto.RSABSSA.VerificationKey? {
+            let hexadecimal = [
+                "30820152303d06092a864886f70d01010a3030a00d300b0609608648016503040202",
+                "a11a301806092a864886f70d010108300b0609608648016503040202a20302013003",
+                "82010f003082010a0282010100decc4d1709d10fa18365e80fdb0600f56758d95f",
+                "6df541ad09635130fd588b1244831223b9c183591f2b6047e6ad05d19dda9b12695f",
+                "6cb290b8f86ad10aa96ca45fea2b0d2a3ad44d09ca2a8aac0c25b726849c5e127",
+                "c1ea3dd59875ea88e6570449b90d66e5263ced23971205111b9d72e4bb35e9703b",
+                "58a346e4c6a732bd92b5d2aedf13203b2eb1eab9c4e401686bed5836d2ab891cc7",
+                "e727b92480ce406ae4f76d2219931d028fde4dce987458c79d224d36366cdc97703",
+                "4db2ea0e0a4acdc29baf8f0dbca6c98e3192726e2e95aab9ab1e89ae6fe674918",
+                "9bdb663d8aba58f4008bd3bbfda7a8a0048d00362b5436335be3d51b3f8271589",
+                "7ee03124f50203010001",
+            ].joined()
+            return try? .init(
+                subjectPublicKeyInfo: Data(
+                    MosaicOpalV0WireContractValidator.bytes(
+                        hexadecimal: hexadecimal
+                    )
+                )
+            )
+        }
+    }
+
+    private static let rsaFixture = RSAFixture()
+
+    static func authorizationEvaluator() throws
+        -> OpalV0.AuthorizationEvaluator {
+        guard let authorizationEvaluator = rsaFixture.authorizationEvaluator
+        else {
+            throw FixtureError.authorizationEvaluatorUnavailable
+        }
+        return authorizationEvaluator
+    }
+
     static func rsaVerificationKey() throws
         -> OpalCrypto.RSABSSA.VerificationKey {
-        let hexadecimal = [
-            "30820152303d06092a864886f70d01010a3030a00d300b0609608648016503040202",
-            "a11a301806092a864886f70d010108300b0609608648016503040202a20302013003",
-            "82010f003082010a0282010100decc4d1709d10fa18365e80fdb0600f56758d95f",
-            "6df541ad09635130fd588b1244831223b9c183591f2b6047e6ad05d19dda9b12695f",
-            "6cb290b8f86ad10aa96ca45fea2b0d2a3ad44d09ca2a8aac0c25b726849c5e127",
-            "c1ea3dd59875ea88e6570449b90d66e5263ced23971205111b9d72e4bb35e9703b",
-            "58a346e4c6a732bd92b5d2aedf13203b2eb1eab9c4e401686bed5836d2ab891cc7",
-            "e727b92480ce406ae4f76d2219931d028fde4dce987458c79d224d36366cdc97703",
-            "4db2ea0e0a4acdc29baf8f0dbca6c98e3192726e2e95aab9ab1e89ae6fe674918",
-            "9bdb663d8aba58f4008bd3bbfda7a8a0048d00362b5436335be3d51b3f8271589",
-            "7ee03124f50203010001",
-        ].joined()
-        return try .init(
-            subjectPublicKeyInfo: Data(
-                MosaicOpalV0WireContractValidator.bytes(hexadecimal: hexadecimal)
-            )
-        )
+        guard let verificationKey = rsaFixture.verificationKey else {
+            throw FixtureError.rsaVerificationKeyUnavailable
+        }
+        return verificationKey
     }
 
     static func scalarByte(

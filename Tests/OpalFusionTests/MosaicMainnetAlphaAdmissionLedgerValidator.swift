@@ -11,27 +11,10 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Ledger = Alpha.AdmissionLedger
 
-    @Test("Require exact roster sequence baselines and a local roster member")
+    @Test("Derive a zero sequence epoch and require a local roster member")
     func validateInitialization() throws {
         let conductorHarness = try Fixture.makeHarness(localRole: .conductor)
         #expect(conductorHarness.ledger.state == .active(.manifestAgreement))
-
-        var incompleteSequences = Dictionary(
-            uniqueKeysWithValues: conductorHarness.election.result.roster
-                .controlIdentities.map { ($0, UInt64(0)) }
-        )
-        incompleteSequences.removeValue(
-            forKey: conductorHarness.election.result.roster.contributors[0]
-        )
-        #expect(throws: Ledger.InitializationError.controlSequenceRosterMismatch) {
-            _ = try Ledger(
-                attemptIdentifier: conductorHarness.attemptIdentifier,
-                generationIdentifier: conductorHarness.generationIdentifier,
-                localControlIdentity: conductorHarness.localControlIdentity,
-                proposalValidation: conductorHarness.proposalValidation,
-                expectedFirstControlSequenceBySender: incompleteSequences
-            )
-        }
         let unknownIdentity = MosaicManifestSignatureFixtures.controlIdentity(
             scalarByte: 254
         )
@@ -43,11 +26,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 attemptIdentifier: conductorHarness.attemptIdentifier,
                 generationIdentifier: conductorHarness.generationIdentifier,
                 localControlIdentity: unknownIdentity,
-                proposalValidation: conductorHarness.proposalValidation,
-                expectedFirstControlSequenceBySender: Dictionary(
-                    uniqueKeysWithValues: conductorHarness.election.result.roster
-                        .controlIdentities.map { ($0, UInt64(0)) }
-                )
+                proposalValidation: conductorHarness.proposalValidation
             )
         }
     }
@@ -162,7 +141,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
     }
 
-    @Test("Enforce strict replay, conflict, gap, stale, and overflow behavior")
+    @Test("Enforce strict replay, conflict, gap, and a fresh-round zero epoch")
     func enforceControlReplay() throws {
         var duplicateHarness = try Fixture.makeHarness(localRole: .contributor)
         let duplicateRun = try manifestRun(harness: duplicateHarness)
@@ -243,79 +222,12 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 ]
         )
 
-        var staleHarness = try Fixture.makeHarness(
-            localRole: .contributor,
-            firstSequence: 1
-        )
-        let staleRun = try Fixture.aggregateRun(
-            canonicalBytes: staleHarness.manifest.canonicalBytes,
-            kind: .completeManifest,
-            sender: staleHarness.election.result.roster.conductor,
-            phase: .manifestAgreement,
-            sequence: 0,
-            harness: staleHarness
-        )
+        var freshRoundHarness = try Fixture.makeHarness(localRole: .contributor)
+        let freshRoundRun = try manifestRun(harness: freshRoundHarness)
         #expect(
-            staleHarness.ledger.apply(input: .control(staleRun.reservation))
-                == [
-                    .inputRejected(.staleSequence(expected: 1, received: 0))
-                ]
-        )
-        let correctedRun = try Fixture.aggregateRun(
-            canonicalBytes: staleHarness.manifest.canonicalBytes,
-            kind: .completeManifest,
-            sender: staleHarness.election.result.roster.conductor,
-            phase: .manifestAgreement,
-            sequence: 1,
-            harness: staleHarness
-        )
-        #expect(
-            staleHarness.ledger.apply(input: .control(correctedRun.reservation))
-                .count == 1
-        )
-
-        var overflowHarness = try Fixture.makeHarness(
-            localRole: .contributor,
-            firstSequence: UInt64.max
-        )
-        let overflowReservation = try Alpha.AggregateReservation(
-            aggregateKind: .completeManifest,
-            aggregateDigest: Alpha.RoleSeedValidator.hash(
-                domainSuffix: Alpha.AggregateKind.completeManifest
-                    .digestDomainSuffix,
-                fields: [overflowHarness.manifest.canonicalBytes]
-            ),
-            declaredCanonicalByteCount:
-                overflowHarness.manifest.canonicalBytes.count
-        )
-        let overflowEnvelope = try Fixture.signedEnvelope(
-            sender: overflowHarness.election.result.roster.conductor,
-            phase: .manifestAgreement,
-            payloadType: .aggregateReservation,
-            payload: try Alpha.CanonicalWireCodec.encodeAggregateReservation(
-                overflowReservation
-            ),
-            sequence: UInt64.max,
-            roundIdentifier: overflowHarness.manifest.core.roundIdentifier
-        )
-        #expect(
-            overflowHarness.ledger.apply(
-                input: .control(
-                    Fixture.controlDelivery(
-                        envelope: overflowEnvelope,
-                        harness: overflowHarness
-                    )
-                )
-            ) == [
-                .attemptTerminated(
-                    .failed(
-                        .sequenceExhausted(
-                            sender: overflowHarness.election.result.roster
-                                .conductor
-                        )
-                    )
-                )
-            ]
+            freshRoundHarness.ledger.apply(
+                input: .control(freshRoundRun.reservation)
+            ).count == 1
         )
     }
 
@@ -645,6 +557,291 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
     }
 
+    @Test(
+        "Require one response set for every contributor",
+        arguments: [7, 8, 9]
+    )
+    func requireAuthorizationResponseSets(candidateCount: Int) throws {
+        var harness = try Fixture.makeHarness(
+            candidateCount: candidateCount,
+            localRole: .conductor
+        )
+        var conductorSequence = try admitManifestAndAdvanceWallet(
+            harness: &harness
+        )
+        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+            roster: harness.election.result.roster,
+            manifest: harness.manifest.binding,
+            profile: .opalMainnetAlpha
+        )
+        let commits = try Fixture.makePlayerCommits(
+            harness: harness,
+            commitmentSet: preparation.commitmentSet
+        )
+        for commit in commits {
+            let run = try Fixture.aggregateRun(
+                canonicalBytes: commit.canonicalBytes,
+                kind: .playerCommit,
+                sender: commit.contributor,
+                phase: .walletReservation,
+                sequence: 0,
+                harness: harness
+            )
+            _ = Fixture.admit(run, to: &harness.ledger)
+        }
+        let responseSets = try commits.enumerated().map { index, commit in
+            try Fixture.makeAuthorizationResponseSet(
+                playerCommit: commit,
+                byteSeed: UInt8(index + 1)
+            )
+        }
+        for responseSet in responseSets.dropLast() {
+            let run = try Fixture.aggregateRun(
+                canonicalBytes: responseSet.canonicalBytes,
+                kind: .authorizationResponseSet,
+                sender: harness.election.result.roster.conductor,
+                phase: .walletReservation,
+                sequence: conductorSequence,
+                harness: harness
+            )
+            _ = Fixture.admit(run, to: &harness.ledger)
+            conductorSequence = run.nextSequence
+        }
+        var incompleteLedger = harness.ledger
+        #expect(
+            try synchronize(&incompleteLedger, to: .groupedCommitment)
+                == [
+                    .attemptTerminated(
+                        .failed(
+                            .phaseAdvancePrerequisiteMissing(
+                                .groupedCommitment
+                            )
+                        )
+                    )
+                ]
+        )
+        let finalSet = try #require(responseSets.last)
+        let finalRun = try Fixture.aggregateRun(
+            canonicalBytes: finalSet.canonicalBytes,
+            kind: .authorizationResponseSet,
+            sender: harness.election.result.roster.conductor,
+            phase: .walletReservation,
+            sequence: conductorSequence,
+            harness: harness
+        )
+        #expect(
+            Fixture.admit(finalRun, to: &harness.ledger)
+                .contains(.authorizationResponseSetAdmitted(finalSet))
+        )
+        #expect(
+            try synchronize(&harness.ledger, to: .groupedCommitment)
+                == [.phaseAdvanced(.groupedCommitment)]
+        )
+    }
+
+    @Test("Consume one conductor response stream and bind the local set")
+    func bindAuthorizationResponseSet() throws {
+        var contributorHarness = try Fixture.makeHarness(
+            localRole: .contributor,
+            localContributorIndex: 2
+        )
+        var conductorSequence = try admitManifestAndAdvanceWallet(
+            harness: &contributorHarness
+        )
+        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+            roster: contributorHarness.election.result.roster,
+            manifest: contributorHarness.manifest.binding,
+            profile: .opalMainnetAlpha
+        )
+        let commits = try Fixture.makePlayerCommits(
+            harness: contributorHarness,
+            commitmentSet: preparation.commitmentSet
+        )
+        let localCommit = try #require(
+            commits.first {
+                $0.contributor == contributorHarness.localControlIdentity
+            }
+        )
+        let localCommitRun = try Fixture.aggregateRun(
+            canonicalBytes: localCommit.canonicalBytes,
+            kind: .playerCommit,
+            sender: localCommit.contributor,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: contributorHarness
+        )
+        _ = Fixture.admit(localCommitRun, to: &contributorHarness.ledger)
+
+        for commit in commits {
+            let responseSet = try Fixture.makeAuthorizationResponseSet(
+                playerCommit: commit
+            )
+            let run = try Fixture.aggregateRun(
+                canonicalBytes: responseSet.canonicalBytes,
+                kind: .authorizationResponseSet,
+                sender: contributorHarness.election.result.roster.conductor,
+                phase: .walletReservation,
+                sequence: conductorSequence,
+                harness: contributorHarness
+            )
+            let effects = Fixture.admit(run, to: &contributorHarness.ledger)
+            #expect(
+                effects.contains(.authorizationResponseSetAdmitted(responseSet))
+            )
+            if commit.contributor == contributorHarness.localControlIdentity {
+                #expect(
+                    effects.contains(
+                        .authorizationResponseSetValidationRequired(
+                            responseSet,
+                            playerCommit: localCommit
+                        )
+                    )
+                )
+            } else {
+                #expect(
+                    !effects.contains {
+                        if case .authorizationResponseSetValidationRequired = $0 {
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                )
+            }
+            conductorSequence = run.nextSequence
+        }
+        #expect(
+            try synchronize(
+                &contributorHarness.ledger,
+                to: .groupedCommitment
+            ) == [
+                .attemptTerminated(
+                    .failed(
+                        .phaseAdvancePrerequisiteMissing(.groupedCommitment)
+                    )
+                )
+            ]
+        )
+
+        var conductorHarness = try Fixture.makeHarness(localRole: .conductor)
+        let nextConductorSequence = try admitManifestAndAdvanceWallet(
+            harness: &conductorHarness
+        )
+        let conductorPreparation = try MosaicUnsignedTransactionTranscriptFixtures
+            .prepare(
+                roster: conductorHarness.election.result.roster,
+                manifest: conductorHarness.manifest.binding,
+                profile: .opalMainnetAlpha
+            )
+        let playerCommit = try Fixture.makePlayerCommits(
+            harness: conductorHarness,
+            commitmentSet: conductorPreparation.commitmentSet
+        )[0]
+        let playerRun = try Fixture.aggregateRun(
+            canonicalBytes: playerCommit.canonicalBytes,
+            kind: .playerCommit,
+            sender: playerCommit.contributor,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: conductorHarness
+        )
+        _ = Fixture.admit(playerRun, to: &conductorHarness.ledger)
+        var wrongDigest = playerCommit.digest
+        wrongDigest[0] ^= 0x01
+        let wrongSet = try Alpha.AuthorizationResponseSet(
+            roundIdentifier: playerCommit.roundIdentifier,
+            contributor: playerCommit.contributor,
+            playerCommitDigest: wrongDigest,
+            responses: try Fixture.makeAuthorizationResponseSet(
+                playerCommit: playerCommit
+            ).responses
+        )
+        let wrongRun = try Fixture.aggregateRun(
+            canonicalBytes: wrongSet.canonicalBytes,
+            kind: .authorizationResponseSet,
+            sender: conductorHarness.election.result.roster.conductor,
+            phase: .walletReservation,
+            sequence: nextConductorSequence,
+            harness: conductorHarness
+        )
+        #expect(
+            Fixture.admit(wrongRun, to: &conductorHarness.ledger).last
+                == .attemptTerminated(
+                    .failed(.authorizationResponseSetPlayerCommitMismatch)
+                )
+        )
+    }
+
+    @Test("Reject response validation from a key outside the manifest")
+    func rejectResponseValidationForForeignManifestKey() throws {
+        let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
+        let manifestKey = try MosaicMainnetAlphaFixtures.rsaVerificationKey()
+        let evaluatorKey = try #require(evaluator.verificationKey)
+        try #require(evaluatorKey.keyIdentifier != manifestKey.keyIdentifier)
+        var harness = try Fixture.makeHarness(
+            localRole: .contributor,
+            localContributorIndex: 2,
+            verificationKey: manifestKey
+        )
+        let conductorSequence = try admitManifestAndAdvanceWallet(
+            harness: &harness
+        )
+        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+            roster: harness.election.result.roster,
+            manifest: harness.manifest.binding,
+            profile: .opalMainnetAlpha
+        )
+        let material = try makeLocalAuthorizationMaterial(
+            harness: harness,
+            commitmentSet: preparation.commitmentSet,
+            evaluator: evaluator
+        )
+        let playerCommitRun = try Fixture.aggregateRun(
+            canonicalBytes: material.playerCommit.canonicalBytes,
+            kind: .playerCommit,
+            sender: material.playerCommit.contributor,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: harness
+        )
+        try #require(
+            Fixture.admit(playerCommitRun, to: &harness.ledger)
+                .contains(.playerCommitAdmitted(material.playerCommit))
+        )
+        let responseRun = try Fixture.aggregateRun(
+            canonicalBytes: material.responseSet.canonicalBytes,
+            kind: .authorizationResponseSet,
+            sender: harness.election.result.roster.conductor,
+            phase: .walletReservation,
+            sequence: conductorSequence,
+            harness: harness
+        )
+        try #require(
+            Fixture.admit(responseRun, to: &harness.ledger).contains(
+                .authorizationResponseSetValidationRequired(
+                    material.responseSet,
+                    playerCommit: material.playerCommit
+                )
+            )
+        )
+
+        #expect(
+            harness.ledger.apply(
+                input: .authorizationResponseSetValidated(
+                    .init(
+                        attemptIdentifier: harness.attemptIdentifier,
+                        generationIdentifier: harness.generationIdentifier,
+                        validation: material.validation
+                    )
+                )
+            ) == [
+                .attemptTerminated(
+                    .failed(.authorizationResponseSetValidationMismatch)
+                )
+            ]
+        )
+    }
+
     @Test("Reject a second logical PlayerCommit from one contributor")
     func rejectPlayerCommitSlotReuse() throws {
         var harness = try Fixture.makeHarness(localRole: .conductor)
@@ -716,10 +913,20 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
     }
 
-    @Test("Keep contributor admission closed before the acknowledgement-set contract")
+    @Test("Admit the complete acknowledgement set but keep BCH signing closed")
     func keepContributorSigningGateClosed() throws {
-        var harness = try Fixture.makeHarness(localRole: .contributor)
-        let prepared = try prepareTranscript(harness: &harness)
+        let evaluator = try MosaicMainnetAlphaFixtures
+            .authorizationEvaluator()
+        let verificationKey = try #require(evaluator.verificationKey)
+        var harness = try Fixture.makeHarness(
+            localRole: .contributor,
+            localContributorIndex: 2,
+            verificationKey: verificationKey
+        )
+        let prepared = try prepareTranscript(
+            harness: &harness,
+            evaluator: evaluator
+        )
         #expect(
             try synchronize(
                 &harness.ledger,
@@ -727,7 +934,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             ) == [.phaseAdvanced(.transcriptAgreement(prepared.transcript))]
         )
 
-        let contributor = harness.election.result.roster.contributors[0]
+        let contributor = harness.localControlIdentity
         let acknowledgement = try #require(
             MosaicManifestSignatureFixtures.transcriptAcknowledgements(
                 for: [contributor],
@@ -746,7 +953,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                     transcriptRoot: acknowledgement.transcriptRoot,
                     signature: acknowledgement.rawRepresentation
                 ),
-            sequence: 0,
+            sequence: prepared.nextContributorSequence,
             roundIdentifier: harness.manifest.core.roundIdentifier
         )
         #expect(
@@ -757,6 +964,44 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             ) == [
                 .inputRejected(.preSignAcknowledgementAdmissionUnavailable)
             ]
+        )
+        let completeAcknowledgements = MosaicManifestSignatureFixtures
+            .transcriptAcknowledgements(
+                for: harness.election.result.roster.contributors,
+                binding: harness.manifest.binding,
+                transcriptRoot: prepared.transcript.transcriptRoot,
+                profile: .opalMainnetAlpha
+            )
+            .sorted {
+                $0.contributor.validatedBytes.lexicographicallyPrecedes(
+                    $1.contributor.validatedBytes
+                )
+            }
+        let submissions = try completeAcknowledgements.map {
+            try Alpha.PreSignAcknowledgementSubmission(
+                contributor: $0.contributor,
+                roundIdentifier: $0.roundIdentifier,
+                transcriptRoot: $0.transcriptRoot,
+                signature: $0.rawRepresentation
+            )
+        }
+        let acknowledgementSet = try Alpha.PreSignAcknowledgementSet(
+            roundIdentifier: harness.manifest.core.roundIdentifier,
+            transcriptRoot: prepared.transcript.transcriptRoot.validatedBytes,
+            roster: harness.election.result.roster,
+            submissions: submissions
+        )
+        let acknowledgementSetRun = try Fixture.aggregateRun(
+            canonicalBytes: acknowledgementSet.canonicalBytes,
+            kind: .preSignAcknowledgementSet,
+            sender: harness.election.result.roster.conductor,
+            phase: .transcriptAgreement,
+            sequence: prepared.nextConductorSequence,
+            harness: harness
+        )
+        #expect(
+            Fixture.admit(acknowledgementSetRun, to: &harness.ledger)
+                .contains(.preSignAcknowledgementSetAdmitted(acknowledgementSet))
         )
         #expect(
             try synchronize(
@@ -823,11 +1068,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             attemptIdentifier: freshAttempt,
             generationIdentifier: freshGeneration,
             localControlIdentity: harness.localControlIdentity,
-            proposalValidation: harness.proposalValidation,
-            expectedFirstControlSequenceBySender: Dictionary(
-                uniqueKeysWithValues: harness.election.result.roster
-                    .controlIdentities.map { ($0, UInt64(0)) }
-            )
+            proposalValidation: harness.proposalValidation
         )
         #expect(
             freshLedger.apply(input: .control(staleManifestRun.reservation))
@@ -853,8 +1094,8 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
 
     @Test("Admit authorized components only at the local conductor")
     func admitAnonymousComponentsAtConductorOnly() throws {
-        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
-            .generate()
+        let evaluator = try MosaicMainnetAlphaFixtures
+            .authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
         var conductorHarness = try Fixture.makeHarness(
             localRole: .conductor,
@@ -1097,8 +1338,14 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             ) == [.exactDuplicateIgnored]
         )
 
-        var contributorHarness = try Fixture.makeHarness(localRole: .contributor)
-        _ = try prepareTranscript(harness: &contributorHarness)
+        var contributorHarness = try Fixture.makeHarness(
+            localRole: .contributor,
+            verificationKey: verificationKey
+        )
+        _ = try prepareTranscript(
+            harness: &contributorHarness,
+            evaluator: evaluator
+        )
         #expect(
             contributorHarness.ledger.receiveAnonymousComponent(
                 .init(
@@ -1122,8 +1369,8 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         .timeLimit(.minutes(2))
     )
     func collectConductorAcknowledgementsWithoutSigning() throws {
-        let evaluator = try OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
-            .generate()
+        let evaluator = try MosaicMainnetAlphaFixtures
+            .authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
         var harness = try Fixture.makeHarness(
             localRole: .conductor,
@@ -1247,6 +1494,41 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 transcriptRoot: transcript.transcriptRoot,
                 profile: .opalMainnetAlpha
             )
+        let portableSubmissions = try acknowledgements.sorted {
+            $0.contributor.validatedBytes.lexicographicallyPrecedes(
+                $1.contributor.validatedBytes
+            )
+        }.map {
+            try Alpha.PreSignAcknowledgementSubmission(
+                contributor: $0.contributor,
+                roundIdentifier: $0.roundIdentifier,
+                transcriptRoot: $0.transcriptRoot,
+                signature: $0.rawRepresentation
+            )
+        }
+        let portableAcknowledgementSet = try Alpha.PreSignAcknowledgementSet(
+            roundIdentifier: harness.manifest.core.roundIdentifier,
+            transcriptRoot: transcript.transcriptRoot.validatedBytes,
+            roster: harness.election.result.roster,
+            submissions: portableSubmissions
+        )
+        let portableRun = try Fixture.aggregateRun(
+            canonicalBytes: portableAcknowledgementSet.canonicalBytes,
+            kind: .preSignAcknowledgementSet,
+            sender: harness.election.result.roster.conductor,
+            phase: .transcriptAgreement,
+            sequence: componentRun.nextSequence,
+            harness: harness
+        )
+        var earlyPublicationLedger = harness.ledger
+        #expect(
+            Fixture.admit(portableRun, to: &earlyPublicationLedger).last
+                == .attemptTerminated(
+                    .failed(
+                        .preSignAcknowledgementSetDoesNotMatchCollection
+                    )
+                )
+        )
         var wrongRootLedger = harness.ledger
         let firstAcknowledgement = try #require(acknowledgements.first)
         let wrongRoot = try OpalFusion.Mosaic.Attempt.TranscriptRoot(
@@ -1328,6 +1610,15 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             collectedAcknowledgements.map(\.acknowledgement.contributor)
                 == expectedContributors
         )
+        #expect(collectedAcknowledgements == portableSubmissions)
+        #expect(
+            Fixture.admit(portableRun, to: &harness.ledger)
+                .contains(
+                    .preSignAcknowledgementSetAdmitted(
+                        portableAcknowledgementSet
+                    )
+                )
+        )
         var conflictingAcknowledgementLedger = harness.ledger
         let repeatedAcknowledgement = try #require(acknowledgements.first)
         #expect(
@@ -1362,6 +1653,13 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
     private struct PreparedTranscript {
         let transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
         let nextConductorSequence: UInt64
+        let nextContributorSequence: UInt64
+    }
+
+    private struct LocalAuthorizationMaterial {
+        let playerCommit: Alpha.PlayerCommit
+        let responseSet: Alpha.AuthorizationResponseSet
+        let validation: Alpha.AuthorizationResponseSetValidation
     }
 
     private struct RejectingAnonymousComponentValidator:
@@ -1483,10 +1781,173 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
     }
 
     private func prepareTranscript(
-        harness: inout Fixture.Harness
+        harness: inout Fixture.Harness,
+        evaluator: OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
     ) throws -> PreparedTranscript {
         var conductorSequence = try admitManifestAndAdvanceWallet(
             harness: &harness
+        )
+        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+            roster: harness.election.result.roster,
+            manifest: harness.manifest.binding,
+            profile: .opalMainnetAlpha
+        )
+        let verificationKey = try #require(evaluator.verificationKey)
+        try #require(
+            verificationKey == harness.manifest.core.blindSigningVerificationKey
+        )
+        let material = try makeLocalAuthorizationMaterial(
+            harness: harness,
+            commitmentSet: preparation.commitmentSet,
+            evaluator: evaluator
+        )
+        let contributor = harness.localControlIdentity
+        let playerCommit = material.playerCommit
+        var playerCommits = try Fixture.makePlayerCommits(
+            harness: harness,
+            commitmentSet: preparation.commitmentSet
+        )
+        let localCommitIndex = try #require(
+            playerCommits.firstIndex {
+                $0.contributor == contributor
+            }
+        )
+        playerCommits[localCommitIndex] = playerCommit
+        let playerCommitRun = try Fixture.aggregateRun(
+            canonicalBytes: playerCommit.canonicalBytes,
+            kind: .playerCommit,
+            sender: contributor,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: harness
+        )
+        try #require(
+            Fixture.admit(playerCommitRun, to: &harness.ledger)
+                .contains(.playerCommitAdmitted(playerCommit))
+        )
+        let responseSet = material.responseSet
+        let validation = material.validation
+        for (index, commit) in playerCommits.enumerated() {
+            let publishedSet: Alpha.AuthorizationResponseSet
+            if commit.contributor == contributor {
+                publishedSet = responseSet
+            } else {
+                publishedSet = try Fixture.makeAuthorizationResponseSet(
+                    playerCommit: commit,
+                    byteSeed: UInt8(index + 1)
+                )
+            }
+            let responseRun = try Fixture.aggregateRun(
+                canonicalBytes: publishedSet.canonicalBytes,
+                kind: .authorizationResponseSet,
+                sender: harness.election.result.roster.conductor,
+                phase: .walletReservation,
+                sequence: conductorSequence,
+                harness: harness
+            )
+            let effects = Fixture.admit(responseRun, to: &harness.ledger)
+            try #require(
+                effects.contains(
+                    .authorizationResponseSetAdmitted(publishedSet)
+                )
+            )
+            if commit.contributor == contributor {
+                try #require(
+                    effects.contains(
+                        .authorizationResponseSetValidationRequired(
+                            responseSet,
+                            playerCommit: playerCommit
+                        )
+                    )
+                )
+                if index < playerCommits.count - 1 {
+                    var locallyValidatedBeforeCompleteStream = harness.ledger
+                    _ = locallyValidatedBeforeCompleteStream.apply(
+                        input: .authorizationResponseSetValidated(
+                            .init(
+                                attemptIdentifier: harness.attemptIdentifier,
+                                generationIdentifier:
+                                    harness.generationIdentifier,
+                                validation: validation
+                            )
+                        )
+                    )
+                    #expect(
+                        try synchronize(
+                            &locallyValidatedBeforeCompleteStream,
+                            to: .groupedCommitment
+                        ) == [
+                            .attemptTerminated(
+                                .failed(
+                                    .phaseAdvancePrerequisiteMissing(
+                                        .groupedCommitment
+                                    )
+                                )
+                            )
+                        ]
+                    )
+                }
+            }
+            conductorSequence = responseRun.nextSequence
+        }
+        var unvalidatedLedger = harness.ledger
+        #expect(
+            try synchronize(&unvalidatedLedger, to: .groupedCommitment)
+                == [
+                    .attemptTerminated(
+                        .failed(
+                            .phaseAdvancePrerequisiteMissing(
+                                .groupedCommitment
+                            )
+                        )
+                    )
+                ]
+        )
+        var foreignAttemptLedger = harness.ledger
+        #expect(
+            foreignAttemptLedger.apply(
+                input: .authorizationResponseSetValidated(
+                    .init(
+                        attemptIdentifier: .init(
+                            validatedBytes: [UInt8](
+                                repeating: 0xD1,
+                                count: 32
+                            )
+                        ),
+                        generationIdentifier: harness.generationIdentifier,
+                        validation: validation
+                    )
+                )
+            ) == [.inputRejected(.attemptIdentifierMismatch)]
+        )
+        var foreignGenerationLedger = harness.ledger
+        #expect(
+            foreignGenerationLedger.apply(
+                input: .authorizationResponseSetValidated(
+                    .init(
+                        attemptIdentifier: harness.attemptIdentifier,
+                        generationIdentifier: .init(
+                            opaqueBytes: [UInt8](repeating: 0xD2, count: 32)
+                        ),
+                        validation: validation
+                    )
+                )
+            ) == [.inputRejected(.generationIdentifierMismatch)]
+        )
+        try #require(
+            harness.ledger.apply(
+                input: .authorizationResponseSetValidated(
+                    .init(
+                        attemptIdentifier: harness.attemptIdentifier,
+                        generationIdentifier: harness.generationIdentifier,
+                        validation: validation
+                    )
+                )
+            ) == [
+                .authorizationResponsesValidated(
+                    validation.authorizationTokens
+                )
+            ]
         )
         let groupedCommitmentEffects = try synchronize(
             &harness.ledger,
@@ -1494,11 +1955,6 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         try #require(
             groupedCommitmentEffects == [.phaseAdvanced(.groupedCommitment)]
-        )
-        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
-            roster: harness.election.result.roster,
-            manifest: harness.manifest.binding,
-            profile: .opalMainnetAlpha
         )
         let commitmentRun = try Fixture.aggregateRun(
             canonicalBytes: preparation.commitmentSet.canonicalBytes,
@@ -1545,14 +2001,93 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         return .init(
             transcript: transcript,
-            nextConductorSequence: componentRun.nextSequence
+            nextConductorSequence: componentRun.nextSequence,
+            nextContributorSequence: playerCommitRun.nextSequence
+        )
+    }
+
+    private func makeLocalAuthorizationMaterial(
+        harness: Fixture.Harness,
+        commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet,
+        evaluator: OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
+    ) throws -> LocalAuthorizationMaterial {
+        let verificationKey = try #require(evaluator.verificationKey)
+        let contributor = harness.localControlIdentity
+        let sortedContributors = harness.election.result.roster.contributors
+            .sorted {
+                $0.validatedBytes.lexicographicallyPrecedes($1.validatedBytes)
+            }
+        let contributorIndex = try #require(
+            sortedContributors.firstIndex(of: contributor)
+        )
+        let lowerBound = contributorIndex * Alpha.componentCountPerContributor
+        let upperBound = lowerBound + Alpha.componentCountPerContributor
+        let groupedCommitment = try OpalFusion.Mosaic.OpalV0
+            .GroupedCommitmentPayload(
+                commitments: Array(
+                    commitmentSet.commitments[lowerBound ..< upperBound]
+                ),
+                excessFeeSatoshis: 0,
+                pedersenTotalNonce:
+                    [UInt8](repeating: 0, count: 31) + [0xA5]
+            )
+        var requests: [OpalFusion.Mosaic.OpalV0.AuthorizationRequest] = []
+        var requestPayloads: [
+            OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
+        ] = []
+        for slot in 0 ..< Alpha.componentCountPerContributor {
+            let input = try OpalFusion.Mosaic.OpalV0.AuthorizationTokenInput(
+                profile: .opalMainnetAlpha,
+                roundIdentifier: harness.manifest.core.roundIdentifier,
+                keyIdentifier: [UInt8](verificationKey.keyIdentifier),
+                nonce: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
+                    30_000 + slot
+                )
+            )
+            let request = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
+                input: input,
+                using: verificationKey
+            )
+            requests.append(request)
+            requestPayloads.append(
+                try .init(slot: slot, blindedMessage: request.blindedMessage)
+            )
+        }
+        let playerCommit = try Alpha.PlayerCommit(
+            roundIdentifier: harness.manifest.core.roundIdentifier,
+            contributor: contributor,
+            groupedCommitment: groupedCommitment,
+            authorizationRequests: requestPayloads
+        )
+        let responses = try requests.enumerated().map { slot, request in
+            try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
+                slot: slot,
+                blindSignature: evaluator.evaluate(request.blindedMessage)
+            )
+        }
+        let responseSet = try Alpha.AuthorizationResponseSet(
+            roundIdentifier: harness.manifest.core.roundIdentifier,
+            contributor: contributor,
+            playerCommitDigest: playerCommit.digest,
+            responses: responses
+        )
+        let validation = try Alpha.AuthorizationResponseSetValidation(
+            validating: responseSet,
+            playerCommit: playerCommit,
+            requests: requests,
+            blindSigningVerificationKey: verificationKey
+        )
+        return .init(
+            playerCommit: playerCommit,
+            responseSet: responseSet,
+            validation: validation
         )
     }
 
     private func prepareConductorCommitments(
         harness: inout Fixture.Harness
     ) throws -> PreparedConductorCommitments {
-        let conductorSequence = try admitManifestAndAdvanceWallet(
+        var conductorSequence = try admitManifestAndAdvanceWallet(
             harness: &harness
         )
         let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
@@ -1588,6 +2123,25 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 = run.nextSequence
         }
         try #require(reachedUnanimity)
+        for (index, commit) in commits.enumerated() {
+            let responseSet = try Fixture.makeAuthorizationResponseSet(
+                playerCommit: commit,
+                byteSeed: UInt8(index + 1)
+            )
+            let run = try Fixture.aggregateRun(
+                canonicalBytes: responseSet.canonicalBytes,
+                kind: .authorizationResponseSet,
+                sender: harness.election.result.roster.conductor,
+                phase: .walletReservation,
+                sequence: conductorSequence,
+                harness: harness
+            )
+            let effects = Fixture.admit(run, to: &harness.ledger)
+            try #require(
+                effects.contains(.authorizationResponseSetAdmitted(responseSet))
+            )
+            conductorSequence = run.nextSequence
+        }
         let groupedCommitmentEffects = try synchronize(
             &harness.ledger,
             to: .groupedCommitment

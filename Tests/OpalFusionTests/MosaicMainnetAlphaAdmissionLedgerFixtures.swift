@@ -31,7 +31,7 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
     static func makeHarness(
         candidateCount: Int = 7,
         localRole: OpalFusion.Mosaic.Role,
-        firstSequence: UInt64 = 0,
+        localContributorIndex: Int = 0,
         verificationKey: OpalCrypto.RSABSSA.VerificationKey? = nil
     ) throws -> Harness {
         let election = try MosaicMainnetAlphaFixtures.makeElection(
@@ -55,7 +55,15 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         case .conductor:
             localControlIdentity = election.result.roster.conductor
         case .contributor:
-            localControlIdentity = election.result.roster.contributors[0]
+            guard election.result.roster.contributors.indices.contains(
+                localContributorIndex
+            ) else {
+                throw FixtureError.invalidContributorIndex(
+                    localContributorIndex
+                )
+            }
+            localControlIdentity = election.result.roster
+                .contributors[localContributorIndex]
         }
         let attemptIdentifier = Ledger.AttemptIdentifier(
             validatedBytes: [UInt8](repeating: 0xA1, count: 32)
@@ -63,17 +71,11 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         let generationIdentifier = Ledger.GenerationIdentifier(
             opaqueBytes: [UInt8](repeating: 0xA2, count: 32)
         )
-        let firstSequences = Dictionary(
-            uniqueKeysWithValues: election.result.roster.controlIdentities.map {
-                ($0, firstSequence)
-            }
-        )
         let ledger = try Ledger(
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
             localControlIdentity: localControlIdentity,
-            proposalValidation: proposalValidation,
-            expectedFirstControlSequenceBySender: firstSequences
+            proposalValidation: proposalValidation
         )
         return .init(
             election: election,
@@ -227,6 +229,31 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         }
     }
 
+    static func makeAuthorizationResponseSet(
+        playerCommit: Alpha.PlayerCommit,
+        byteSeed: UInt8 = 1
+    ) throws -> Alpha.AuthorizationResponseSet {
+        let responses = try (0 ..< Alpha.componentCountPerContributor).map {
+            slot in
+            try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
+                slot: slot,
+                blindSignature: .init(
+                    rawRepresentation: Data(
+                        repeating: byteSeed &+ UInt8(slot),
+                        count: OpalFusion.Mosaic.OpalV0
+                            .authorizationMaterialByteCount
+                    )
+                )
+            )
+        }
+        return try .init(
+            roundIdentifier: playerCommit.roundIdentifier,
+            contributor: playerCommit.contributor,
+            playerCommitDigest: playerCommit.digest,
+            responses: responses
+        )
+    }
+
     static func eventIdentity(scalarByte: UInt8) -> [UInt8] {
         precondition(scalarByte != 0)
         let signingKey = try! OpalCrypto.Secp256k1.SigningKey(
@@ -251,5 +278,6 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
 
     enum FixtureError: Error {
         case unknownControlIdentity
+        case invalidContributorIndex(Int)
     }
 }
