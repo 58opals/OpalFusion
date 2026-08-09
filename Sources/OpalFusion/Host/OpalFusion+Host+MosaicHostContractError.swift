@@ -30,6 +30,10 @@ public extension OpalFusion.Host {
         case unsignedTransactionTooLarge(actual: Int)
         case emptyCompleteTransaction
         case emptySpentInputs
+        case invalidPreviousOutputHashLength(actual: Int)
+        case zeroExpectedPreviousOutputAmount
+        case zeroResolvedPreviousOutputAmount
+        case emptyResolvedPreviousOutputLockingScript
         case emptyLocalInputIndices
         case emptyExpectedLocalOutputs
         case invalidSpentInputHashLength(index: Int, actual: Int)
