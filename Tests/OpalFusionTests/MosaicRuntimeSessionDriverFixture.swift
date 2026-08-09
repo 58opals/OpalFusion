@@ -16,14 +16,20 @@ enum MosaicRuntimeSessionDriverFixture {
 
     static func makeSession(
         target: Target = .manifestAgreement,
-        profile: OpalFusion.Mosaic.Profile = .opalV0
+        profile: OpalFusion.Mosaic.Profile = .opalV0,
+        localRole: OpalFusion.Mosaic.Role = .contributor
     ) throws -> RuntimeSession {
-        try makeFixture(target: target, profile: profile).session
+        try makeFixture(
+            target: target,
+            profile: profile,
+            localRole: localRole
+        ).session
     }
 
     static func makeFixture(
         target: Target = .manifestAgreement,
-        profile: OpalFusion.Mosaic.Profile = .opalV0
+        profile: OpalFusion.Mosaic.Profile = .opalV0,
+        localRole: OpalFusion.Mosaic.Role = .contributor
     ) throws -> MosaicRuntimeSessionFixture {
         let configuration = OpalFusion.Mosaic.Configuration(profile: profile)
         let controlIdentities = (1 ... 7).map {
@@ -56,7 +62,9 @@ enum MosaicRuntimeSessionDriverFixture {
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
             materialIdentifier: materialIdentifier,
-            localControlIdentity: election.result.roster.contributors[0]
+            localControlIdentity: localRole == .conductor
+                ? election.result.roster.conductor
+                : election.result.roster.contributors[0]
         )
         var runtimeSession = try RuntimeSession(localAttempt: localAttempt)
 
@@ -183,7 +191,28 @@ enum MosaicRuntimeSessionDriverFixture {
         return replacingSession(in: fixture, with: runtimeSession)
     }
 
-    private static func makeMessage(
+    static func makeManifestMessage(
+        fixture: MosaicRuntimeSessionFixture,
+        sequence: UInt64 = 0,
+        identifierByte: UInt8 = 0xE6
+    ) throws -> RuntimeSession.AuthenticatedMessage {
+        try makeMessage(
+            fixture: fixture,
+            sequence: sequence,
+            phase: .manifestAgreement,
+            identifierByte: identifierByte,
+            fact: .manifestSignatureSet(
+                binding: fixture.manifest,
+                signatures: MosaicManifestSignatureFixtures
+                    .manifestSignatures(
+                        for: fixture.roster,
+                        binding: fixture.manifest
+                    )
+            )
+        )
+    }
+
+    static func makeMessage(
         fixture: MosaicRuntimeSessionFixture,
         sequence: UInt64,
         phase: Attempt.Phase,

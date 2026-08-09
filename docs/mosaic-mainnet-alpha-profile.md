@@ -122,7 +122,7 @@ OpalBase remains authoritative. It MUST independently fetch or validate every pr
 
 ## 11. Implemented Evidence Boundary
 
-Deterministic tests pin the profile selectors and genesis hash; role commitment and seed; manifest round and complete-manifest digests; PlayerCommit; authorization input and spent identifier; commitment-set, component-set, unsigned-transaction, and transcript digests; control and anonymous envelope fingerprints; strict aggregate reassembly; BCH signature-set ordering; 100-byte unlocking-script assembly; and complete-transaction digest. Cross-profile, foreign-round, wrong-publisher, wrong-phase, malformed canonical aggregate, wrong outpoint, wrong P2PKH script, and invalid BCH signature negatives fail closed.
+Deterministic tests pin the profile selectors and genesis hash; role commitment and seed; manifest round and complete-manifest digests; PlayerCommit; authorization input and spent identifier; commitment-set, component-set, unsigned-transaction, and transcript digests; control and anonymous envelope fingerprints; strict aggregate reassembly; BCH signature-set ordering; 100-byte unlocking-script assembly; and complete-transaction digest. A profile-neutral internal coordinator also proves ordered late-lease release, the no-release boundary after signing may have begun, exact complete-transaction commit, and recovery-required failure behavior against injected seams. Cross-profile, foreign-round, wrong-publisher, wrong-phase, malformed canonical aggregate, wrong outpoint, wrong P2PKH script, and invalid BCH signature negatives fail closed.
 
 The internal runtime driver still rejects `.opalMainnetAlpha`, and legacy identity-array host markers terminate a mainnet-alpha runtime session. These are release guards, not missing test coverage.
 
@@ -135,7 +135,7 @@ The following are intentionally unresolved or external and MUST remain fail clos
 - a concrete Tor WebSocket implementation with reviewed circuit isolation and no clearnet fallback;
 - the Pedersen balance equation, per-component fee allocation, commitment-opening/component-linkage validator, production local inclusion validator, and lease-to-component material builder;
 - the complete authorization-response set and BCH-signature one-time authorization/replay document;
-- mailbox-to-runtime integration and a failure-aware coordinator that preserves release/commit/recovery ordering across cancellation;
+- mailbox-to-runtime integration and production composition of the internal failure-aware coordinator with sealed mainnet material and host-result provenance;
 - ordered previous-output resolution, durable encrypted attempt journal loading, crash recovery execution, app-owned broadcast policy, and a mainnet-disabled end-to-end host integration proof;
 - independent protocol, cryptographic, side-channel, privacy, wallet-policy, and deployment review.
 

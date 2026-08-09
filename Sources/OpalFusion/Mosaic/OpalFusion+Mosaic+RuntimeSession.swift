@@ -21,6 +21,26 @@ extension OpalFusion.Mosaic {
             localAttempt.configuration
         }
 
+        var attemptIdentifier: LocalAttempt.AttemptIdentifier {
+            localAttempt.attemptIdentifier
+        }
+
+        var generationIdentifier: LocalAttempt.GenerationIdentifier {
+            localAttempt.generationIdentifier
+        }
+
+        var materialIdentifier: LocalAttempt.MaterialIdentifier {
+            localAttempt.materialIdentifier
+        }
+
+        var localControlIdentity: Attempt.ControlIdentity {
+            localAttempt.localControlIdentity
+        }
+
+        var localRole: OpalFusion.Mosaic.Role {
+            localAttempt.localRole
+        }
+
         init(localAttempt: LocalAttempt) throws {
             guard case let .manifestAgreement(roleElection) = localAttempt.state else {
                 throw Failure.attemptNotReady

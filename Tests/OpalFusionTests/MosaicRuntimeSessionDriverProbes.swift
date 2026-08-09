@@ -14,7 +14,9 @@ actor MosaicRuntimeSessionDriverInputProbe {
     private let stream: Driver.Dependencies.InputStream
     private let continuation: Driver.Dependencies.InputStream.Continuation
     private var openedContinuation: CheckedContinuation<Void, Never>?
+    private var closedContinuations: [CheckedContinuation<Void, Never>] = []
     private var hasOpened = false
+    private var hasClosed = false
     private(set) var openCount = 0
     private(set) var closeCount = 0
 
@@ -34,6 +36,11 @@ actor MosaicRuntimeSessionDriverInputProbe {
 
     func close() {
         closeCount += 1
+        hasClosed = true
+        for continuation in closedContinuations {
+            continuation.resume()
+        }
+        closedContinuations.removeAll(keepingCapacity: false)
         continuation.finish()
     }
 
@@ -43,6 +50,15 @@ actor MosaicRuntimeSessionDriverInputProbe {
         }
         await withCheckedContinuation { continuation in
             openedContinuation = continuation
+        }
+    }
+
+    func waitUntilClosed() async {
+        guard !hasClosed else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            closedContinuations.append(continuation)
         }
     }
 

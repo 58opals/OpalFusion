@@ -93,6 +93,24 @@ extension OpalFusion.Mosaic {
             await inputTask?.value
         }
 
+        /// Serializes one already-validated local or host result beside the input source.
+        ///
+        /// A failure-aware executor uses this path to return results from asynchronous host work.
+        /// Network adapters continue to use the configured input stream.
+        @discardableResult
+        func submit(_ input: RuntimeSession.Input) async -> Bool {
+            guard case .running = state else {
+                return false
+            }
+            let shouldContinue = receive(input)
+            guard !shouldContinue else {
+                return true
+            }
+            inputTask?.cancel()
+            await dependencies.closeInputSource()
+            return false
+        }
+
         private func receive(_ input: RuntimeSession.Input) -> Bool {
             guard case .running = state else {
                 return false

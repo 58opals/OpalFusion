@@ -2,7 +2,7 @@
 
 @testable import OpalFusion
 
-struct MosaicRuntimeSessionFixture {
+struct MosaicRuntimeSessionFixture: Sendable {
     var session: OpalFusion.Mosaic.RuntimeSession
     let roster: OpalFusion.Mosaic.Attempt.Roster
     let attemptIdentifier: OpalFusion.Mosaic.LocalAttempt.AttemptIdentifier
