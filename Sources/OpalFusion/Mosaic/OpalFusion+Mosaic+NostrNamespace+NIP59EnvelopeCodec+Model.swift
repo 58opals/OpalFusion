@@ -37,13 +37,19 @@ extension OpalFusion.Mosaic.NostrNamespace.NIP59EnvelopeCodec {
 
     /// A rumor authenticated by its enclosing seal and decrypted for one recipient.
     ///
-    /// All three identifiers are retained because a future Mosaic transport profile
-    /// must explicitly choose its replay identifier rather than inheriting one here.
+    /// All three identifiers are retained so each Mosaic transport profile can
+    /// explicitly choose its replay identifier rather than inheriting one here.
     struct AuthenticatedRumor: Sendable, Equatable {
         let rumor: OpalFusion.Mosaic.NostrNamespace.UnsignedEvent
         let recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey
         let sealIdentifier: OpalCrypto.Signature.Digest
         let giftWrapIdentifier: OpalCrypto.Signature.Digest
+        let sealCreatedAt: UInt64
+        let giftWrapCreatedAt: UInt64
+        let rumorJSONByteCount: Int
+        let sealContentByteCount: Int
+        let sealJSONByteCount: Int
+        let giftWrapContentByteCount: Int
         let deliveryKind: DeliveryKind
 
         var senderPublicKey: OpalCrypto.Signature.BIP340.VerificationKey {

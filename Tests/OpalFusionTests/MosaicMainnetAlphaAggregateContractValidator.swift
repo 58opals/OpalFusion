@@ -495,9 +495,9 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             ) == acknowledgementSet
         )
         let expectedDigests = [
-            7: "44c845f6aa8b2042f295d36c7106823045fc0cb13ef316022669f2f28c434cbc",
-            8: "410a88a9b4848b39ae37bf22c3e199ff13a148fe1c0104cd69e52c0ddfd0cbe8",
-            9: "31242308671ff071d588889a54705913c378a39d01891e91a0ebe0a45efb05ef",
+                7: "574df15e9bf6a6b13a7746730ccf8381e13386a74ac7c9fee3b457957b87d510",
+                8: "62cdcda867bc2609dddf8ebf15bb6de12efc4c6a0e3c00503a22a7c84d422690",
+                9: "7d07eaaedbc4a043f9555325d531e04d18e812048996858f4081ee873f759434",
         ]
         let expectedDigest = try #require(expectedDigests[candidateCount])
         #expect(

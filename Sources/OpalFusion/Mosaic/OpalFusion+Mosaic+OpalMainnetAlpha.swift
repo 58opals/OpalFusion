@@ -81,17 +81,32 @@ extension OpalFusion.Mosaic {
         static let maximumCompleteTransactionPayloadByteCount = 32 + 32 + 4
             + 4 + 1 + maximumTransactionInputCount * 141
             + 1 + 34 + 4
-        static let maximumControlEnvelopeByteCount = 4_092
-        static let maximumAnonymousEnvelopeByteCount = 4_092
+        static let maximumControlEnvelopeByteCount = OpalFusion.Mosaic
+            .PaddedEnvelopeCodec.maximumPayloadByteCount
+        static let maximumAnonymousEnvelopeByteCount = OpalFusion.Mosaic
+            .PaddedEnvelopeCodec.maximumPayloadByteCount
         static let controlEnvelopeFixedOverheadByteCount = 280
         static let maximumControlPayloadByteCount =
             maximumControlEnvelopeByteCount - controlEnvelopeFixedOverheadByteCount
-        static let anonymousEnvelopeFixedOverheadByteCount = 219
+        static let anonymousEnvelopeFixedOverheadByteCount = 217
         static let maximumAnonymousPayloadByteCount =
             maximumAnonymousEnvelopeByteCount
                 - anonymousEnvelopeFixedOverheadByteCount
         static let aggregateFragmentFramingByteCount = 13
         static let maximumAggregateFragmentBodyByteCount =
             maximumControlPayloadByteCount - aggregateFragmentFramingByteCount
+
+        // Frozen by `nostr-tor/0-opal-mainnet-alpha.5`.
+        static let nip59RumorKind: UInt16 = 78
+        static let nip59ApplicationContentByteCount = OpalFusion.Mosaic
+            .PaddedEnvelopeCodec.encodedByteCount
+        static let nip59MaximumRumorJSONByteCount = 8_448
+        static let nip59SealContentByteCount = 13_744
+        static let nip59MaximumSealJSONByteCount = 14_097
+        static let nip59GiftWrapContentByteCount = 19_204
+        static let nip59MaximumGiftWrapJSONByteCount = 19_631
+        static let nip59MaximumPublicationFrameByteCount = 19_641
+        static let relayCount = 3
+        static let relayAcceptanceQuorum = 2
     }
 }

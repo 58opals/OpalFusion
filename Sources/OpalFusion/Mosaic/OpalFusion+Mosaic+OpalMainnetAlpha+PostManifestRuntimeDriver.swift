@@ -3,11 +3,13 @@
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Selects exactly one post-manifest mainnet-alpha role executor.
     ///
-    /// An external adapter must submit one serialized stream of already-authenticated and decrypted
-    /// values. The selected coordinator owns in-process ordering, terminal state, role-specific
-    /// disposition, and recovery-required classification; only the contributor coordinator owns
-    /// wallet disposition. Durable recovery remains app-owned. This façade owns no tasks, transport
-    /// constants, private keys, or broadcast policy.
+    /// An external adapter submits one serialized stream of signed gift wraps and
+    /// recipient capabilities. This driver derives the exact attempt context from its
+    /// bootstrap and authenticates each event before the selected coordinator sees it.
+    /// The selected coordinator owns ordering, terminal state, role-specific disposition,
+    /// and recovery-required classification; only the contributor coordinator owns wallet
+    /// disposition. Durable recovery remains app-owned. This façade owns no tasks,
+    /// recipient keys, relay connections, or broadcast policy.
     struct PostManifestRuntimeDriver: Sendable {
         private enum Coordinator: Sendable {
             case contributor(ReservationCoordinator)
@@ -15,6 +17,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private let coordinator: Coordinator
+        private let transportContext: Transport.RuntimeContext
 
         var state: State {
             get async {
@@ -52,6 +55,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     received: dependencies.role
                 )
             }
+            transportContext = .init(
+                attemptIdentifier: bootstrap.attemptIdentifier,
+                generationIdentifier: bootstrap.generationIdentifier,
+                phaseStartUnixSeconds:
+                    bootstrap.proposalValidation.core.deadlines.phaseStart
+            )
 
             switch dependencies {
             case let .contributor(dependencies):
@@ -96,10 +105,37 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
-        /// Routes one already-authenticated delivery without exposing local authority inputs.
+        /// Authenticates and routes one signed gift wrap without exposing local authority inputs.
         @discardableResult
-        func submit(_ delivery: AuthenticatedDelivery) async -> Bool {
-            switch (coordinator, delivery) {
+        func submit(
+            _ giftWrap: OpalFusion.Mosaic.NostrNamespace.Event,
+            to recipient: Transport.RecipientCapability,
+            currentUnixSeconds: UInt64
+        ) async throws(Transport.Failure) -> Bool {
+            let delivery: Transport.AuthenticatedDelivery
+            switch recipient.channel {
+            case .control:
+                delivery = try Transport.openControl(
+                    giftWrap,
+                    context: transportContext,
+                    recipientSigningKey: recipient.signingKey,
+                    currentUnixSeconds: currentUnixSeconds
+                )
+            case .anonymous:
+                delivery = try Transport.openAnonymous(
+                    giftWrap,
+                    context: transportContext,
+                    recipientSigningKey: recipient.signingKey,
+                    currentUnixSeconds: currentUnixSeconds
+                )
+            }
+            return await route(delivery)
+        }
+
+        private func route(
+            _ delivery: Transport.AuthenticatedDelivery
+        ) async -> Bool {
+            switch (coordinator, delivery.storage) {
             case let (.contributor(coordinator), .control(delivery)):
                 await coordinator.submitControl(delivery)
             case (.contributor, .anonymous):

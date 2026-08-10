@@ -9,10 +9,10 @@ public extension OpalFusion.Mosaic {
         /// Deterministic Nostr event contracts without a live network adapter.
         case nostrConformanceOpalV0 = "nostr-conformance/0-opal.1"
 
-        /// Reserved partial Tor/Nostr identifier for the additive mainnet alpha.
+        /// Frozen post-manifest NIP-59 mapping for the additive mainnet alpha.
         ///
-        /// Application-kind mapping, padding, timing, relay policy, and concrete Tor
-        /// provisioning remain deployment gates; this does not select a live adapter.
-        case nostrTorOpalMainnetAlpha = "nostr-tor/0-opal-mainnet-alpha.4"
+        /// Discovery, relay provisioning, concrete Tor routing, and public session
+        /// composition remain deployment gates; this does not select a live adapter.
+        case nostrTorOpalMainnetAlpha = "nostr-tor/0-opal-mainnet-alpha.5"
     }
 }

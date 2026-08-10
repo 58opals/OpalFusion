@@ -13,8 +13,10 @@ extension OpalFusion.Mosaic {
         static let p2pkhLockingScriptByteCount = 25
         static let maximumMoneySatoshis: UInt64 = 2_100_000_000_000_000
         static let componentAuthorizationCountPerContributor = 23
-        static let paddedInnerPlaintextByteCount = 8_192
-        static let maximumInnerPayloadByteCount = 4_092
+        static let paddedInnerPlaintextByteCount = OpalFusion.Mosaic
+            .PaddedEnvelopeCodec.encodedByteCount
+        static let maximumInnerPayloadByteCount = OpalFusion.Mosaic
+            .PaddedEnvelopeCodec.maximumPayloadByteCount
         static let aggregateFragmentHeaderByteCount = digestByteCount
             + 1
             + digestByteCount

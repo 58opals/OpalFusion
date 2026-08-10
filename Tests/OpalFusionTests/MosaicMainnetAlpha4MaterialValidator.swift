@@ -65,12 +65,12 @@ struct MosaicMainnetAlpha4MaterialValidator {
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 first.component.saltCommitment
-            ) == "1d3e77804ca7ec2cc020913ed3ae0f720bc919a3a0ad718c8fc8603709eee0a5"
+            ) == "4e585fc695b65ee15eb49a1cc1e53890c63055655028b2b4fb7b7e97a3969da5"
         )
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 first.commitment.saltedComponentDigest
-            ) == "7e590f182bf52fbb58919b469272a156247ddeecca9debf92a89a1ade99ac19e"
+            ) == "42d8430e580cc0a7947a7426ae44ffb12db21c0e5c7b556ed61680617017e7d1"
         )
     }
 

@@ -10,6 +10,8 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Driver = Alpha.PostManifestRuntimeDriver
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
+    typealias Nostr = OpalFusion.Mosaic.NostrNamespace
+    typealias Transport = Alpha.PostManifestNIP59Transport
 
     enum RoleCase: CaseIterable, Sendable {
         case contributor
@@ -39,8 +41,12 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
         let manifestRun = try makeManifestRun(harness)
 
         #expect(
-            !(await construction.driver.submit(
-                .control(manifestRun.reservation)
+            !(try await submit(
+                try controlInput(
+                    manifestRun.reservation,
+                    harness: harness
+                ),
+                to: construction.driver
             ))
         )
         #expect(
@@ -61,8 +67,12 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
                 == cancelledState(for: roleCase)
         )
         #expect(
-            !(await construction.driver.submit(
-                .control(manifestRun.reservation)
+            !(try await submit(
+                try controlInput(
+                    manifestRun.reservation,
+                    harness: harness
+                ),
+                to: construction.driver
             ))
         )
         #expect(await construction.host.reservationRequests.isEmpty)
@@ -147,10 +157,24 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
         await construction.driver.start()
 
         #expect(
-            await construction.driver.submit(.control(manifestRun.reservation))
+            try await submit(
+                try controlInput(
+                    manifestRun.reservation,
+                    harness: harness
+                ),
+                to: construction.driver
+            )
         )
         for fragment in manifestRun.fragments {
-            #expect(await construction.driver.submit(.control(fragment)))
+            #expect(
+                try await submit(
+                    try controlInput(
+                        fragment,
+                        harness: harness
+                    ),
+                    to: construction.driver
+                )
+            )
         }
 
         let expected: Driver.State = switch roleCase {
@@ -163,6 +187,65 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
         #expect(await construction.host.reservationRequests.isEmpty)
     }
 
+    @Test("Bind transport authentication to the driver's exact phase start")
+    func rejectCallerRelabeledTransportContext() async throws {
+        let harness = try Fixture.makeHarness(localRole: .conductor)
+        let construction = try makeDriver(
+            harness: harness,
+            roleCase: .conductor
+        )
+        let run = try makeManifestRun(harness)
+        let sender = try [UInt8(9), UInt8(10)]
+            .map(signingKey)
+            .first {
+                Array($0.bip340VerificationKey.rawRepresentation)
+                    == run.reservation.envelope.senderEventIdentity
+            }
+        let validatedSender = try #require(sender)
+        let recipient = try signingKey(12)
+        let expectedPhaseStart = harness.manifest.core.deadlines.phaseStart
+        let foreignPhaseStart = expectedPhaseStart - 2
+        let giftWrap = try Transport.makeControlGiftWrap(
+            run.reservation.envelope,
+            context: .init(
+                attemptIdentifier: harness.attemptIdentifier,
+                generationIdentifier: .init(
+                    opaqueBytes: [UInt8](repeating: 0xEE, count: 32)
+                ),
+                phaseStartUnixSeconds: foreignPhaseStart
+            ),
+            timestamps: .init(
+                phaseStartUnixSeconds: foreignPhaseStart,
+                currentUnixSeconds: expectedPhaseStart - 1,
+                sealCreatedAt: foreignPhaseStart,
+                giftWrapCreatedAt: foreignPhaseStart
+            ),
+            senderEventSigningKey: validatedSender,
+            recipientPublicKey: recipient.bip340VerificationKey
+        )
+        await construction.driver.start()
+
+        do {
+            _ = try await construction.driver.submit(
+                giftWrap,
+                to: .init(channel: .control, signingKey: recipient),
+                currentUnixSeconds: expectedPhaseStart
+            )
+            Issue.record("Expected driver-owned transport context rejection")
+        } catch let failure {
+            #expect(failure == .invalidRumorTimestamp)
+        }
+        #expect(await construction.driver.state == .conductor(.running))
+
+        await construction.driver.stop()
+        #expect(
+            await construction.driver.waitForTermination()
+                == .conductor(
+                    .terminal(.cancelled(during: .manifestAgreement))
+                )
+        )
+    }
+
     @Test("Contributor ingress rejects anonymous authority without mutation")
     func rejectAnonymousDeliveryForContributor() async throws {
         let harness = try Fixture.makeHarness(localRole: .contributor)
@@ -170,13 +253,13 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
             harness: harness,
             roleCase: .contributor
         )
-        let delivery = try makeAnonymousDelivery(
+        let input = try anonymousInput(
             harness: harness,
             payloadType: .anonymousComponent
         )
         await construction.driver.start()
 
-        #expect(!(await construction.driver.submit(.anonymous(delivery))))
+        #expect(!(try await submit(input, to: construction.driver)))
         #expect(await construction.driver.state == .contributor(.running))
 
         await construction.driver.stop()
@@ -201,13 +284,13 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
             harness: harness,
             roleCase: .conductor
         )
-        let delivery = try makeAnonymousDelivery(
+        let input = try anonymousInput(
             harness: harness,
             payloadType: payloadType
         )
         await construction.driver.start()
 
-        #expect(await construction.driver.submit(.anonymous(delivery)))
+        #expect(try await submit(input, to: construction.driver))
         #expect(await construction.driver.inputSourceDidTerminate(.finished))
         await construction.driver.stop()
 
@@ -239,8 +322,12 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
         #expect(await construction.driver.inputSourceDidTerminate(termination))
         let manifestRun = try makeManifestRun(harness)
         #expect(
-            !(await construction.driver.submit(
-                .control(manifestRun.reservation)
+            !(try await submit(
+                try controlInput(
+                    manifestRun.reservation,
+                    harness: harness
+                ),
+                to: construction.driver
             ))
         )
         await construction.driver.stop()
@@ -278,6 +365,12 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
     private struct DependenciesConstruction {
         let dependencies: Driver.RoleDependencies
         let host: MosaicRuntimeCoordinatorHostProbe
+    }
+
+    private struct TransportInput {
+        let giftWrap: Nostr.Event
+        let recipient: Transport.RecipientCapability
+        let currentUnixSeconds: UInt64
     }
 
     private func makeDriver(
@@ -412,17 +505,17 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
         )
     }
 
-    private func makeAnonymousDelivery(
+    private func anonymousInput(
         harness: Fixture.Harness,
         payloadType: Alpha.AnonymousPayloadType
-    ) throws -> Alpha.AdmissionLedger.AnonymousDelivery {
-        let signingKey = try OpalCrypto.Secp256k1.SigningKey(
+    ) throws -> TransportInput {
+        let senderSigningKey = try OpalCrypto.Secp256k1.SigningKey(
             rawRepresentation: Data(
                 [UInt8](repeating: 0, count: 31) + [0x0B]
             )
         )
         let communicationPublicKey = [UInt8](
-            signingKey.publicKey.compressedRepresentation
+            senderSigningKey.publicKey.compressedRepresentation
         )
         let recipientEventIdentity = harness.election.result.roster.conductor
             .validatedBytes
@@ -446,18 +539,92 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
             expiryUnixSeconds: 1_800_000_060,
             payload: [0x00]
         )
+        let recipientScalar = try Fixture.requiredScalarByte(
+            for: harness.election.result.roster.conductor
+        )
+        let recipientKey = try signingKey(recipientScalar)
+        let giftWrap = try Transport.makeAnonymousGiftWrap(
+            envelope,
+            context: runtimeContext(harness),
+            timestamps: try layerTimestamps(harness),
+            senderCommunicationSigningKey: senderSigningKey,
+            recipientPublicKey: recipientKey.bip340VerificationKey
+        )
         return .init(
-            attemptIdentifier: harness.attemptIdentifier,
-            generationIdentifier: harness.generationIdentifier,
-            envelope: envelope,
-            authenticatedOuterEventIdentity: Array(
-                communicationPublicKey.dropFirst()
-            ),
-            authenticatedRecipientEventIdentity: recipientEventIdentity,
-            authenticatedMessageIdentifier: try .init(
-                bytes: [UInt8](repeating: 0xB1, count: 32)
+            giftWrap: giftWrap,
+            recipient: .init(
+                channel: .anonymous,
+                signingKey: recipientKey
             ),
             currentUnixSeconds: 1_800_000_000
+        )
+    }
+
+    private func controlInput(
+        _ delivery: Alpha.AdmissionLedger.ControlDelivery,
+        harness: Fixture.Harness
+    ) throws -> TransportInput {
+        let senderKey = try [UInt8(9), UInt8(10)]
+            .map(signingKey)
+            .first {
+                Array($0.bip340VerificationKey.rawRepresentation)
+                    == delivery.envelope.senderEventIdentity
+            }
+        let validatedSenderKey = try #require(senderKey)
+        let recipientKey = try signingKey(12)
+        let giftWrap = try Transport.makeControlGiftWrap(
+            delivery.envelope,
+            context: runtimeContext(harness),
+            timestamps: try layerTimestamps(harness),
+            senderEventSigningKey: validatedSenderKey,
+            recipientPublicKey: recipientKey.bip340VerificationKey
+        )
+        return .init(
+            giftWrap: giftWrap,
+            recipient: .init(channel: .control, signingKey: recipientKey),
+            currentUnixSeconds: 1_800_000_000
+        )
+    }
+
+    private func submit(
+        _ input: TransportInput,
+        to driver: Driver
+    ) async throws -> Bool {
+        try await driver.submit(
+            input.giftWrap,
+            to: input.recipient,
+            currentUnixSeconds: input.currentUnixSeconds
+        )
+    }
+
+    private func layerTimestamps(
+        _ harness: Fixture.Harness
+    ) throws -> Transport.LayerTimestamps {
+        let phaseStart = harness.manifest.core.deadlines.phaseStart
+        return try .init(
+            phaseStartUnixSeconds: phaseStart,
+            currentUnixSeconds: phaseStart + 1,
+            sealCreatedAt: phaseStart,
+            giftWrapCreatedAt: phaseStart
+        )
+    }
+
+    private func runtimeContext(
+        _ harness: Fixture.Harness
+    ) -> Transport.RuntimeContext {
+        .init(
+            attemptIdentifier: harness.attemptIdentifier,
+            generationIdentifier: harness.generationIdentifier,
+            phaseStartUnixSeconds: harness.manifest.core.deadlines.phaseStart
+        )
+    }
+
+    private func signingKey(
+        _ scalarByte: UInt8
+    ) throws -> OpalCrypto.Secp256k1.SigningKey {
+        try .init(
+            rawRepresentation: Data(repeating: 0, count: 31)
+                + Data([scalarByte])
         )
     }
 

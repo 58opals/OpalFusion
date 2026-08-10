@@ -12,6 +12,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRuntimeDriver {
     typealias Session = OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession
     typealias Ledger = OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger
+    typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestNIP59Transport
     typealias InputSourceTermination = OpalFusion.Mosaic.OpalMainnetAlpha
         .InputSourceTermination
 
@@ -117,10 +119,5 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRuntimeDriver {
         case conductor(
             OpalFusion.Mosaic.OpalMainnetAlpha.ConductorCoordinator.State
         )
-    }
-
-    enum AuthenticatedDelivery: Sendable, Equatable {
-        case control(Ledger.ControlDelivery)
-        case anonymous(Ledger.AnonymousDelivery)
     }
 }

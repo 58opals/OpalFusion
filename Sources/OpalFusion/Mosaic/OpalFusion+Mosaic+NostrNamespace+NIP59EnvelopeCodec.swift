@@ -161,6 +161,12 @@ extension OpalFusion.Mosaic.NostrNamespace {
                 recipientPublicKey: recipientPublicKey,
                 sealIdentifier: seal.identifier,
                 giftWrapIdentifier: giftWrap.identifier,
+                sealCreatedAt: seal.template.createdAt,
+                giftWrapCreatedAt: giftWrap.template.createdAt,
+                rumorJSONByteCount: rumorData.count,
+                sealContentByteCount: seal.template.content.utf8.count,
+                sealJSONByteCount: sealData.count,
+                giftWrapContentByteCount: giftWrap.template.content.utf8.count,
                 deliveryKind: expectedDeliveryKind
             )
         }
