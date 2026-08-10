@@ -11,6 +11,7 @@ extension OpalFusion.Mosaic.OpalV0 {
         case duplicateSaltedComponentDigest
         case duplicateAmountCommitment
         case duplicateCommunicationPublicKey
+        case duplicateCommunicationEventIdentity
         case nonzeroExcessFee(actual: UInt64)
         case invalidExcessFee(
             profile: OpalFusion.Mosaic.Profile,

@@ -25,6 +25,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             _ = try Ledger(
                 attemptIdentifier: conductorHarness.attemptIdentifier,
                 generationIdentifier: conductorHarness.generationIdentifier,
+                materialIdentifier: conductorHarness.materialIdentifier,
                 localControlIdentity: unknownIdentity,
                 proposalValidation: conductorHarness.proposalValidation
             )
@@ -120,7 +121,10 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         var harness = try Fixture.makeHarness(localRole: .contributor)
         let substitutedManifest = try MosaicMainnetAlphaFixtures.makeManifest(
             election: harness.election,
-            verificationKey: harness.manifest.core.blindSigningVerificationKey,
+            verificationKey: harness.manifest.core
+                .componentAuthorizationVerificationKey,
+            bchSignatureVerificationKey: harness.manifest.core
+                .bchSignatureAuthorizationVerificationKey,
             relaySetDigest: [UInt8](repeating: 0x45, count: 32)
         )
         let run = try Fixture.aggregateRun(
@@ -577,8 +581,10 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 excessFeeSatoshis: wrongShareGroup.excessFeeSatoshis,
                 pedersenTotalNonce: wrongShareGroup.pedersenTotalNonce
             ),
-            authorizationRequests: MosaicMainnetAlphaFixtures
-                .makeAuthorizationRequests()
+            componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(),
+            bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(byteOffset: 0x40)
         )
         let wrongShareRun = try Fixture.aggregateRun(
             canonicalBytes: wrongShareCommit.canonicalBytes,
@@ -615,8 +621,10 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 excessFeeSatoshis: exactGroup.excessFeeSatoshis,
                 pedersenTotalNonce: [UInt8](repeating: 0, count: 31) + [0x7F]
             ),
-            authorizationRequests: MosaicMainnetAlphaFixtures
-                .makeAuthorizationRequests()
+            componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(),
+            bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(byteOffset: 0x40)
         )
         let wrongBalanceRun = try Fixture.aggregateRun(
             canonicalBytes: wrongBalanceCommit.canonicalBytes,
@@ -643,6 +651,54 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             !wrongBalanceEffects.contains(
                 .playerCommitAdmitted(wrongBalanceCommit)
             )
+        )
+
+        var parityHarness = try Fixture.makeHarness(localRole: .conductor)
+        _ = try admitManifestAndAdvanceWallet(harness: &parityHarness)
+        let validCommit = try Alpha.PlayerCommit(
+            roundIdentifier: parityHarness.manifest.core.roundIdentifier,
+            contributor: contributors[0],
+            groupedCommitment: try .init(
+                profile: .opalMainnetAlpha,
+                commitments: commitmentGroups[0].commitments,
+                excessFeeSatoshis: commitmentGroups[0].excessFeeSatoshis,
+                pedersenTotalNonce: commitmentGroups[0].pedersenTotalNonce
+            ),
+            componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(),
+            bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(byteOffset: 0x40)
+        )
+        var parityBytes = validCommit.canonicalBytes
+        let firstCommunicationKeyOffset = 32 + 32 + 4 + 32 + 65
+        let secondCommunicationKeyOffset = firstCommunicationKeyOffset + 130
+        var oppositeParityKey = Array(
+            parityBytes[
+                firstCommunicationKeyOffset ..< firstCommunicationKeyOffset + 33
+            ]
+        )
+        oppositeParityKey[0] = oppositeParityKey[0] == 0x02 ? 0x03 : 0x02
+        parityBytes.replaceSubrange(
+            secondCommunicationKeyOffset ..< secondCommunicationKeyOffset + 33,
+            with: oppositeParityKey
+        )
+        let parityRun = try Fixture.aggregateRun(
+            canonicalBytes: parityBytes,
+            kind: .playerCommit,
+            sender: validCommit.contributor,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: parityHarness
+        )
+        #expect(
+            Fixture.admit(parityRun, to: &parityHarness.ledger).last
+                == .attemptTerminated(
+                    .failed(
+                        .aggregateReassemblyFailed(
+                            .invalidCanonicalAggregate(.playerCommit)
+                        )
+                    )
+                )
         )
     }
 
@@ -841,9 +897,12 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             roundIdentifier: playerCommit.roundIdentifier,
             contributor: playerCommit.contributor,
             playerCommitDigest: wrongDigest,
-            responses: try Fixture.makeAuthorizationResponseSet(
-                playerCommit: playerCommit
-            ).responses
+            componentAuthorizationResponses: try Fixture
+                .makeAuthorizationResponseSet(playerCommit: playerCommit)
+                .componentAuthorizationResponses,
+            bchSignatureAuthorizationResponses: try Fixture
+                .makeAuthorizationResponseSet(playerCommit: playerCommit)
+                .bchSignatureAuthorizationResponses
         )
         let wrongRun = try Fixture.aggregateRun(
             canonicalBytes: wrongSet.canonicalBytes,
@@ -858,76 +917,6 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 == .attemptTerminated(
                     .failed(.authorizationResponseSetPlayerCommitMismatch)
                 )
-        )
-    }
-
-    @Test("Reject response validation from a key outside the manifest")
-    func rejectResponseValidationForForeignManifestKey() throws {
-        let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
-        let manifestKey = try MosaicMainnetAlphaFixtures.rsaVerificationKey()
-        let evaluatorKey = try #require(evaluator.verificationKey)
-        try #require(evaluatorKey.keyIdentifier != manifestKey.keyIdentifier)
-        var harness = try Fixture.makeHarness(
-            localRole: .contributor,
-            localContributorIndex: 2,
-            verificationKey: manifestKey
-        )
-        let conductorSequence = try admitManifestAndAdvanceWallet(
-            harness: &harness
-        )
-        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
-            roster: harness.election.result.roster,
-            manifest: harness.manifest.binding,
-            profile: .opalMainnetAlpha
-        )
-        let material = try makeLocalAuthorizationMaterial(
-            harness: harness,
-            commitmentSet: preparation.commitmentSet,
-            evaluator: evaluator
-        )
-        let playerCommitRun = try Fixture.aggregateRun(
-            canonicalBytes: material.playerCommit.canonicalBytes,
-            kind: .playerCommit,
-            sender: material.playerCommit.contributor,
-            phase: .walletReservation,
-            sequence: 0,
-            harness: harness
-        )
-        try #require(
-            Fixture.admit(playerCommitRun, to: &harness.ledger)
-                .contains(.playerCommitAdmitted(material.playerCommit))
-        )
-        let responseRun = try Fixture.aggregateRun(
-            canonicalBytes: material.responseSet.canonicalBytes,
-            kind: .authorizationResponseSet,
-            sender: harness.election.result.roster.conductor,
-            phase: .walletReservation,
-            sequence: conductorSequence,
-            harness: harness
-        )
-        try #require(
-            Fixture.admit(responseRun, to: &harness.ledger).contains(
-                .authorizationResponseSetValidationRequired(
-                    material.responseSet,
-                    playerCommit: material.playerCommit
-                )
-            )
-        )
-
-        #expect(
-            harness.ledger.apply(
-                input: .authorizationResponseSetValidated(
-                    .init(
-                        attemptIdentifier: harness.attemptIdentifier,
-                        generationIdentifier: harness.generationIdentifier,
-                        validation: material.validation
-                    )
-                )
-            ) == [
-                .attemptTerminated(
-                    .failed(.authorizationResponseSetValidationMismatch)
-                )
-            ]
         )
     }
 
@@ -1002,8 +991,8 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
     }
 
-    @Test("Admit the complete acknowledgement set but keep BCH signing closed")
-    func keepContributorSigningGateClosed() throws {
+    @Test("Admit the portable acknowledgement set before contributor BCH signing")
+    func advanceContributorAfterPortableAcknowledgements() throws {
         let evaluator = try MosaicMainnetAlphaFixtures
             .authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
@@ -1097,12 +1086,12 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 &harness.ledger,
                 to: .bchSigning(prepared.transcript)
             ) == [
-                .attemptTerminated(.failed(.bchSigningAdmissionUnavailable))
+                .phaseAdvanced(.bchSigning(prepared.transcript))
             ]
         )
     }
 
-    @Test("Keep anonymous BCH signatures closed and terminal state absorbing")
+    @Test("Reject BCH payloads at the component boundary and absorb terminal input")
     func keepDeferredAndTerminalBehaviorClosed() throws {
         var harness = try Fixture.makeHarness(localRole: .conductor)
         let staleManifestRun = try manifestRun(harness: harness)
@@ -1132,8 +1121,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         #expect(
             harness.ledger.receiveAnonymousComponent(
-                anonymousDelivery,
-                using: RejectingAnonymousComponentValidator()
+                anonymousDelivery
             ) == [.inputRejected(.unsupportedAnonymousBCHSignature)]
         )
 
@@ -1156,6 +1144,9 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         var freshLedger = try Ledger(
             attemptIdentifier: freshAttempt,
             generationIdentifier: freshGeneration,
+            materialIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0xA4, count: 32)
+            ),
             localControlIdentity: harness.localControlIdentity,
             proposalValidation: harness.proposalValidation
         )
@@ -1210,27 +1201,96 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 == [.phaseAdvanced(.anonymousComponentSubmission)]
         )
 
-        let authorizationInput = try OpalFusion.Mosaic.OpalV0
-            .AuthorizationTokenInput(
-                profile: .opalMainnetAlpha,
+        let firstComponent = prepared.preparation.componentSet.components[0]
+        let authorizationInput = try Alpha.AuthorizationTokenInput(
                 roundIdentifier: conductorHarness.manifest.core.roundIdentifier,
                 keyIdentifier: [UInt8](verificationKey.keyIdentifier),
-                nonce: [UInt8](repeating: 0x91, count: 32)
-            )
-        let authorizationRequest = try OpalFusion.Mosaic.OpalV0
-            .AuthorizationRequest(
-                input: authorizationInput,
-                using: verificationKey
-            )
+                purpose: .component,
+                nonce: [UInt8](repeating: 0x91, count: 32),
+                binding: try Alpha.AuthorizationTokenInput.componentBinding(
+                    for: firstComponent
+                )
+        )
+        let authorizationRequest = try Alpha.AuthorizationRequest(
+            input: authorizationInput,
+            using: verificationKey
+        )
         let authorizationToken = try authorizationRequest.finalize(
             evaluator.evaluate(authorizationRequest.blindedMessage)
         )
-        let componentPayload = try OpalFusion.Mosaic.OpalV0
-            .AnonymousComponentPayload(
+        let componentPayload = try Alpha.AnonymousComponentPayload(
                 roundIdentifier: conductorHarness.manifest.core.roundIdentifier,
                 authorizationToken: authorizationToken,
-                component: prepared.preparation.componentSet.components[0]
-            )
+                component: firstComponent
+        )
+        var publishedKeyReuseLedger = conductorHarness.ledger
+        var publishedKeyOppositeParityLedger = conductorHarness.ledger
+        let publishedCommunicationKey = prepared.preparation.commitmentSet
+            .commitments[0].communicationPublicKey
+        let publishedKeyEnvelope = try Alpha.AnonymousEnvelope(
+            roundIdentifier: conductorHarness.manifest.core.roundIdentifier,
+            phase: .anonymousComponentSubmission,
+            senderCommunicationPublicKey: publishedCommunicationKey,
+            recipientEventIdentity: Fixture.eventIdentity(scalarByte: 251),
+            sequence: 0,
+            payloadType: .anonymousComponent,
+            expiryUnixSeconds: 1_800_000_060,
+            payload: try Alpha.CanonicalWireCodec
+                .encodeAnonymousComponent(componentPayload)
+        )
+        #expect(
+            publishedKeyReuseLedger.receiveAnonymousComponent(
+                .init(
+                    attemptIdentifier: conductorHarness.attemptIdentifier,
+                    generationIdentifier: conductorHarness.generationIdentifier,
+                    envelope: publishedKeyEnvelope,
+                    authenticatedOuterEventIdentity:
+                        Array(publishedCommunicationKey.dropFirst()),
+                    authenticatedRecipientEventIdentity:
+                        publishedKeyEnvelope.recipientEventIdentity,
+                    authenticatedMessageIdentifier: try .init(
+                        bytes: [UInt8](repeating: 0xE1, count: 32)
+                    ),
+                    currentUnixSeconds: 1_800_000_000
+                )
+            ) == [
+                .attemptTerminated(.failed(.anonymousCommunicationKeyReuse))
+            ]
+        )
+        var publishedKeyOppositeParity = publishedCommunicationKey
+        publishedKeyOppositeParity[0] = publishedCommunicationKey[0] == 0x02
+            ? 0x03
+            : 0x02
+        let publishedKeyOppositeParityEnvelope = try Alpha.AnonymousEnvelope(
+            roundIdentifier: conductorHarness.manifest.core.roundIdentifier,
+            phase: .anonymousComponentSubmission,
+            senderCommunicationPublicKey: publishedKeyOppositeParity,
+            recipientEventIdentity: Fixture.eventIdentity(scalarByte: 247),
+            sequence: 0,
+            payloadType: .anonymousComponent,
+            expiryUnixSeconds: 1_800_000_060,
+            payload: try Alpha.CanonicalWireCodec
+                .encodeAnonymousComponent(componentPayload)
+        )
+        #expect(
+            publishedKeyOppositeParityLedger.receiveAnonymousComponent(
+                .init(
+                    attemptIdentifier: conductorHarness.attemptIdentifier,
+                    generationIdentifier: conductorHarness.generationIdentifier,
+                    envelope: publishedKeyOppositeParityEnvelope,
+                    authenticatedOuterEventIdentity:
+                        Array(publishedKeyOppositeParity.dropFirst()),
+                    authenticatedRecipientEventIdentity:
+                        publishedKeyOppositeParityEnvelope.recipientEventIdentity,
+                    authenticatedMessageIdentifier: try .init(
+                        bytes: [UInt8](repeating: 0xE0, count: 32)
+                    ),
+                    currentUnixSeconds: 1_800_000_000
+                )
+            ) == [
+                .attemptTerminated(.failed(.anonymousCommunicationKeyReuse))
+            ]
+        )
         let communicationKey = try MosaicOpalV0WireContractValidator
             .publicKeyFixture(scalar: 1_802).compressed
         let envelope = try Alpha.AnonymousEnvelope(
@@ -1241,7 +1301,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             sequence: 0,
             payloadType: .anonymousComponent,
             expiryUnixSeconds: 1_800_000_060,
-            payload: try OpalFusion.Mosaic.OpalV0.CanonicalWireCodec
+            payload: try Alpha.CanonicalWireCodec
                 .encodeAnonymousComponent(componentPayload)
         )
         let messageIdentifier = try OpalFusion.Mosaic.RuntimeSession
@@ -1258,22 +1318,21 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         var messageConflictLedger = conductorHarness.ledger
         var recipientReuseLedger = conductorHarness.ledger
         var communicationKeyReuseLedger = conductorHarness.ledger
+        var oppositeParityCommunicationKeyReuseLedger = conductorHarness.ledger
         let accepted = conductorHarness.ledger.receiveAnonymousComponent(
-            delivery,
-            using: AcceptingAnonymousComponentValidator()
+            delivery
         )
         _ = messageConflictLedger.receiveAnonymousComponent(
-            delivery,
-            using: AcceptingAnonymousComponentValidator()
+            delivery
         )
         _ = recipientReuseLedger.receiveAnonymousComponent(
-            delivery,
-            using: AcceptingAnonymousComponentValidator()
+            delivery
         )
         _ = communicationKeyReuseLedger.receiveAnonymousComponent(
-            delivery,
-            using: AcceptingAnonymousComponentValidator()
+            delivery
         )
+        _ = oppositeParityCommunicationKeyReuseLedger
+            .receiveAnonymousComponent(delivery)
         #expect(accepted.count == 1)
         guard case .anonymousComponentAdmitted = accepted[0] else {
             Issue.record("Expected one admitted anonymous component")
@@ -1281,8 +1340,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         }
         #expect(
             conductorHarness.ledger.receiveAnonymousComponent(
-                delivery,
-                using: RejectingAnonymousComponentValidator()
+                delivery
             ) == [.exactDuplicateIgnored]
         )
 
@@ -1294,7 +1352,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             sequence: 0,
             payloadType: .anonymousComponent,
             expiryUnixSeconds: 1_800_000_059,
-            payload: try OpalFusion.Mosaic.OpalV0.CanonicalWireCodec
+            payload: try Alpha.CanonicalWireCodec
                 .encodeAnonymousComponent(componentPayload)
         )
         #expect(
@@ -1309,32 +1367,32 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                         conflictingEnvelope.recipientEventIdentity,
                     authenticatedMessageIdentifier: messageIdentifier,
                     currentUnixSeconds: 1_800_000_000
-                ),
-                using: AcceptingAnonymousComponentValidator()
+                )
             ) == [.attemptTerminated(.failed(.anonymousMessageConflict))]
         )
 
-        let secondAuthorizationInput = try OpalFusion.Mosaic.OpalV0
-            .AuthorizationTokenInput(
-                profile: .opalMainnetAlpha,
+        let secondComponent = prepared.preparation.componentSet.components[1]
+        let secondAuthorizationInput = try Alpha.AuthorizationTokenInput(
                 roundIdentifier: conductorHarness.manifest.core.roundIdentifier,
                 keyIdentifier: [UInt8](verificationKey.keyIdentifier),
-                nonce: [UInt8](repeating: 0x92, count: 32)
-            )
-        let secondAuthorizationRequest = try OpalFusion.Mosaic.OpalV0
-            .AuthorizationRequest(
-                input: secondAuthorizationInput,
-                using: verificationKey
-            )
+                purpose: .component,
+                nonce: [UInt8](repeating: 0x92, count: 32),
+                binding: try Alpha.AuthorizationTokenInput.componentBinding(
+                    for: secondComponent
+                )
+        )
+        let secondAuthorizationRequest = try Alpha.AuthorizationRequest(
+            input: secondAuthorizationInput,
+            using: verificationKey
+        )
         let secondToken = try secondAuthorizationRequest.finalize(
             evaluator.evaluate(secondAuthorizationRequest.blindedMessage)
         )
-        let secondPayload = try OpalFusion.Mosaic.OpalV0
-            .AnonymousComponentPayload(
+        let secondPayload = try Alpha.AnonymousComponentPayload(
                 roundIdentifier: conductorHarness.manifest.core.roundIdentifier,
                 authorizationToken: secondToken,
-                component: prepared.preparation.componentSet.components[1]
-            )
+                component: secondComponent
+        )
         let secondCommunicationKey = try MosaicOpalV0WireContractValidator
             .publicKeyFixture(scalar: 1_803).compressed
         let reusedRecipientEnvelope = try Alpha.AnonymousEnvelope(
@@ -1345,7 +1403,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             sequence: 0,
             payloadType: .anonymousComponent,
             expiryUnixSeconds: 1_800_000_060,
-            payload: try OpalFusion.Mosaic.OpalV0.CanonicalWireCodec
+            payload: try Alpha.CanonicalWireCodec
                 .encodeAnonymousComponent(secondPayload)
         )
         #expect(
@@ -1362,8 +1420,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                         bytes: [UInt8](repeating: 0xE4, count: 32)
                     ),
                     currentUnixSeconds: 1_800_000_000
-                ),
-                using: AcceptingAnonymousComponentValidator()
+                )
             ) == [
                 .attemptTerminated(.failed(.anonymousRecipientIdentityReuse))
             ]
@@ -1377,7 +1434,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             sequence: 0,
             payloadType: .anonymousComponent,
             expiryUnixSeconds: 1_800_000_060,
-            payload: try OpalFusion.Mosaic.OpalV0.CanonicalWireCodec
+            payload: try Alpha.CanonicalWireCodec
                 .encodeAnonymousComponent(secondPayload)
         )
         #expect(
@@ -1394,11 +1451,50 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                         bytes: [UInt8](repeating: 0xE5, count: 32)
                     ),
                     currentUnixSeconds: 1_800_000_000
-                ),
-                using: AcceptingAnonymousComponentValidator()
+                )
             ) == [
                 .attemptTerminated(.failed(.anonymousCommunicationKeyReuse))
             ]
+        )
+        var oppositeParityCommunicationKey = communicationKey
+        oppositeParityCommunicationKey[0] = communicationKey[0] == 0x02
+            ? 0x03
+            : 0x02
+        let oppositeParityCommunicationKeyEnvelope = try Alpha.AnonymousEnvelope(
+            roundIdentifier: conductorHarness.manifest.core.roundIdentifier,
+            phase: .anonymousComponentSubmission,
+            senderCommunicationPublicKey: oppositeParityCommunicationKey,
+            recipientEventIdentity: Fixture.eventIdentity(scalarByte: 248),
+            sequence: 0,
+            payloadType: .anonymousComponent,
+            expiryUnixSeconds: 1_800_000_060,
+            payload: try Alpha.CanonicalWireCodec
+                .encodeAnonymousComponent(secondPayload)
+        )
+        #expect(
+            oppositeParityCommunicationKeyReuseLedger
+                .receiveAnonymousComponent(
+                    .init(
+                        attemptIdentifier:
+                            conductorHarness.attemptIdentifier,
+                        generationIdentifier:
+                            conductorHarness.generationIdentifier,
+                        envelope: oppositeParityCommunicationKeyEnvelope,
+                        authenticatedOuterEventIdentity:
+                            Array(oppositeParityCommunicationKey.dropFirst()),
+                        authenticatedRecipientEventIdentity:
+                            oppositeParityCommunicationKeyEnvelope
+                                .recipientEventIdentity,
+                        authenticatedMessageIdentifier: try .init(
+                            bytes: [UInt8](repeating: 0xE6, count: 32)
+                        ),
+                        currentUnixSeconds: 1_800_000_000
+                    )
+                ) == [
+                    .attemptTerminated(
+                        .failed(.anonymousCommunicationKeyReuse)
+                    )
+                ]
         )
 
         let conflictingDelivery = Ledger.AnonymousComponentDelivery(
@@ -1414,16 +1510,14 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         #expect(
             conductorHarness.ledger.receiveAnonymousComponent(
-                conflictingDelivery,
-                using: AcceptingAnonymousComponentValidator()
+                conflictingDelivery
             ) == [
                 .attemptTerminated(.failed(.anonymousAuthorizationConflict))
             ]
         )
         #expect(
             conductorHarness.ledger.receiveAnonymousComponent(
-                delivery,
-                using: AcceptingAnonymousComponentValidator()
+                delivery
             ) == [.exactDuplicateIgnored]
         )
 
@@ -1447,17 +1541,16 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                         envelope.recipientEventIdentity,
                     authenticatedMessageIdentifier: messageIdentifier,
                     currentUnixSeconds: 1_800_000_000
-                ),
-                using: AcceptingAnonymousComponentValidator()
+                )
             ) == [.inputRejected(.anonymousComponentAdmissionUnavailable)]
         )
     }
 
     @Test(
-        "Collect conductor acknowledgements without authorizing BCH signing",
-        .timeLimit(.minutes(2))
+        "Collect conductor acknowledgements and admit every anonymous BCH signature",
+        .timeLimit(.minutes(5))
     )
-    func collectConductorAcknowledgementsWithoutSigning() throws {
+    func collectConductorAcknowledgementsAndSignatures() throws {
         let evaluator = try MosaicMainnetAlphaFixtures
             .authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
@@ -1465,7 +1558,10 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             localRole: .conductor,
             verificationKey: verificationKey
         )
-        let prepared = try prepareConductorCommitments(harness: &harness)
+        let prepared = try prepareConductorCommitments(
+            harness: &harness,
+            materialized: true
+        )
         let commitmentRun = try Fixture.aggregateRun(
             canonicalBytes: prepared.preparation.commitmentSet.canonicalBytes,
             kind: .commitmentSet,
@@ -1482,32 +1578,46 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             ) == [.phaseAdvanced(.anonymousComponentSubmission)]
         )
 
+        var acceptedComponentValidations: [
+            Alpha.AnonymousComponentAdmissionValidation
+        ] = []
+        let authorizationMaterial = try #require(
+            prepared.authorizationMaterial
+        )
         for (index, component) in prepared.preparation.componentSet.components
             .enumerated() {
-            let authorizationInput = try OpalFusion.Mosaic.OpalV0
-                .AuthorizationTokenInput(
-                    profile: .opalMainnetAlpha,
+            let token: Alpha.AuthorizationToken
+            if let materialSlot = authorizationMaterial.material.slots
+                .firstIndex(where: { $0.component == component }) {
+                token = authorizationMaterial.validation
+                    .componentAuthorizationTokens[materialSlot]
+            } else {
+                let authorizationInput = try Alpha.AuthorizationTokenInput(
                     roundIdentifier: harness.manifest.core.roundIdentifier,
                     keyIdentifier: [UInt8](verificationKey.keyIdentifier),
+                    purpose: .component,
                     nonce: MosaicUnsignedTransactionTranscriptFixtures
-                        .indexedDigest(20_000 + index)
+                        .indexedDigest(20_000 + index),
+                    binding: try Alpha.AuthorizationTokenInput.componentBinding(
+                        for: component
+                    )
                 )
-            let request = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
-                input: authorizationInput,
-                using: verificationKey
-            )
-            let blindSignature: OpalCrypto.RSABSSA.BlindSignature
-            do {
-                blindSignature = try evaluator.evaluate(request.blindedMessage)
-            } catch {
-                Issue.record(
-                    "RSABSSA evaluation failed at component \(index): \(error)"
+                let request = try Alpha.AuthorizationRequest(
+                    input: authorizationInput,
+                    using: verificationKey
                 )
-                return
+                let blindSignature: OpalCrypto.RSABSSA.BlindSignature
+                do {
+                    blindSignature = try evaluator.evaluate(request.blindedMessage)
+                } catch {
+                    Issue.record(
+                        "RSABSSA evaluation failed at component \(index): \(error)"
+                    )
+                    return
+                }
+                token = try request.finalize(blindSignature)
             }
-            let token = try request.finalize(blindSignature)
-            let payload = try OpalFusion.Mosaic.OpalV0
-                .AnonymousComponentPayload(
+            let payload = try Alpha.AnonymousComponentPayload(
                     roundIdentifier: harness.manifest.core.roundIdentifier,
                     authorizationToken: token,
                     component: component
@@ -1525,7 +1635,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 sequence: 0,
                 payloadType: .anonymousComponent,
                 expiryUnixSeconds: 1_800_000_060,
-                payload: try OpalFusion.Mosaic.OpalV0.CanonicalWireCodec
+                payload: try Alpha.CanonicalWireCodec
                     .encodeAnonymousComponent(payload)
             )
             let effects = harness.ledger.receiveAnonymousComponent(
@@ -1542,14 +1652,15 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                             .indexedDigest(30_000 + index)
                     ),
                     currentUnixSeconds: 1_800_000_000
-                ),
-                using: AcceptingAnonymousComponentValidator()
+                )
             )
             #expect(effects.count == 1)
-            guard case .anonymousComponentAdmitted = effects[0] else {
+            guard case let .anonymousComponentAdmitted(validation) = effects[0]
+            else {
                 Issue.record("Expected an authorized anonymous component")
                 return
             }
+            acceptedComponentValidations.append(validation)
         }
 
         let componentRun = try Fixture.aggregateRun(
@@ -1731,11 +1842,765 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 )
             ]
         )
+        var foreignTranscriptLedger = harness.ledger
+        let foreignTranscript = try MosaicUnsignedTransactionTranscriptFixtures
+            .prepare(
+                roster: harness.election.result.roster,
+                manifest: harness.manifest.binding,
+                profile: .opalMainnetAlpha,
+                componentSaltOffset: 1
+            ).transcript
+        #expect(
+            try synchronize(
+                &foreignTranscriptLedger,
+                to: .bchSigning(foreignTranscript)
+            ) == [
+                .attemptTerminated(
+                    .failed(.phaseAdvancePrerequisiteMissing(.bchSigning))
+                )
+            ]
+        )
         #expect(
             try synchronize(&harness.ledger, to: .bchSigning(transcript))
-                == [
-                    .attemptTerminated(.failed(.bchSigningAdmissionUnavailable))
+                == [.phaseAdvanced(.bchSigning(transcript))]
+        )
+
+        let bchEvaluator = try MosaicMainnetAlphaFixtures
+            .bchSignatureAuthorizationEvaluator()
+        let bchVerificationKey = try #require(bchEvaluator.verificationKey)
+        #expect(
+            bchVerificationKey
+                == harness.manifest.core
+                    .bchSignatureAuthorizationVerificationKey
+        )
+        let acceptedInputs = acceptedComponentValidations.filter {
+            if case .input = $0.payload.component.payload {
+                true
+            } else {
+                false
+            }
+        }.sorted { lhs, rhs in
+            guard case let .input(left) = lhs.payload.component.payload,
+                  case let .input(right) = rhs.payload.component.payload else {
+                return false
+            }
+            if left.previousTransactionHash != right.previousTransactionHash {
+                return left.previousTransactionHash.lexicographicallyPrecedes(
+                    right.previousTransactionHash
+                )
+            }
+            return left.outputIndex < right.outputIndex
+        }
+        #expect(acceptedInputs.count == transcript.transaction.inputs.count)
+
+        let materialInputSlot = try #require(
+            authorizationMaterial.material.slots.firstIndex {
+                if case .input = $0.component.payload {
+                    true
+                } else {
+                    false
+                }
+            }
+        )
+        let materialInputComponent = authorizationMaterial.material
+            .slots[materialInputSlot].component
+        let materialInputIndex = try #require(
+            acceptedInputs.firstIndex {
+                $0.payload.component == materialInputComponent
+            }
+        )
+        let materialAcceptedInput = acceptedInputs[materialInputIndex]
+
+        let firstInput = try #require(acceptedInputs.first)
+        let secondInput = try #require(acceptedInputs.dropFirst().first)
+        let validFirstKey = try MosaicOpalV0WireContractValidator
+            .publicKeyFixture(scalar: 4_000).compressed
+        let validFirst = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: validFirstKey,
+            nonceIndex: 40_000,
+            messageIndex: 50_000,
+            signatureScalar: 100
+        )
+
+        var componentToSignatureReuseLedger = harness.ledger
+        var componentSenderOppositeParity =
+            firstInput.senderCommunicationPublicKey
+        componentSenderOppositeParity[0] =
+            firstInput.senderCommunicationPublicKey[0] == 0x02 ? 0x03 : 0x02
+        let componentToSignatureReuse = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: secondInput,
+            inputIndex: 1,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: componentSenderOppositeParity,
+            nonceIndex: 40_010,
+            messageIndex: 50_010,
+            signatureScalar: 109
+        )
+        #expect(
+            componentToSignatureReuseLedger.receiveAnonymousBCHSignature(
+                componentToSignatureReuse,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .attemptTerminated(.failed(.anonymousCommunicationKeyReuse))
+            ]
+        )
+
+        let acceptedNonInput = try #require(
+            acceptedComponentValidations.first {
+                if case .input = $0.payload.component.payload {
+                    false
+                } else {
+                    true
+                }
+            }
+        )
+        var componentMismatchLedger = harness.ledger
+        let componentMismatch = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: acceptedNonInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 4_001).compressed,
+            nonceIndex: 40_011,
+            messageIndex: 50_011,
+            signatureScalar: 110
+        )
+        #expect(
+            componentMismatchLedger.receiveAnonymousBCHSignature(
+                componentMismatch,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .inputRejected(
+                    .anonymousBCHSignatureAdmissionRejected(
+                        .anonymousBCHSignatureComponentMismatch
+                    )
+                )
+            ]
+        )
+        #expect(
+            componentMismatchLedger.receiveAnonymousBCHSignature(
+                validFirst,
+                using: AcceptingBCHSignatureValidator()
+            ).contains { effect in
+                if case .anonymousBCHSignatureAdmitted = effect {
+                    true
+                } else {
+                    false
+                }
+            }
+        )
+
+        var materialTokenLedger = harness.ledger
+        let materialTokenDelivery = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: materialAcceptedInput,
+            inputIndex: UInt32(materialInputIndex),
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 3_999).compressed,
+            nonceIndex: 39_999,
+            messageIndex: 49_999,
+            signatureScalar: 98,
+            authorizationToken: authorizationMaterial.validation
+                .bchSignatureAuthorizationTokens[materialInputSlot]
+        )
+        #expect(
+            materialTokenLedger.receiveAnonymousBCHSignature(
+                materialTokenDelivery,
+                using: AcceptingBCHSignatureValidator()
+            ).contains { effect in
+                if case .anonymousBCHSignatureAdmitted = effect {
+                    true
+                } else {
+                    false
+                }
+            }
+        )
+
+        var publishedSignatureKeyLedger = harness.ledger
+        var publishedSignatureOppositeParityLedger = harness.ledger
+        let publishedSignatureKey = prepared.preparation.commitmentSet
+            .commitments[0].communicationPublicKey
+        let publishedSignatureDelivery = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: publishedSignatureKey,
+            nonceIndex: 40_099,
+            messageIndex: 50_099,
+            signatureScalar: 99
+        )
+        #expect(
+            publishedSignatureKeyLedger.receiveAnonymousBCHSignature(
+                publishedSignatureDelivery,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .attemptTerminated(.failed(.anonymousCommunicationKeyReuse))
+            ]
+        )
+        var publishedSignatureOppositeParity = publishedSignatureKey
+        publishedSignatureOppositeParity[0] = publishedSignatureKey[0] == 0x02
+            ? 0x03
+            : 0x02
+        let publishedSignatureOppositeParityDelivery =
+            try makeBCHSignatureDelivery(
+                harness: harness,
+                transcript: transcript,
+                acceptedInput: firstInput,
+                inputIndex: 0,
+                authorizationEvaluator: bchEvaluator,
+                authorizationVerificationKey: bchVerificationKey,
+                communicationKey: publishedSignatureOppositeParity,
+                nonceIndex: 40_098,
+                messageIndex: 50_098,
+                signatureScalar: 97
+            )
+        #expect(
+            publishedSignatureOppositeParityLedger
+                .receiveAnonymousBCHSignature(
+                    publishedSignatureOppositeParityDelivery,
+                    using: AcceptingBCHSignatureValidator()
+                ) == [
+                    .attemptTerminated(
+                        .failed(.anonymousCommunicationKeyReuse)
+                    )
                 ]
+        )
+
+        var wrongSequenceLedger = harness.ledger
+        let wrongSequence = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: validFirstKey,
+            nonceIndex: 40_100,
+            messageIndex: 50_100,
+            signatureScalar: 101,
+            sequence: 0
+        )
+        #expect(
+            wrongSequenceLedger.receiveAnonymousBCHSignature(
+                wrongSequence,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .inputRejected(
+                    .anonymousMailboxSequenceInvalid(expected: 1, actual: 0)
+                )
+            ]
+        )
+
+        var missingComponentLedger = harness.ledger
+        let unknownRecipient = [UInt8](
+            try OpalCrypto.Secp256k1.SigningKey(
+                rawRepresentation: scalarBytes(9_000)
+            ).bip340VerificationKey.rawRepresentation
+        )
+        let missingComponent = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: validFirstKey,
+            nonceIndex: 40_101,
+            messageIndex: 50_101,
+            signatureScalar: 102,
+            recipientEventIdentity: unknownRecipient
+        )
+        #expect(
+            missingComponentLedger.receiveAnonymousBCHSignature(
+                missingComponent,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .inputRejected(.anonymousBCHSignatureAdmissionUnavailable)
+            ]
+        )
+        #expect(throws: Alpha.ContractError.invalidAuthorizationToken) {
+            _ = try makeBCHSignatureDelivery(
+                harness: harness,
+                transcript: transcript,
+                acceptedInput: firstInput,
+                inputIndex: 0,
+                authorizationEvaluator: bchEvaluator,
+                authorizationVerificationKey: bchVerificationKey,
+                communicationKey: validFirstKey,
+                nonceIndex: 40_104,
+                messageIndex: 50_104,
+                signatureScalar: 105,
+                authorizationPurpose: .component
+            )
+        }
+        let validSubmission = try Alpha.CanonicalWireCodec
+            .decodeBCHSignatureSubmission(from: validFirst.envelope.payload)
+        let wrongPurposeInput = try Alpha.AuthorizationTokenInput(
+            roundIdentifier: harness.manifest.core.roundIdentifier,
+            keyIdentifier: [UInt8](verificationKey.keyIdentifier),
+            purpose: .component,
+            nonce: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
+                40_102
+            ),
+            binding: firstInput.authorizationSpentIdentifier
+        )
+        let wrongPurposeRequest = try Alpha.AuthorizationRequest(
+            input: wrongPurposeInput,
+            using: verificationKey
+        )
+        let wrongPurposeToken = try wrongPurposeRequest.finalize(
+            evaluator.evaluate(wrongPurposeRequest.blindedMessage)
+        )
+        let wrongPurposeKey = try MosaicOpalV0WireContractValidator
+            .publicKeyFixture(scalar: 4_102).compressed
+        let wrongPurposeEnvelope = try Alpha.AnonymousEnvelope(
+            roundIdentifier: harness.manifest.core.roundIdentifier,
+            phase: .bchSigning,
+            senderCommunicationPublicKey: wrongPurposeKey,
+            recipientEventIdentity: firstInput.recipientEventIdentity,
+            sequence: 1,
+            payloadType: .bchSignatureSubmission,
+            expiryUnixSeconds: 1_800_000_060,
+            payload: try Alpha.CanonicalWireCodec.encodeBCHSignatureSubmission(
+                transcriptRoot: transcript.transcriptRoot.validatedBytes,
+                authorizationToken: wrongPurposeToken,
+                entry: validSubmission.entry
+            )
+        )
+        var wrongPurposeLedger = harness.ledger
+        #expect(
+            wrongPurposeLedger.receiveAnonymousBCHSignature(
+                .init(
+                    attemptIdentifier: harness.attemptIdentifier,
+                    generationIdentifier: harness.generationIdentifier,
+                    envelope: wrongPurposeEnvelope,
+                    authenticatedOuterEventIdentity:
+                        Array(wrongPurposeKey.dropFirst()),
+                    authenticatedRecipientEventIdentity:
+                        firstInput.recipientEventIdentity,
+                    authenticatedMessageIdentifier: try .init(
+                        bytes: MosaicUnsignedTransactionTranscriptFixtures
+                            .indexedDigest(50_102)
+                    ),
+                    currentUnixSeconds: 1_800_000_000
+                ),
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .inputRejected(
+                    .anonymousBCHSignatureAdmissionRejected(
+                        .invalidAuthorizationToken
+                    )
+                )
+            ]
+        )
+
+        let invalidDeliveries: [
+            (Ledger.AnonymousComponentDelivery, Ledger.Failure)
+        ] = [
+            (
+                try makeBCHSignatureDelivery(
+                    harness: harness,
+                    transcript: transcript,
+                    acceptedInput: firstInput,
+                    inputIndex: 0,
+                    authorizationEvaluator: bchEvaluator,
+                    authorizationVerificationKey: bchVerificationKey,
+                    communicationKey: validFirstKey,
+                    nonceIndex: 40_103,
+                    messageIndex: 50_103,
+                    signatureScalar: 104,
+                    roundIdentifier: [UInt8](repeating: 0xF1, count: 32)
+                ),
+                .anonymousBCHSignatureAdmissionRejected(
+                    .anonymousBCHSignatureRoundMismatch
+                )
+            ),
+            (
+                try makeBCHSignatureDelivery(
+                    harness: harness,
+                    transcript: transcript,
+                    acceptedInput: firstInput,
+                    inputIndex: 0,
+                    authorizationEvaluator: evaluator,
+                    authorizationVerificationKey: verificationKey,
+                    communicationKey: validFirstKey,
+                    nonceIndex: 40_105,
+                    messageIndex: 50_105,
+                    signatureScalar: 106
+                ),
+                .anonymousBCHSignatureAdmissionRejected(
+                    .invalidAuthorizationToken
+                )
+            ),
+            (
+                try makeBCHSignatureDelivery(
+                    harness: harness,
+                    transcript: transcript,
+                    acceptedInput: firstInput,
+                    inputIndex: 0,
+                    authorizationEvaluator: bchEvaluator,
+                    authorizationVerificationKey: bchVerificationKey,
+                    communicationKey: validFirstKey,
+                    nonceIndex: 40_106,
+                    messageIndex: 50_106,
+                    signatureScalar: 107,
+                    authorizationBinding: [UInt8](
+                        repeating: 0xF2,
+                        count: 32
+                    )
+                ),
+                .anonymousBCHSignatureAdmissionRejected(
+                    .invalidAuthorizationToken
+                )
+            ),
+            (
+                try makeBCHSignatureDelivery(
+                    harness: harness,
+                    transcript: transcript,
+                    acceptedInput: firstInput,
+                    inputIndex: 0,
+                    authorizationEvaluator: bchEvaluator,
+                    authorizationVerificationKey: bchVerificationKey,
+                    communicationKey: validFirstKey,
+                    nonceIndex: 40_107,
+                    messageIndex: 50_107,
+                    signatureScalar: 108,
+                    transcriptRoot: [UInt8](repeating: 0xF3, count: 32)
+                ),
+                .anonymousBCHSignatureAdmissionRejected(
+                    .invalidAuthorizationToken
+                )
+            ),
+        ]
+        for (delivery, failure) in invalidDeliveries {
+            var invalidLedger = harness.ledger
+            #expect(
+                invalidLedger.receiveAnonymousBCHSignature(
+                    delivery,
+                    using: AcceptingBCHSignatureValidator()
+                ) == [.inputRejected(failure)]
+            )
+            #expect(
+                invalidLedger.receiveAnonymousBCHSignature(
+                    validFirst,
+                    using: AcceptingBCHSignatureValidator()
+                ).contains { effect in
+                    if case .anonymousBCHSignatureAdmitted = effect {
+                        true
+                    } else {
+                        false
+                    }
+                }
+            )
+        }
+
+        var semanticRejectionLedger = harness.ledger
+        #expect(
+            semanticRejectionLedger.receiveAnonymousBCHSignature(
+                validFirst,
+                using: RejectingBCHSignatureValidator()
+            ) == [
+                .inputRejected(
+                    .anonymousBCHSignatureAdmissionRejected(
+                        .anonymousBCHSignatureAdmissionRejected
+                    )
+                )
+            ]
+        )
+        #expect(
+            semanticRejectionLedger.receiveAnonymousBCHSignature(
+                validFirst,
+                using: AcceptingBCHSignatureValidator()
+            ).contains { effect in
+                if case .anonymousBCHSignatureAdmitted = effect {
+                    true
+                } else {
+                    false
+                }
+            }
+        )
+
+        let sharedSender = try MosaicOpalV0WireContractValidator
+            .publicKeyFixture(scalar: 6_000).compressed
+        var oppositeParitySender = sharedSender
+        oppositeParitySender[0] = sharedSender[0] == 0x02 ? 0x03 : 0x02
+        var senderReuseLedger = harness.ledger
+        let senderFirst = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: sharedSender,
+            nonceIndex: 40_110,
+            messageIndex: 50_110,
+            signatureScalar: 110
+        )
+        let senderSecond = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: secondInput,
+            inputIndex: 1,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: oppositeParitySender,
+            nonceIndex: 40_111,
+            messageIndex: 50_111,
+            signatureScalar: 111
+        )
+        _ = senderReuseLedger.receiveAnonymousBCHSignature(
+            senderFirst,
+            using: AcceptingBCHSignatureValidator()
+        )
+        #expect(
+            senderReuseLedger.receiveAnonymousBCHSignature(
+                senderSecond,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .attemptTerminated(.failed(.anonymousCommunicationKeyReuse))
+            ]
+        )
+
+        var mailboxReuseLedger = harness.ledger
+        let mailboxFirst = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 6_100).compressed,
+            nonceIndex: 40_112,
+            messageIndex: 50_112,
+            signatureScalar: 112
+        )
+        let mailboxSecond = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 1,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 6_101).compressed,
+            nonceIndex: 40_113,
+            messageIndex: 50_113,
+            signatureScalar: 113
+        )
+        _ = mailboxReuseLedger.receiveAnonymousBCHSignature(
+            mailboxFirst,
+            using: AcceptingBCHSignatureValidator()
+        )
+        #expect(
+            mailboxReuseLedger.receiveAnonymousBCHSignature(
+                mailboxSecond,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .attemptTerminated(.failed(.anonymousRecipientIdentityReuse))
+            ]
+        )
+
+        var inputConflictLedger = harness.ledger
+        let inputFirst = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 6_200).compressed,
+            nonceIndex: 40_114,
+            messageIndex: 50_114,
+            signatureScalar: 114
+        )
+        let inputSecond = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: secondInput,
+            inputIndex: 0,
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 6_201).compressed,
+            nonceIndex: 40_115,
+            messageIndex: 50_115,
+            signatureScalar: 115
+        )
+        _ = inputConflictLedger.receiveAnonymousBCHSignature(
+            inputFirst,
+            using: AcceptingBCHSignatureValidator()
+        )
+        #expect(
+            inputConflictLedger.receiveAnonymousBCHSignature(
+                inputSecond,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .attemptTerminated(
+                    .failed(.anonymousBCHSignatureInputConflict(0))
+                )
+            ]
+        )
+
+        var setConstructionFailureLedger = harness.ledger
+        for (inputIndex, acceptedInput) in acceptedInputs.enumerated() {
+            let reportedIndex = inputIndex == 0
+                ? UInt32(acceptedInputs.count)
+                : UInt32(inputIndex)
+            let delivery = try makeBCHSignatureDelivery(
+                harness: harness,
+                transcript: transcript,
+                acceptedInput: acceptedInput,
+                inputIndex: reportedIndex,
+                authorizationEvaluator: bchEvaluator,
+                authorizationVerificationKey: bchVerificationKey,
+                communicationKey: try MosaicOpalV0WireContractValidator
+                    .publicKeyFixture(scalar: 6_500 + inputIndex).compressed,
+                nonceIndex: 40_130 + inputIndex,
+                messageIndex: 50_130 + inputIndex,
+                signatureScalar: 130 + inputIndex
+            )
+            let effects = setConstructionFailureLedger
+                .receiveAnonymousBCHSignature(
+                    delivery,
+                    using: AcceptingBCHSignatureValidator()
+                )
+            if inputIndex == acceptedInputs.count - 1 {
+                #expect(
+                    effects.last == .attemptTerminated(
+                        .failed(.bchSignatureSetConstructionFailed)
+                    )
+                )
+            } else {
+                #expect(effects.count == 1)
+                guard case .anonymousBCHSignatureAdmitted = effects[0] else {
+                    Issue.record("Expected a partial signature admission")
+                    return
+                }
+            }
+        }
+
+        var firstDelivery: Ledger.AnonymousComponentDelivery?
+        for (ordinal, inputIndex) in acceptedInputs.indices.reversed()
+            .enumerated() {
+            let acceptedInput = acceptedInputs[inputIndex]
+            let communicationKey = try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 4_000 + inputIndex).compressed
+            let delivery = try makeBCHSignatureDelivery(
+                harness: harness,
+                transcript: transcript,
+                acceptedInput: acceptedInput,
+                inputIndex: UInt32(inputIndex),
+                authorizationEvaluator: bchEvaluator,
+                authorizationVerificationKey: bchVerificationKey,
+                communicationKey: communicationKey,
+                nonceIndex: 40_000 + inputIndex,
+                messageIndex: 50_000 + inputIndex,
+                signatureScalar: 100 + inputIndex
+            )
+            firstDelivery = firstDelivery ?? delivery
+            let effects = harness.ledger.receiveAnonymousBCHSignature(
+                delivery,
+                using: AcceptingBCHSignatureValidator()
+            )
+            #expect(effects.contains { effect in
+                if case .anonymousBCHSignatureAdmitted = effect {
+                    true
+                } else {
+                    false
+                }
+            })
+            if ordinal == acceptedInputs.count - 1 {
+                #expect(effects.contains { effect in
+                    guard case let .bchSignatureSetReady(set) = effect else {
+                        return false
+                    }
+                    return set.entries.map(\.inputIndex)
+                        == (0 ..< acceptedInputs.count).map(UInt32.init)
+                })
+            } else {
+                #expect(!effects.contains { effect in
+                    if case .bchSignatureSetReady = effect {
+                        true
+                    } else {
+                        false
+                    }
+                })
+            }
+        }
+        let duplicate = try #require(firstDelivery)
+        let expiredDuplicate = Ledger.AnonymousComponentDelivery(
+            attemptIdentifier: duplicate.attemptIdentifier,
+            generationIdentifier: duplicate.generationIdentifier,
+            envelope: duplicate.envelope,
+            authenticatedOuterEventIdentity:
+                duplicate.authenticatedOuterEventIdentity,
+            authenticatedRecipientEventIdentity:
+                duplicate.authenticatedRecipientEventIdentity,
+            authenticatedMessageIdentifier:
+                duplicate.authenticatedMessageIdentifier,
+            currentUnixSeconds: 1_900_000_000
+        )
+        #expect(
+            harness.ledger.receiveAnonymousBCHSignature(
+                expiredDuplicate,
+                using: RejectingBCHSignatureValidator()
+            ) == [.exactDuplicateIgnored]
+        )
+        let extra = try makeBCHSignatureDelivery(
+            harness: harness,
+            transcript: transcript,
+            acceptedInput: firstInput,
+            inputIndex: UInt32(acceptedInputs.count),
+            authorizationEvaluator: bchEvaluator,
+            authorizationVerificationKey: bchVerificationKey,
+            communicationKey: try MosaicOpalV0WireContractValidator
+                .publicKeyFixture(scalar: 7_000).compressed,
+            nonceIndex: 40_120,
+            messageIndex: 50_120,
+            signatureScalar: 120
+        )
+        #expect(
+            harness.ledger.receiveAnonymousBCHSignature(
+                extra,
+                using: AcceptingBCHSignatureValidator()
+            ) == [
+                .attemptTerminated(
+                    .failed(.anonymousBCHSignatureLimitExceeded)
+                )
+            ]
+        )
+        #expect(
+            harness.ledger.receiveAnonymousBCHSignature(
+                duplicate,
+                using: RejectingBCHSignatureValidator()
+            ) == [.exactDuplicateIgnored]
+        )
+        #expect(
+            harness.ledger.receiveAnonymousBCHSignature(
+                extra,
+                using: AcceptingBCHSignatureValidator()
+            ) == [.inputRejected(.inputAfterTermination)]
         )
     }
 
@@ -1745,32 +2610,125 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         let nextContributorSequence: UInt64
     }
 
+    private func makeBCHSignatureDelivery(
+        harness: Fixture.Harness,
+        transcript: Ledger.Transcript,
+        acceptedInput: Alpha.AnonymousComponentAdmissionValidation,
+        inputIndex: UInt32,
+        authorizationEvaluator: OpalFusion.Mosaic.OpalV0
+            .AuthorizationEvaluator,
+        authorizationVerificationKey: OpalCrypto.RSABSSA.VerificationKey,
+        communicationKey: [UInt8],
+        nonceIndex: Int,
+        messageIndex: Int,
+        signatureScalar: Int,
+        authorizationToken suppliedAuthorizationToken:
+            Alpha.AuthorizationToken? = nil,
+        authorizationPurpose: Alpha.AuthorizationPurpose = .bchSignature,
+        authorizationBinding: [UInt8]? = nil,
+        transcriptRoot: [UInt8]? = nil,
+        phase: OpalFusion.Mosaic.Attempt.Phase = .bchSigning,
+        sequence: UInt64 = 1,
+        roundIdentifier: [UInt8]? = nil,
+        recipientEventIdentity: [UInt8]? = nil,
+        expiryUnixSeconds: UInt64 = 1_800_000_060,
+        currentUnixSeconds: UInt64 = 1_800_000_000
+    ) throws -> Ledger.AnonymousComponentDelivery {
+        let roundIdentifier = roundIdentifier
+            ?? harness.manifest.core.roundIdentifier
+        let authorizationToken: Alpha.AuthorizationToken
+        if let suppliedAuthorizationToken {
+            authorizationToken = suppliedAuthorizationToken
+        } else {
+            let authorizationInput = try Alpha.AuthorizationTokenInput(
+                roundIdentifier: roundIdentifier,
+                keyIdentifier: [UInt8](
+                    authorizationVerificationKey.keyIdentifier
+                ),
+                purpose: authorizationPurpose,
+                nonce: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
+                    nonceIndex
+                ),
+                binding: authorizationBinding
+                    ?? acceptedInput.authorizationSpentIdentifier
+            )
+            let authorizationRequest = try Alpha.AuthorizationRequest(
+                input: authorizationInput,
+                using: authorizationVerificationKey
+            )
+            authorizationToken = try authorizationRequest.finalize(
+                authorizationEvaluator.evaluate(
+                    authorizationRequest.blindedMessage
+                )
+            )
+        }
+        let signingKey = try OpalCrypto.Secp256k1.SigningKey(
+            rawRepresentation: scalarBytes(signatureScalar)
+        )
+        let signature = try signingKey.signSchnorr(
+            digest: .init(
+                rawRepresentation: Data(
+                    MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
+                        45_000 + Int(inputIndex)
+                    )
+                )
+            )
+        )
+        let submission = try Alpha.BCHSignatureSubmission(
+            transcriptRoot:
+                transcriptRoot ?? transcript.transcriptRoot.validatedBytes,
+            authorizationToken: authorizationToken,
+            entry: try .init(
+                inputIndex: inputIndex,
+                signature: [UInt8](signature.rawRepresentation),
+                publicKey: [UInt8](
+                    signingKey.publicKey.compressedRepresentation
+                )
+            )
+        )
+        let recipientEventIdentity = recipientEventIdentity
+            ?? acceptedInput.recipientEventIdentity
+        let envelope = try Alpha.AnonymousEnvelope(
+            roundIdentifier: roundIdentifier,
+            phase: phase,
+            senderCommunicationPublicKey: communicationKey,
+            recipientEventIdentity: recipientEventIdentity,
+            sequence: sequence,
+            payloadType: .bchSignatureSubmission,
+            expiryUnixSeconds: expiryUnixSeconds,
+            payload: Alpha.CanonicalWireCodec
+                .encodeBCHSignatureSubmission(submission)
+        )
+        return .init(
+            attemptIdentifier: harness.attemptIdentifier,
+            generationIdentifier: harness.generationIdentifier,
+            envelope: envelope,
+            authenticatedOuterEventIdentity: Array(
+                communicationKey.dropFirst()
+            ),
+            authenticatedRecipientEventIdentity: recipientEventIdentity,
+            authenticatedMessageIdentifier: try .init(
+                bytes: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
+                    messageIndex
+                )
+            ),
+            currentUnixSeconds: currentUnixSeconds
+        )
+    }
+
+    private func scalarBytes(_ scalar: Int) -> Data {
+        precondition(scalar > 0)
+        var value = UInt32(scalar).bigEndian
+        var result = Data(repeating: 0, count: 28)
+        withUnsafeBytes(of: &value) { result.append(contentsOf: $0) }
+        return result
+    }
+
     private struct LocalAuthorizationMaterial {
+        let material: Alpha.LocalContributionMaterial
         let playerCommit: Alpha.PlayerCommit
         let responseSet: Alpha.AuthorizationResponseSet
-        let validation: Alpha.AuthorizationResponseSetValidation
-    }
-
-    private struct RejectingAnonymousComponentValidator:
-        Alpha.AnonymousComponentAdmissionValidating
-    {
-        struct Rejection: Error {}
-
-        func validateComponentAdmission(
-            senderCommunicationPublicKey: [UInt8],
-            payload: OpalFusion.Mosaic.OpalV0.AnonymousComponentPayload
-        ) throws {
-            throw Rejection()
-        }
-    }
-
-    private struct AcceptingAnonymousComponentValidator:
-        Alpha.AnonymousComponentAdmissionValidating
-    {
-        func validateComponentAdmission(
-            senderCommunicationPublicKey _: [UInt8],
-            payload _: OpalFusion.Mosaic.OpalV0.AnonymousComponentPayload
-        ) throws {}
+        let validation: Alpha.AuthorizationResponseSetMaterialValidation
     }
 
     private struct AcceptingPhaseTransitionValidator:
@@ -1793,10 +2751,37 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         }
     }
 
+    private struct AcceptingBCHSignatureValidator:
+        Alpha.AnonymousBCHSignatureAdmissionValidating
+    {
+        func validateBCHSignatureAdmission(
+            submission _: Alpha.BCHSignatureSubmission,
+            acceptedInputComponent _: OpalFusion.Mosaic.OpalV0.Component,
+            transcript _: OpalFusion.Mosaic.OpalV0
+                .UnsignedTransactionTranscript
+        ) throws {}
+    }
+
+    private struct RejectingBCHSignatureValidator:
+        Alpha.AnonymousBCHSignatureAdmissionValidating
+    {
+        struct Rejection: Error {}
+
+        func validateBCHSignatureAdmission(
+            submission _: Alpha.BCHSignatureSubmission,
+            acceptedInputComponent _: OpalFusion.Mosaic.OpalV0.Component,
+            transcript _: OpalFusion.Mosaic.OpalV0
+                .UnsignedTransactionTranscript
+        ) throws {
+            throw Rejection()
+        }
+    }
+
     private struct PreparedConductorCommitments {
         let preparation: MosaicUnsignedTransactionTranscriptFixtures.Prepared
         let nextConductorSequence: UInt64
         let nextContributorSequenceByIdentity: [Ledger.ControlIdentity: UInt64]
+        let authorizationMaterial: LocalAuthorizationMaterial?
     }
 
     private func synchronize(
@@ -1876,32 +2861,33 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         var conductorSequence = try admitManifestAndAdvanceWallet(
             harness: &harness
         )
-        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
-            roster: harness.election.result.roster,
-            manifest: harness.manifest.binding,
-            profile: .opalMainnetAlpha
+        let materialized = try MosaicMainnetAlphaFixtures
+            .makeMaterializedPreparation(
+                election: harness.election,
+                manifest: harness.manifest,
+                attemptIdentifier: harness.attemptIdentifier,
+                generationIdentifier: harness.generationIdentifier,
+                localContributor: harness.localControlIdentity,
+                localMaterialIdentifier: harness.materialIdentifier
+            )
+        let preparation = materialized.prepared
+        let localContributionMaterial = try #require(
+            materialized.materials[harness.localControlIdentity]
         )
         let verificationKey = try #require(evaluator.verificationKey)
         try #require(
-            verificationKey == harness.manifest.core.blindSigningVerificationKey
+            verificationKey == harness.manifest.core
+                .componentAuthorizationVerificationKey
         )
         let material = try makeLocalAuthorizationMaterial(
-            harness: harness,
-            commitmentSet: preparation.commitmentSet,
+            material: localContributionMaterial,
             evaluator: evaluator
         )
         let contributor = harness.localControlIdentity
         let playerCommit = material.playerCommit
-        var playerCommits = try Fixture.makePlayerCommits(
-            harness: harness,
-            commitmentSet: preparation.commitmentSet
-        )
-        let localCommitIndex = try #require(
-            playerCommits.firstIndex {
-                $0.contributor == contributor
-            }
-        )
-        playerCommits[localCommitIndex] = playerCommit
+        let playerCommits = try harness.manifest.core.orderedContributors.map {
+            try #require(materialized.materials[$0]?.playerCommit)
+        }
         let playerCommitRun = try Fixture.aggregateRun(
             canonicalBytes: playerCommit.canonicalBytes,
             kind: .playerCommit,
@@ -1953,12 +2939,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                     var locallyValidatedBeforeCompleteStream = harness.ledger
                     _ = locallyValidatedBeforeCompleteStream.apply(
                         input: .authorizationResponseSetValidated(
-                            .init(
-                                attemptIdentifier: harness.attemptIdentifier,
-                                generationIdentifier:
-                                    harness.generationIdentifier,
-                                validation: validation
-                            )
+                            .init(validation: validation)
                         )
                     )
                     #expect(
@@ -1992,50 +2973,61 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                     )
                 ]
         )
-        var foreignAttemptLedger = harness.ledger
+        var foreignAttemptLedger = try Ledger(
+            attemptIdentifier: .init(
+                validatedBytes: [UInt8](repeating: 0xD1, count: 32)
+            ),
+            generationIdentifier: harness.generationIdentifier,
+            materialIdentifier: harness.materialIdentifier,
+            localControlIdentity: harness.localControlIdentity,
+            proposalValidation: harness.proposalValidation
+        )
         #expect(
             foreignAttemptLedger.apply(
                 input: .authorizationResponseSetValidated(
-                    .init(
-                        attemptIdentifier: .init(
-                            validatedBytes: [UInt8](
-                                repeating: 0xD1,
-                                count: 32
-                            )
-                        ),
-                        generationIdentifier: harness.generationIdentifier,
-                        validation: validation
-                    )
+                    .init(validation: validation)
                 )
             ) == [.inputRejected(.attemptIdentifierMismatch)]
         )
-        var foreignGenerationLedger = harness.ledger
+        var foreignGenerationLedger = try Ledger(
+            attemptIdentifier: harness.attemptIdentifier,
+            generationIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0xD2, count: 32)
+            ),
+            materialIdentifier: harness.materialIdentifier,
+            localControlIdentity: harness.localControlIdentity,
+            proposalValidation: harness.proposalValidation
+        )
         #expect(
             foreignGenerationLedger.apply(
                 input: .authorizationResponseSetValidated(
-                    .init(
-                        attemptIdentifier: harness.attemptIdentifier,
-                        generationIdentifier: .init(
-                            opaqueBytes: [UInt8](repeating: 0xD2, count: 32)
-                        ),
-                        validation: validation
-                    )
+                    .init(validation: validation)
                 )
             ) == [.inputRejected(.generationIdentifierMismatch)]
+        )
+        var foreignMaterialLedger = try Ledger(
+            attemptIdentifier: harness.attemptIdentifier,
+            generationIdentifier: harness.generationIdentifier,
+            materialIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0xD3, count: 32)
+            ),
+            localControlIdentity: harness.localControlIdentity,
+            proposalValidation: harness.proposalValidation
+        )
+        #expect(
+            foreignMaterialLedger.apply(
+                input: .authorizationResponseSetValidated(
+                    .init(validation: validation)
+                )
+            ) == [.inputRejected(.materialIdentifierMismatch)]
         )
         try #require(
             harness.ledger.apply(
                 input: .authorizationResponseSetValidated(
-                    .init(
-                        attemptIdentifier: harness.attemptIdentifier,
-                        generationIdentifier: harness.generationIdentifier,
-                        validation: validation
-                    )
+                    .init(validation: validation)
                 )
             ) == [
-                .authorizationResponsesValidated(
-                    validation.authorizationTokens
-                )
+                .authorizationResponsesValidated(validation)
             ]
         )
         let groupedCommitmentEffects = try synchronize(
@@ -2096,104 +3088,109 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
     }
 
     private func makeLocalAuthorizationMaterial(
-        harness: Fixture.Harness,
-        commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet,
+        material: Alpha.LocalContributionMaterial,
         evaluator: OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
     ) throws -> LocalAuthorizationMaterial {
-        let verificationKey = try #require(evaluator.verificationKey)
-        let contributor = harness.localControlIdentity
-        let sortedContributors = harness.election.result.roster.contributors
-            .sorted {
-                $0.validatedBytes.lexicographicallyPrecedes($1.validatedBytes)
-            }
-        let contributorIndex = try #require(
-            sortedContributors.firstIndex(of: contributor)
+        let componentVerificationKey = try #require(evaluator.verificationKey)
+        let bchSignatureEvaluator = try MosaicMainnetAlphaFixtures
+            .bchSignatureAuthorizationEvaluator()
+        let bchSignatureVerificationKey = try #require(
+            bchSignatureEvaluator.verificationKey
         )
-        let lowerBound = contributorIndex * Alpha.componentCountPerContributor
-        let upperBound = lowerBound + Alpha.componentCountPerContributor
-        let commitmentGroup = try MosaicUnsignedTransactionTranscriptFixtures
-            .makeMainnetCommitmentGroups(
-                contributorCount: sortedContributors.count
-            )[contributorIndex]
         try #require(
-            commitmentGroup.commitments
-                == Array(commitmentSet.commitments[lowerBound ..< upperBound])
+            componentVerificationKey
+                == material.manifest.core
+                    .componentAuthorizationVerificationKey
         )
-        let groupedCommitment = try OpalFusion.Mosaic.OpalV0
-            .GroupedCommitmentPayload(
-                profile: .opalMainnetAlpha,
-                commitments: commitmentGroup.commitments,
-                excessFeeSatoshis: commitmentGroup.excessFeeSatoshis,
-                pedersenTotalNonce: commitmentGroup.pedersenTotalNonce
-            )
-        var requests: [OpalFusion.Mosaic.OpalV0.AuthorizationRequest] = []
-        var requestPayloads: [
-            OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
-        ] = []
-        for slot in 0 ..< Alpha.componentCountPerContributor {
-            let input = try OpalFusion.Mosaic.OpalV0.AuthorizationTokenInput(
-                profile: .opalMainnetAlpha,
-                roundIdentifier: harness.manifest.core.roundIdentifier,
-                keyIdentifier: [UInt8](verificationKey.keyIdentifier),
-                nonce: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
-                    30_000 + slot
-                )
-            )
-            let request = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
-                input: input,
-                using: verificationKey
-            )
-            requests.append(request)
-            requestPayloads.append(
-                try .init(slot: slot, blindedMessage: request.blindedMessage)
-            )
-        }
-        let playerCommit = try Alpha.PlayerCommit(
-            roundIdentifier: harness.manifest.core.roundIdentifier,
-            contributor: contributor,
-            groupedCommitment: groupedCommitment,
-            authorizationRequests: requestPayloads
+        try #require(
+            bchSignatureVerificationKey
+                == material.manifest.core
+                    .bchSignatureAuthorizationVerificationKey
         )
-        let responses = try requests.enumerated().map { slot, request in
-            try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
+        let componentResponses = try material.slots.enumerated().map {
+            slot, materialSlot in
+            let request = materialSlot.componentAuthorizationRequest
+            return try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
                 slot: slot,
                 blindSignature: evaluator.evaluate(request.blindedMessage)
             )
         }
+        let bchSignatureResponses = try material.slots.enumerated().map {
+            slot, materialSlot in
+            let request = materialSlot.bchSignatureAuthorizationRequest
+            return try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
+                slot: slot,
+                blindSignature: bchSignatureEvaluator.evaluate(
+                    request.blindedMessage
+                )
+            )
+        }
         let responseSet = try Alpha.AuthorizationResponseSet(
-            roundIdentifier: harness.manifest.core.roundIdentifier,
-            contributor: contributor,
-            playerCommitDigest: playerCommit.digest,
-            responses: responses
+            roundIdentifier: material.manifest.core.roundIdentifier,
+            contributor: material.contributor,
+            playerCommitDigest: material.playerCommit.digest,
+            componentAuthorizationResponses: componentResponses,
+            bchSignatureAuthorizationResponses: bchSignatureResponses
         )
-        let validation = try Alpha.AuthorizationResponseSetValidation(
+        let validation = try Alpha.AuthorizationResponseSetMaterialValidation(
             validating: responseSet,
-            playerCommit: playerCommit,
-            requests: requests,
-            blindSigningVerificationKey: verificationKey
+            material: material
         )
         return .init(
-            playerCommit: playerCommit,
+            material: material,
+            playerCommit: material.playerCommit,
             responseSet: responseSet,
             validation: validation
         )
     }
 
     private func prepareConductorCommitments(
-        harness: inout Fixture.Harness
+        harness: inout Fixture.Harness,
+        materialized: Bool = false
     ) throws -> PreparedConductorCommitments {
         var conductorSequence = try admitManifestAndAdvanceWallet(
             harness: &harness
         )
-        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
-            roster: harness.election.result.roster,
-            manifest: harness.manifest.binding,
-            profile: .opalMainnetAlpha
-        )
-        let commits = try Fixture.makePlayerCommits(
-            harness: harness,
-            commitmentSet: preparation.commitmentSet
-        )
+        let preparation: MosaicUnsignedTransactionTranscriptFixtures.Prepared
+        let commits: [Alpha.PlayerCommit]
+        let authorizationMaterial: LocalAuthorizationMaterial?
+        if materialized {
+            let localContributor = try #require(
+                harness.manifest.core.orderedContributors.first
+            )
+            let materializedPreparation = try MosaicMainnetAlphaFixtures
+                .makeMaterializedPreparation(
+                    election: harness.election,
+                    manifest: harness.manifest,
+                    attemptIdentifier: harness.attemptIdentifier,
+                    generationIdentifier: harness.generationIdentifier,
+                    localContributor: localContributor,
+                    localMaterialIdentifier: harness.materialIdentifier
+                )
+            preparation = materializedPreparation.prepared
+            commits = try harness.manifest.core.orderedContributors.map {
+                try #require(
+                    materializedPreparation.materials[$0]?.playerCommit
+                )
+            }
+            authorizationMaterial = try makeLocalAuthorizationMaterial(
+                material: try #require(
+                    materializedPreparation.materials[localContributor]
+                ),
+                evaluator: MosaicMainnetAlphaFixtures.authorizationEvaluator()
+            )
+        } else {
+            preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+                roster: harness.election.result.roster,
+                manifest: harness.manifest.binding,
+                profile: .opalMainnetAlpha
+            )
+            commits = try Fixture.makePlayerCommits(
+                harness: harness,
+                commitmentSet: preparation.commitmentSet
+            )
+            authorizationMaterial = nil
+        }
         var reachedUnanimity = false
         var nextContributorSequenceByIdentity: [
             Ledger.ControlIdentity: UInt64
@@ -2219,10 +3216,15 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         }
         try #require(reachedUnanimity)
         for (index, commit) in commits.enumerated() {
-            let responseSet = try Fixture.makeAuthorizationResponseSet(
-                playerCommit: commit,
-                byteSeed: UInt8(index + 1)
-            )
+            let responseSet = if commit.contributor
+                == authorizationMaterial?.material.contributor {
+                try #require(authorizationMaterial?.responseSet)
+            } else {
+                try Fixture.makeAuthorizationResponseSet(
+                    playerCommit: commit,
+                    byteSeed: UInt8(index + 1)
+                )
+            }
             let run = try Fixture.aggregateRun(
                 canonicalBytes: responseSet.canonicalBytes,
                 kind: .authorizationResponseSet,
@@ -2248,7 +3250,8 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             preparation: preparation,
             nextConductorSequence: conductorSequence,
             nextContributorSequenceByIdentity:
-                nextContributorSequenceByIdentity
+                nextContributorSequenceByIdentity,
+            authorizationMaterial: authorizationMaterial
         )
     }
 

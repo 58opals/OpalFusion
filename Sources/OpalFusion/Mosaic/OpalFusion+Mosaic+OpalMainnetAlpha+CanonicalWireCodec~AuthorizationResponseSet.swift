@@ -15,12 +15,32 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
         roundIdentifier: [UInt8],
         contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
         playerCommitDigest: [UInt8],
-        responses: [OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload]
+        componentAuthorizationResponses: [
+            OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload
+        ],
+        bchSignatureAuthorizationResponses: [
+            OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload
+        ]
     ) throws -> [UInt8] {
         var encoder = OpalFusion.Mosaic.CanonicalEncoder()
         try encoder.writeFixedBytes(roundIdentifier, byteCount: 32)
         try encoder.writeFixedBytes(contributor.validatedBytes, byteCount: 32)
         try encoder.writeFixedBytes(playerCommitDigest, byteCount: 32)
+        try writeAuthorizationResponses(
+            componentAuthorizationResponses,
+            to: &encoder
+        )
+        try writeAuthorizationResponses(
+            bchSignatureAuthorizationResponses,
+            to: &encoder
+        )
+        return encoder.encodedBytes
+    }
+
+    private static func writeAuthorizationResponses(
+        _ responses: [OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload],
+        to encoder: inout OpalFusion.Mosaic.CanonicalEncoder
+    ) throws {
         try encoder.writeVector(responses) { encoder, response in
             encoder.writeUInt8(UInt8(response.slot))
             try encoder.writeFixedBytes(
@@ -28,7 +48,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
                 byteCount: OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount
             )
         }
-        return encoder.encodedBytes
     }
 
     static func decodeAuthorizationResponseSet(
@@ -40,7 +59,28 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
                 validatedBytes: try decoder.readFixedBytes(byteCount: 32)
             )
             let playerCommitDigest = try decoder.readFixedBytes(byteCount: 32)
-            let responses = try decoder.readVector { decoder in
+            let componentAuthorizationResponses = try readAuthorizationResponses(
+                from: &decoder
+            )
+            let bchSignatureAuthorizationResponses = try readAuthorizationResponses(
+                from: &decoder
+            )
+            return try .init(
+                roundIdentifier: roundIdentifier,
+                contributor: contributor,
+                playerCommitDigest: playerCommitDigest,
+                componentAuthorizationResponses:
+                    componentAuthorizationResponses,
+                bchSignatureAuthorizationResponses:
+                    bchSignatureAuthorizationResponses
+            )
+        }
+    }
+
+    private static func readAuthorizationResponses(
+        from decoder: inout OpalFusion.Mosaic.CanonicalDecoder
+    ) throws -> [OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload] {
+        try decoder.readVector { decoder in
                 try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
                     slot: Int(decoder.readUInt8()),
                     blindSignature: OpalCrypto.RSABSSA.BlindSignature(
@@ -53,12 +93,5 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
                     )
                 )
             }
-            return try .init(
-                roundIdentifier: roundIdentifier,
-                contributor: contributor,
-                playerCommitDigest: playerCommitDigest,
-                responses: responses
-            )
-        }
     }
 }

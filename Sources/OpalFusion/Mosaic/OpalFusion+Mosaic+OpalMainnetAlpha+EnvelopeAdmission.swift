@@ -324,26 +324,20 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
     }
 
-    protocol AnonymousComponentAdmissionValidating: Sendable {
-        func validateComponentAdmission(
-            senderCommunicationPublicKey: [UInt8],
-            payload: OpalFusion.Mosaic.OpalV0.AnonymousComponentPayload
-        ) throws
-    }
-
     struct AnonymousComponentAdmissionValidation: Sendable, Equatable {
         let senderCommunicationPublicKey: [UInt8]
-        let payload: OpalFusion.Mosaic.OpalV0.AnonymousComponentPayload
+        let recipientEventIdentity: [UInt8]
+        let payload: OpalFusion.Mosaic.OpalMainnetAlpha.AnonymousComponentPayload
         let authorizationSpentIdentifier: [UInt8]
 
-        init<Validator: AnonymousComponentAdmissionValidating>(
+        init(
             envelope: AnonymousEnvelope,
             roundIdentifier: [UInt8],
             authenticatedOuterEventIdentity: [UInt8],
             expectedRecipientEventIdentity: [UInt8],
             currentUnixSeconds: UInt64,
-            blindSigningVerificationKey: OpalCrypto.RSABSSA.VerificationKey,
-            using validator: Validator
+            componentAuthorizationVerificationKey:
+                OpalCrypto.RSABSSA.VerificationKey
         ) throws {
             try RoleSeedValidator.validateFixed(
                 authenticatedOuterEventIdentity,
@@ -372,36 +366,131 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
             }
             guard envelope.phase == .anonymousComponentSubmission,
+                  envelope.sequence == 0,
                   envelope.roundIdentifier == roundIdentifier else {
                 throw ContractError.anonymousComponentRoundMismatch
             }
-            let payload = try OpalFusion.Mosaic.OpalV0.CanonicalWireCodec
+            let payload = try OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec
                 .decodeAnonymousComponent(
-                    from: envelope.payload,
-                    profile: .opalMainnetAlpha
+                    from: envelope.payload
                 )
             guard payload.roundIdentifier == roundIdentifier,
-                  payload.authorizationToken.input.profile
-                    == .opalMainnetAlpha,
                   payload.authorizationToken.verify(
-                    using: blindSigningVerificationKey
+                    purpose: .component,
+                    binding: try AuthorizationTokenInput.componentBinding(
+                        for: payload.component
+                    ),
+                    using: componentAuthorizationVerificationKey
                   ) else {
                 throw ContractError.invalidAuthorizationToken
             }
-            do {
-                try validator.validateComponentAdmission(
-                    senderCommunicationPublicKey:
-                        envelope.senderCommunicationPublicKey,
-                    payload: payload
-                )
-            } catch {
-                throw ContractError.anonymousComponentAdmissionRejected
-            }
             self.senderCommunicationPublicKey =
                 envelope.senderCommunicationPublicKey
+            self.recipientEventIdentity = envelope.recipientEventIdentity
             self.payload = payload
             self.authorizationSpentIdentifier =
                 payload.authorizationToken.spentIdentifier
+        }
+    }
+
+    protocol AnonymousBCHSignatureAdmissionValidating: Sendable {
+        func validateBCHSignatureAdmission(
+            submission: BCHSignatureSubmission,
+            acceptedInputComponent: OpalFusion.Mosaic.OpalV0.Component,
+            transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
+        ) throws
+    }
+
+    struct AnonymousBCHSignatureAdmissionValidation: Sendable, Equatable {
+        let senderCommunicationPublicKey: [UInt8]
+        let recipientEventIdentity: [UInt8]
+        let submission: BCHSignatureSubmission
+        let acceptedComponentAuthorizationSpentIdentifier: [UInt8]
+        let authorizationSpentIdentifier: [UInt8]
+
+        init<Validator: AnonymousBCHSignatureAdmissionValidating>(
+            envelope: AnonymousEnvelope,
+            roundIdentifier: [UInt8],
+            authenticatedOuterEventIdentity: [UInt8],
+            expectedRecipientEventIdentity: [UInt8],
+            currentUnixSeconds: UInt64,
+            acceptedComponent: AnonymousComponentAdmissionValidation,
+            transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript,
+            bchSignatureAuthorizationVerificationKey:
+                OpalCrypto.RSABSSA.VerificationKey,
+            using validator: Validator
+        ) throws {
+            try RoleSeedValidator.validateFixed(
+                authenticatedOuterEventIdentity,
+                field: .senderEventIdentity
+            )
+            try RoleSeedValidator.validateFixed(
+                expectedRecipientEventIdentity,
+                field: .recipientEventIdentity
+            )
+            try envelope.validateOuterEventIdentity(
+                authenticatedOuterEventIdentity
+            )
+            guard envelope.recipientEventIdentity
+                == expectedRecipientEventIdentity else {
+                throw ContractError.recipientEventIdentityMismatch
+            }
+            guard envelope.expiryUnixSeconds >= currentUnixSeconds else {
+                throw ContractError.expiredEnvelope(
+                    expiryUnixSeconds: envelope.expiryUnixSeconds,
+                    currentUnixSeconds: currentUnixSeconds
+                )
+            }
+            guard envelope.payloadType == .bchSignatureSubmission else {
+                throw ContractError.unsupportedAnonymousPayloadType(
+                    envelope.payloadType
+                )
+            }
+            guard envelope.phase == .bchSigning,
+                  envelope.roundIdentifier == roundIdentifier,
+                  envelope.sequence == 1,
+                  transcript.profile == .opalMainnetAlpha,
+                  transcript.manifest.roundIdentifier == roundIdentifier else {
+                throw ContractError.anonymousBCHSignatureRoundMismatch
+            }
+            guard acceptedComponent.payload.authorizationToken.input.purpose
+                == .component,
+                  case .input = acceptedComponent.payload.component.payload else {
+                throw ContractError.anonymousBCHSignatureComponentMismatch
+            }
+            let submission = try CanonicalWireCodec.decodeBCHSignatureSubmission(
+                from: envelope.payload
+            )
+            let componentSpentIdentifier = acceptedComponent
+                .authorizationSpentIdentifier
+            guard submission.authorizationToken.input.roundIdentifier
+                == roundIdentifier,
+                  submission.authorizationToken.verify(
+                      purpose: .bchSignature,
+                      binding: componentSpentIdentifier,
+                      using: bchSignatureAuthorizationVerificationKey
+                  ),
+                  submission.transcriptRoot
+                    == transcript.transcriptRoot.validatedBytes else {
+                throw ContractError.invalidAuthorizationToken
+            }
+            do {
+                try validator.validateBCHSignatureAdmission(
+                    submission: submission,
+                    acceptedInputComponent: acceptedComponent.payload.component,
+                    transcript: transcript
+                )
+            } catch {
+                throw ContractError.anonymousBCHSignatureAdmissionRejected
+            }
+            self.senderCommunicationPublicKey =
+                envelope.senderCommunicationPublicKey
+            self.recipientEventIdentity = envelope.recipientEventIdentity
+            self.submission = submission
+            self.acceptedComponentAuthorizationSpentIdentifier =
+                componentSpentIdentifier
+            self.authorizationSpentIdentifier =
+                submission.authorizationToken.spentIdentifier
         }
     }
 }

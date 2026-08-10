@@ -28,4 +28,17 @@ extension OpalFusion.Mosaic.OpalV0 {
             }
         }
     }
+
+    static func validateMainnetCommunicationEventIdentityUniqueness(
+        _ commitments: [ComponentCommitment]
+    ) throws {
+        var eventIdentities = Set<Data>()
+        for commitment in commitments {
+            guard eventIdentities.insert(
+                Data(commitment.communicationPublicKey.dropFirst())
+            ).inserted else {
+                throw WireContractError.duplicateCommunicationEventIdentity
+            }
+        }
+    }
 }

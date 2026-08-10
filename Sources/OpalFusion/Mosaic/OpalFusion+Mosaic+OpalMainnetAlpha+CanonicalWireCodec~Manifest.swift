@@ -132,7 +132,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
         encoder.writeUInt64(core.minimumExcessFeeSatoshis)
         encoder.writeUInt64(core.maximumExcessFeeSatoshis)
         try encoder.writeBytes(
-            [UInt8](core.blindSigningVerificationKey.subjectPublicKeyInfo)
+            [UInt8](core.componentAuthorizationVerificationKey.subjectPublicKeyInfo)
+        )
+        try encoder.writeBytes(
+            [UInt8](
+                core.bchSignatureAuthorizationVerificationKey.subjectPublicKeyInfo
+            )
         )
         try encoder.writeFixedBytes(
             core.contributorNonceAllocationDigest,
@@ -207,9 +212,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
         let feeRate = try decoder.readUInt64()
         let minimumExcess = try decoder.readUInt64()
         let maximumExcess = try decoder.readUInt64()
-        let blindSigningVerificationKey: OpalCrypto.RSABSSA.VerificationKey
+        let componentAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey
+        let bchSignatureAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey
         do {
-            blindSigningVerificationKey = try .init(
+            componentAuthorizationVerificationKey = try .init(
+                subjectPublicKeyInfo: Data(try decoder.readBytes())
+            )
+            bchSignatureAuthorizationVerificationKey = try .init(
                 subjectPublicKeyInfo: Data(try decoder.readBytes())
             )
         } catch {
@@ -267,7 +278,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
             candidateSetDigest: candidateSetDigest,
             roleElection: expectedRoleElection,
             opaquePoolIdentifier: opaquePoolIdentifier,
-            blindSigningVerificationKey: blindSigningVerificationKey,
+            componentAuthorizationVerificationKey:
+                componentAuthorizationVerificationKey,
+            bchSignatureAuthorizationVerificationKey:
+                bchSignatureAuthorizationVerificationKey,
             contributorNonceAllocationDigest: nonceAllocationDigest,
             relaySetDigest: relaySetDigest,
             deadlines: deadlines

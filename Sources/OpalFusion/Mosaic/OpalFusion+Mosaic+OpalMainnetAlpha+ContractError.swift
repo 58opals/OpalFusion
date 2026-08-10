@@ -17,6 +17,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         case invalidFeeTerms
         case invalidDeadlineOrder
         case invalidBlindSigningKey
+        case duplicateBlindSigningKeyIdentifier
+        case invalidAuthorizationPurpose(UInt8)
         case invalidManifestSignatureCount(expected: Int, actual: Int)
         case unknownManifestSigner
         case duplicateManifestSigner
@@ -59,6 +61,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         case invalidAuthorizationToken
         case anonymousComponentRoundMismatch
         case anonymousComponentAdmissionRejected
+        case anonymousBCHSignatureRoundMismatch
+        case anonymousBCHSignatureComponentMismatch
+        case anonymousBCHSignatureAdmissionRejected
         case invalidBCHSignature
         case invalidBCHPublicKey
         case invalidSignatureSetCount(expected: Int, actual: Int)

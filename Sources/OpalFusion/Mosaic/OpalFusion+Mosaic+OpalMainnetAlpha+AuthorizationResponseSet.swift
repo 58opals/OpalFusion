@@ -9,7 +9,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let roundIdentifier: [UInt8]
         let contributor: OpalFusion.Mosaic.Attempt.ControlIdentity
         let playerCommitDigest: [UInt8]
-        let responses: [OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload]
+        let componentAuthorizationResponses: [
+            OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload
+        ]
+        let bchSignatureAuthorizationResponses: [
+            OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload
+        ]
         let canonicalBytes: [UInt8]
         let digest: [UInt8]
 
@@ -17,7 +22,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             roundIdentifier: [UInt8],
             contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
             playerCommitDigest: [UInt8],
-            responses: [OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload]
+            componentAuthorizationResponses: [
+                OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload
+            ],
+            bchSignatureAuthorizationResponses: [
+                OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload
+            ]
         ) throws {
             try RoleSeedValidator.validateFixed(
                 roundIdentifier,
@@ -38,6 +48,63 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 playerCommitDigest,
                 field: .playerCommitDigest
             )
+            try Self.validateAuthorizationResponses(
+                componentAuthorizationResponses
+            )
+            try Self.validateAuthorizationResponses(
+                bchSignatureAuthorizationResponses
+            )
+
+            let canonicalBytes = try CanonicalWireCodec
+                .encodeAuthorizationResponseSet(
+                    roundIdentifier: roundIdentifier,
+                    contributor: contributor,
+                    playerCommitDigest: playerCommitDigest,
+                    componentAuthorizationResponses:
+                        componentAuthorizationResponses,
+                    bchSignatureAuthorizationResponses:
+                        bchSignatureAuthorizationResponses
+                )
+            self.roundIdentifier = Array(roundIdentifier)
+            self.contributor = contributor
+            self.playerCommitDigest = Array(playerCommitDigest)
+            self.componentAuthorizationResponses =
+                componentAuthorizationResponses
+            self.bchSignatureAuthorizationResponses =
+                bchSignatureAuthorizationResponses
+            self.canonicalBytes = canonicalBytes
+            self.digest = RoleSeedValidator.hash(
+                domainSuffix: "authorization-response-set",
+                fields: [canonicalBytes]
+            )
+        }
+
+        init(
+            playerCommit: PlayerCommit,
+            componentIssuingFrom componentLedger: OpalFusion.Mosaic.OpalV0
+                .AuthorizationIssuanceLedger,
+            bchSignatureIssuingFrom bchSignatureLedger: OpalFusion.Mosaic.OpalV0
+                .AuthorizationIssuanceLedger
+        ) throws {
+            try self.init(
+                roundIdentifier: playerCommit.roundIdentifier,
+                contributor: playerCommit.contributor,
+                playerCommitDigest: playerCommit.digest,
+                componentAuthorizationResponses: try componentLedger.issuedResponses(
+                    for: playerCommit.contributor,
+                    matching: playerCommit.componentAuthorizationRequests
+                ),
+                bchSignatureAuthorizationResponses: try bchSignatureLedger
+                    .issuedResponses(
+                        for: playerCommit.contributor,
+                        matching: playerCommit.bchSignatureAuthorizationRequests
+                    )
+            )
+        }
+
+        private static func validateAuthorizationResponses(
+            _ responses: [OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload]
+        ) throws {
             guard responses.count == componentCountPerContributor else {
                 throw ContractError.invalidAuthorizationResponseCount(
                     actual: responses.count
@@ -51,39 +118,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     )
                 }
             }
-
-            let canonicalBytes = try CanonicalWireCodec
-                .encodeAuthorizationResponseSet(
-                    roundIdentifier: roundIdentifier,
-                    contributor: contributor,
-                    playerCommitDigest: playerCommitDigest,
-                    responses: responses
-                )
-            self.roundIdentifier = Array(roundIdentifier)
-            self.contributor = contributor
-            self.playerCommitDigest = Array(playerCommitDigest)
-            self.responses = responses
-            self.canonicalBytes = canonicalBytes
-            self.digest = RoleSeedValidator.hash(
-                domainSuffix: "authorization-response-set",
-                fields: [canonicalBytes]
-            )
-        }
-
-        init(
-            playerCommit: PlayerCommit,
-            issuingFrom ledger: OpalFusion.Mosaic.OpalV0
-                .AuthorizationIssuanceLedger
-        ) throws {
-            try self.init(
-                roundIdentifier: playerCommit.roundIdentifier,
-                contributor: playerCommit.contributor,
-                playerCommitDigest: playerCommit.digest,
-                responses: try ledger.issuedResponses(
-                    for: playerCommit.contributor,
-                    matching: playerCommit.authorizationRequests
-                )
-            )
         }
     }
 
@@ -93,69 +127,202 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         enum ValidationError: Error, Sendable, Equatable {
             case responseSetMismatch
             case requestCountMismatch(actual: Int)
-            case requestMismatch(slot: Int)
-            case verificationKeyMismatch(slot: Int)
-            case responseFinalizationFailed(slot: Int)
-            case duplicateAuthorizationSpentIdentifier(slot: Int)
+            case componentCountMismatch(actual: Int)
+            case componentBindingMismatch(slot: Int)
+            case bchSignatureBindingMismatch(slot: Int)
+            case requestMismatch(purpose: AuthorizationPurpose, slot: Int)
+            case verificationKeyMismatch(purpose: AuthorizationPurpose, slot: Int)
+            case responseFinalizationFailed(purpose: AuthorizationPurpose, slot: Int)
+            case duplicateAuthorizationSpentIdentifier(
+                purpose: AuthorizationPurpose,
+                slot: Int
+            )
         }
 
         let responseSet: AuthorizationResponseSet
-        let verificationKeyIdentifier: [UInt8]
-        let authorizationTokens: [OpalFusion.Mosaic.OpalV0.AuthorizationToken]
+        let componentVerificationKeyIdentifier: [UInt8]
+        let bchSignatureVerificationKeyIdentifier: [UInt8]
+        let componentAuthorizationTokens: [AuthorizationToken]
+        let bchSignatureAuthorizationTokens: [AuthorizationToken]
 
         init(
             validating responseSet: AuthorizationResponseSet,
             playerCommit: PlayerCommit,
-            requests: [OpalFusion.Mosaic.OpalV0.AuthorizationRequest],
-            blindSigningVerificationKey: OpalCrypto.RSABSSA.VerificationKey
+            componentRequests: [AuthorizationRequest],
+            bchSignatureRequests: [AuthorizationRequest],
+            components: [OpalFusion.Mosaic.OpalV0.Component],
+            componentAuthorizationVerificationKey:
+                OpalCrypto.RSABSSA.VerificationKey,
+            bchSignatureAuthorizationVerificationKey:
+                OpalCrypto.RSABSSA.VerificationKey
         ) throws(ValidationError) {
             guard responseSet.roundIdentifier == playerCommit.roundIdentifier,
                   responseSet.contributor == playerCommit.contributor,
                   responseSet.playerCommitDigest == playerCommit.digest else {
                 throw .responseSetMismatch
             }
-            guard requests.count == componentCountPerContributor else {
-                throw .requestCountMismatch(actual: requests.count)
+            guard componentRequests.count == componentCountPerContributor else {
+                throw .requestCountMismatch(actual: componentRequests.count)
             }
+            guard bchSignatureRequests.count == componentCountPerContributor else {
+                throw .requestCountMismatch(actual: bchSignatureRequests.count)
+            }
+            guard components.count == componentCountPerContributor else {
+                throw .componentCountMismatch(actual: components.count)
+            }
+            for slot in 0 ..< componentCountPerContributor {
+                let expectedComponentBinding: [UInt8]
+                do {
+                    expectedComponentBinding = try AuthorizationTokenInput
+                        .componentBinding(for: components[slot])
+                } catch {
+                    throw .componentBindingMismatch(slot: slot)
+                }
+                guard componentRequests[slot].input.binding
+                    == expectedComponentBinding else {
+                    throw .componentBindingMismatch(slot: slot)
+                }
+                guard bchSignatureRequests[slot].input.binding
+                    == componentRequests[slot].input.spentIdentifier else {
+                    throw .bchSignatureBindingMismatch(slot: slot)
+                }
+            }
+            let componentTokens = try Self.finalize(
+                purpose: .component,
+                requests: componentRequests,
+                requestPayloads: playerCommit.componentAuthorizationRequests,
+                responses: responseSet.componentAuthorizationResponses,
+                roundIdentifier: responseSet.roundIdentifier,
+                verificationKey: componentAuthorizationVerificationKey
+            )
+            let bchSignatureTokens = try Self.finalize(
+                purpose: .bchSignature,
+                requests: bchSignatureRequests,
+                requestPayloads: playerCommit.bchSignatureAuthorizationRequests,
+                responses: responseSet.bchSignatureAuthorizationResponses,
+                roundIdentifier: responseSet.roundIdentifier,
+                verificationKey: bchSignatureAuthorizationVerificationKey
+            )
+            self.responseSet = responseSet
+            self.componentVerificationKeyIdentifier = [UInt8](
+                componentAuthorizationVerificationKey.keyIdentifier
+            )
+            self.bchSignatureVerificationKeyIdentifier = [UInt8](
+                bchSignatureAuthorizationVerificationKey.keyIdentifier
+            )
+            self.componentAuthorizationTokens = componentTokens
+            self.bchSignatureAuthorizationTokens = bchSignatureTokens
+        }
 
-            var tokens: [OpalFusion.Mosaic.OpalV0.AuthorizationToken] = []
+        private static func finalize(
+            purpose: AuthorizationPurpose,
+            requests: [AuthorizationRequest],
+            requestPayloads: [OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload],
+            responses: [OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload],
+            roundIdentifier: [UInt8],
+            verificationKey: OpalCrypto.RSABSSA.VerificationKey
+        ) throws(ValidationError) -> [AuthorizationToken] {
+            var tokens: [AuthorizationToken] = []
             tokens.reserveCapacity(componentCountPerContributor)
             var spentIdentifiers: Set<[UInt8]> = []
             spentIdentifiers.reserveCapacity(componentCountPerContributor)
             for slot in 0 ..< componentCountPerContributor {
                 let request = requests[slot]
-                guard request.input.profile == .opalMainnetAlpha,
-                      request.input.roundIdentifier
-                        == responseSet.roundIdentifier,
-                      request.blindedMessage
-                        == playerCommit.authorizationRequests[slot].blindedMessage,
-                      playerCommit.authorizationRequests[slot].slot == slot,
-                      responseSet.responses[slot].slot == slot else {
-                    throw .requestMismatch(slot: slot)
+                guard request.input.purpose == purpose,
+                      request.input.roundIdentifier == roundIdentifier,
+                      request.blindedMessage == requestPayloads[slot].blindedMessage,
+                      requestPayloads[slot].slot == slot,
+                      responses[slot].slot == slot else {
+                    throw .requestMismatch(purpose: purpose, slot: slot)
                 }
                 guard Data(request.input.keyIdentifier)
-                    == blindSigningVerificationKey.keyIdentifier else {
-                    throw .verificationKeyMismatch(slot: slot)
+                    == verificationKey.keyIdentifier else {
+                    throw .verificationKeyMismatch(purpose: purpose, slot: slot)
                 }
-                let token: OpalFusion.Mosaic.OpalV0.AuthorizationToken
+                let token: AuthorizationToken
                 do {
-                    token = try request.finalize(
-                        responseSet.responses[slot].blindSignature
-                    )
+                    token = try request.finalize(responses[slot].blindSignature)
                 } catch {
-                    throw .responseFinalizationFailed(slot: slot)
+                    throw .responseFinalizationFailed(
+                        purpose: purpose,
+                        slot: slot
+                    )
                 }
-                let insertion = spentIdentifiers.insert(token.spentIdentifier)
-                guard insertion.inserted else {
-                    throw .duplicateAuthorizationSpentIdentifier(slot: slot)
+                guard spentIdentifiers.insert(token.spentIdentifier).inserted else {
+                    throw .duplicateAuthorizationSpentIdentifier(
+                        purpose: purpose,
+                        slot: slot
+                    )
                 }
                 tokens.append(token)
             }
-            self.responseSet = responseSet
-            self.verificationKeyIdentifier = [UInt8](
-                blindSigningVerificationKey.keyIdentifier
+            return tokens
+        }
+    }
+
+    /// Binds finalized authorization responses to one validated local material owner.
+    ///
+    /// The contained cryptographic validation cannot be replayed under a different attempt,
+    /// generation, or material identifier because this value can only be constructed from a
+    /// `LocalContributionMaterial` produced by its fail-closed builder.
+    struct AuthorizationResponseSetMaterialValidation: Sendable, Equatable {
+        typealias AttemptIdentifier = OpalFusion.Mosaic.LocalAttempt
+            .AttemptIdentifier
+        typealias GenerationIdentifier = OpalFusion.Mosaic.LocalAttempt
+            .GenerationIdentifier
+        typealias MaterialIdentifier = OpalFusion.Mosaic.LocalAttempt
+            .MaterialIdentifier
+
+        let attemptIdentifier: AttemptIdentifier
+        let generationIdentifier: GenerationIdentifier
+        let materialIdentifier: MaterialIdentifier
+        let responseValidation: AuthorizationResponseSetValidation
+
+        var responseSet: AuthorizationResponseSet {
+            responseValidation.responseSet
+        }
+
+        var componentVerificationKeyIdentifier: [UInt8] {
+            responseValidation.componentVerificationKeyIdentifier
+        }
+
+        var bchSignatureVerificationKeyIdentifier: [UInt8] {
+            responseValidation.bchSignatureVerificationKeyIdentifier
+        }
+
+        var componentAuthorizationTokens: [AuthorizationToken] {
+            responseValidation.componentAuthorizationTokens
+        }
+
+        var bchSignatureAuthorizationTokens: [AuthorizationToken] {
+            responseValidation.bchSignatureAuthorizationTokens
+        }
+
+        init(
+            validating responseSet: AuthorizationResponseSet,
+            material: LocalContributionMaterial
+        ) throws(AuthorizationResponseSetValidation.ValidationError) {
+            let responseValidation = try AuthorizationResponseSetValidation(
+                validating: responseSet,
+                playerCommit: material.playerCommit,
+                componentRequests: material.slots.map {
+                    $0.componentAuthorizationRequest
+                },
+                bchSignatureRequests: material.slots.map {
+                    $0.bchSignatureAuthorizationRequest
+                },
+                components: material.slots.map(\.component),
+                componentAuthorizationVerificationKey:
+                    material.manifest.core
+                        .componentAuthorizationVerificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    material.manifest.core
+                        .bchSignatureAuthorizationVerificationKey
             )
-            self.authorizationTokens = tokens
+            self.attemptIdentifier = material.attemptIdentifier
+            self.generationIdentifier = material.generationIdentifier
+            self.materialIdentifier = material.materialIdentifier
+            self.responseValidation = responseValidation
         }
     }
 }

@@ -1,7 +1,7 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha.swift
 
 extension OpalFusion.Mosaic {
-    /// Internal constants frozen by `Mosaic/0-opal-mainnet-alpha.3`.
+    /// Internal constants frozen by `Mosaic/0-opal-mainnet-alpha.4`.
     enum OpalMainnetAlpha {
         static let mainnetGenesisHash: [UInt8] = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68,
@@ -20,7 +20,10 @@ extension OpalFusion.Mosaic {
         static let compressedPublicKeyByteCount = 33
         static let standardP2PKHUnlockingScriptByteCount = 100
 
-        static let blindSigningVerificationKeyByteCount = 342
+        static let authorizationVerificationKeyByteCount = 342
+        static let authorizationTokenCanonicalByteCount = 32 + 32 + 1
+            + 32 + 32 + 32
+            + OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount
         static let maximumTransactionComponentCount = 8
             * OpalFusion.Mosaic.OpalV0.componentAuthorizationCountPerContributor
         static let maximumTransactionInputCount =
@@ -33,14 +36,18 @@ extension OpalFusion.Mosaic {
             + componentCountPerContributor
                 * OpalFusion.Mosaic.OpalV0.componentCommitmentByteCount
             + 8 + 32
-            + 4
-            + componentCountPerContributor
-                * (1 + OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount)
+            + 2 * (
+                4
+                    + componentCountPerContributor
+                        * (1 + OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount)
+            )
 
         static let authorizationResponseSetCanonicalByteCount = 32 + 32 + 32
-            + 4
-            + componentCountPerContributor
-                * (1 + OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount)
+            + 2 * (
+                4
+                    + componentCountPerContributor
+                        * (1 + OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount)
+            )
 
         static func preSignAcknowledgementSetCanonicalByteCount(
             contributorCount: Int
@@ -60,7 +67,7 @@ extension OpalFusion.Mosaic {
                 + 4 + contributorCount * 32
                 + opaquePoolIdentifierByteCount
                 + 1 + 8 + 8 + 8
-                + 4 + blindSigningVerificationKeyByteCount
+                + 2 * (4 + authorizationVerificationKeyByteCount)
                 + 32
                 + 4 + profile.transportProfile.rawValue.utf8.count
                 + 32

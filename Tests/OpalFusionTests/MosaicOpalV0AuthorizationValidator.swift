@@ -322,19 +322,33 @@ struct MosaicOpalV0AuthorizationValidator {
 
         let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
+        let bchSignatureEvaluator = try MosaicMainnetAlphaFixtures
+            .bchSignatureAuthorizationEvaluator()
+        let bchSignatureVerificationKey = try #require(
+            bchSignatureEvaluator.verificationKey
+        )
         let foreignVerificationKey = try MosaicMainnetAlphaFixtures
             .rsaVerificationKey()
         #expect(verificationKey != foreignVerificationKey)
 
         let election = try MosaicMainnetAlphaFixtures.makeElection()
         let contributor = election.result.roster.contributors[0]
-        let input = try OpalV0.AuthorizationTokenInput(
-            profile: .opalMainnetAlpha,
+        let component = try MosaicOpalV0WireContractValidator
+            .makeBlankComponent(index: 60_000)
+        let components = Array(
+            repeating: component,
+            count: Alpha.componentCountPerContributor
+        )
+        let input = try Alpha.AuthorizationTokenInput(
             roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
             keyIdentifier: [UInt8](verificationKey.keyIdentifier),
-            nonce: [UInt8](repeating: 0x51, count: 32)
+            purpose: .component,
+            nonce: [UInt8](repeating: 0x51, count: 32),
+            binding: try Alpha.AuthorizationTokenInput.componentBinding(
+                for: component
+            )
         )
-        let request = try OpalV0.AuthorizationRequest(
+        let request = try Alpha.AuthorizationRequest(
             input: input,
             using: verificationKey
         )
@@ -342,49 +356,94 @@ struct MosaicOpalV0AuthorizationValidator {
             repeating: request,
             count: Alpha.componentCountPerContributor
         )
+        let bchSignatureRequests = try (0 ..< Alpha
+            .componentCountPerContributor).map { slot in
+                try Alpha.AuthorizationRequest(
+                    input: .init(
+                        roundIdentifier:
+                            MosaicMainnetAlphaFixtures.roundIdentifier,
+                        keyIdentifier: [UInt8](
+                            bchSignatureVerificationKey.keyIdentifier
+                        ),
+                        purpose: .bchSignature,
+                        nonce: MosaicUnsignedTransactionTranscriptFixtures
+                            .indexedDigest(50_000 + slot),
+                        binding: input.spentIdentifier
+                    ),
+                    using: bchSignatureVerificationKey
+                )
+            }
         let playerCommit = try Alpha.PlayerCommit(
             roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
             contributor: contributor,
             groupedCommitment: MosaicOpalV0WireContractValidator
                 .makeMainnetGroupedCommitment(),
-            authorizationRequests: try requests.enumerated().map {
+            componentAuthorizationRequests: try requests.enumerated().map {
                 slot, request in
                 try .init(
                     slot: slot,
                     blindedMessage: request.blindedMessage
                 )
-            }
+            },
+            bchSignatureAuthorizationRequests: try bchSignatureRequests
+                .enumerated().map { slot, request in
+                    try .init(
+                        slot: slot,
+                        blindedMessage: request.blindedMessage
+                    )
+                }
         )
         let blindSignature = try evaluator.evaluate(request.blindedMessage)
         let responseSet = try Alpha.AuthorizationResponseSet(
             roundIdentifier: playerCommit.roundIdentifier,
             contributor: contributor,
             playerCommitDigest: playerCommit.digest,
-            responses: try (0 ..< Alpha.componentCountPerContributor).map {
+            componentAuthorizationResponses: try (0 ..< Alpha
+                .componentCountPerContributor).map {
                 try .init(slot: $0, blindSignature: blindSignature)
-            }
+            },
+            bchSignatureAuthorizationResponses: try bchSignatureRequests
+                .enumerated().map { slot, request in
+                    try .init(
+                        slot: slot,
+                        blindSignature: bchSignatureEvaluator.evaluate(
+                            request.blindedMessage
+                        )
+                    )
+                }
         )
 
         #expect(
             throws: Alpha.AuthorizationResponseSetValidation.ValidationError
-                .verificationKeyMismatch(slot: 0)
+                .verificationKeyMismatch(purpose: .component, slot: 0)
         ) {
             _ = try Alpha.AuthorizationResponseSetValidation(
                 validating: responseSet,
                 playerCommit: playerCommit,
-                requests: requests,
-                blindSigningVerificationKey: foreignVerificationKey
+                componentRequests: requests,
+                bchSignatureRequests: bchSignatureRequests,
+                components: components,
+                componentAuthorizationVerificationKey: foreignVerificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    bchSignatureVerificationKey
             )
         }
         #expect(
             throws: Alpha.AuthorizationResponseSetValidation.ValidationError
-                .duplicateAuthorizationSpentIdentifier(slot: 1)
+                .duplicateAuthorizationSpentIdentifier(
+                    purpose: .component,
+                    slot: 1
+                )
         ) {
             _ = try Alpha.AuthorizationResponseSetValidation(
                 validating: responseSet,
                 playerCommit: playerCommit,
-                requests: requests,
-                blindSigningVerificationKey: verificationKey
+                componentRequests: requests,
+                bchSignatureRequests: bchSignatureRequests,
+                components: components,
+                componentAuthorizationVerificationKey: verificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    bchSignatureVerificationKey
             )
         }
     }

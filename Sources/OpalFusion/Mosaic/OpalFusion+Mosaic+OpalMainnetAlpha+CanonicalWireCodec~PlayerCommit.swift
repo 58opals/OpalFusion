@@ -28,7 +28,20 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
                     excessFeeSatoshis: decoder.readUInt64(),
                     pedersenTotalNonce: decoder.readFixedBytes(byteCount: 32)
                 )
-            let authorizationRequests = try decoder.readVector { decoder in
+            let componentAuthorizationRequests = try decoder.readVector { decoder in
+                try OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload(
+                    slot: Int(decoder.readUInt8()),
+                    blindedMessage: OpalCrypto.RSABSSA.BlindedMessage(
+                        rawRepresentation: Data(
+                            try decoder.readFixedBytes(
+                                byteCount: OpalFusion.Mosaic.OpalV0
+                                    .authorizationMaterialByteCount
+                            )
+                        )
+                    )
+                )
+            }
+            let bchSignatureAuthorizationRequests = try decoder.readVector { decoder in
                 try OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload(
                     slot: Int(decoder.readUInt8()),
                     blindedMessage: OpalCrypto.RSABSSA.BlindedMessage(
@@ -45,7 +58,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
                 roundIdentifier: roundIdentifier,
                 contributor: contributor,
                 groupedCommitment: groupedCommitment,
-                authorizationRequests: authorizationRequests
+                componentAuthorizationRequests: componentAuthorizationRequests,
+                bchSignatureAuthorizationRequests:
+                    bchSignatureAuthorizationRequests
             )
         }
     }
@@ -54,7 +69,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
         roundIdentifier: [UInt8],
         contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
         groupedCommitment: OpalFusion.Mosaic.OpalV0.GroupedCommitmentPayload,
-        authorizationRequests: [
+        componentAuthorizationRequests: [
+            OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
+        ],
+        bchSignatureAuthorizationRequests: [
             OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
         ]
     ) throws -> [UInt8] {
@@ -71,7 +89,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
             groupedCommitment.pedersenTotalNonce,
             byteCount: 32
         )
-        try encoder.writeVector(authorizationRequests) { encoder, request in
+        try encoder.writeVector(componentAuthorizationRequests) { encoder, request in
+            encoder.writeUInt8(UInt8(request.slot))
+            try encoder.writeFixedBytes(
+                [UInt8](request.blindedMessage.rawRepresentation),
+                byteCount: OpalFusion.Mosaic.OpalV0.authorizationMaterialByteCount
+            )
+        }
+        try encoder.writeVector(bchSignatureAuthorizationRequests) {
+            encoder, request in
             encoder.writeUInt8(UInt8(request.slot))
             try encoder.writeFixedBytes(
                 [UInt8](request.blindedMessage.rawRepresentation),

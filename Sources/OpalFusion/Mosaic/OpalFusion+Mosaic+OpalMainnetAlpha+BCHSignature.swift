@@ -56,24 +56,31 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
     struct BCHSignatureSubmission: Sendable, Equatable {
         let transcriptRoot: [UInt8]
+        let authorizationToken: AuthorizationToken
         let entry: BCHSignatureEntry
         let canonicalBytes: [UInt8]
         let digest: [UInt8]
 
         init(
             transcriptRoot: [UInt8],
+            authorizationToken: AuthorizationToken,
             entry: BCHSignatureEntry
         ) throws {
             try RoleSeedValidator.validateFixed(
                 transcriptRoot,
                 field: .transcriptRoot
             )
+            guard authorizationToken.input.purpose == .bchSignature else {
+                throw ContractError.invalidAuthorizationToken
+            }
             let canonicalBytes = try CanonicalWireCodec
                 .encodeBCHSignatureSubmission(
                     transcriptRoot: transcriptRoot,
+                    authorizationToken: authorizationToken,
                     entry: entry
                 )
             self.transcriptRoot = Array(transcriptRoot)
+            self.authorizationToken = authorizationToken
             self.entry = entry
             self.canonicalBytes = canonicalBytes
             self.digest = RoleSeedValidator.hash(
@@ -93,7 +100,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         init(
             roundIdentifier: [UInt8],
             transcriptRoot: [UInt8],
-            submissions: [BCHSignatureSubmission],
+            entries: [BCHSignatureEntry],
             expectedInputCount: Int
         ) throws {
             try RoleSeedValidator.validateFixed(
@@ -106,35 +113,31 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             )
             guard (1 ... OpalFusion.Mosaic.OpalMainnetAlpha
                 .maximumTransactionInputCount).contains(expectedInputCount),
-                submissions.count == expectedInputCount else {
+                entries.count == expectedInputCount else {
                 throw ContractError.invalidSignatureSetCount(
                     expected: expectedInputCount,
-                    actual: submissions.count
+                    actual: entries.count
                 )
             }
-            let sortedSubmissions = submissions.sorted {
-                $0.entry.inputIndex < $1.entry.inputIndex
+            let sortedEntries = entries.sorted {
+                $0.inputIndex < $1.inputIndex
             }
-            for (expectedIndex, submission) in sortedSubmissions.enumerated() {
-                guard submission.transcriptRoot == transcriptRoot else {
-                    throw ContractError.transcriptMismatch
-                }
-                guard submission.entry.inputIndex == UInt32(expectedIndex) else {
+            for (expectedIndex, entry) in sortedEntries.enumerated() {
+                guard entry.inputIndex == UInt32(expectedIndex) else {
                     throw ContractError.invalidSignatureInputIndex(
                         expected: expectedIndex,
-                        actual: Int(submission.entry.inputIndex)
+                        actual: Int(entry.inputIndex)
                     )
                 }
             }
-            let entries = sortedSubmissions.map(\.entry)
             let canonicalBytes = try CanonicalWireCodec.encodeBCHSignatureSet(
                 roundIdentifier: roundIdentifier,
                 transcriptRoot: transcriptRoot,
-                entries: entries
+                entries: sortedEntries
             )
             self.roundIdentifier = Array(roundIdentifier)
             self.transcriptRoot = Array(transcriptRoot)
-            self.entries = entries
+            self.entries = sortedEntries
             self.canonicalBytes = canonicalBytes
             self.digest = RoleSeedValidator.hash(
                 domainSuffix: "bch-signature-set",

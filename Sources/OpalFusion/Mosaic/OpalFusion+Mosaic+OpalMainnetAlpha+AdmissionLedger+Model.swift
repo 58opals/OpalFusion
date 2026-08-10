@@ -3,6 +3,7 @@
 extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
     typealias AttemptIdentifier = OpalFusion.Mosaic.LocalAttempt.AttemptIdentifier
     typealias GenerationIdentifier = OpalFusion.Mosaic.LocalAttempt.GenerationIdentifier
+    typealias MaterialIdentifier = OpalFusion.Mosaic.LocalAttempt.MaterialIdentifier
     typealias ControlIdentity = OpalFusion.Mosaic.Attempt.ControlIdentity
     typealias Transcript = OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
     typealias ContractError = OpalFusion.Mosaic.OpalMainnetAlpha.ContractError
@@ -61,6 +62,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
     enum Failure: Error, Sendable, Equatable {
         case attemptIdentifierMismatch
         case generationIdentifierMismatch
+        case materialIdentifierMismatch
         case foreignRound
         case senderNotInRoster
         case outerEventIdentityMismatch
@@ -99,6 +101,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case anonymousCommunicationKeyReuse
         case anonymousRecipientIdentityReuse
         case anonymousComponentLimitExceeded
+        case anonymousMailboxSequenceInvalid(expected: UInt64, actual: UInt64)
+        case anonymousBCHSignatureAdmissionUnavailable
+        case anonymousBCHSignatureAdmissionRejected(ContractError)
+        case anonymousBCHSignatureInputConflict(UInt32)
+        case anonymousBCHSignatureLimitExceeded
+        case bchSignatureSetConstructionFailed
         case anonymousComponentSetIncomplete
         case componentSetDoesNotMatchAnonymousAdmissions
         case unsignedTransactionInvalid(
@@ -141,10 +149,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
     }
 
     struct AuthorizationResponseValidationDelivery: Sendable, Equatable {
-        let attemptIdentifier: AttemptIdentifier
-        let generationIdentifier: GenerationIdentifier
         let validation: OpalFusion.Mosaic.OpalMainnetAlpha
-            .AuthorizationResponseSetValidation
+            .AuthorizationResponseSetMaterialValidation
     }
 
     protocol PhaseTransitionValidating: Sendable {
@@ -207,7 +213,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
             playerCommit: OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommit
         )
         case authorizationResponsesValidated(
-            [OpalFusion.Mosaic.OpalV0.AuthorizationToken]
+            OpalFusion.Mosaic.OpalMainnetAlpha
+                .AuthorizationResponseSetMaterialValidation
         )
         case commitmentSetAdmitted(OpalFusion.Mosaic.OpalV0.CommitmentSet)
         case componentSetAdmitted(
@@ -217,6 +224,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case anonymousComponentAdmitted(
             OpalFusion.Mosaic.OpalMainnetAlpha
                 .AnonymousComponentAdmissionValidation
+        )
+        case anonymousBCHSignatureAdmitted(
+            OpalFusion.Mosaic.OpalMainnetAlpha
+                .AnonymousBCHSignatureAdmissionValidation
+        )
+        case bchSignatureSetReady(
+            OpalFusion.Mosaic.OpalMainnetAlpha.BCHSignatureSet
         )
         case preSignAcknowledgementAdmitted(
             OpalFusion.Mosaic.OpalMainnetAlpha

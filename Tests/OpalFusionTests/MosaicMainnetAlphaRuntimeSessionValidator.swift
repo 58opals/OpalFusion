@@ -19,9 +19,10 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
     }
 
     private struct LocalAuthorizationMaterial {
+        let material: Alpha.LocalContributionMaterial
         let playerCommit: Alpha.PlayerCommit
         let responseSet: Alpha.AuthorizationResponseSet
-        let validation: Alpha.AuthorizationResponseSetValidation
+        let validation: Alpha.AuthorizationResponseSetMaterialValidation
     }
 
     private struct PreparedTranscript {
@@ -593,10 +594,18 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         localRole: OpalFusion.Mosaic.Role = .contributor,
         verificationKey: OpalCrypto.RSABSSA.VerificationKey? = nil
     ) throws -> Harness {
+        let bchSignatureVerificationKey: OpalCrypto.RSABSSA.VerificationKey?
+        if verificationKey == nil {
+            bchSignatureVerificationKey = nil
+        } else {
+            bchSignatureVerificationKey = try MosaicMainnetAlphaFixtures
+                .bchSignatureAuthorizationEvaluator().verificationKey
+        }
         let admission = try Fixture.makeHarness(
             candidateCount: candidateCount,
             localRole: localRole,
-            verificationKey: verificationKey
+            verificationKey: verificationKey,
+            bchSignatureVerificationKey: bchSignatureVerificationKey
         )
         let materialIdentifier = OpalFusion.Mosaic.LocalAttempt.MaterialIdentifier(
             opaqueBytes: [UInt8](repeating: 0xA3, count: 32)
@@ -696,14 +705,21 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         )
         _ = admit(manifestRun, to: &harness.session)
 
-        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
-            roster: harness.admission.election.result.roster,
-            manifest: harness.admission.manifest.binding,
-            profile: .opalMainnetAlpha
+        let materialized = try MosaicMainnetAlphaFixtures
+            .makeMaterializedPreparation(
+                election: harness.admission.election,
+                manifest: harness.admission.manifest,
+                attemptIdentifier: harness.admission.attemptIdentifier,
+                generationIdentifier: harness.admission.generationIdentifier,
+                localContributor: harness.admission.localControlIdentity,
+                localMaterialIdentifier: harness.materialIdentifier
+            )
+        let preparation = materialized.prepared
+        let localContributionMaterial = try #require(
+            materialized.materials[harness.admission.localControlIdentity]
         )
         let material = try makeLocalAuthorizationMaterial(
-            harness: harness,
-            commitmentSet: preparation.commitmentSet,
+            material: localContributionMaterial,
             evaluator: evaluator
         )
         let localCommitRun = try Fixture.aggregateRun(
@@ -717,12 +733,9 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         _ = admit(localCommitRun, to: &harness.session)
 
         var conductorSequence = manifestRun.nextSequence
-        let playerCommits = try Fixture.makePlayerCommits(
-            harness: harness.admission,
-            commitmentSet: preparation.commitmentSet
-        ).map {
-            $0.contributor == harness.admission.localControlIdentity
-                ? material.playerCommit : $0
+        let playerCommits = try harness.admission.manifest.core
+            .orderedContributors.map {
+            try #require(materialized.materials[$0]?.playerCommit)
         }
         for (index, playerCommit) in playerCommits.enumerated() {
             let responseSet = playerCommit.contributor
@@ -745,12 +758,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         }
         _ = harness.session.apply(
             input: .authorizationResponseSetValidated(
-                .init(
-                    attemptIdentifier: harness.admission.attemptIdentifier,
-                    generationIdentifier:
-                        harness.admission.generationIdentifier,
-                    validation: material.validation
-                )
+                .init(validation: material.validation)
             )
         )
         #expect(harness.session.state == .active(.walletReservation))
@@ -792,87 +800,57 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
     }
 
     private func makeLocalAuthorizationMaterial(
-        harness: Harness,
-        commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet,
+        material: Alpha.LocalContributionMaterial,
         evaluator: OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
     ) throws -> LocalAuthorizationMaterial {
-        let verificationKey = try #require(evaluator.verificationKey)
+        let componentVerificationKey = try #require(evaluator.verificationKey)
+        let bchSignatureEvaluator = try MosaicMainnetAlphaFixtures
+            .bchSignatureAuthorizationEvaluator()
+        let bchSignatureVerificationKey = try #require(
+            bchSignatureEvaluator.verificationKey
+        )
         #expect(
-            verificationKey
-                == harness.admission.manifest.core.blindSigningVerificationKey
+            componentVerificationKey
+                == material.manifest.core
+                    .componentAuthorizationVerificationKey
         )
-        let contributors = harness.admission.election.result.roster.contributors
-            .sorted {
-                $0.validatedBytes.lexicographicallyPrecedes($1.validatedBytes)
-            }
-        let contributorIndex = try #require(
-            contributors.firstIndex(of: harness.admission.localControlIdentity)
-        )
-        let commitmentGroup = try MosaicUnsignedTransactionTranscriptFixtures
-            .makeMainnetCommitmentGroups(
-                contributorCount: contributors.count
-            )[contributorIndex]
-        let lowerBound = contributorIndex * Alpha.componentCountPerContributor
-        let upperBound = lowerBound + Alpha.componentCountPerContributor
         #expect(
-            commitmentGroup.commitments
-                == Array(commitmentSet.commitments[lowerBound ..< upperBound])
+            bchSignatureVerificationKey
+                == material.manifest.core
+                    .bchSignatureAuthorizationVerificationKey
         )
-        let groupedCommitment = try OpalFusion.Mosaic.OpalV0
-            .GroupedCommitmentPayload(
-                profile: .opalMainnetAlpha,
-                commitments: commitmentGroup.commitments,
-                excessFeeSatoshis: commitmentGroup.excessFeeSatoshis,
-                pedersenTotalNonce: commitmentGroup.pedersenTotalNonce
-            )
-
-        var requests: [OpalFusion.Mosaic.OpalV0.AuthorizationRequest] = []
-        var payloads: [OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload] = []
-        for slot in 0 ..< Alpha.componentCountPerContributor {
-            let input = try OpalFusion.Mosaic.OpalV0.AuthorizationTokenInput(
-                profile: .opalMainnetAlpha,
-                roundIdentifier:
-                    harness.admission.manifest.core.roundIdentifier,
-                keyIdentifier: [UInt8](verificationKey.keyIdentifier),
-                nonce: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
-                    40_000 + slot
-                )
-            )
-            let request = try OpalFusion.Mosaic.OpalV0.AuthorizationRequest(
-                input: input,
-                using: verificationKey
-            )
-            requests.append(request)
-            payloads.append(
-                try .init(slot: slot, blindedMessage: request.blindedMessage)
-            )
-        }
-        let playerCommit = try Alpha.PlayerCommit(
-            roundIdentifier: harness.admission.manifest.core.roundIdentifier,
-            contributor: harness.admission.localControlIdentity,
-            groupedCommitment: groupedCommitment,
-            authorizationRequests: payloads
-        )
-        let responses = try requests.enumerated().map { slot, request in
-            try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
+        let componentResponses = try material.slots.enumerated().map {
+            slot, materialSlot in
+            let request = materialSlot.componentAuthorizationRequest
+            return try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
                 slot: slot,
                 blindSignature: evaluator.evaluate(request.blindedMessage)
             )
         }
+        let bchSignatureResponses = try material.slots.enumerated().map {
+            slot, materialSlot in
+            let request = materialSlot.bchSignatureAuthorizationRequest
+            return try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
+                slot: slot,
+                blindSignature: bchSignatureEvaluator.evaluate(
+                    request.blindedMessage
+                )
+            )
+        }
         let responseSet = try Alpha.AuthorizationResponseSet(
-            roundIdentifier: playerCommit.roundIdentifier,
-            contributor: playerCommit.contributor,
-            playerCommitDigest: playerCommit.digest,
-            responses: responses
+            roundIdentifier: material.playerCommit.roundIdentifier,
+            contributor: material.playerCommit.contributor,
+            playerCommitDigest: material.playerCommit.digest,
+            componentAuthorizationResponses: componentResponses,
+            bchSignatureAuthorizationResponses: bchSignatureResponses
         )
-        let validation = try Alpha.AuthorizationResponseSetValidation(
+        let validation = try Alpha.AuthorizationResponseSetMaterialValidation(
             validating: responseSet,
-            playerCommit: playerCommit,
-            requests: requests,
-            blindSigningVerificationKey: verificationKey
+            material: material
         )
         return .init(
-            playerCommit: playerCommit,
+            material: material,
+            playerCommit: material.playerCommit,
             responseSet: responseSet,
             validation: validation
         )
@@ -965,7 +943,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
     private func conflictingPlayerCommit(
         with playerCommit: Alpha.PlayerCommit
     ) throws -> Alpha.PlayerCommit {
-        var requests = playerCommit.authorizationRequests
+        var requests = playerCommit.componentAuthorizationRequests
         var rawMessage = requests[0].blindedMessage.rawRepresentation
         rawMessage[rawMessage.startIndex] ^= 0x01
         requests[0] = try .init(
@@ -976,7 +954,9 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             roundIdentifier: playerCommit.roundIdentifier,
             contributor: playerCommit.contributor,
             groupedCommitment: playerCommit.groupedCommitment,
-            authorizationRequests: requests
+            componentAuthorizationRequests: requests,
+            bchSignatureAuthorizationRequests:
+                playerCommit.bchSignatureAuthorizationRequests
         )
     }
 

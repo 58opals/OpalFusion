@@ -173,6 +173,61 @@ struct MosaicMainnetAlphaContributionFeeValidator {
         )
     }
 
+    @Test("Reject one x-only communication identity under both SEC1 parities")
+    func rejectOppositeParityCommunicationIdentityReuse() throws {
+        let commitments = try (0 ..< Alpha.componentCountPerContributor).map(
+            MosaicOpalV0WireContractValidator.makeCommitment
+        )
+        var oppositeParityKey = commitments[0].communicationPublicKey
+        oppositeParityKey[0] = oppositeParityKey[0] == 0x02 ? 0x03 : 0x02
+        var group = commitments
+        group[1] = try .init(
+            saltedComponentDigest: group[1].saltedComponentDigest,
+            amountCommitment: group[1].amountCommitment,
+            communicationPublicKey: oppositeParityKey
+        )
+        let nonce = [UInt8](repeating: 0, count: 31) + [0x01]
+
+        #expect(
+            try OpalV0.GroupedCommitmentPayload(
+                profile: .opalV0,
+                commitments: group,
+                excessFeeSatoshis: 0,
+                pedersenTotalNonce: nonce
+            ).profile == .opalV0
+        )
+        #expect(
+            throws: OpalV0.WireContractError
+                .duplicateCommunicationEventIdentity
+        ) {
+            _ = try OpalV0.GroupedCommitmentPayload(
+                profile: .opalMainnetAlpha,
+                commitments: group,
+                excessFeeSatoshis: 1,
+                pedersenTotalNonce: nonce
+            )
+        }
+
+        var aggregateCommitments = try (0 ..< 138).map(
+            MosaicOpalV0WireContractValidator.makeCommitment
+        )
+        aggregateCommitments[1] = try .init(
+            saltedComponentDigest:
+                aggregateCommitments[1].saltedComponentDigest,
+            amountCommitment: aggregateCommitments[1].amountCommitment,
+            communicationPublicKey: oppositeParityKey
+        )
+        #expect(
+            throws: OpalV0.WireContractError
+                .duplicateCommunicationEventIdentity
+        ) {
+            _ = try OpalV0.CommitmentSet(
+                profile: .opalMainnetAlpha,
+                commitments: aggregateCommitments
+            )
+        }
+    }
+
     @Test("Seal an exact manifest-bound grouped Pedersen balance")
     func validatePlayerCommitSemantics() throws {
         let election = try MosaicMainnetAlphaFixtures.makeElection()
@@ -354,8 +409,10 @@ struct MosaicMainnetAlphaContributionFeeValidator {
                 pedersenTotalNonce:
                     MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(1)
             ),
-            authorizationRequests: MosaicMainnetAlphaFixtures
-                .makeAuthorizationRequests()
+            componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(),
+            bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(byteOffset: 0x40)
         )
         #expect(
             throws: Alpha.PlayerCommitSemanticValidation.ValidationError
@@ -379,8 +436,10 @@ struct MosaicMainnetAlphaContributionFeeValidator {
                 contributor: election.result.roster.contributors[0],
                 groupedCommitment: MosaicOpalV0WireContractValidator
                     .makeGroupedCommitment(),
-                authorizationRequests: MosaicMainnetAlphaFixtures
-                    .makeAuthorizationRequests()
+                componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                    .makeAuthorizationRequests(),
+                bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                    .makeAuthorizationRequests(byteOffset: 0x40)
             )
         }
     }
@@ -398,8 +457,10 @@ struct MosaicMainnetAlphaContributionFeeValidator {
                 excessFeeSatoshis: excessFeeSatoshis,
                 totalNonceOverride: totalNonceOverride
             ),
-            authorizationRequests: MosaicMainnetAlphaFixtures
-                .makeAuthorizationRequests()
+            componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(),
+            bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(byteOffset: 0x40)
         )
     }
 

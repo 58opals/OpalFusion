@@ -116,6 +116,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 admissionLedger = try .init(
                     attemptIdentifier: attemptIdentifier,
                     generationIdentifier: generationIdentifier,
+                    materialIdentifier: materialIdentifier,
                     localControlIdentity: localControlIdentity,
                     proposalValidation: proposalValidation
                 )
@@ -160,19 +161,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
-        mutating func receiveAnonymousComponent<Validator>(
-            _ delivery: AdmissionLedger.AnonymousComponentDelivery,
-            using validator: Validator
-        ) -> [Effect]
-        where Validator: AnonymousComponentAdmissionValidating {
+        mutating func receiveAnonymousComponent(
+            _ delivery: AdmissionLedger.AnonymousComponentDelivery
+        ) -> [Effect] {
             guard case .active = state else {
                 return [.inputRejected(.inputAfterTermination)]
             }
             return receiveAdmissionEffects(
-                admissionLedger.receiveAnonymousComponent(
-                    delivery,
-                    using: validator
-                )
+                admissionLedger.receiveAnonymousComponent(delivery)
             )
         }
 
@@ -276,6 +272,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                      .authorizationResponseSetValidationRequired,
                      .authorizationResponsesValidated,
                      .anonymousComponentAdmitted,
+                     .anonymousBCHSignatureAdmitted,
+                     .bchSignatureSetReady,
                      .preSignAcknowledgementAdmitted,
                      .preSignAcknowledgementCollectionComplete,
                      .preSignAcknowledgementSetAdmitted,

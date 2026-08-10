@@ -27,12 +27,12 @@ struct MosaicMainnetAlphaAggregateContractValidator {
         )
         let encoded = Codec.encodeAuthorizationResponseSet(responseSet)
 
-        #expect(encoded.count == 6_011)
+        #expect(encoded.count == 11_926)
         #expect(encoded.count == Alpha.authorizationResponseSetCanonicalByteCount)
         #expect(try Codec.decodeAuthorizationResponseSet(from: encoded) == responseSet)
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(responseSet.digest)
-            == "40a4b22911edf2bc743d3cb8f1f5d0dcfee99a75b18549a6efc5ab6bf5368c72"
+            == "922b6e9e50030dbb389e4c74c1420546cc037c1defb4eaf280e3190495f3dc19"
         )
 
         let reservation = try Alpha.AggregateReservation(
@@ -40,13 +40,13 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             aggregateDigest: responseSet.digest,
             declaredCanonicalByteCount: encoded.count
         )
-        #expect(reservation.fragmentCount == 2)
+        #expect(reservation.fragmentCount == 4)
         #expect(reservation.expectedBodyByteCount(at: 0) == 3_799)
-        #expect(reservation.expectedBodyByteCount(at: 1) == 2_212)
+        #expect(reservation.expectedBodyByteCount(at: 3) == 529)
         #expect(
             MosaicOpalV0WireContractValidator.hexadecimal(
                 try Codec.encodeAggregateReservation(reservation)
-            ) == "0340a4b22911edf2bc743d3cb8f1f5d0dcfee99a75b18549a6efc5ab6bf5368c720000177b02"
+            ) == "03922b6e9e50030dbb389e4c74c1420546cc037c1defb4eaf280e3190495f3dc1900002e9604"
         )
 
         #expect(throws: Alpha.ContractError.invalidAuthorizationResponseCount(
@@ -56,7 +56,11 @@ struct MosaicMainnetAlphaAggregateContractValidator {
                 roundIdentifier: playerCommit.roundIdentifier,
                 contributor: playerCommit.contributor,
                 playerCommitDigest: playerCommit.digest,
-                responses: Array(responseSet.responses.dropLast())
+                componentAuthorizationResponses: Array(
+                    responseSet.componentAuthorizationResponses.dropLast()
+                ),
+                bchSignatureAuthorizationResponses:
+                    responseSet.bchSignatureAuthorizationResponses
             )
         }
         #expect(throws: Alpha.ContractError.invalidAuthorizationResponseCount(
@@ -66,15 +70,18 @@ struct MosaicMainnetAlphaAggregateContractValidator {
                 roundIdentifier: playerCommit.roundIdentifier,
                 contributor: playerCommit.contributor,
                 playerCommitDigest: playerCommit.digest,
-                responses: responseSet.responses + [
+                componentAuthorizationResponses:
+                    responseSet.componentAuthorizationResponses + [
                     try .init(
                         slot: 0,
                         blindSignature: blindSignature(byte: 0xA5)
                     )
-                ]
+                ],
+                bchSignatureAuthorizationResponses:
+                    responseSet.bchSignatureAuthorizationResponses
             )
         }
-        var descending = responseSet.responses
+        var descending = responseSet.componentAuthorizationResponses
         descending.swapAt(0, 1)
         #expect(throws: Alpha.ContractError.invalidAuthorizationResponseSlot(
             expected: 0,
@@ -84,7 +91,9 @@ struct MosaicMainnetAlphaAggregateContractValidator {
                 roundIdentifier: playerCommit.roundIdentifier,
                 contributor: playerCommit.contributor,
                 playerCommitDigest: playerCommit.digest,
-                responses: descending
+                componentAuthorizationResponses: descending,
+                bchSignatureAuthorizationResponses:
+                    responseSet.bchSignatureAuthorizationResponses
             )
         }
         #expect(throws: OpalFusion.Mosaic.CanonicalCodingError.trailingBytes(1)) {
@@ -127,20 +136,33 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             election: election,
             commitmentSet: preparation.commitmentSet
         )
-        var ledger = OpalV0.AuthorizationIssuanceLedger(
+        var componentLedger = OpalV0.AuthorizationIssuanceLedger(
+            roster: election.result.roster
+        )
+        var bchSignatureLedger = OpalV0.AuthorizationIssuanceLedger(
             roster: election.result.roster
         )
         #expect(throws: OpalV0.AuthorizationIssuanceLedger.IssuedResponseError
             .issuanceIncomplete) {
             _ = try Alpha.AuthorizationResponseSet(
                 playerCommit: playerCommits[0],
-                issuingFrom: ledger
+                componentIssuingFrom: componentLedger,
+                bchSignatureIssuingFrom: bchSignatureLedger
             )
         }
 
         for playerCommit in playerCommits {
-            for request in playerCommit.authorizationRequests {
-                _ = ledger.apply(
+            for request in playerCommit.componentAuthorizationRequests {
+                _ = componentLedger.apply(
+                    input: .request(
+                        contributor: playerCommit.contributor,
+                        slot: request.slot,
+                        blindedMessage: request.blindedMessage
+                    )
+                )
+            }
+            for request in playerCommit.bchSignatureAuthorizationRequests {
+                _ = bchSignatureLedger.apply(
                     input: .request(
                         contributor: playerCommit.contributor,
                         slot: request.slot,
@@ -149,14 +171,15 @@ struct MosaicMainnetAlphaAggregateContractValidator {
                 )
             }
         }
-        #expect(ledger.phase == .evaluating)
+        #expect(componentLedger.phase == .evaluating)
+        #expect(bchSignatureLedger.phase == .evaluating)
         for (contributorIndex, playerCommit) in playerCommits.enumerated() {
-            for request in playerCommit.authorizationRequests {
+            for request in playerCommit.componentAuthorizationRequests {
                 let key = OpalV0.AuthorizationIssuanceLedger.RequestKey(
                     contributor: playerCommit.contributor,
                     slot: request.slot
                 )
-                _ = ledger.apply(
+                _ = componentLedger.apply(
                     input: .evaluated(
                         .init(
                             key: key,
@@ -167,17 +190,45 @@ struct MosaicMainnetAlphaAggregateContractValidator {
                     )
                 )
             }
+            for request in playerCommit.bchSignatureAuthorizationRequests {
+                let key = OpalV0.AuthorizationIssuanceLedger.RequestKey(
+                    contributor: playerCommit.contributor,
+                    slot: request.slot
+                )
+                _ = bchSignatureLedger.apply(
+                    input: .evaluated(
+                        .init(
+                            key: key,
+                            blindSignature: try blindSignature(
+                                byte: UInt8(
+                                    contributorIndex + request.slot + 65
+                                )
+                            )
+                        )
+                    )
+                )
+            }
         }
-        #expect(ledger.phase == .issued)
+        #expect(componentLedger.phase == .issued)
+        #expect(bchSignatureLedger.phase == .issued)
         let issuedSet = try Alpha.AuthorizationResponseSet(
             playerCommit: playerCommits[0],
-            issuingFrom: ledger
+            componentIssuingFrom: componentLedger,
+            bchSignatureIssuingFrom: bchSignatureLedger
         )
         #expect(issuedSet.contributor == playerCommits[0].contributor)
         #expect(issuedSet.playerCommitDigest == playerCommits[0].digest)
-        #expect(issuedSet.responses.map(\.slot) == Array(0 ..< 23))
+        #expect(
+            issuedSet.componentAuthorizationResponses.map(\.slot)
+                == Array(0 ..< 23)
+        )
+        #expect(
+            issuedSet.bchSignatureAuthorizationResponses.map(\.slot)
+                == Array(0 ..< 23)
+        )
 
-        var substitutedRequests = playerCommits[0].authorizationRequests
+        var substitutedRequests = playerCommits[0]
+            .componentAuthorizationRequests
         substitutedRequests[0] = try .init(
             slot: 0,
             blindedMessage: .init(
@@ -191,7 +242,9 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             roundIdentifier: playerCommits[0].roundIdentifier,
             contributor: playerCommits[0].contributor,
             groupedCommitment: playerCommits[0].groupedCommitment,
-            authorizationRequests: substitutedRequests
+            componentAuthorizationRequests: substitutedRequests,
+            bchSignatureAuthorizationRequests:
+                playerCommits[0].bchSignatureAuthorizationRequests
         )
         #expect(
             throws: OpalV0.AuthorizationIssuanceLedger.IssuedResponseError
@@ -199,35 +252,72 @@ struct MosaicMainnetAlphaAggregateContractValidator {
         ) {
             _ = try Alpha.AuthorizationResponseSet(
                 playerCommit: substitutedCommit,
-                issuingFrom: ledger
+                componentIssuingFrom: componentLedger,
+                bchSignatureIssuingFrom: bchSignatureLedger
             )
         }
     }
 
     @Test("Fail closed while finalizing contributor-local blind responses")
     func rejectInvalidAuthorizationResponses() throws {
-        let verificationKey = try MosaicMainnetAlphaFixtures
+        let componentVerificationKey = try MosaicMainnetAlphaFixtures
             .rsaVerificationKey()
+        let bchSignatureVerificationKey = try MosaicMainnetAlphaFixtures
+            .bchSignatureRSAVerificationKey()
         let election = try MosaicMainnetAlphaFixtures.makeElection()
+        let preparation = try makePreparation(election: election)
+        let componentGroup = Array(
+            preparation.componentSet.components[
+                0 ..< Alpha.componentCountPerContributor
+            ]
+        )
         let contributor = election.result.roster.contributors[0]
-        var requests: [OpalV0.AuthorizationRequest] = []
-        var payloads: [OpalV0.AuthorizationRequestPayload] = []
+        var componentRequests: [Alpha.AuthorizationRequest] = []
+        var componentPayloads: [OpalV0.AuthorizationRequestPayload] = []
+        var bchSignatureRequests: [Alpha.AuthorizationRequest] = []
+        var bchSignaturePayloads: [OpalV0.AuthorizationRequestPayload] = []
         for slot in 0 ..< Alpha.componentCountPerContributor {
-            let input = try OpalV0.AuthorizationTokenInput(
-                profile: .opalMainnetAlpha,
+            let componentInput = try Alpha.AuthorizationTokenInput(
                 roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
-                keyIdentifier: [UInt8](verificationKey.keyIdentifier),
+                keyIdentifier: [UInt8](componentVerificationKey.keyIdentifier),
+                purpose: .component,
                 nonce: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
                     40_000 + slot
+                ),
+                binding: try Alpha.AuthorizationTokenInput.componentBinding(
+                    for: componentGroup[slot]
                 )
             )
-            let request = try OpalV0.AuthorizationRequest(
-                input: input,
-                using: verificationKey
+            let componentRequest = try Alpha.AuthorizationRequest(
+                input: componentInput,
+                using: componentVerificationKey
             )
-            requests.append(request)
-            payloads.append(
-                try .init(slot: slot, blindedMessage: request.blindedMessage)
+            componentRequests.append(componentRequest)
+            componentPayloads.append(
+                try .init(
+                    slot: slot,
+                    blindedMessage: componentRequest.blindedMessage
+                )
+            )
+            let signatureInput = try Alpha.AuthorizationTokenInput(
+                roundIdentifier: MosaicMainnetAlphaFixtures.roundIdentifier,
+                keyIdentifier: [UInt8](bchSignatureVerificationKey.keyIdentifier),
+                purpose: .bchSignature,
+                nonce: MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
+                    60_000 + slot
+                ),
+                binding: componentInput.spentIdentifier
+            )
+            let signatureRequest = try Alpha.AuthorizationRequest(
+                input: signatureInput,
+                using: bchSignatureVerificationKey
+            )
+            bchSignatureRequests.append(signatureRequest)
+            bchSignaturePayloads.append(
+                try .init(
+                    slot: slot,
+                    blindedMessage: signatureRequest.blindedMessage
+                )
             )
         }
         let playerCommit = try Alpha.PlayerCommit(
@@ -235,19 +325,25 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             contributor: contributor,
             groupedCommitment: MosaicOpalV0WireContractValidator
                 .makeMainnetGroupedCommitment(),
-            authorizationRequests: payloads
+            componentAuthorizationRequests: componentPayloads,
+            bchSignatureAuthorizationRequests: bchSignaturePayloads
         )
         let invalidSet = try makeResponseSet(
             playerCommit: playerCommit,
             byteSeed: 1
         )
         #expect(throws: Alpha.AuthorizationResponseSetValidation.ValidationError
-            .responseFinalizationFailed(slot: 0)) {
+            .responseFinalizationFailed(purpose: .component, slot: 0)) {
             _ = try Alpha.AuthorizationResponseSetValidation(
                 validating: invalidSet,
                 playerCommit: playerCommit,
-                requests: requests,
-                blindSigningVerificationKey: verificationKey
+                componentRequests: componentRequests,
+                bchSignatureRequests: bchSignatureRequests,
+                components: componentGroup,
+                componentAuthorizationVerificationKey:
+                    componentVerificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    bchSignatureVerificationKey
             )
         }
         #expect(throws: Alpha.AuthorizationResponseSetValidation.ValidationError
@@ -255,8 +351,65 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             _ = try Alpha.AuthorizationResponseSetValidation(
                 validating: invalidSet,
                 playerCommit: playerCommit,
-                requests: Array(requests.dropLast()),
-                blindSigningVerificationKey: verificationKey
+                componentRequests: Array(componentRequests.dropLast()),
+                bchSignatureRequests: bchSignatureRequests,
+                components: componentGroup,
+                componentAuthorizationVerificationKey:
+                    componentVerificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    bchSignatureVerificationKey
+            )
+        }
+        var componentBindingSubstitution = componentRequests
+        let substitutedComponentInput = try Alpha.AuthorizationTokenInput(
+            roundIdentifier: componentRequests[0].input.roundIdentifier,
+            keyIdentifier: componentRequests[0].input.keyIdentifier,
+            purpose: .component,
+            nonce: componentRequests[0].input.nonce,
+            binding: [UInt8](repeating: 0xD1, count: 32)
+        )
+        componentBindingSubstitution[0] = try .init(
+            input: substitutedComponentInput,
+            using: componentVerificationKey
+        )
+        #expect(throws: Alpha.AuthorizationResponseSetValidation.ValidationError
+            .componentBindingMismatch(slot: 0)) {
+            _ = try Alpha.AuthorizationResponseSetValidation(
+                validating: invalidSet,
+                playerCommit: playerCommit,
+                componentRequests: componentBindingSubstitution,
+                bchSignatureRequests: bchSignatureRequests,
+                components: componentGroup,
+                componentAuthorizationVerificationKey:
+                    componentVerificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    bchSignatureVerificationKey
+            )
+        }
+        var signatureBindingSubstitution = bchSignatureRequests
+        let substitutedSignatureInput = try Alpha.AuthorizationTokenInput(
+            roundIdentifier: bchSignatureRequests[0].input.roundIdentifier,
+            keyIdentifier: bchSignatureRequests[0].input.keyIdentifier,
+            purpose: .bchSignature,
+            nonce: bchSignatureRequests[0].input.nonce,
+            binding: [UInt8](repeating: 0xD2, count: 32)
+        )
+        signatureBindingSubstitution[0] = try .init(
+            input: substitutedSignatureInput,
+            using: bchSignatureVerificationKey
+        )
+        #expect(throws: Alpha.AuthorizationResponseSetValidation.ValidationError
+            .bchSignatureBindingMismatch(slot: 0)) {
+            _ = try Alpha.AuthorizationResponseSetValidation(
+                validating: invalidSet,
+                playerCommit: playerCommit,
+                componentRequests: componentRequests,
+                bchSignatureRequests: signatureBindingSubstitution,
+                components: componentGroup,
+                componentAuthorizationVerificationKey:
+                    componentVerificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    bchSignatureVerificationKey
             )
         }
         var wrongDigest = playerCommit.digest
@@ -265,15 +418,23 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             roundIdentifier: playerCommit.roundIdentifier,
             contributor: contributor,
             playerCommitDigest: wrongDigest,
-            responses: invalidSet.responses
+            componentAuthorizationResponses:
+                invalidSet.componentAuthorizationResponses,
+            bchSignatureAuthorizationResponses:
+                invalidSet.bchSignatureAuthorizationResponses
         )
         #expect(throws: Alpha.AuthorizationResponseSetValidation.ValidationError
             .responseSetMismatch) {
             _ = try Alpha.AuthorizationResponseSetValidation(
                 validating: mismatchedSet,
                 playerCommit: playerCommit,
-                requests: requests,
-                blindSigningVerificationKey: verificationKey
+                componentRequests: componentRequests,
+                bchSignatureRequests: bchSignatureRequests,
+                components: componentGroup,
+                componentAuthorizationVerificationKey:
+                    componentVerificationKey,
+                bchSignatureAuthorizationVerificationKey:
+                    bchSignatureVerificationKey
             )
         }
     }
@@ -334,9 +495,9 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             ) == acknowledgementSet
         )
         let expectedDigests = [
-            7: "49d3c05f5de79fd954e0015e8ae404ee2674c9157ec6e5027c3b8399de4b7077",
-            8: "8e187b648e2acde72930c3b30f725014afeb5b8177c317c96fd107ff6b5ade6c",
-            9: "ff900c337c7ef07d47a6c23521e6e7e53bb702bd760bf29047c01061d8a2bb07",
+            7: "44c845f6aa8b2042f295d36c7106823045fc0cb13ef316022669f2f28c434cbc",
+            8: "410a88a9b4848b39ae37bf22c3e199ff13a148fe1c0104cd69e52c0ddfd0cbe8",
+            9: "31242308671ff071d588889a54705913c378a39d01891e91a0ebe0a45efb05ef",
         ]
         let expectedDigest = try #require(expectedDigests[candidateCount])
         #expect(
@@ -459,8 +620,10 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             contributor: roster.contributors[0],
             groupedCommitment: MosaicOpalV0WireContractValidator
                 .makeMainnetGroupedCommitment(),
-            authorizationRequests: MosaicMainnetAlphaFixtures
-                .makeAuthorizationRequests()
+            componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(),
+            bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                .makeAuthorizationRequests(byteOffset: 0x40)
         )
         let responseSet = try makeResponseSet(
             playerCommit: playerCommit,
@@ -564,8 +727,10 @@ struct MosaicMainnetAlphaAggregateContractValidator {
                     pedersenTotalNonce:
                         [UInt8](repeating: 0, count: 31) + [UInt8(index + 1)]
                 ),
-                authorizationRequests: MosaicMainnetAlphaFixtures
-                    .makeAuthorizationRequests()
+                componentAuthorizationRequests: MosaicMainnetAlphaFixtures
+                    .makeAuthorizationRequests(),
+                bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
+                    .makeAuthorizationRequests(byteOffset: 0x40)
             )
         }
     }
@@ -578,12 +743,22 @@ struct MosaicMainnetAlphaAggregateContractValidator {
             roundIdentifier: playerCommit.roundIdentifier,
             contributor: playerCommit.contributor,
             playerCommitDigest: playerCommit.digest,
-            responses: try (0 ..< Alpha.componentCountPerContributor).map {
+            componentAuthorizationResponses: try (0 ..< Alpha
+                .componentCountPerContributor).map {
                 slot in
                 try .init(
                     slot: slot,
                     blindSignature: try blindSignature(
                         byte: byteSeed &+ UInt8(slot)
+                    )
+                )
+            },
+            bchSignatureAuthorizationResponses: try (0 ..< Alpha
+                .componentCountPerContributor).map { slot in
+                try .init(
+                    slot: slot,
+                    blindSignature: try blindSignature(
+                        byte: byteSeed &+ UInt8(slot) &+ 0x40
                     )
                 )
             }

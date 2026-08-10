@@ -15,6 +15,7 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         let proposalValidation: Alpha.ManifestProposalValidation
         let attemptIdentifier: Ledger.AttemptIdentifier
         let generationIdentifier: Ledger.GenerationIdentifier
+        let materialIdentifier: Ledger.MaterialIdentifier
         let localControlIdentity: Attempt.ControlIdentity
         var ledger: Ledger
     }
@@ -32,16 +33,32 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         candidateCount: Int = 7,
         localRole: OpalFusion.Mosaic.Role,
         localContributorIndex: Int = 0,
-        verificationKey: OpalCrypto.RSABSSA.VerificationKey? = nil
+        verificationKey: OpalCrypto.RSABSSA.VerificationKey? = nil,
+        bchSignatureVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey? = nil
     ) throws -> Harness {
         let election = try MosaicMainnetAlphaFixtures.makeElection(
             candidateCount: candidateCount
         )
         let verificationKey = try verificationKey
             ?? MosaicMainnetAlphaFixtures.rsaVerificationKey()
+        let effectiveBCHSignatureVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey?
+        if let bchSignatureVerificationKey {
+            effectiveBCHSignatureVerificationKey =
+                bchSignatureVerificationKey
+        } else if verificationKey
+            != (try MosaicMainnetAlphaFixtures.rsaVerificationKey()) {
+            effectiveBCHSignatureVerificationKey = try
+                MosaicMainnetAlphaFixtures.bchSignatureAuthorizationEvaluator()
+                    .verificationKey
+        } else {
+            effectiveBCHSignatureVerificationKey = nil
+        }
         let manifest = try MosaicMainnetAlphaFixtures.makeManifest(
             election: election,
-            verificationKey: verificationKey
+            verificationKey: verificationKey,
+            bchSignatureVerificationKey: effectiveBCHSignatureVerificationKey
         )
         let context = try MosaicMainnetAlphaFixtures.makeManifestProposalContext(
             election: election
@@ -71,9 +88,13 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         let generationIdentifier = Ledger.GenerationIdentifier(
             opaqueBytes: [UInt8](repeating: 0xA2, count: 32)
         )
+        let materialIdentifier = Ledger.MaterialIdentifier(
+            opaqueBytes: [UInt8](repeating: 0xA3, count: 32)
+        )
         let ledger = try Ledger(
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
+            materialIdentifier: materialIdentifier,
             localControlIdentity: localControlIdentity,
             proposalValidation: proposalValidation
         )
@@ -83,6 +104,7 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
             proposalValidation: proposalValidation,
             attemptIdentifier: attemptIdentifier,
             generationIdentifier: generationIdentifier,
+            materialIdentifier: materialIdentifier,
             localControlIdentity: localControlIdentity,
             ledger: ledger
         )
@@ -251,8 +273,12 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
                 roundIdentifier: harness.manifest.core.roundIdentifier,
                 contributor: contributor,
                 groupedCommitment: groupedCommitment,
-                authorizationRequests:
-                    MosaicMainnetAlphaFixtures.makeAuthorizationRequests()
+                componentAuthorizationRequests:
+                    MosaicMainnetAlphaFixtures.makeAuthorizationRequests(),
+                bchSignatureAuthorizationRequests:
+                    MosaicMainnetAlphaFixtures.makeAuthorizationRequests(
+                        byteOffset: 0x40
+                    )
             )
         }
     }
@@ -261,7 +287,8 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
         playerCommit: Alpha.PlayerCommit,
         byteSeed: UInt8 = 1
     ) throws -> Alpha.AuthorizationResponseSet {
-        let responses = try (0 ..< Alpha.componentCountPerContributor).map {
+        let componentResponses = try (0 ..< Alpha
+            .componentCountPerContributor).map {
             slot in
             try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
                 slot: slot,
@@ -278,7 +305,20 @@ enum MosaicMainnetAlphaAdmissionLedgerFixtures {
             roundIdentifier: playerCommit.roundIdentifier,
             contributor: playerCommit.contributor,
             playerCommitDigest: playerCommit.digest,
-            responses: responses
+            componentAuthorizationResponses: componentResponses,
+            bchSignatureAuthorizationResponses: try (0 ..< Alpha
+                .componentCountPerContributor).map { slot in
+                try OpalFusion.Mosaic.OpalV0.AuthorizationResponsePayload(
+                    slot: slot,
+                    blindSignature: .init(
+                        rawRepresentation: Data(
+                            repeating: byteSeed &+ UInt8(slot) &+ 0x40,
+                            count: OpalFusion.Mosaic.OpalV0
+                                .authorizationMaterialByteCount
+                        )
+                    )
+                )
+            }
         )
     }
 

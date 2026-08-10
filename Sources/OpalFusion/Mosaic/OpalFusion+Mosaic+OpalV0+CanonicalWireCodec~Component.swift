@@ -15,6 +15,14 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
         return encoder.encodedBytes
     }
 
+    static func encodeComponentPayload(
+        _ payload: OpalFusion.Mosaic.OpalV0.ComponentPayload
+    ) throws -> [UInt8] {
+        var encoder = OpalFusion.Mosaic.CanonicalEncoder()
+        try writeComponentPayload(payload, to: &encoder)
+        return encoder.encodedBytes
+    }
+
     static func decodeComponent(
         from encodedBytes: [UInt8]
     ) throws -> OpalFusion.Mosaic.OpalV0.Component {
@@ -32,7 +40,14 @@ extension OpalFusion.Mosaic.OpalV0.CanonicalWireCodec {
             component.saltCommitment,
             byteCount: OpalFusion.Mosaic.OpalV0.digestByteCount
         )
-        switch component.payload {
+        try writeComponentPayload(component.payload, to: &encoder)
+    }
+
+    static func writeComponentPayload(
+        _ payload: OpalFusion.Mosaic.OpalV0.ComponentPayload,
+        to encoder: inout OpalFusion.Mosaic.CanonicalEncoder
+    ) throws {
+        switch payload {
         case let .input(input):
             encoder.writeUInt8(ComponentKind.input.rawValue)
             try encoder.writeFixedBytes(

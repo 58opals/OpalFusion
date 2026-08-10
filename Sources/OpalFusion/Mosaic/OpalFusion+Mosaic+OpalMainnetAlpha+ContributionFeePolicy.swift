@@ -1,7 +1,7 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+ContributionFeePolicy.swift
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
-    /// The alpha.3 allocation of BCH's fixed transaction bytes across contributors.
+    /// The alpha.4 allocation of BCH's fixed transaction bytes across contributors.
     enum ContributionFeePolicy {
         enum ValidationError: Error, Sendable, Equatable {
             case conductorCannotContribute

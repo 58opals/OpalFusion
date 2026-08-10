@@ -38,6 +38,12 @@ extension OpalFusion.Mosaic.OpalV0 {
             try OpalFusion.Mosaic.OpalV0.validateCommitmentFieldUniqueness(
                 commitments
             )
+            if profile == .opalMainnetAlpha {
+                try OpalFusion.Mosaic.OpalV0
+                    .validateMainnetCommunicationEventIdentityUniqueness(
+                        commitments
+                    )
+            }
 
             let sortedCommitments = encodedMembers.map(\.value)
             var encoder = OpalFusion.Mosaic.CanonicalEncoder()

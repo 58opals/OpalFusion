@@ -19,8 +19,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let validation: AnonymousComponentAdmissionValidation
         }
 
+        private struct AcceptedAnonymousBCHSignature: Sendable {
+            let messageIdentifier: OpalFusion.Mosaic.RuntimeSession
+                .MessageIdentifier
+            let envelope: AnonymousEnvelope
+            let validation: AnonymousBCHSignatureAdmissionValidation
+        }
+
         private let attemptIdentifier: AttemptIdentifier
         private let generationIdentifier: GenerationIdentifier
+        private let materialIdentifier: MaterialIdentifier
         private let localControlIdentity: ControlIdentity
         private let localRole: OpalFusion.Mosaic.Role
         private let proposalValidation: ManifestProposalValidation
@@ -40,7 +48,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             ControlIdentity: AuthorizationResponseSet
         ] = [:]
         private var authorizationResponseValidation:
-            AuthorizationResponseSetValidation?
+            AuthorizationResponseSetMaterialValidation?
         private var commitmentValidation: OpalFusion.Mosaic.Attempt
             .CommitmentSetValidation?
         private var transcript: Transcript?
@@ -50,10 +58,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var acknowledgementSet: PreSignAcknowledgementSet?
 
         private var acceptedAnonymousComponents: [AcceptedAnonymousComponent] = []
+        private var acceptedAnonymousBCHSignatures:
+            [AcceptedAnonymousBCHSignature] = []
 
         init(
             attemptIdentifier: AttemptIdentifier,
             generationIdentifier: GenerationIdentifier,
+            materialIdentifier: MaterialIdentifier,
             localControlIdentity: ControlIdentity,
             proposalValidation: ManifestProposalValidation
         ) throws(InitializationError) {
@@ -65,6 +76,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             self.attemptIdentifier = attemptIdentifier
             self.generationIdentifier = generationIdentifier
+            self.materialIdentifier = materialIdentifier
             self.localControlIdentity = localControlIdentity
             self.localRole = localMember.role
             self.proposalValidation = proposalValidation
@@ -187,19 +199,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     to: nextPhase
                 )
             }
-            guard nextPhase != .bchSigning else {
-                return .bchSigningAdmissionUnavailable
-            }
             guard phaseAdvancePrerequisiteIsSatisfied(nextContext) else {
                 return .phaseAdvancePrerequisiteMissing(nextPhase)
             }
             return nil
         }
 
-        mutating func receiveAnonymousComponent<Validator>(
-            _ delivery: AnonymousComponentDelivery,
-            using validator: Validator
-        ) -> [Effect] where Validator: AnonymousComponentAdmissionValidating {
+        mutating func receiveAnonymousComponent(
+            _ delivery: AnonymousComponentDelivery
+        ) -> [Effect] {
             if case .terminal = state {
                 if isExactRecordedAnonymousDelivery(delivery) {
                     return [.exactDuplicateIgnored]
@@ -227,6 +235,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard delivery.envelope.payloadType == .anonymousComponent else {
                 return [.inputRejected(.unsupportedAnonymousBCHSignature)]
             }
+            guard delivery.envelope.sequence == 0 else {
+                return [
+                    .inputRejected(
+                        .anonymousMailboxSequenceInvalid(
+                            expected: 0,
+                            actual: delivery.envelope.sequence
+                        )
+                    )
+                ]
+            }
             guard currentPhase == .anonymousComponentSubmission,
                   localRole == .conductor,
                   let manifest else {
@@ -242,9 +260,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     expectedRecipientEventIdentity:
                         delivery.authenticatedRecipientEventIdentity,
                     currentUnixSeconds: delivery.currentUnixSeconds,
-                    blindSigningVerificationKey:
-                        manifest.core.blindSigningVerificationKey,
-                    using: validator
+                    componentAuthorizationVerificationKey:
+                        manifest.core.componentAuthorizationVerificationKey
                 )
             } catch let error as ContractError {
                 return [.inputRejected(.anonymousComponentAdmissionRejected(error))]
@@ -264,9 +281,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }) else {
                 return terminate(with: .failed(.anonymousAuthorizationConflict))
             }
+            guard !isPublishedCommunicationEventIdentity(
+                delivery.authenticatedOuterEventIdentity
+            ) else {
+                return terminate(with: .failed(.anonymousCommunicationKeyReuse))
+            }
             guard !acceptedAnonymousComponents.contains(where: {
-                $0.validation.senderCommunicationPublicKey
-                    == validation.senderCommunicationPublicKey
+                Array($0.validation.senderCommunicationPublicKey.dropFirst())
+                    == delivery.authenticatedOuterEventIdentity
             }) else {
                 return terminate(with: .failed(.anonymousCommunicationKeyReuse))
             }
@@ -289,6 +311,175 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
             )
             return [.anonymousComponentAdmitted(validation)]
+        }
+
+        mutating func receiveAnonymousBCHSignature<Validator>(
+            _ delivery: AnonymousComponentDelivery,
+            using validator: Validator
+        ) -> [Effect] where Validator: AnonymousBCHSignatureAdmissionValidating {
+            if case .terminal = state {
+                if isExactRecordedAnonymousDelivery(delivery) {
+                    return [.exactDuplicateIgnored]
+                }
+                return [.inputRejected(.inputAfterTermination)]
+            }
+            guard delivery.attemptIdentifier == attemptIdentifier else {
+                return [.inputRejected(.attemptIdentifierMismatch)]
+            }
+            guard delivery.generationIdentifier == generationIdentifier else {
+                return [.inputRejected(.generationIdentifierMismatch)]
+            }
+            if let accepted = acceptedAnonymousBCHSignatures.first(where: {
+                $0.messageIdentifier == delivery.authenticatedMessageIdentifier
+            }) {
+                guard accepted.envelope == delivery.envelope,
+                      Array(delivery.envelope.senderCommunicationPublicKey.dropFirst())
+                        == delivery.authenticatedOuterEventIdentity,
+                      delivery.envelope.recipientEventIdentity
+                        == delivery.authenticatedRecipientEventIdentity else {
+                    return terminate(with: .failed(.anonymousMessageConflict))
+                }
+                return [.exactDuplicateIgnored]
+            }
+            guard delivery.envelope.payloadType == .bchSignatureSubmission,
+                  delivery.envelope.sequence == 1 else {
+                return [
+                    .inputRejected(
+                        .anonymousMailboxSequenceInvalid(
+                            expected: 1,
+                            actual: delivery.envelope.sequence
+                        )
+                    )
+                ]
+            }
+            guard currentPhase == .bchSigning,
+                  localRole == .conductor,
+                  let manifest,
+                  let transcript,
+                  acknowledgementSet != nil,
+                  let acceptedComponent = acceptedAnonymousComponents
+                    .first(where: {
+                        $0.envelope.recipientEventIdentity
+                            == delivery.authenticatedRecipientEventIdentity
+                    }) else {
+                return [
+                    .inputRejected(.anonymousBCHSignatureAdmissionUnavailable)
+                ]
+            }
+
+            let validation: AnonymousBCHSignatureAdmissionValidation
+            do {
+                validation = try .init(
+                    envelope: delivery.envelope,
+                    roundIdentifier: roundIdentifier,
+                    authenticatedOuterEventIdentity:
+                        delivery.authenticatedOuterEventIdentity,
+                    expectedRecipientEventIdentity:
+                        delivery.authenticatedRecipientEventIdentity,
+                    currentUnixSeconds: delivery.currentUnixSeconds,
+                    acceptedComponent: acceptedComponent.validation,
+                    transcript: transcript,
+                    bchSignatureAuthorizationVerificationKey:
+                        manifest.core.bchSignatureAuthorizationVerificationKey,
+                    using: validator
+                )
+            } catch let error as ContractError {
+                return [
+                    .inputRejected(.anonymousBCHSignatureAdmissionRejected(error))
+                ]
+            } catch {
+                return [
+                    .inputRejected(
+                        .anonymousBCHSignatureAdmissionRejected(
+                            .anonymousBCHSignatureAdmissionRejected
+                        )
+                    )
+                ]
+            }
+
+            guard acceptedAnonymousBCHSignatures.count
+                < transcript.transaction.inputs.count else {
+                return terminate(with: .failed(.anonymousBCHSignatureLimitExceeded))
+            }
+            guard !isPublishedCommunicationEventIdentity(
+                delivery.authenticatedOuterEventIdentity
+            ) else {
+                return terminate(with: .failed(.anonymousCommunicationKeyReuse))
+            }
+            guard !acceptedAnonymousComponents.contains(where: {
+                Array($0.validation.senderCommunicationPublicKey.dropFirst())
+                    == delivery.authenticatedOuterEventIdentity
+            }),
+            !acceptedAnonymousBCHSignatures.contains(where: {
+                Array($0.validation.senderCommunicationPublicKey.dropFirst())
+                    == delivery.authenticatedOuterEventIdentity
+            }) else {
+                return terminate(with: .failed(.anonymousCommunicationKeyReuse))
+            }
+            guard !acceptedAnonymousBCHSignatures.contains(where: {
+                $0.validation.recipientEventIdentity
+                    == validation.recipientEventIdentity
+            }) else {
+                return terminate(with: .failed(.anonymousRecipientIdentityReuse))
+            }
+            guard !acceptedAnonymousComponents.contains(where: {
+                $0.validation.authorizationSpentIdentifier
+                    == validation.authorizationSpentIdentifier
+            }),
+            !acceptedAnonymousBCHSignatures.contains(where: {
+                $0.validation.authorizationSpentIdentifier
+                    == validation.authorizationSpentIdentifier
+            }) else {
+                return terminate(with: .failed(.anonymousAuthorizationConflict))
+            }
+            let inputIndex = validation.submission.entry.inputIndex
+            guard !acceptedAnonymousBCHSignatures.contains(where: {
+                $0.validation.submission.entry.inputIndex == inputIndex
+            }) else {
+                return terminate(
+                    with: .failed(.anonymousBCHSignatureInputConflict(inputIndex))
+                )
+            }
+            acceptedAnonymousBCHSignatures.append(
+                .init(
+                    messageIdentifier: delivery.authenticatedMessageIdentifier,
+                    envelope: delivery.envelope,
+                    validation: validation
+                )
+            )
+            var effects: [Effect] = [.anonymousBCHSignatureAdmitted(validation)]
+            if acceptedAnonymousBCHSignatures.count
+                == transcript.transaction.inputs.count {
+                do {
+                    effects.append(
+                        .bchSignatureSetReady(
+                            try .init(
+                                roundIdentifier: roundIdentifier,
+                                transcriptRoot:
+                                    transcript.transcriptRoot.validatedBytes,
+                                entries: acceptedAnonymousBCHSignatures.map {
+                                    $0.validation.submission.entry
+                                },
+                                expectedInputCount:
+                                    transcript.transaction.inputs.count
+                            )
+                        )
+                    )
+                } catch {
+                    return terminate(
+                        with: .failed(.bchSignatureSetConstructionFailed)
+                    )
+                }
+            }
+            return effects
+        }
+
+        private func isPublishedCommunicationEventIdentity(
+            _ eventIdentity: [UInt8]
+        ) -> Bool {
+            commitmentValidation?.commitmentSet.commitments.contains {
+                Array($0.communicationPublicKey.dropFirst()) == eventIdentity
+            } ?? false
         }
 
         private var currentContext: PhaseContext {
@@ -663,19 +854,30 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private mutating func receiveAuthorizationResponseValidation(
             _ delivery: AuthorizationResponseValidationDelivery
         ) -> [Effect] {
-            guard delivery.attemptIdentifier == attemptIdentifier else {
+            guard delivery.validation.attemptIdentifier == attemptIdentifier else {
                 return [.inputRejected(.attemptIdentifierMismatch)]
             }
-            guard delivery.generationIdentifier == generationIdentifier else {
+            guard delivery.validation.generationIdentifier
+                == generationIdentifier else {
                 return [.inputRejected(.generationIdentifierMismatch)]
+            }
+            guard delivery.validation.materialIdentifier
+                == materialIdentifier else {
+                return [.inputRejected(.materialIdentifierMismatch)]
             }
             guard currentPhase == .walletReservation,
                   localRole == .contributor,
                   authorizationResponseValidation == nil,
                   let manifest,
-                  delivery.validation.verificationKeyIdentifier
+                  delivery.validation.componentVerificationKeyIdentifier
                     == [UInt8](
-                        manifest.core.blindSigningVerificationKey.keyIdentifier
+                        manifest.core.componentAuthorizationVerificationKey
+                            .keyIdentifier
+                    ),
+                  delivery.validation.bchSignatureVerificationKeyIdentifier
+                    == [UInt8](
+                        manifest.core.bchSignatureAuthorizationVerificationKey
+                            .keyIdentifier
                     ),
                   authorizationResponseSets[localControlIdentity]
                     == delivery.validation.responseSet,
@@ -688,7 +890,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             authorizationResponseValidation = delivery.validation
             return [
                 .authorizationResponsesValidated(
-                    delivery.validation.authorizationTokens
+                    delivery.validation
                 )
             ]
         }
@@ -883,8 +1085,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return commitmentValidation != nil
             case let .transcriptAgreement(expectedTranscript):
                 return transcript == expectedTranscript
-            case .bchSigning:
-                return false
+            case let .bchSigning(expectedTranscript):
+                return transcript == expectedTranscript
+                    && acknowledgementSet != nil
             }
         }
 
@@ -923,11 +1126,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         ) -> Bool {
             delivery.attemptIdentifier == attemptIdentifier
                 && delivery.generationIdentifier == generationIdentifier
-                && acceptedAnonymousComponents.contains {
+                && (acceptedAnonymousComponents.contains {
                     $0.messageIdentifier
                         == delivery.authenticatedMessageIdentifier
                         && $0.envelope == delivery.envelope
-                }
+                } || acceptedAnonymousBCHSignatures.contains {
+                    $0.messageIdentifier
+                        == delivery.authenticatedMessageIdentifier
+                        && $0.envelope == delivery.envelope
+                })
                 && Array(delivery.envelope.senderCommunicationPublicKey.dropFirst())
                     == delivery.authenticatedOuterEventIdentity
                 && delivery.envelope.recipientEventIdentity

@@ -9,10 +9,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
 
     static func encodeBCHSignatureSubmission(
         transcriptRoot: [UInt8],
+        authorizationToken: OpalFusion.Mosaic.OpalMainnetAlpha.AuthorizationToken,
         entry: OpalFusion.Mosaic.OpalMainnetAlpha.BCHSignatureEntry
     ) throws -> [UInt8] {
         var encoder = OpalFusion.Mosaic.CanonicalEncoder()
         try encoder.writeFixedBytes(transcriptRoot, byteCount: 32)
+        try writeAuthorizationToken(authorizationToken, to: &encoder)
         try writeBCHSignatureEntry(entry, to: &encoder)
         return encoder.encodedBytes
     }
@@ -23,6 +25,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
         try OpalFusion.Mosaic.CanonicalDecoder.decode(from: encodedBytes) { decoder in
             try .init(
                 transcriptRoot: decoder.readFixedBytes(byteCount: 32),
+                authorizationToken: readAuthorizationToken(from: &decoder),
                 entry: readBCHSignatureEntry(from: &decoder)
             )
         }
@@ -70,16 +73,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.CanonicalWireCodec {
                         .nonCanonicalSignatureOrder
                 }
             }
-            let submissions = try entries.map {
-                try OpalFusion.Mosaic.OpalMainnetAlpha.BCHSignatureSubmission(
-                    transcriptRoot: transcriptRoot,
-                    entry: $0
-                )
-            }
             return try .init(
                 roundIdentifier: roundIdentifier,
                 transcriptRoot: transcriptRoot,
-                submissions: submissions,
+                entries: entries,
                 expectedInputCount: expectedInputCount
             )
         }

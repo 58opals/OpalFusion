@@ -31,6 +31,12 @@ extension OpalFusion.Mosaic.OpalV0 {
             try OpalFusion.Mosaic.OpalV0.validateCommitmentFieldUniqueness(
                 commitments
             )
+            if profile == .opalMainnetAlpha {
+                try OpalFusion.Mosaic.OpalV0
+                    .validateMainnetCommunicationEventIdentityUniqueness(
+                        commitments
+                    )
+            }
             switch profile {
             case .opalV0:
                 guard excessFeeSatoshis == 0 else {

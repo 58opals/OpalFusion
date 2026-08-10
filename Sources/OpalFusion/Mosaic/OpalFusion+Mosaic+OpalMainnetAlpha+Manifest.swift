@@ -78,7 +78,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let roleSeed: [UInt8]
         let roster: OpalFusion.Mosaic.Attempt.Roster
         let opaquePoolIdentifier: [UInt8]
-        let blindSigningVerificationKey: OpalCrypto.RSABSSA.VerificationKey
+        let componentAuthorizationVerificationKey: OpalCrypto.RSABSSA.VerificationKey
+        let bchSignatureAuthorizationVerificationKey: OpalCrypto.RSABSSA.VerificationKey
         let contributorNonceAllocationDigest: [UInt8]
         let relaySetDigest: [UInt8]
         let deadlines: DeadlineSchedule
@@ -148,7 +149,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             candidateSetDigest: [UInt8],
             roleElection: OpalFusion.Mosaic.Attempt.RoleElectionResult,
             opaquePoolIdentifier: [UInt8],
-            blindSigningVerificationKey: OpalCrypto.RSABSSA.VerificationKey,
+            componentAuthorizationVerificationKey: OpalCrypto.RSABSSA.VerificationKey,
+            bchSignatureAuthorizationVerificationKey: OpalCrypto.RSABSSA.VerificationKey,
             contributorNonceAllocationDigest: [UInt8],
             relaySetDigest: [UInt8],
             deadlines: DeadlineSchedule
@@ -182,10 +184,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 relaySetDigest,
                 field: .relaySetDigest
             )
-            guard blindSigningVerificationKey.subjectPublicKeyInfo.count
+            guard componentAuthorizationVerificationKey.subjectPublicKeyInfo.count
                 == OpalFusion.Mosaic.OpalMainnetAlpha
-                    .blindSigningVerificationKeyByteCount else {
+                    .authorizationVerificationKeyByteCount,
+                  bchSignatureAuthorizationVerificationKey.subjectPublicKeyInfo.count
+                == OpalFusion.Mosaic.OpalMainnetAlpha
+                    .authorizationVerificationKeyByteCount else {
                 throw ContractError.invalidBlindSigningKey
+            }
+            guard componentAuthorizationVerificationKey.keyIdentifier
+                != bchSignatureAuthorizationVerificationKey.keyIdentifier else {
+                throw ContractError.duplicateBlindSigningKeyIdentifier
             }
 
             self.candidateSetDigest = Array(candidateSetDigest)
@@ -193,7 +202,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.roleSeed = roleElection.roleSeed
             self.roster = roleElection.roster
             self.opaquePoolIdentifier = Array(opaquePoolIdentifier)
-            self.blindSigningVerificationKey = blindSigningVerificationKey
+            self.componentAuthorizationVerificationKey =
+                componentAuthorizationVerificationKey
+            self.bchSignatureAuthorizationVerificationKey =
+                bchSignatureAuthorizationVerificationKey
             self.contributorNonceAllocationDigest = Array(
                 contributorNonceAllocationDigest
             )

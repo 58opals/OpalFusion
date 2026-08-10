@@ -9,7 +9,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let roundIdentifier: [UInt8]
         let contributor: OpalFusion.Mosaic.Attempt.ControlIdentity
         let groupedCommitment: OpalFusion.Mosaic.OpalV0.GroupedCommitmentPayload
-        let authorizationRequests: [
+        let componentAuthorizationRequests: [
+            OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
+        ]
+        let bchSignatureAuthorizationRequests: [
             OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
         ]
         let canonicalBytes: [UInt8]
@@ -19,7 +22,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             roundIdentifier: [UInt8],
             contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
             groupedCommitment: OpalFusion.Mosaic.OpalV0.GroupedCommitmentPayload,
-            authorizationRequests: [
+            componentAuthorizationRequests: [
+                OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
+            ],
+            bchSignatureAuthorizationRequests: [
                 OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload
             ]
         ) throws {
@@ -43,14 +49,41 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     groupedCommitment.profile
                 )
             }
-            guard authorizationRequests.count
-                == OpalFusion.Mosaic.OpalMainnetAlpha
-                    .componentCountPerContributor else {
+            try Self.validateAuthorizationRequests(componentAuthorizationRequests)
+            try Self.validateAuthorizationRequests(
+                bchSignatureAuthorizationRequests
+            )
+
+            let canonicalBytes = try CanonicalWireCodec.encodePlayerCommit(
+                roundIdentifier: roundIdentifier,
+                contributor: contributor,
+                groupedCommitment: groupedCommitment,
+                componentAuthorizationRequests: componentAuthorizationRequests,
+                bchSignatureAuthorizationRequests:
+                    bchSignatureAuthorizationRequests
+            )
+            self.roundIdentifier = Array(roundIdentifier)
+            self.contributor = contributor
+            self.groupedCommitment = groupedCommitment
+            self.componentAuthorizationRequests = componentAuthorizationRequests
+            self.bchSignatureAuthorizationRequests =
+                bchSignatureAuthorizationRequests
+            self.canonicalBytes = canonicalBytes
+            self.digest = RoleSeedValidator.hash(
+                domainSuffix: "player-commit",
+                fields: [canonicalBytes]
+            )
+        }
+
+        private static func validateAuthorizationRequests(
+            _ requests: [OpalFusion.Mosaic.OpalV0.AuthorizationRequestPayload]
+        ) throws {
+            guard requests.count == componentCountPerContributor else {
                 throw ContractError.invalidAuthorizationRequestCount(
-                    actual: authorizationRequests.count
+                    actual: requests.count
                 )
             }
-            for (expectedSlot, request) in authorizationRequests.enumerated() {
+            for (expectedSlot, request) in requests.enumerated() {
                 guard request.slot == expectedSlot else {
                     throw ContractError.invalidAuthorizationRequestSlot(
                         expected: expectedSlot,
@@ -58,22 +91,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     )
                 }
             }
-
-            let canonicalBytes = try CanonicalWireCodec.encodePlayerCommit(
-                roundIdentifier: roundIdentifier,
-                contributor: contributor,
-                groupedCommitment: groupedCommitment,
-                authorizationRequests: authorizationRequests
-            )
-            self.roundIdentifier = Array(roundIdentifier)
-            self.contributor = contributor
-            self.groupedCommitment = groupedCommitment
-            self.authorizationRequests = authorizationRequests
-            self.canonicalBytes = canonicalBytes
-            self.digest = RoleSeedValidator.hash(
-                domainSuffix: "player-commit",
-                fields: [canonicalBytes]
-            )
         }
     }
 }

@@ -104,7 +104,9 @@ case "$mode" in
     ;;
   mosaic)
     run_test --filter Mosaic \
-      --skip 'MosaicMainnetAlphaAdmissionLedgerValidator|MosaicOpalV0AuthorizationValidator'
+      --skip 'MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaContractValidator|MosaicMainnetAlphaRuntimeSessionValidator|MosaicOpalV0AuthorizationValidator'
+    run_serial_filter MosaicMainnetAlphaContractValidator
+    run_serial_filter MosaicMainnetAlphaRuntimeSessionValidator
     run_serial_filter MosaicMainnetAlphaAdmissionLedgerValidator
     run_serial_filter MosaicOpalV0AuthorizationValidator
     run_filter FusionFacadeScaffoldValidator
