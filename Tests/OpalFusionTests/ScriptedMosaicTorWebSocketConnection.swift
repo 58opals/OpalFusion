@@ -15,14 +15,24 @@ actor ScriptedMosaicTorWebSocketConnection:
     private var openWaiter: CheckedContinuation<Void, Never>?
     private var openSuspensionWaiter: CheckedContinuation<Void, Never>?
     private var closeWaiter: CheckedContinuation<Void, Never>?
+    private var closeSuspensionWaiter: CheckedContinuation<Void, Never>?
     private var sendWaiter: CheckedContinuation<Void, Never>?
+    private var sentTextCountWaiter: (
+        count: Int,
+        continuation: CheckedContinuation<Void, Never>
+    )?
     private var openResume: CheckedContinuation<Void, any Error>?
+    private var closeResume: CheckedContinuation<Void, Never>?
     private var sendResume: CheckedContinuation<Void, any Error>?
     private var hasOpened = false
     private var isClosed = false
     private var shouldSuspendNextOpen = false
+    private var shouldSuspendNextClose = false
     private var shouldSuspendNextSend = false
+    private var shouldFailNextOpen = false
+    private var shouldFailNextSend = false
     private var hasSuspendedOpen = false
+    private var hasSuspendedClose = false
     private var hasSuspendedSend = false
 
     private(set) var openCount = 0
@@ -43,6 +53,10 @@ actor ScriptedMosaicTorWebSocketConnection:
     ) async throws -> MessageStream {
         openCount += 1
         openedMaximumIncomingMessageByteCount = maximumIncomingMessageByteCount
+        if shouldFailNextOpen {
+            shouldFailNextOpen = false
+            throw ProbeFailure.injected
+        }
         if shouldSuspendNextOpen, !hasSuspendedOpen {
             hasSuspendedOpen = true
             openSuspensionWaiter?.resume()
@@ -62,6 +76,15 @@ actor ScriptedMosaicTorWebSocketConnection:
     func send(text: String) async throws {
         guard !isClosed else { throw CancellationError() }
         sentTexts.append(text)
+        if let waiter = sentTextCountWaiter,
+           sentTexts.count >= waiter.count {
+            sentTextCountWaiter = nil
+            waiter.continuation.resume()
+        }
+        if shouldFailNextSend {
+            shouldFailNextSend = false
+            throw ProbeFailure.injected
+        }
         guard shouldSuspendNextSend, !hasSuspendedSend else { return }
         hasSuspendedSend = true
         sendWaiter?.resume()
@@ -72,7 +95,7 @@ actor ScriptedMosaicTorWebSocketConnection:
         guard !isClosed else { throw CancellationError() }
     }
 
-    func close() {
+    func close() async {
         guard !isClosed else { return }
         isClosed = true
         closeCount += 1
@@ -83,6 +106,13 @@ actor ScriptedMosaicTorWebSocketConnection:
         continuation.finish()
         closeWaiter?.resume()
         closeWaiter = nil
+        guard shouldSuspendNextClose, !hasSuspendedClose else { return }
+        hasSuspendedClose = true
+        closeSuspensionWaiter?.resume()
+        closeSuspensionWaiter = nil
+        await withCheckedContinuation { continuation in
+            closeResume = continuation
+        }
     }
 
     func suspendNextOpen() {
@@ -91,6 +121,18 @@ actor ScriptedMosaicTorWebSocketConnection:
 
     func suspendNextSend() {
         shouldSuspendNextSend = true
+    }
+
+    func suspendNextClose() {
+        shouldSuspendNextClose = true
+    }
+
+    func failNextOpen() {
+        shouldFailNextOpen = true
+    }
+
+    func failNextSend() {
+        shouldFailNextSend = true
     }
 
     func waitUntilOpened() async {
@@ -119,9 +161,28 @@ actor ScriptedMosaicTorWebSocketConnection:
         }
     }
 
+    func waitUntilSentTextCount(_ count: Int) async {
+        guard sentTexts.count < count else { return }
+        await withCheckedContinuation { continuation in
+            sentTextCountWaiter = (count, continuation)
+        }
+    }
+
     func resumeSend() {
         sendResume?.resume()
         sendResume = nil
+    }
+
+    func waitUntilCloseSuspends() async {
+        guard !hasSuspendedClose else { return }
+        await withCheckedContinuation { continuation in
+            closeSuspensionWaiter = continuation
+        }
+    }
+
+    func resumeClose() {
+        closeResume?.resume()
+        closeResume = nil
     }
 
     func waitUntilClosed() async {
