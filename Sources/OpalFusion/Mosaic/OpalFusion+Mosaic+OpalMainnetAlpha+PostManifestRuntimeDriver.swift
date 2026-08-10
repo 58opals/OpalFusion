@@ -3,9 +3,9 @@
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Selects exactly one post-manifest mainnet-alpha role executor.
     ///
-    /// An external adapter submits one serialized stream of signed gift wraps and
-    /// recipient capabilities. This driver derives the exact attempt context from its
-    /// bootstrap and authenticates each event before the selected coordinator sees it.
+    /// Its attempt-scoped ingress supplies one serialized stream of signed gift wraps and
+    /// selects a sealed recipient capability. This driver derives the exact attempt context
+    /// from its bootstrap and authenticates each event before the selected coordinator sees it.
     /// The selected coordinator owns ordering, terminal state, role-specific disposition,
     /// and recovery-required classification; only the contributor coordinator owns wallet
     /// disposition. Durable recovery remains app-owned. This façade owns no tasks,

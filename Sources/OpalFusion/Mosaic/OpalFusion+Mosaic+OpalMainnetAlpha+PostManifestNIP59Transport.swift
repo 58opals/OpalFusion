@@ -230,6 +230,28 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        /// Extracts the sole canonical recipient identity before decryption authority is selected.
+        static func recipientEventIdentity(
+            in giftWrap: Nostr.Event
+        ) throws(Failure) -> Data {
+            guard giftWrap.template.tags.count == 1,
+                  giftWrap.template.tags[0].count == 2,
+                  giftWrap.template.tags[0][0] == "p" else {
+                throw .invalidGiftWrapTags
+            }
+            do {
+                let rawRepresentation = try Nostr.EventCodec.decodeHexadecimal(
+                    giftWrap.template.tags[0][1],
+                    field: "p"
+                )
+                return try OpalCrypto.Signature.BIP340.VerificationKey(
+                    rawRepresentation: rawRepresentation
+                ).rawRepresentation
+            } catch {
+                throw .invalidGiftWrapTags
+            }
+        }
+
         private static func makeGiftWrap(
             canonicalEnvelope: [UInt8],
             expiryUnixSeconds: UInt64,

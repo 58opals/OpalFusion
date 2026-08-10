@@ -1,10 +1,13 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestTransportIngress.swift
 
+import Foundation
+
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Owns authenticated NIP-59 admission into one post-manifest role driver.
     ///
-    /// Relay fan-in, recipient-key storage, Tor, reconnect, publication, and durable
-    /// replay remain outside this actor. Callers cannot submit a preconstructed runtime fact.
+    /// Relay fan-in, recipient-key generation or persistence, Tor, reconnect, publication,
+    /// and durable replay remain outside this actor. Callers submit only a signed gift wrap;
+    /// this ingress selects its attempt-scoped decryption authority before runtime admission.
     actor PostManifestTransportIngress {
         private enum StartupDisposition {
             case stop
@@ -12,6 +15,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private let driver: Driver
+        private let recipientSet: RecipientSet
         private let dependencies: Dependencies
         private var startupDisposition: StartupDisposition?
 
@@ -20,6 +24,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         init(
             bootstrap: Driver.Bootstrap,
             roleDependencies: Driver.RoleDependencies,
+            recipientSet: RecipientSet,
             dependencies: Dependencies
         ) throws(InitializationError) {
             do {
@@ -30,6 +35,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             } catch let error {
                 throw .runtimeDriver(error)
             }
+            self.recipientSet = recipientSet
             self.dependencies = dependencies
         }
 
@@ -54,12 +60,26 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         func submit(
-            _ giftWrap: OpalFusion.Mosaic.NostrNamespace.Event,
-            to recipient: Transport.RecipientCapability
+            _ giftWrap: OpalFusion.Mosaic.NostrNamespace.Event
         ) async -> Decision {
             guard state == .running else {
                 return .rejected(.notRunning)
             }
+
+            let recipientIdentity: Data
+            do {
+                recipientIdentity = try Transport.recipientEventIdentity(
+                    in: giftWrap
+                )
+            } catch let failure {
+                return .rejected(.transport(failure))
+            }
+            guard let recipient = recipientSet.capability(
+                for: recipientIdentity
+            ) else {
+                return .rejected(.unknownRecipient)
+            }
+
             do {
                 guard try await driver.submit(
                     giftWrap,

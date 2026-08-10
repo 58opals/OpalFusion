@@ -1,10 +1,47 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestTransportIngress+Model.swift
 
+import Foundation
+
 extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestTransportIngress {
     typealias Driver = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestRuntimeDriver
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
+
+    /// Immutable decryption authorities admitted for one attempt-scoped ingress.
+    struct RecipientSet: Sendable {
+        enum ValidationError: Error, Sendable, Equatable {
+            case empty
+            case duplicateRecipientIdentity
+        }
+
+        private let capabilitiesByIdentity: [
+            Data: Transport.RecipientCapability
+        ]
+
+        init(
+            _ capabilities: [Transport.RecipientCapability]
+        ) throws(ValidationError) {
+            guard !capabilities.isEmpty else { throw .empty }
+            var capabilitiesByIdentity: [
+                Data: Transport.RecipientCapability
+            ] = [:]
+            for capability in capabilities {
+                let identity = capability.recipientEventIdentity
+                guard capabilitiesByIdentity[identity] == nil else {
+                    throw .duplicateRecipientIdentity
+                }
+                capabilitiesByIdentity[identity] = capability
+            }
+            self.capabilitiesByIdentity = capabilitiesByIdentity
+        }
+
+        func capability(
+            for recipientEventIdentity: Data
+        ) -> Transport.RecipientCapability? {
+            capabilitiesByIdentity[recipientEventIdentity]
+        }
+    }
 
     struct Dependencies: Sendable {
         let currentUnixSeconds: @Sendable () -> UInt64
@@ -33,6 +70,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestTransportIngress {
 
     enum Rejection: Error, Sendable, Equatable {
         case notRunning
+        case unknownRecipient
         case transport(Transport.Failure)
         case runtimeRejected
     }

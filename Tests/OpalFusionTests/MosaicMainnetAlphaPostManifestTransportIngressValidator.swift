@@ -11,6 +11,7 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
     typealias Driver = Alpha.PostManifestRuntimeDriver
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias Ingress = Alpha.PostManifestTransportIngress
+    typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias Transport = Alpha.PostManifestNIP59Transport
 
     private struct RejectingPreviousOutputSource:
@@ -20,6 +21,59 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         ) async throws -> [OpalFusion.Host.MosaicPreviousOutput] {
             throw ProbeFailure.unexpectedInvocation
         }
+    }
+
+    @Test("Require a nonempty set of distinct recipient identities")
+    func validateRecipientSet() throws {
+        #expect(throws: Ingress.RecipientSet.ValidationError.empty) {
+            _ = try Ingress.RecipientSet([])
+        }
+
+        let recipient = try signingKey(20)
+        #expect(
+            throws: Ingress.RecipientSet.ValidationError
+                .duplicateRecipientIdentity
+        ) {
+            _ = try Ingress.RecipientSet([
+                .init(channel: .control, signingKey: recipient),
+                .init(channel: .anonymous, signingKey: recipient),
+            ])
+        }
+
+        let positiveScalar = try OpalCrypto.Secp256k1.SigningKey(
+            rawRepresentation: try Nostr.EventCodec.decodeHexadecimal(
+                String(repeating: "00", count: 31) + "01",
+                field: "positiveScalar"
+            )
+        )
+        let negativeScalar = try OpalCrypto.Secp256k1.SigningKey(
+            rawRepresentation: try Nostr.EventCodec.decodeHexadecimal(
+                "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140",
+                field: "negativeScalar"
+            )
+        )
+        #expect(
+            positiveScalar.verificationKey.rawRepresentation
+                != negativeScalar.verificationKey.rawRepresentation
+        )
+        #expect(
+            positiveScalar.bip340VerificationKey
+                == negativeScalar.bip340VerificationKey
+        )
+        #expect(
+            throws: Ingress.RecipientSet.ValidationError
+                .duplicateRecipientIdentity
+        ) {
+            _ = try Ingress.RecipientSet([
+                .init(channel: .control, signingKey: positiveScalar),
+                .init(channel: .anonymous, signingKey: negativeScalar),
+            ])
+        }
+
+        _ = try Ingress.RecipientSet([
+            .init(channel: .control, signingKey: recipient),
+            .init(channel: .anonymous, signingKey: try signingKey(21)),
+        ])
     }
 
     @Test("Open one control gift wrap before routing it to the selected driver")
@@ -40,31 +94,23 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         let ingress = try Ingress(
             bootstrap: bootstrap(harness),
             roleDependencies: conductorDependencies,
+            recipientSet: try .init([
+                .init(channel: .control, signingKey: recipient),
+            ]),
             dependencies: .init(currentUnixSeconds: {
                 harness.manifest.core.deadlines.phaseStart + 1
             })
         )
 
         #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .control, signingKey: recipient)
-            ) == .rejected(.notRunning)
+            await ingress.submit(giftWrap) == .rejected(.notRunning)
         )
         #expect(await ingress.start())
         #expect(!(await ingress.start()))
-        #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .control, signingKey: recipient)
-            ) == .accepted
-        )
+        #expect(await ingress.submit(giftWrap) == .accepted)
         #expect(await ingress.inputSourceDidTerminate(.finished))
         #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .control, signingKey: recipient)
-            ) == .rejected(.notRunning)
+            await ingress.submit(giftWrap) == .rejected(.notRunning)
         )
         let terminalState = Driver.State.conductor(
             .terminal(.failed(.inputSourceTerminated(.finished)))
@@ -74,7 +120,7 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         #expect(!(await ingress.start()))
     }
 
-    @Test("Reject transport authentication before mutating the runtime")
+    @Test("Reject an unknown recipient before runtime mutation")
     func rejectWrongRecipientWithoutRuntimeMutation() async throws {
         let harness = try Fixture.makeHarness(localRole: .conductor)
         let run = try manifestRun(harness)
@@ -90,9 +136,19 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
             senderEventSigningKey: sender,
             recipientPublicKey: recipient.bip340VerificationKey
         )
+        let outsiderGiftWrap = try Transport.makeControlGiftWrap(
+            run.reservation.envelope,
+            context: runtimeContext(harness),
+            timestamps: try layerTimestamps(harness),
+            senderEventSigningKey: sender,
+            recipientPublicKey: outsider.bip340VerificationKey
+        )
         let ingress = try Ingress(
             bootstrap: bootstrap(harness),
             roleDependencies: conductorDependencies,
+            recipientSet: try .init([
+                .init(channel: .control, signingKey: recipient),
+            ]),
             dependencies: .init(currentUnixSeconds: {
                 harness.manifest.core.deadlines.phaseStart + 1
             })
@@ -100,19 +156,15 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         #expect(await ingress.start())
 
         #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .control, signingKey: outsider)
-            ) == .rejected(.transport(.invalidGiftWrapTags))
+            await ingress.submit(outsiderGiftWrap)
+                == .rejected(.unknownRecipient)
         )
         #expect(await ingress.state == .running)
+        #expect(await ingress.submit(giftWrap) == .accepted)
 
         await ingress.stop()
         #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .control, signingKey: recipient)
-            ) == .rejected(.notRunning)
+            await ingress.submit(giftWrap) == .rejected(.notRunning)
         )
         #expect(
             await ingress.waitForTermination()
@@ -120,6 +172,96 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
                     .terminal(.cancelled(during: .manifestAgreement))
                 )
         )
+    }
+
+    @Test("Reject an invalid recipient tag before runtime mutation")
+    func rejectInvalidRecipientTag() async throws {
+        let harness = try Fixture.makeHarness(localRole: .conductor)
+        let run = try manifestRun(harness)
+        let sender = try eventSigningKey(
+            matching: run.reservation.envelope.senderEventIdentity
+        )
+        let recipient = try signingKey(28)
+        let validGiftWrap = try Transport.makeControlGiftWrap(
+            run.reservation.envelope,
+            context: runtimeContext(harness),
+            timestamps: try layerTimestamps(harness),
+            senderEventSigningKey: sender,
+            recipientPublicKey: recipient.bip340VerificationKey
+        )
+        let invalidTemplate = try Nostr.EventTemplate(
+            createdAt: validGiftWrap.template.createdAt,
+            kind: validGiftWrap.template.kind,
+            tags: [["p", String(repeating: "f", count: 64)]],
+            content: validGiftWrap.template.content,
+            limits: (try Transport.codingLimits).event
+        )
+        let invalidGiftWrap = try Nostr.EventSigner.sign(
+            invalidTemplate,
+            using: try signingKey(29),
+            auxiliaryRandomness: try .init(
+                rawRepresentation: Data(repeating: 0x29, count: 32)
+            ),
+            limits: (try Transport.codingLimits).event
+        )
+        let ingress = try Ingress(
+            bootstrap: bootstrap(harness),
+            roleDependencies: conductorDependencies,
+            recipientSet: try .init([
+                .init(channel: .control, signingKey: recipient),
+            ]),
+            dependencies: .init(currentUnixSeconds: {
+                harness.manifest.core.deadlines.phaseStart + 1
+            })
+        )
+        #expect(await ingress.start())
+
+        #expect(
+            await ingress.submit(invalidGiftWrap)
+                == .rejected(.transport(.invalidGiftWrapTags))
+        )
+        #expect(await ingress.state == .running)
+        #expect(await ingress.submit(validGiftWrap) == .accepted)
+
+        await ingress.stop()
+        _ = await ingress.waitForTermination()
+    }
+
+    @Test("Use only the channel sealed for a recipient identity")
+    func rejectRecipientChannelSubstitution() async throws {
+        let harness = try Fixture.makeHarness(localRole: .conductor)
+        let run = try manifestRun(harness)
+        let sender = try eventSigningKey(
+            matching: run.reservation.envelope.senderEventIdentity
+        )
+        let recipient = try signingKey(33)
+        let controlGiftWrap = try Transport.makeControlGiftWrap(
+            run.reservation.envelope,
+            context: runtimeContext(harness),
+            timestamps: try layerTimestamps(harness),
+            senderEventSigningKey: sender,
+            recipientPublicKey: recipient.bip340VerificationKey
+        )
+        let ingress = try Ingress(
+            bootstrap: bootstrap(harness),
+            roleDependencies: conductorDependencies,
+            recipientSet: try .init([
+                .init(channel: .anonymous, signingKey: recipient),
+            ]),
+            dependencies: .init(currentUnixSeconds: {
+                harness.manifest.core.deadlines.phaseStart + 1
+            })
+        )
+        #expect(await ingress.start())
+
+        #expect(
+            await ingress.submit(controlGiftWrap)
+                == .rejected(.transport(.invalidCanonicalEnvelope))
+        )
+        #expect(await ingress.state == .running)
+
+        await ingress.stop()
+        _ = await ingress.waitForTermination()
     }
 
     @Test(
@@ -145,6 +287,9 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         let ingress = try Ingress(
             bootstrap: bootstrap(harness),
             roleDependencies: conductorDependencies,
+            recipientSet: try .init([
+                .init(channel: .control, signingKey: recipient),
+            ]),
             dependencies: .init(
                 currentUnixSeconds: {
                     harness.manifest.core.deadlines.phaseStart + 1
@@ -160,10 +305,7 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         #expect(await ingress.waitForTermination() == nil)
         await ingress.stop()
         #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .control, signingKey: recipient)
-            ) == .rejected(.notRunning)
+            await ingress.submit(giftWrap) == .rejected(.notRunning)
         )
         await suspension.resume()
         #expect(await startTask.value)
@@ -198,6 +340,9 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         let ingress = try Ingress(
             bootstrap: bootstrap(harness),
             roleDependencies: conductorDependencies,
+            recipientSet: try .init([
+                .init(channel: .control, signingKey: recipient),
+            ]),
             dependencies: .init(
                 currentUnixSeconds: {
                     harness.manifest.core.deadlines.phaseStart + 1
@@ -212,10 +357,7 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         await suspension.waitUntilSuspended()
         #expect(await ingress.inputSourceDidTerminate(.failed))
         #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .control, signingKey: recipient)
-            ) == .rejected(.notRunning)
+            await ingress.submit(giftWrap) == .rejected(.notRunning)
         )
         await suspension.resume()
         #expect(await startTask.value)
@@ -256,6 +398,9 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         let ingress = try Ingress(
             bootstrap: bootstrap(harness),
             roleDependencies: try contributorDependencies(),
+            recipientSet: try .init([
+                .init(channel: .anonymous, signingKey: recipient),
+            ]),
             dependencies: .init(currentUnixSeconds: {
                 harness.manifest.core.deadlines.phaseStart + 1
             })
@@ -263,10 +408,7 @@ struct MosaicMainnetAlphaPostManifestTransportIngressValidator {
         #expect(await ingress.start())
 
         #expect(
-            await ingress.submit(
-                giftWrap,
-                to: .init(channel: .anonymous, signingKey: recipient)
-            ) == .rejected(.runtimeRejected)
+            await ingress.submit(giftWrap) == .rejected(.runtimeRejected)
         )
         #expect(await ingress.state == .running)
 
