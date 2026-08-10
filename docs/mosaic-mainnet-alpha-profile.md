@@ -171,7 +171,9 @@ The profile-scoped conductor executor starts only from a fresh conductor runtime
 The following are intentionally unresolved or external and MUST remain fail closed:
 
 - canonical availability beacon, candidate-set, admission, pool, relay-set, contributor-nonce-allocation, and discovery documents;
-- proof-of-work minimums, discovery and pre-manifest timing values, concrete post-manifest deadline values, Nostr event kinds and tags, relay URL normalization, endpoint provisioning, reconnect behavior, and pre-manifest sequencing;
+- complete Mosaic discovery, admission, control, aggregate, anonymous-component, acknowledgement, signature, abort, and completion Nostr event-kind and tag mappings;
+- Mosaic-specific NIP-59 application-kind, delivery-form, replay-identifier, padding, timestamp, recipient-mailbox selection, caller-owned extra-tag, and relay-authentication rules; the implemented generic structural codec assigns none of them;
+- proof-of-work minimums, discovery and pre-manifest timing values, concrete post-manifest deadline values, relay URL normalization, endpoint provisioning, reconnect behavior, and pre-manifest sequencing;
 - a concrete Tor WebSocket implementation with reviewed circuit isolation and no clearnet fallback;
 - a production stateful attempt-material owner that proves one live reservation lease produced the sealed PlayerCommit, prevents reuse across attempts and retries, persists only the minimum recoverable state, erases salts, nonces, communication keys, blind-request state, and mailbox identities after terminal disposition, and supplies the already-frozen local builder with fresh material;
 - a privacy-preserving proof relating each authorized anonymous component to one grouped commitment if the accepted off-commitment accountability tradeoff is later changed; adding such a proof requires a new profile identifier;

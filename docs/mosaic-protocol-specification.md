@@ -369,7 +369,7 @@ The initial transport profile uses Nostr-compatible relays as replicated mailbox
 - A transport failure MUST abort or wait; it MUST NOT fall back to clearnet.
 - NIP-44 encryption alone is insufficient because relays can observe IP addresses and message metadata. The profile requires an outer fixed-size envelope and anonymous transport.
 
-Nostr event kind assignments, fixed ciphertext sizes, phase timing constants, proof-of-work minimum, and golden transport fixtures remain unassigned in this draft. These are interoperability release blockers, not implementation-defined freedoms.
+The implementation includes a strict internal NIP-59 rumor, seal, and regular/ephemeral gift-wrap structural layer. It validates the seal author and exactly one matching recipient `p` tag while leaving additional nonrecipient tags uninterpreted. It generates fresh outbound wrapper material but cannot prove remote wrapper-key freshness on inbound events. It does not choose a Mosaic inner event kind, replay identifier, delivery form, padding, timing, relay policy, or runtime mapping. Nostr application-kind assignments, fixed ciphertext sizes, phase timing constants, proof-of-work minimum, and golden Mosaic transport fixtures remain unassigned in this draft. These are interoperability release blockers, not implementation-defined freedoms.
 
 ## 18. Release Gates For `Mosaic/1`
 
@@ -395,5 +395,6 @@ Before removing `draft` from the protocol identifier, all of the following are R
 - [CashFusion security audit](https://electroncash.org/fusionaudit.pdf)
 - [NIP-01 basic relay and event protocol](https://github.com/nostr-protocol/nips/blob/master/01.md)
 - [NIP-44 encrypted payloads and limitations](https://github.com/nostr-protocol/nips/blob/master/44.md)
+- [NIP-59 gift wrapping](https://github.com/nostr-protocol/nips/blob/master/59.md)
 - [00 Protocol BCH Stealth Protocol](https://github.com/00-Protocol/BCH-Stealth-Protocol)
 - [CoinShuffle++ / DiceMix](https://eprint.iacr.org/2016/824.pdf)

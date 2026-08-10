@@ -121,7 +121,7 @@ Future admission mechanisms such as fidelity bonds, paid credentials, allowlists
 
 ## 9. Transport Boundary
 
-Nostr provides replicated signed events and convenient relay discovery; it does not provide network anonymity. NIP-44 explicitly notes metadata, forward-secrecy, post-compromise, and IP-observation limits.
+Nostr provides replicated signed events and convenient relay discovery; it does not provide network anonymity. NIP-44 explicitly notes metadata, forward-secrecy, post-compromise, and IP-observation limits. The internal NIP-59 codec generates fresh outbound wrapper material and validates a signed wrapper distinct from both the recipient and seal author, an unsigned rumor whose author matches that seal, and exactly one matching recipient `p` tag. Other caller-owned tags are not interpreted by this layer, and inbound validation cannot prove that a remote wrapper key was never reused. The wrapper hides the authenticated sender from the relay-visible event only when caller-owned tags and surrounding traffic do not reveal or link that identity; it still exposes the recipient mailbox key, does not create fixed-size traffic, and does not select Mosaic application kinds, replay identity, relay authentication, or Tor routing.
 
 The initial Mosaic transport therefore requires:
 
@@ -217,4 +217,5 @@ Production consideration requires:
 - [CashFusion security audit](https://electroncash.org/fusionaudit.pdf)
 - [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md)
 - [NIP-44 limitations](https://github.com/nostr-protocol/nips/blob/master/44.md#limitations)
+- [NIP-59 gift wrapping](https://github.com/nostr-protocol/nips/blob/master/59.md)
 - [CoinShuffle++ / DiceMix](https://eprint.iacr.org/2016/824.pdf)
