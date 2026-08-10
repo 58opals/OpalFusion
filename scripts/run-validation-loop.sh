@@ -91,7 +91,8 @@ case "$mode" in
   all)
     run_mosaic_rsa_dependent_tests
     run_serial_filter MosaicMainnetAlphaContractValidator
-    run_test --skip "$MOSAIC_RSA_DEPENDENT_FILTER|MosaicMainnetAlphaContractValidator"
+    run_serial_filter ClientSessionValidator
+    run_test --skip "$MOSAIC_RSA_DEPENDENT_FILTER|MosaicMainnetAlphaContractValidator|ClientSessionValidator"
     ;;
   codec)
     run_filter CashFusionPrimaryMessageCodecValidator

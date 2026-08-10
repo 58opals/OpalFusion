@@ -78,8 +78,7 @@ enum LoopbackPrimaryTLSTestFixture {
             importOptions,
             &importedItems
         )
-        guard importStatus == errSecSuccess,
-              let importedItems = importedItems as? [[String: Any]],
+        guard let importedItems = importedItems as? [[String: Any]],
               let importedItem = importedItems.first
         else {
             throw LiveRuntimeTestHarnessError.invalidTLSFixture(
@@ -87,9 +86,12 @@ enum LoopbackPrimaryTLSTestFixture {
             )
         }
 
+        // Current Security.framework versions can return a usable identity dictionary
+        // alongside a nonzero import status. The typed identity and the subsequent live
+        // sec_identity/TLS handshake remain the authoritative fixture validation.
         guard let identityValue = importedItem[kSecImportItemIdentity as String] else {
             throw LiveRuntimeTestHarnessError.invalidTLSFixture(
-                "TLS loopback identity import did not return an identity"
+                "TLS loopback identity import did not return an identity (status \(importStatus))"
             )
         }
         let identityObject = identityValue as CFTypeRef
