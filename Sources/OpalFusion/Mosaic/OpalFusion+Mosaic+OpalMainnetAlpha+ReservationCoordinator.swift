@@ -1,10 +1,12 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+ReservationCoordinator.swift
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
-    /// Binds one actual contributor lease to the sealed publication accepted by a mainnet-alpha session.
+    /// Coordinates one contributor's mainnet-alpha reservation boundary.
     ///
-    /// This coordinator owns only the reservation boundary. Material construction, control transport,
-    /// transcript inclusion, BCH signing, commit, recovery persistence, and broadcast remain external.
+    /// Control and anonymous transport remain injected. The coordinator owns ordered local authority:
+    /// Reservation-only mode stops after sealed publication. Contributor-execution mode additionally
+    /// owns attempt-fresh material, transcript inclusion, BCH signing, and exact commit ordering.
+    /// Durable recovery and broadcast remain external.
     actor ReservationCoordinator {
         private let context: RuntimeSession.Context
         private let dependencies: Dependencies
@@ -15,7 +17,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var runtimeSession: RuntimeSession
         private var effectConsumerTask: Task<Void, Never>?
         private var admittedManifest: RoundManifest?
+        private var localContributionMaterial: LocalContributionMaterial?
+        private var authorizationResponseValidation:
+            AuthorizationResponseSetMaterialValidation?
+        private var pendingAnonymousComponentPublications:
+            [LocalAnonymousComponentPublication]?
+        private var transcriptInclusionValidation: OpalFusion.Mosaic.LocalAttempt
+            .TranscriptInclusionValidation?
+        private var admittedAcknowledgementSet: PreSignAcknowledgementSet?
+        private var previousOutputValidation: PreviousOutputResolver.Validation?
+        private var completeTransactionValidation: CompleteTransactionValidation?
         private var pendingFailure: Failure?
+        private var pendingRecovery: Recovery?
 
         private(set) var state: State = .idle
         private(set) var reservationLifecycle: ReservationLifecycle = .unreserved
@@ -46,7 +59,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             dispositionGate = MosaicRuntimeCoordinatorDispositionGate()
         }
 
-        /// Starts the ordered reservation-effect consumer once.
+        /// Starts the ordered local-effect consumer once.
         func start() {
             guard state == .idle else {
                 return
@@ -59,21 +72,27 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         /// Submits one already-authenticated runtime input.
         ///
-        /// Reservation-publication validation is accepted only from the coordinator's exact
-        /// host-lease path and cannot be injected through this method.
+        /// Local authority validations are accepted only from coordinator-owned host and material
+        /// paths and cannot be injected through this method.
         @discardableResult
         func submit(_ input: RuntimeSession.Input) -> Bool {
             guard state == .running else {
                 return false
             }
-            guard case .reservationPublicationValidated = input else {
+            switch input {
+            case .authorizationResponseSetValidated,
+                 .reservationPublicationValidated,
+                 .transcriptInclusionValidated,
+                 .completeTransactionValidated,
+                 .completeTransactionValidationFailed:
+                return false
+            default:
                 applyAndEnqueue(input)
                 return true
             }
-            return false
         }
 
-        /// Requests cancellation without cancelling an in-flight host reservation or publication.
+        /// Requests cancellation without cancelling an in-flight selected-mode dependency call.
         func stop() {
             guard state == .running else {
                 return
@@ -88,8 +107,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             await effectConsumerTask?.value
         }
 
-        private func applyAndEnqueue(_ input: RuntimeSession.Input) {
-            enqueue(runtimeSession.apply(input: input))
+        @discardableResult
+        private func applyAndEnqueue(
+            _ input: RuntimeSession.Input
+        ) -> [RuntimeSession.Effect] {
+            let effects = runtimeSession.apply(input: input)
+            enqueue(effects)
+            return effects
         }
 
         private func enqueue(_ effects: [RuntimeSession.Effect]) {
@@ -112,15 +136,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private func handle(_ effect: RuntimeSession.Effect) async {
             switch effect {
-            case let .admission(.manifestAdmitted(manifest)):
-                admittedManifest = manifest
+            case let .admission(admissionEffect):
+                await handle(admissionEffect)
 
             case let .localAttempt(localEffect):
                 await handle(localEffect)
 
             case let .reservationPublicationAccepted(reference):
-                guard case let .reserved(lease) = reservationLifecycle,
-                      lease.reference == reference else {
+                guard reservationReference == reference else {
                     failAndStop(.reservationPublicationLeaseMismatch)
                     return
                 }
@@ -128,7 +151,60 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case let .sessionTerminated(outcome):
                 await finish(with: outcome)
 
-            case .admission, .exactDuplicateIgnored, .inputRejected:
+            case .exactDuplicateIgnored, .inputRejected:
+                break
+            }
+        }
+
+        private func handle(_ effect: AdmissionLedger.Effect) async {
+            switch effect {
+            case let .manifestAdmitted(manifest):
+                admittedManifest = manifest
+
+            case let .authorizationResponseSetValidationRequired(
+                responseSet,
+                playerCommit
+            ):
+                validateAuthorizationResponses(
+                    responseSet: responseSet,
+                    playerCommit: playerCommit
+                )
+
+            case let .authorizationResponsesValidated(validation):
+                if dependencies.execution != nil,
+                   authorizationResponseValidation != validation {
+                    failAndStop(.authorizationResponseValidationFailed)
+                }
+
+            case let .commitmentSetAdmitted(commitmentSet):
+                await validateCommitmentAndPublishAnonymousComponents(
+                    commitmentSet
+                )
+
+            case let .preSignAcknowledgementSetAdmitted(set):
+                admittedAcknowledgementSet = set
+
+            case let .completeTransactionValidationRequired(candidate):
+                validateCompleteTransaction(candidate)
+
+            case .aggregateReservationAccepted,
+                 .aggregateFragmentAccepted,
+                 .exactDuplicateIgnored,
+                 .playerCommitAdmitted,
+                 .playerCommitUnanimityReached,
+                 .authorizationResponseSetAdmitted,
+                 .componentSetAdmitted,
+                 .anonymousComponentAdmitted,
+                 .anonymousBCHSignatureAdmitted,
+                 .bchSignatureSetReady,
+                 .bchSignatureSetAdmitted,
+                 .completeTransactionAdmitted,
+                 .completeTransactionValidated,
+                 .preSignAcknowledgementAdmitted,
+                 .preSignAcknowledgementCollectionComplete,
+                 .phaseAdvanced,
+                 .attemptTerminated,
+                 .inputRejected:
                 break
             }
         }
@@ -173,15 +249,63 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 }
                 await releaseIfNeeded()
 
-            case .transcriptInclusionValidationRequired,
-                 .preSignAcknowledgementRequired,
-                 .attemptTerminated,
-                 .inputRejected:
+            case let .transcriptInclusionValidationRequired(
+                contributor,
+                materialIdentifier,
+                transcript
+            ):
+                guard contributor == context.localControlIdentity,
+                      materialIdentifier == context.materialIdentifier else {
+                    failAndStop(.effectContextMismatch)
+                    return
+                }
+                validateTranscriptInclusion(transcript)
+
+            case let .preSignAcknowledgementRequired(
+                contributor,
+                materialIdentifier,
+                roundIdentifier,
+                transcriptRoot
+            ):
+                guard contributor == context.localControlIdentity,
+                      materialIdentifier == context.materialIdentifier else {
+                    failAndStop(.effectContextMismatch)
+                    return
+                }
+                await publishPreSignAcknowledgement(
+                    contributor: contributor,
+                    roundIdentifier: roundIdentifier,
+                    transcriptRoot: transcriptRoot
+                )
+
+            case let .bchSigningEligible(
+                contributor,
+                materialIdentifier,
+                transcript
+            ):
+                guard contributor == context.localControlIdentity,
+                      materialIdentifier == context.materialIdentifier else {
+                    failAndStop(.effectContextMismatch)
+                    return
+                }
+                await sign(transcript: transcript)
+
+            case let .walletReservationCommitRequired(
+                contributor,
+                materialIdentifier
+            ):
+                guard contributor == context.localControlIdentity,
+                      materialIdentifier == context.materialIdentifier else {
+                    failAndStop(.effectContextMismatch)
+                    return
+                }
+                await commitCompleteTransaction()
+
+            case .attemptTerminated:
                 break
 
-            case .bchSigningEligible,
-                 .walletReservationCommitRequired:
-                failAndStop(.effectContextMismatch)
+            case let .inputRejected(failure):
+                failAndStop(.localAttemptRejected(failure))
             }
         }
 
@@ -213,14 +337,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             reservationLifecycle = .reservationInFlight
             let lease: OpalFusion.Host.MosaicReservationLease
             do {
-                lease = try await dependencies.transactionHost
-                    .reserveMosaicContribution(for: request)
+                lease = try await reserveContribution(for: request)
             } catch {
                 reservationLifecycle = .unreserved
                 failAndStop(.reservationFailed)
                 return
             }
             reservationLifecycle = .reserved(lease)
+            guard lease.expiresAt == request.expiresAt else {
+                failAndStop(.reservationLeaseExpirationMismatch)
+                return
+            }
 
             guard !dispositionGate.isReleaseRequested else {
                 await releaseIfNeeded()
@@ -232,16 +359,61 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
 
             let validation: RuntimeSession.ReservationPublicationValidation
-            do {
-                validation = try await dependencies
-                    .validateAndPublishReservedContribution(
+            if let execution = dependencies.execution {
+                let material: LocalContributionMaterial
+                do {
+                    material = try await execution.makeLocalContributionMaterial(
                         eligibility,
                         lease
                     )
-            } catch {
-                dispositionGate.finishReservationPublication()
-                failAndStop(.reservationPublicationFailed)
-                return
+                    let request = RuntimeSession.ReservationPublicationRequest(
+                        attemptIdentifier: context.attemptIdentifier,
+                        generationIdentifier: context.generationIdentifier,
+                        materialIdentifier: context.materialIdentifier,
+                        contributor: context.localControlIdentity,
+                        manifest: eligibility.manifest,
+                        reservationLease: lease,
+                        playerCommit: material.playerCommit
+                    )
+                    validation = try .init(
+                        validating: request,
+                        using: material
+                    )
+                } catch {
+                    dispositionGate.finishReservationPublication()
+                    failAndStop(.localMaterialInvalid)
+                    return
+                }
+                guard !shouldStopBeforeSigning else {
+                    dispositionGate.finishReservationPublication()
+                    await releaseIfNeeded()
+                    return
+                }
+                localContributionMaterial = material
+                do {
+                    try await execution.publishPlayerCommit(material.playerCommit)
+                } catch {
+                    dispositionGate.finishReservationPublication()
+                    failAndStop(.reservationPublicationFailed)
+                    return
+                }
+            } else {
+                guard let reservationOnly = dependencies.reservationOnly else {
+                    preconditionFailure(
+                        "Reservation-only mode must provide its publication authority."
+                    )
+                }
+                do {
+                    validation = try await reservationOnly
+                        .validateAndPublishReservedContribution(
+                            eligibility,
+                            lease
+                        )
+                } catch {
+                    dispositionGate.finishReservationPublication()
+                    failAndStop(.reservationPublicationFailed)
+                    return
+                }
             }
             dispositionGate.finishReservationPublication()
 
@@ -254,6 +426,365 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return
             }
             applyAndEnqueue(.reservationPublicationValidated(validation))
+        }
+
+        private func validateAuthorizationResponses(
+            responseSet: AuthorizationResponseSet,
+            playerCommit: PlayerCommit
+        ) {
+            guard dependencies.execution != nil,
+                  let material = localContributionMaterial,
+                  material.playerCommit == playerCommit else {
+                failAndStop(.authorizationResponseValidationFailed)
+                return
+            }
+            let validation: AuthorizationResponseSetMaterialValidation
+            do {
+                validation = try .init(
+                    validating: responseSet,
+                    material: material
+                )
+            } catch {
+                failAndStop(.authorizationResponseValidationFailed)
+                return
+            }
+            guard !shouldStopBeforeSigning else {
+                return
+            }
+            let tokens = validation.componentAuthorizationTokens
+            guard tokens.count == material.slots.count else {
+                failAndStop(.authorizationResponseValidationFailed)
+                return
+            }
+            var publications: [LocalAnonymousComponentPublication] = []
+            publications.reserveCapacity(material.slots.count)
+            do {
+                for slot in material.slots {
+                    guard tokens.indices.contains(slot.slot) else {
+                        throw AnonymousPublicationError.tokenMissing
+                    }
+                    publications.append(
+                        .init(
+                            slot: slot.slot,
+                            recipientEventIdentity: slot.recipientEventIdentity,
+                            payload: try .init(
+                                roundIdentifier:
+                                    material.manifest.core.roundIdentifier,
+                                authorizationToken: tokens[slot.slot],
+                                component: slot.component
+                            )
+                        )
+                    )
+                }
+            } catch {
+                failAndStop(.authorizationResponseValidationFailed)
+                return
+            }
+            authorizationResponseValidation = validation
+            pendingAnonymousComponentPublications = publications
+            applyAndEnqueue(
+                .authorizationResponseSetValidated(
+                    .init(validation: validation)
+                )
+            )
+        }
+
+        private func validateCommitmentAndPublishAnonymousComponents(
+            _ commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet
+        ) async {
+            guard let execution = dependencies.execution else {
+                return
+            }
+            guard let material = localContributionMaterial,
+                  authorizationResponseValidation != nil,
+                  let publications = pendingAnonymousComponentPublications else {
+                failAndStop(.authorizationResponseValidationFailed)
+                return
+            }
+            do {
+                try material.validateCommitmentInclusion(in: commitmentSet)
+            } catch {
+                failAndStop(.commitmentInclusionValidationFailed)
+                return
+            }
+            guard !shouldStopBeforeSigning else {
+                return
+            }
+            do {
+                try await execution.publishAnonymousComponents(publications)
+            } catch {
+                failAndStop(.anonymousComponentPublicationFailed)
+                return
+            }
+            guard !shouldStopBeforeSigning else {
+                return
+            }
+            pendingAnonymousComponentPublications = nil
+        }
+
+        private func validateTranscriptInclusion(
+            _ transcript: OpalFusion.Mosaic.OpalV0
+                .UnsignedTransactionTranscript
+        ) {
+            guard dependencies.execution != nil,
+                  let material = localContributionMaterial else {
+                return
+            }
+            let validation: OpalFusion.Mosaic.LocalAttempt
+                .TranscriptInclusionValidation
+            do {
+                validation = try .init(
+                    attemptIdentifier: context.attemptIdentifier,
+                    generationIdentifier: context.generationIdentifier,
+                    contributor: context.localControlIdentity,
+                    materialIdentifier: context.materialIdentifier,
+                    transcript: transcript,
+                    using: material
+                )
+            } catch {
+                failAndStop(.transcriptInclusionValidationFailed)
+                return
+            }
+            guard !shouldStopBeforeSigning else {
+                return
+            }
+            transcriptInclusionValidation = validation
+            applyAndEnqueue(.transcriptInclusionValidated(validation))
+        }
+
+        private func publishPreSignAcknowledgement(
+            contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
+            roundIdentifier: [UInt8],
+            transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot
+        ) async {
+            guard let execution = dependencies.execution,
+                  !shouldStopBeforeSigning else {
+                return
+            }
+            do {
+                try await execution.publishPreSignAcknowledgement(
+                    contributor,
+                    roundIdentifier,
+                    transcriptRoot
+                )
+            } catch {
+                failAndStop(.preSignAcknowledgementPublicationFailed)
+            }
+        }
+
+        private func sign(
+            transcript: OpalFusion.Mosaic.OpalV0
+                .UnsignedTransactionTranscript
+        ) async {
+            guard let execution = dependencies.execution,
+                  case let .reserved(lease) = reservationLifecycle,
+                  let material = localContributionMaterial,
+                  let authorizationResponseValidation,
+                  let transcriptInclusionValidation,
+                  transcriptInclusionValidation.transcript == transcript,
+                  let admittedAcknowledgementSet else {
+                failAndStop(.signingPrerequisiteMissing)
+                return
+            }
+            guard !shouldStopBeforeSigning else {
+                await releaseIfNeeded()
+                return
+            }
+
+            let resolved: PreviousOutputResolver.Validation
+            do {
+                resolved = try await PreviousOutputResolver(
+                    source: execution.previousOutputSource
+                ).resolve(for: transcript)
+            } catch {
+                guard !shouldStopBeforeSigning else {
+                    return
+                }
+                failAndStop(.previousOutputResolutionFailed)
+                return
+            }
+            guard !shouldStopBeforeSigning else {
+                return
+            }
+
+            let request: OpalFusion.Host.MosaicTransactionSigningRequest
+            do {
+                request = try SigningRequestBuilder.build(
+                    context: context,
+                    reservationPublication: try reservationPublicationValidation(
+                        material: material
+                    ),
+                    transcriptInclusion: transcriptInclusionValidation,
+                    acknowledgementSet: admittedAcknowledgementSet,
+                    previousOutputs: resolved
+                )
+            } catch {
+                failAndStop(.signingRequestFailed)
+                return
+            }
+            guard dispositionGate.claimSigning() else {
+                await releaseIfNeeded()
+                return
+            }
+
+            previousOutputValidation = resolved
+            reservationLifecycle = .signingMayHaveStarted(lease)
+            let finalizedTransaction: OpalFusion.Host.FinalizedTransaction
+            do {
+                finalizedTransaction = try await execution.transactionHost
+                    .finalizeMosaicTransaction(for: request)
+            } catch {
+                failAfterSigning(
+                    .signingFailed,
+                    reason: .signingFailed,
+                    reference: lease.reference
+                )
+                return
+            }
+            reservationLifecycle = .locallySigned(lease, finalizedTransaction)
+            guard state == .running,
+                  !dispositionGate.isReleaseRequested else {
+                requireRecovery(
+                    reference: lease.reference,
+                    reason: .signingMayHaveStarted
+                )
+                return
+            }
+
+            let publications: [LocalBCHSignaturePublication]
+            do {
+                publications = try LocalBCHSignatureBuilder.build(
+                    finalizedTransaction: finalizedTransaction,
+                    signingRequest: request,
+                    transcript: transcript,
+                    material: material,
+                    authorizationValidation: authorizationResponseValidation
+                )
+            } catch {
+                failAfterSigning(
+                    .localBCHSignatureValidationFailed,
+                    reason: .localBCHSignatureValidationFailed,
+                    reference: lease.reference
+                )
+                return
+            }
+            do {
+                try await execution.publishLocalBCHSignatures(publications)
+            } catch {
+                failAfterSigning(
+                    .localBCHSignaturePublicationFailed,
+                    reason: .localBCHSignaturePublicationFailed,
+                    reference: lease.reference
+                )
+                return
+            }
+            if state != .running || dispositionGate.isReleaseRequested {
+                requireRecovery(
+                    reference: lease.reference,
+                    reason: .signingMayHaveStarted
+                )
+            }
+        }
+
+        private func validateCompleteTransaction(
+            _ candidate: CompleteTransactionCandidate
+        ) {
+            guard dependencies.execution != nil else {
+                return
+            }
+            guard let previousOutputValidation else {
+                rejectCompleteTransaction(
+                    candidate,
+                    reason: .previousOutputResolutionFailed
+                )
+                return
+            }
+            let validation: CompleteTransactionValidation
+            do {
+                validation = try .init(
+                    validating: candidate,
+                    previousOutputs: previousOutputValidation
+                )
+            } catch {
+                rejectCompleteTransaction(
+                    candidate,
+                    reason: .exactTransactionValidationFailed
+                )
+                return
+            }
+            completeTransactionValidation = validation
+            applyAndEnqueue(.completeTransactionValidated(validation))
+        }
+
+        private func rejectCompleteTransaction(
+            _ candidate: CompleteTransactionCandidate,
+            reason: CompleteTransactionValidationRejection.Reason
+        ) {
+            if let reference = reservationReference {
+                requireRecovery(
+                    reference: reference,
+                    reason: .completeTransactionValidationFailed
+                )
+            }
+            pendingFailure = pendingFailure ?? .completeTransactionValidationFailed
+            applyAndEnqueue(
+                .completeTransactionValidationFailed(
+                    .init(candidate: candidate, reason: reason)
+                )
+            )
+        }
+
+        private func commitCompleteTransaction() async {
+            guard let execution = dependencies.execution,
+                  case let .locallySigned(lease, _) = reservationLifecycle,
+                  let completeTransactionValidation else {
+                if let reference = reservationReference {
+                    requireRecovery(
+                        reference: reference,
+                        reason: .completeTransactionCommitFailed
+                    )
+                }
+                pendingFailure = pendingFailure ?? .completeTransactionCommitFailed
+                return
+            }
+            do {
+                try await execution.transactionHost.commitMosaicReservation(
+                    lease.reference,
+                    completeTransaction:
+                        completeTransactionValidation.completeTransaction
+                )
+                reservationLifecycle = .committed(lease.reference)
+            } catch {
+                pendingFailure = pendingFailure ?? .completeTransactionCommitFailed
+                requireRecovery(
+                    reference: lease.reference,
+                    reason: .completeTransactionCommitFailed
+                )
+            }
+        }
+
+        private func reservationPublicationValidation(
+            material: LocalContributionMaterial
+        ) throws -> RuntimeSession.ReservationPublicationValidation {
+            try .init(
+                validating: .init(
+                    attemptIdentifier: context.attemptIdentifier,
+                    generationIdentifier: context.generationIdentifier,
+                    materialIdentifier: context.materialIdentifier,
+                    contributor: context.localControlIdentity,
+                    manifest: material.manifest,
+                    reservationLease: material.reservationLease,
+                    playerCommit: material.playerCommit
+                ),
+                using: material
+            )
+        }
+
+        private func reserveContribution(
+            for request: OpalFusion.Host.MosaicReservationRequest
+        ) async throws -> OpalFusion.Host.MosaicReservationLease {
+            return try await dependencies.transactionHost
+                .reserveMosaicContribution(for: request)
         }
 
         private func isValid(
@@ -293,15 +824,26 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func releaseIfNeeded() async {
-            guard case let .reserved(lease) = reservationLifecycle else {
-                return
-            }
-            do {
-                try await dependencies.transactionHost
-                    .releaseMosaicReservation(lease.reference)
-                reservationLifecycle = .released(lease.reference)
-            } catch {
-                reservationLifecycle = .releaseFailed(lease.reference)
+            switch reservationLifecycle {
+            case let .reserved(lease):
+                do {
+                    try await dependencies.transactionHost
+                        .releaseMosaicReservation(lease.reference)
+                    reservationLifecycle = .released(lease.reference)
+                } catch {
+                    reservationLifecycle = .releaseFailed(lease.reference)
+                }
+
+            case let .signingMayHaveStarted(lease),
+                 let .locallySigned(lease, _):
+                requireRecovery(
+                    reference: lease.reference,
+                    reason: pendingRecovery?.reason ?? .signingMayHaveStarted
+                )
+
+            case .unreserved, .reservationInFlight, .committed,
+                 .released, .releaseFailed:
+                break
             }
         }
 
@@ -314,7 +856,50 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             applyAndEnqueue(.cancel)
         }
 
+        private func failAfterSigning(
+            _ failure: Failure,
+            reason: Recovery.Reason,
+            reference: OpalFusion.Host.MosaicReservationReference
+        ) {
+            pendingFailure = pendingFailure ?? failure
+            requireRecovery(reference: reference, reason: reason)
+            guard state == .running else {
+                return
+            }
+            state = .stopping
+            applyAndEnqueue(.cancel)
+        }
+
+        private func requireRecovery(
+            reference: OpalFusion.Host.MosaicReservationReference,
+            reason: Recovery.Reason
+        ) {
+            guard pendingRecovery == nil else {
+                return
+            }
+            pendingRecovery = .init(
+                reservationReference: reference,
+                reason: reason
+            )
+        }
+
         private func finish(with outcome: RuntimeSession.Outcome) async {
+            if outcome == .completed {
+                if case .committed = reservationLifecycle {
+                    state = .terminal(.completed)
+                } else if let reference = reservationReference {
+                    state = .recoveryRequired(
+                        pendingRecovery ?? .init(
+                            reservationReference: reference,
+                            reason: .unexpectedRuntimeCompletion
+                        )
+                    )
+                } else {
+                    state = .terminal(.failed(.effectContextMismatch))
+                }
+                effectContinuation.finish()
+                return
+            }
             if case .reserved = reservationLifecycle {
                 await releaseIfNeeded()
             }
@@ -325,6 +910,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         reason: .reservationReleaseFailed
                     )
                 )
+            } else if let reference = signingReservationReference {
+                state = .recoveryRequired(
+                    pendingRecovery ?? .init(
+                        reservationReference: reference,
+                        reason: .signingMayHaveStarted
+                    )
+                )
             } else if let pendingFailure {
                 state = .terminal(.failed(pendingFailure))
             } else {
@@ -333,9 +925,49 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     state = .terminal(.failed(.runtime(failure)))
                 case let .cancelled(during: phase):
                     state = .terminal(.cancelled(during: phase))
+                case .completed:
+                    preconditionFailure("Handled before reservation disposition")
                 }
             }
             effectContinuation.finish()
+        }
+
+        private var reservationReference:
+            OpalFusion.Host.MosaicReservationReference? {
+            switch reservationLifecycle {
+            case let .reserved(lease),
+                 let .signingMayHaveStarted(lease),
+                 let .locallySigned(lease, _):
+                lease.reference
+            case let .committed(reference),
+                 let .released(reference),
+                 let .releaseFailed(reference):
+                reference
+            case .unreserved, .reservationInFlight:
+                nil
+            }
+        }
+
+        private var signingReservationReference:
+            OpalFusion.Host.MosaicReservationReference? {
+            switch reservationLifecycle {
+            case let .signingMayHaveStarted(lease),
+                 let .locallySigned(lease, _):
+                lease.reference
+            case .unreserved, .reservationInFlight, .reserved,
+                 .committed, .released, .releaseFailed:
+                nil
+            }
+        }
+
+        private var shouldStopBeforeSigning: Bool {
+            state != .running
+                || dispositionGate.isReleaseRequested
+                || pendingFailure != nil
+        }
+
+        private enum AnonymousPublicationError: Error {
+            case tokenMissing
         }
     }
 }

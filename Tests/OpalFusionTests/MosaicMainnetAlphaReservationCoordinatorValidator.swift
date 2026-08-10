@@ -1,6 +1,7 @@
 // MosaicMainnetAlphaReservationCoordinatorValidator.swift
 
 import Foundation
+import Synchronization
 import Testing
 @testable import OpalFusion
 
@@ -11,34 +12,47 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias Session = Alpha.RuntimeSession
 
-    private actor SignalProbe {
-        enum Signal: Hashable, Sendable {
+    private final class SignalProbe: Sendable {
+        enum Signal: CaseIterable, Hashable, Sendable {
             case publicationStarted
             case validationAccepted
         }
 
-        private var counts: [Signal: Int] = [:]
-        private var waiters: [Signal: [CheckedContinuation<Void, Never>]] = [:]
+        private let counts = Mutex<[Signal: Int]>([:])
+        private let signalStreams: [Signal: AsyncStream<Void>]
+        private let signalContinuations: [Signal: AsyncStream<Void>.Continuation]
+
+        init() {
+            var streams: [Signal: AsyncStream<Void>] = [:]
+            var continuations: [Signal: AsyncStream<Void>.Continuation] = [:]
+            for signal in Signal.allCases {
+                let (stream, continuation) = AsyncStream<Void>.makeStream(
+                    bufferingPolicy: .bufferingNewest(1)
+                )
+                streams[signal] = stream
+                continuations[signal] = continuation
+            }
+            signalStreams = streams
+            signalContinuations = continuations
+        }
 
         func record(_ signal: Signal) {
-            counts[signal, default: 0] += 1
-            let continuations = waiters.removeValue(forKey: signal) ?? []
-            for continuation in continuations {
-                continuation.resume()
-            }
+            counts.withLock { $0[signal, default: 0] += 1 }
+            signalContinuations[signal]?.yield()
         }
 
         func wait(for signal: Signal) async {
-            guard counts[signal, default: 0] == 0 else {
+            guard count(signal) == 0,
+                  let stream = signalStreams[signal] else {
                 return
             }
-            await withCheckedContinuation { continuation in
-                waiters[signal, default: []].append(continuation)
+            for await _ in stream {
+                return
             }
         }
 
         func count(_ signal: Signal) -> Int {
-            counts[signal, default: 0]
+            counts.withLock { $0[signal, default: 0] }
         }
     }
 
@@ -104,8 +118,8 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         await harness.signals.wait(for: .validationAccepted)
 
         #expect(await harness.host.reservationRequests.count == 1)
-        #expect(await harness.signals.count(.publicationStarted) == 1)
-        #expect(await harness.signals.count(.validationAccepted) == 1)
+        #expect(harness.signals.count(.publicationStarted) == 1)
+        #expect(harness.signals.count(.validationAccepted) == 1)
         #expect(
             await harness.coordinator.reservationLifecycle
                 == .reserved(harness.lease)
@@ -119,7 +133,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
 
         try await submitManifest(harness)
         #expect(await harness.host.reservationRequests.count == 1)
-        #expect(await harness.signals.count(.publicationStarted) == 1)
+        #expect(harness.signals.count(.publicationStarted) == 1)
 
         await harness.coordinator.stop()
         await harness.coordinator.waitForTermination()
@@ -153,8 +167,8 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.host.releasedReferences
                 == [harness.lease.reference]
         )
-        #expect(await harness.signals.count(.publicationStarted) == 1)
-        #expect(await harness.signals.count(.validationAccepted) == 0)
+        #expect(harness.signals.count(.publicationStarted) == 1)
+        #expect(harness.signals.count(.validationAccepted) == 0)
     }
 
     @Test(
@@ -177,7 +191,33 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.host.releasedReferences
                 == [harness.lease.reference]
         )
-        #expect(await harness.signals.count(.validationAccepted) == 0)
+        #expect(harness.signals.count(.validationAccepted) == 0)
+    }
+
+    @Test(
+        "Reject a host lease whose expiry differs from the validated request",
+        arguments: [-1.0, 1.0]
+    )
+    func rejectHostLeaseExpirationMismatch(
+        _ expirationOffset: TimeInterval
+    ) async throws {
+        let harness = try makeHarness(
+            hostLeaseExpirationOffset: expirationOffset
+        )
+        await harness.coordinator.start()
+        try await submitManifest(harness)
+        await harness.coordinator.waitForTermination()
+
+        #expect(
+            await harness.coordinator.state
+                == .terminal(.failed(.reservationLeaseExpirationMismatch))
+        )
+        #expect(
+            await harness.host.releasedReferences
+                == [harness.lease.reference]
+        )
+        #expect(harness.signals.count(.publicationStarted) == 0)
+        #expect(harness.signals.count(.validationAccepted) == 0)
     }
 
     @Test(
@@ -198,7 +238,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.coordinator.reservationLifecycle
                 == .reservationInFlight
         )
-        #expect(await harness.signals.count(.validationAccepted) == 0)
+        #expect(harness.signals.count(.validationAccepted) == 0)
         await suspension.resume()
         await harness.coordinator.waitForTermination()
 
@@ -210,8 +250,8 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.host.releasedReferences
                 == [harness.lease.reference]
         )
-        #expect(await harness.signals.count(.publicationStarted) == 0)
-        #expect(await harness.signals.count(.validationAccepted) == 0)
+        #expect(harness.signals.count(.publicationStarted) == 0)
+        #expect(harness.signals.count(.validationAccepted) == 0)
     }
 
     @Test(
@@ -232,12 +272,12 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.coordinator.reservationLifecycle
                 == .reserved(harness.lease)
         )
-        #expect(await harness.signals.count(.validationAccepted) == 0)
+        #expect(harness.signals.count(.validationAccepted) == 0)
         await suspension.resume()
         await harness.coordinator.waitForTermination()
 
-        #expect(await harness.signals.count(.publicationStarted) == 1)
-        #expect(await harness.signals.count(.validationAccepted) == 0)
+        #expect(harness.signals.count(.publicationStarted) == 1)
+        #expect(harness.signals.count(.validationAccepted) == 0)
         #expect(
             await harness.host.releasedReferences
                 == [harness.lease.reference]
@@ -268,7 +308,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         )
         #expect(await harness.host.reservationRequests.isEmpty)
         #expect(await harness.host.releasedReferences.isEmpty)
-        #expect(await harness.signals.count(.publicationStarted) == 0)
+        #expect(harness.signals.count(.publicationStarted) == 0)
     }
 
     @Test(
@@ -288,7 +328,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         )
         #expect(await harness.host.reservationRequests.count == 1)
         #expect(await harness.host.releasedReferences.isEmpty)
-        #expect(await harness.signals.count(.publicationStarted) == 0)
+        #expect(harness.signals.count(.publicationStarted) == 0)
     }
 
     @Test(
@@ -309,8 +349,8 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.host.releasedReferences
                 == [harness.lease.reference]
         )
-        #expect(await harness.signals.count(.publicationStarted) == 1)
-        #expect(await harness.signals.count(.validationAccepted) == 0)
+        #expect(harness.signals.count(.publicationStarted) == 1)
+        #expect(harness.signals.count(.validationAccepted) == 0)
     }
 
     @Test(
@@ -462,6 +502,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         publicationSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
         publicationLeaseSubstitution: PublicationLeaseSubstitution? = nil,
         reservationRequestSubstitution: ReservationRequestSubstitution? = nil,
+        hostLeaseExpirationOffset: TimeInterval = 0,
         failPublication: Bool = false
     ) throws -> Harness {
         let admission = try Fixture.makeHarness(localRole: .contributor)
@@ -485,7 +526,12 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
                 $0.contributor == admission.localControlIdentity
             }
         )
-        let lease = try makeLease()
+        let expectedExpiration = Date(timeIntervalSince1970: 1_900_000_000)
+        let lease = try makeLease(
+            expiresAt: expectedExpiration.addingTimeInterval(
+                hostLeaseExpirationOffset
+            )
+        )
         let foreignReference = reservationReference(finalByte: 0xC2)
         let publicationLease: OpalFusion.Host.MosaicReservationLease
         switch publicationLeaseSubstitution {
@@ -522,11 +568,11 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             runtimeSession: session,
             dependencies: .init(
                 transactionHost: host,
-                expectedReservationExpiration: lease.expiresAt,
+                expectedReservationExpiration: expectedExpiration,
                 makeReservationRequest: { eligibility in
                     try makeReservationRequest(
                         eligibility: eligibility,
-                        expiresAt: lease.expiresAt,
+                        expiresAt: expectedExpiration,
                         substituting: reservationRequestSubstitution
                     )
                 },
@@ -536,7 +582,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
                     guard receivedLease == lease else {
                         throw ProbeFailure.unexpectedInvocation
                     }
-                    await signals.record(.publicationStarted)
+                    signals.record(.publicationStarted)
                     await publicationSuspension?.suspendIfArmed()
                     guard !failPublication else {
                         throw ProbeFailure.publication
@@ -562,9 +608,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
                     guard case .reservationPublicationAccepted = effect else {
                         return
                     }
-                    Task {
-                        await signals.record(.validationAccepted)
-                    }
+                    signals.record(.validationAccepted)
                 }
             )
         )
@@ -706,11 +750,12 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
 
     private func makeLease(
         reference: OpalFusion.Host.MosaicReservationReference? = nil,
-        inputLockingScript: [UInt8] = [0x51]
+        inputLockingScript: [UInt8] = [0x51],
+        expiresAt: Date = Date(timeIntervalSince1970: 1_900_000_000)
     ) throws -> OpalFusion.Host.MosaicReservationLease {
         try .init(
             reference: reference ?? reservationReference(),
-            expiresAt: Date(timeIntervalSince1970: 1_900_000_000),
+            expiresAt: expiresAt,
             participantReservation: .init(
                 inputs: [
                     .init(

@@ -27,11 +27,13 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
 
     private struct PreparedTranscript {
         let transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
+        let materialized: MosaicMainnetAlphaFixtures.MaterializedPreparation
         let nextConductorSequence: UInt64
     }
 
     private struct PreparedGroupedCommitment {
         let preparation: MosaicUnsignedTransactionTranscriptFixtures.Prepared
+        let materialized: MosaicMainnetAlphaFixtures.MaterializedPreparation
         let localPlayerCommit: Alpha.PlayerCommit
         let nextConductorSequence: UInt64
     }
@@ -210,10 +212,10 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
     }
 
     @Test(
-        "Portable acknowledgements remain fail closed before BCH signing",
+        "Portable acknowledgements open BCH signing and exact validation completes",
         .timeLimit(.minutes(2))
     )
-    func keepBCHSigningClosed() throws {
+    func completeAfterExactTransactionValidation() async throws {
         let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
         let verificationKey = try #require(evaluator.verificationKey)
         var harness = try makeHarness(verificationKey: verificationKey)
@@ -221,6 +223,11 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             harness: &harness,
             evaluator: evaluator
         )
+        let completion = try await MosaicMainnetAlphaExecutionFixtures
+            .makeCompletion(
+                admission: harness.admission,
+                materialized: prepared.materialized
+            )
         let inclusion = try MosaicUnsignedTransactionTranscriptFixtures
             .makeTranscriptInclusionValidation(
                 attemptIdentifier: harness.admission.attemptIdentifier,
@@ -284,20 +291,148 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
             )
         )
         #expect(
-            !effects.contains { effect in
+            effects.contains { effect in
                 guard case .localAttempt(.bchSigningEligible) = effect else {
                     return false
                 }
                 return true
             }
         )
-        #expect(harness.session.state == .active(.transcriptAgreement))
+        #expect(harness.session.state == .active(.bchSigning))
         #expect(
             harness.session.localAttemptState
-                == .transcriptAgreement(
+                == .bchSigning(
                     roster: harness.admission.election.result.roster,
                     transcript: prepared.transcript
                 )
+        )
+
+        let previousOutputs = completion.previousOutputs
+        let signatureSet = completion.signatureSet
+        let completePayload = completion.completePayload
+
+        let signatureSetRun = try Fixture.aggregateRun(
+            canonicalBytes: signatureSet.canonicalBytes,
+            kind: .bchSignatureSet,
+            sender: harness.admission.election.result.roster.conductor,
+            phase: .bchSigning,
+            sequence: run.nextSequence,
+            harness: harness.admission
+        )
+        #expect(
+            admit(signatureSetRun, to: &harness.session).contains(
+                .admission(.bchSignatureSetAdmitted(signatureSet))
+            )
+        )
+        let completeRun = try Fixture.aggregateRun(
+            canonicalBytes: completePayload.canonicalBytes,
+            kind: .completeTransaction,
+            sender: harness.admission.election.result.roster.conductor,
+            phase: .bchSigning,
+            sequence: signatureSetRun.nextSequence,
+            harness: harness.admission
+        )
+        let publicationEffects = admit(completeRun, to: &harness.session)
+        let candidate = try #require(
+            publicationEffects.compactMap {
+                effect -> Alpha.CompleteTransactionCandidate? in
+                guard case let .admission(
+                    .completeTransactionValidationRequired(candidate)
+                ) = effect else {
+                    return nil
+                }
+                return candidate
+            }.first
+        )
+        let validation = try Alpha.CompleteTransactionValidation(
+            validating: candidate,
+            previousOutputs: previousOutputs
+        )
+        let staleCandidate = try Alpha.CompleteTransactionCandidate(
+            attemptIdentifier: candidate.attemptIdentifier,
+            generationIdentifier: candidate.generationIdentifier,
+            materialIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0xD8, count: 32)
+            ),
+            transcript: candidate.transcript,
+            signatureSet: candidate.signatureSet,
+            payload: candidate.payload
+        )
+        let staleRejection = Alpha.CompleteTransactionValidationRejection(
+            candidate: staleCandidate,
+            reason: .previousOutputResolutionFailed
+        )
+        #expect(
+            harness.session.apply(
+                input: .completeTransactionValidationFailed(staleRejection)
+            ) == [.inputRejected(.completeTransactionValidationMismatch)]
+        )
+        #expect(harness.session.state == .active(.bchSigning))
+
+        var rejectedSession = harness.session
+        let rejection = Alpha.CompleteTransactionValidationRejection(
+            candidate: candidate,
+            reason: .exactTransactionValidationFailed
+        )
+        #expect(
+            rejectedSession.apply(
+                input: .completeTransactionValidationFailed(rejection)
+            ) == [
+                .admission(
+                    .attemptTerminated(
+                        .failed(
+                            .completeTransactionValidationFailed(
+                                .exactTransactionValidationFailed
+                            )
+                        )
+                    )
+                ),
+                .localAttempt(
+                    .walletReservationReleaseRequired(
+                        contributor: harness.admission.localControlIdentity,
+                        materialIdentifier: harness.materialIdentifier
+                    )
+                ),
+                .localAttempt(
+                    .attemptTerminated(
+                        .failed(
+                            .aborted(
+                                during: .bchSigning,
+                                reason: .invalidAuthenticatedMessage
+                            )
+                        )
+                    )
+                ),
+                .sessionTerminated(
+                    .failed(
+                        .completeTransactionValidationFailed(
+                            .exactTransactionValidationFailed
+                        )
+                    )
+                ),
+            ]
+        )
+        let completionEffects = harness.session.apply(
+            input: .completeTransactionValidated(validation)
+        )
+        let expectedCompletionEffects: [Session.Effect] = [
+            .admission(.completeTransactionValidated(validation)),
+            .localAttempt(
+                .walletReservationCommitRequired(
+                    contributor: harness.admission.localControlIdentity,
+                    materialIdentifier: harness.materialIdentifier
+                )
+            ),
+            .localAttempt(.attemptTerminated(.completed)),
+            .sessionTerminated(.completed),
+        ]
+
+        #expect(completionEffects == expectedCompletionEffects)
+        #expect(harness.session.state == .terminal(.completed))
+        #expect(
+            harness.session.apply(
+                input: .completeTransactionValidated(validation)
+            ) == [.inputRejected(.inputAfterTermination)]
         )
         #expect(!OpalFusion.Mosaic.Profile.opalMainnetAlpha.supportsRuntimeSessionDriver)
     }
@@ -687,6 +822,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         )
         return .init(
             transcript: transcript,
+            materialized: prepared.materialized,
             nextConductorSequence: componentRun.nextSequence
         )
     }
@@ -794,6 +930,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         )
         return .init(
             preparation: preparation,
+            materialized: materialized,
             localPlayerCommit: material.playerCommit,
             nextConductorSequence: conductorSequence
         )

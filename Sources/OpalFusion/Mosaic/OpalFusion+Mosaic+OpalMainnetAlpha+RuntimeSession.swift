@@ -1,13 +1,13 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+RuntimeSession.swift
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
-    /// Owns one paired admission ledger and local attempt through transcript agreement.
+    /// Owns one paired admission ledger and local attempt through exact transaction validation.
     ///
     /// This reducer translates only typed documents admitted by `AdmissionLedger`. A contributor's
     /// wallet-reservation phase cannot advance until an external material owner seals the exact
     /// reservation reference and published `PlayerCommit` to this attempt, generation, and material
-    /// identity. The bridge deliberately does not admit the acknowledgement set into BCH signing;
-    /// the mainnet-alpha runtime driver remains disabled.
+    /// identity. The mainnet-alpha runtime driver remains disabled until ordered wallet execution,
+    /// recovery, and transport composition are complete.
     struct RuntimeSession: Sendable {
         private struct LocalAttemptPhaseTransitionValidator:
             AdmissionLedger.PhaseTransitionValidating
@@ -57,7 +57,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var admittedLocalPlayerCommit: PlayerCommit?
         private var admittedCommitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet?
         private var admittedTranscript: AdmissionLedger.Transcript?
+        private var admittedAcknowledgementSet: PreSignAcknowledgementSet?
+        private var completeTransactionCandidate: CompleteTransactionCandidate?
         private var reservationPublication: ReservationPublicationValidation?
+        private var hasTranscriptInclusionValidation = false
 
         private(set) var state: State = .active(.manifestAgreement)
 
@@ -154,6 +157,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return receiveReservationPublication(validation)
             case let .transcriptInclusionValidated(validation):
                 return receiveTranscriptInclusion(validation)
+            case let .completeTransactionValidated(validation):
+                return receiveCompleteTransactionValidation(validation)
+            case let .completeTransactionValidationFailed(rejection):
+                return receiveCompleteTransactionValidationFailure(rejection)
             case .cancel:
                 return cancel()
             case .retryRequested:
@@ -169,6 +176,21 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             return receiveAdmissionEffects(
                 admissionLedger.receiveAnonymousComponent(delivery)
+            )
+        }
+
+        mutating func receiveAnonymousBCHSignature<Validator>(
+            _ delivery: AdmissionLedger.AnonymousComponentDelivery,
+            using validator: Validator
+        ) -> [Effect] where Validator: AnonymousBCHSignatureAdmissionValidating {
+            guard case .active = state else {
+                return [.inputRejected(.inputAfterTermination)]
+            }
+            return receiveAdmissionEffects(
+                admissionLedger.receiveAnonymousBCHSignature(
+                    delivery,
+                    using: validator
+                )
             )
         }
 
@@ -227,8 +249,96 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 let outcome = Outcome.failed(.localAttempt(failure))
                 state = .terminal(outcome)
                 effects.append(.sessionTerminated(outcome))
+            } else if localEffects.contains(where: { effect in
+                if case .preSignAcknowledgementRequired = effect {
+                    return true
+                }
+                return false
+            }) {
+                hasTranscriptInclusionValidation = true
+                effects.append(contentsOf: advanceIfReady())
             }
             return effects
+        }
+
+        private mutating func receiveCompleteTransactionValidation(
+            _ validation: CompleteTransactionValidation
+        ) -> [Effect] {
+            guard case .active(.bchSigning) = state else {
+                return [.inputRejected(.completeTransactionValidationUnavailable)]
+            }
+            guard completeTransactionCandidate == validation.candidate else {
+                return [.inputRejected(.completeTransactionValidationMismatch)]
+            }
+
+            let admissionEffects = admissionLedger.complete(using: validation)
+            guard admissionEffects == [
+                .completeTransactionValidated(validation),
+                .attemptTerminated(.completed),
+            ] else {
+                return terminate(with: .completeTransactionValidationMismatch)
+            }
+            let localEffects = localAttempt.apply(
+                input: .init(
+                    attemptIdentifier: attemptIdentifier,
+                    generationIdentifier: generationIdentifier,
+                    attemptInput: .completeTransactionValidated
+                )
+            )
+            guard localAttempt.state == .terminal(.completed) else {
+                let failure = localAttemptTerminalFailure
+                    ?? .invalidTransition(
+                        from: .bchSigning,
+                        received: .completeTransactionValidated
+                    )
+                let outcome = Outcome.failed(.localAttempt(failure))
+                state = .terminal(outcome)
+                return admissionEffects.map(Effect.admission)
+                    + localEffects.map(Effect.localAttempt)
+                    + [.sessionTerminated(outcome)]
+            }
+            let outcome = Outcome.completed
+            state = .terminal(outcome)
+            return admissionEffects.dropLast().map(Effect.admission)
+                + localEffects.map(Effect.localAttempt)
+                + [.sessionTerminated(outcome)]
+        }
+
+        private mutating func receiveCompleteTransactionValidationFailure(
+            _ rejection: CompleteTransactionValidationRejection
+        ) -> [Effect] {
+            guard case .active(.bchSigning) = state else {
+                return [.inputRejected(.completeTransactionValidationUnavailable)]
+            }
+            guard completeTransactionCandidate == rejection.candidate else {
+                return [.inputRejected(.completeTransactionValidationMismatch)]
+            }
+            let admissionEffects = admissionLedger.apply(
+                input: .completeTransactionValidationFailed(rejection)
+            )
+            guard admissionEffects == [
+                .attemptTerminated(
+                    .failed(
+                        .completeTransactionValidationFailed(rejection.reason)
+                    )
+                ),
+            ] else {
+                return [.inputRejected(.completeTransactionValidationMismatch)]
+            }
+            let localEffects = localAttempt.apply(
+                input: .init(
+                    attemptIdentifier: attemptIdentifier,
+                    generationIdentifier: generationIdentifier,
+                    attemptInput: .abort(.invalidAuthenticatedMessage)
+                )
+            )
+            let outcome = Outcome.failed(
+                .completeTransactionValidationFailed(rejection.reason)
+            )
+            state = .terminal(outcome)
+            return admissionEffects.map(Effect.admission)
+                + localEffects.map(Effect.localAttempt)
+                + [.sessionTerminated(outcome)]
         }
 
         private mutating func receiveAdmissionEffects(
@@ -264,6 +374,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     admittedCommitmentSet = commitmentSet
                 case let .componentSetAdmitted(_, transcript):
                     admittedTranscript = transcript
+                case let .preSignAcknowledgementSetAdmitted(set):
+                    admittedAcknowledgementSet = set
+                case let .completeTransactionValidationRequired(candidate):
+                    completeTransactionCandidate = candidate
                 case .aggregateReservationAccepted,
                      .aggregateFragmentAccepted,
                      .exactDuplicateIgnored,
@@ -276,7 +390,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                      .bchSignatureSetReady,
                      .preSignAcknowledgementAdmitted,
                      .preSignAcknowledgementCollectionComplete,
-                     .preSignAcknowledgementSetAdmitted,
+                     .bchSignatureSetAdmitted,
+                     .completeTransactionAdmitted,
+                     .completeTransactionValidated,
                      .phaseAdvanced,
                      .inputRejected,
                      .attemptTerminated:
@@ -360,7 +476,25 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     )
                 )
 
-            case .transcriptAgreement, .bchSigning,
+            case .transcriptAgreement:
+                guard let transcript = admittedTranscript,
+                      let admittedAcknowledgementSet,
+                      admittedAcknowledgementSet.roundIdentifier
+                        == transcript.manifest.roundIdentifier,
+                      admittedAcknowledgementSet.transcriptRoot
+                        == transcript.transcriptRoot.validatedBytes,
+                      localRole == .conductor
+                        || hasTranscriptInclusionValidation else {
+                    return []
+                }
+                return advance(
+                    to: .bchSigning(transcript),
+                    using: .transcriptAgreementValidated(
+                        admittedAcknowledgementSet.submissions.map(\.validation)
+                    )
+                )
+
+            case .bchSigning,
                  .discovery, .candidateSetAgreement,
                  .controlRosterAgreement, .roleSelection:
                 return []
@@ -496,6 +630,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             from admissionOutcome: AdmissionLedger.Outcome
         ) -> [Effect] {
             switch admissionOutcome {
+            case .completed:
+                let outcome = Outcome.failed(.completeTransactionValidationMismatch)
+                state = .terminal(outcome)
+                return [.sessionTerminated(outcome)]
             case let .failed(failure):
                 return terminate(with: .admission(failure))
             case let .cancelled(during: phase):

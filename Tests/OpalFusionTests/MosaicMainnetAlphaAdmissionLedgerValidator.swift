@@ -2501,6 +2501,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         }
 
         var firstDelivery: Ledger.AnonymousComponentDelivery?
+        var readySignatureSet: Alpha.BCHSignatureSet?
         for (ordinal, inputIndex) in acceptedInputs.indices.reversed()
             .enumerated() {
             let acceptedInput = acceptedInputs[inputIndex]
@@ -2538,6 +2539,13 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                     return set.entries.map(\.inputIndex)
                         == (0 ..< acceptedInputs.count).map(UInt32.init)
                 })
+                readySignatureSet = effects.compactMap {
+                    effect -> Alpha.BCHSignatureSet? in
+                    guard case let .bchSignatureSetReady(set) = effect else {
+                        return nil
+                    }
+                    return set
+                }.first
             } else {
                 #expect(!effects.contains { effect in
                     if case .bchSignatureSetReady = effect {
@@ -2567,6 +2575,106 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 using: RejectingBCHSignatureValidator()
             ) == [.exactDuplicateIgnored]
         )
+        let signatureSet = try #require(readySignatureSet)
+        let completePayload = try makeCompletePayload(
+            transcript: transcript,
+            signatureSet: signatureSet
+        )
+        let signatureRun = try Fixture.aggregateRun(
+            canonicalBytes: signatureSet.canonicalBytes,
+            kind: .bchSignatureSet,
+            sender: harness.election.result.roster.conductor,
+            phase: .bchSigning,
+            sequence: portableRun.nextSequence,
+            harness: harness
+        )
+        let completeRun = try Fixture.aggregateRun(
+            canonicalBytes: completePayload.canonicalBytes,
+            kind: .completeTransaction,
+            sender: harness.election.result.roster.conductor,
+            phase: .bchSigning,
+            sequence: portableRun.nextSequence,
+            harness: harness
+        )
+
+        var completeFirstLedger = harness.ledger
+        let completeFirstEffects = Fixture.admit(
+            completeRun,
+            to: &completeFirstLedger
+        )
+        #expect(
+            completeFirstEffects.last
+                == .attemptTerminated(
+                    .failed(.completeTransactionPrerequisiteMissing)
+                )
+        )
+        #expect(!containsCompletionValidationRequest(completeFirstEffects))
+
+        var mismatchedEntries = signatureSet.entries
+        var mismatchedSignature = mismatchedEntries[0].signature
+        mismatchedSignature[0] ^= 0x01
+        mismatchedEntries[0] = try .init(
+            inputIndex: mismatchedEntries[0].inputIndex,
+            signature: mismatchedSignature,
+            publicKey: mismatchedEntries[0].publicKey
+        )
+        let mismatchedSet = try Alpha.BCHSignatureSet(
+            roundIdentifier: signatureSet.roundIdentifier,
+            transcriptRoot: signatureSet.transcriptRoot,
+            entries: mismatchedEntries,
+            expectedInputCount: signatureSet.entries.count
+        )
+        let mismatchedSignatureRun = try Fixture.aggregateRun(
+            canonicalBytes: mismatchedSet.canonicalBytes,
+            kind: .bchSignatureSet,
+            sender: harness.election.result.roster.conductor,
+            phase: .bchSigning,
+            sequence: portableRun.nextSequence,
+            harness: harness
+        )
+        var mismatchedSignatureLedger = harness.ledger
+        let mismatchedSignatureEffects = Fixture.admit(
+            mismatchedSignatureRun,
+            to: &mismatchedSignatureLedger
+        )
+        #expect(
+            mismatchedSignatureEffects.last
+                == .attemptTerminated(
+                    .failed(.bchSignatureSetDoesNotMatchAnonymousAdmissions)
+                )
+        )
+        #expect(!containsCompletionValidationRequest(mismatchedSignatureEffects))
+
+        var mismatchedPayloadLedger = harness.ledger
+        #expect(
+            Fixture.admit(signatureRun, to: &mismatchedPayloadLedger)
+                .contains(.bchSignatureSetAdmitted(signatureSet))
+        )
+        let mismatchedPayload = try makeCompletePayload(
+            transcript: transcript,
+            signatureSet: signatureSet,
+            mutateFirstSignature: true
+        )
+        let mismatchedCompleteRun = try Fixture.aggregateRun(
+            canonicalBytes: mismatchedPayload.canonicalBytes,
+            kind: .completeTransaction,
+            sender: harness.election.result.roster.conductor,
+            phase: .bchSigning,
+            sequence: signatureRun.nextSequence,
+            harness: harness
+        )
+        let mismatchedPayloadEffects = Fixture.admit(
+            mismatchedCompleteRun,
+            to: &mismatchedPayloadLedger
+        )
+        #expect(
+            mismatchedPayloadEffects.last
+                == .attemptTerminated(
+                    .failed(.completeTransactionSignatureSetMismatch)
+                )
+        )
+        #expect(!containsCompletionValidationRequest(mismatchedPayloadEffects))
+
         let extra = try makeBCHSignatureDelivery(
             harness: harness,
             transcript: transcript,
@@ -2608,6 +2716,45 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         let transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
         let nextConductorSequence: UInt64
         let nextContributorSequence: UInt64
+    }
+
+    private func makeCompletePayload(
+        transcript: Ledger.Transcript,
+        signatureSet: Alpha.BCHSignatureSet,
+        mutateFirstSignature: Bool = false
+    ) throws -> Alpha.CompleteTransactionPayload {
+        var transaction = transcript.transaction
+        for (offset, entry) in signatureSet.entries.enumerated() {
+            var signature = entry.signature
+            if mutateFirstSignature, offset == 0 {
+                signature[0] ^= 0x01
+            }
+            let unlockingScript = [UInt8(0x41)] + signature
+                + [0x41, 0x21] + entry.publicKey
+            transaction = try transaction.settingUnlockingScript(
+                unlockingScript,
+                at: Int(entry.inputIndex)
+            )
+        }
+        return try .init(
+            roundIdentifier: signatureSet.roundIdentifier,
+            transcriptRoot: signatureSet.transcriptRoot,
+            completeTransaction: try .init(
+                transactionBytes: transaction.serialize()
+            )
+        )
+    }
+
+    private func containsCompletionValidationRequest(
+        _ effects: [Ledger.Effect]
+    ) -> Bool {
+        effects.contains { effect in
+            if case .completeTransactionValidationRequired = effect {
+                true
+            } else {
+                false
+            }
+        }
     }
 
     private func makeBCHSignatureDelivery(

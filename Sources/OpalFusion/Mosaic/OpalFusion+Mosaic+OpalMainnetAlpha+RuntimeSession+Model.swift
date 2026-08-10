@@ -80,6 +80,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
         case transcriptInclusionValidated(
             OpalFusion.Mosaic.LocalAttempt.TranscriptInclusionValidation
         )
+        case completeTransactionValidated(
+            OpalFusion.Mosaic.OpalMainnetAlpha.CompleteTransactionValidation
+        )
+        case completeTransactionValidationFailed(
+            OpalFusion.Mosaic.OpalMainnetAlpha
+                .CompleteTransactionValidationRejection
+        )
         case cancel
         case retryRequested
     }
@@ -90,6 +97,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
     }
 
     enum Outcome: Sendable, Equatable {
+        case completed
         case failed(Failure)
         case cancelled(during: OpalFusion.Mosaic.Attempt.Phase)
     }
@@ -102,6 +110,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
         case localCommitmentSetMismatch
         case phaseSynchronizationFailed
         case transcriptMismatch
+        case completeTransactionValidationUnavailable
+        case completeTransactionValidationMismatch
+        case completeTransactionValidationFailed(
+            OpalFusion.Mosaic.OpalMainnetAlpha
+                .CompleteTransactionValidationRejection.Reason
+        )
         case inPlaceRetryNotPermitted
         case inputAfterTermination
     }

@@ -90,12 +90,14 @@ extension MosaicAttemptCoreValidator {
     static func transcriptAcknowledgements(
         for roster: Attempt.Roster,
         manifest: Attempt.ManifestBinding = manifestA,
-        transcriptRoot: Attempt.TranscriptRoot = transcriptRootA
+        transcriptRoot: Attempt.TranscriptRoot = transcriptRootA,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) -> [Attempt.TranscriptAcknowledgementValidation] {
         MosaicManifestSignatureFixtures.transcriptAcknowledgementValidations(
             for: roster.contributors,
             binding: manifest,
-            transcriptRoot: transcriptRoot
+            transcriptRoot: transcriptRoot,
+            profile: profile
         )
     }
 
@@ -115,13 +117,21 @@ extension MosaicAttemptCoreValidator {
 
     static func makeScenario(
         at targetPhase: Attempt.Phase,
-        candidateCount: Int = 7
+        candidateCount: Int = 7,
+        profile: OpalFusion.Mosaic.Profile = .opalV0
     ) throws -> Scenario {
-        var attempt = Attempt(configuration: configuration)
-        let election = try makeElection(candidateCount: candidateCount)
+        var attempt = Attempt(configuration: .init(profile: profile))
+        let election = try makeElection(
+            candidateCount: candidateCount,
+            profile: profile
+        )
         let roster = election.result.roster
         let transactionPreparation = try MosaicUnsignedTransactionTranscriptFixtures
-            .prepare(roster: roster, manifest: manifestA)
+            .prepare(
+                roster: roster,
+                manifest: manifestA,
+                profile: profile
+            )
 
         if targetPhase.rawValue >= Attempt.Phase.candidateSetAgreement.rawValue {
             _ = attempt.apply(input: .discoveryCompleted(candidateCount: candidateCount))
@@ -175,7 +185,8 @@ extension MosaicAttemptCoreValidator {
                 input: .transcriptAgreementValidated(
                     transcriptAcknowledgements(
                         for: roster,
-                        transcriptRoot: transactionPreparation.transcript.transcriptRoot
+                        transcriptRoot: transactionPreparation.transcript.transcriptRoot,
+                        profile: profile
                     )
                 )
             )

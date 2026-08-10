@@ -6,8 +6,17 @@ import Foundation
 actor MosaicRuntimeCoordinatorSuspensionProbe {
     private var isArmed = false
     private var hasSuspended = false
-    private var suspendedWaiters: [CheckedContinuation<Void, Never>] = []
-    private var resumeContinuation: CheckedContinuation<Void, Never>?
+    private let suspendedStream: AsyncStream<Void>
+    private let suspendedContinuation: AsyncStream<Void>.Continuation
+    private let resumeStream: AsyncStream<Void>
+    private let resumeContinuation: AsyncStream<Void>.Continuation
+
+    init() {
+        (suspendedStream, suspendedContinuation) = AsyncStream<Void>
+            .makeStream(bufferingPolicy: .bufferingNewest(1))
+        (resumeStream, resumeContinuation) = AsyncStream<Void>
+            .makeStream(bufferingPolicy: .bufferingNewest(1))
+    }
 
     func arm() {
         isArmed = true
@@ -18,12 +27,9 @@ actor MosaicRuntimeCoordinatorSuspensionProbe {
             return
         }
         hasSuspended = true
-        for waiter in suspendedWaiters {
-            waiter.resume()
-        }
-        suspendedWaiters.removeAll(keepingCapacity: false)
-        await withCheckedContinuation { continuation in
-            resumeContinuation = continuation
+        suspendedContinuation.yield()
+        for await _ in resumeStream {
+            return
         }
     }
 
@@ -31,14 +37,13 @@ actor MosaicRuntimeCoordinatorSuspensionProbe {
         guard !hasSuspended else {
             return
         }
-        await withCheckedContinuation { continuation in
-            suspendedWaiters.append(continuation)
+        for await _ in suspendedStream {
+            return
         }
     }
 
     func resume() {
-        resumeContinuation?.resume()
-        resumeContinuation = nil
+        resumeContinuation.yield()
     }
 }
 

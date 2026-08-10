@@ -57,6 +57,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case componentSet
         case preSignAcknowledgement(ControlIdentity)
         case preSignAcknowledgementSet
+        case bchSignatureSet
+        case completeTransaction
     }
 
     enum Failure: Error, Sendable, Equatable {
@@ -107,6 +109,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case anonymousBCHSignatureInputConflict(UInt32)
         case anonymousBCHSignatureLimitExceeded
         case bchSignatureSetConstructionFailed
+        case bchSignatureSetDoesNotMatchAnonymousAdmissions
+        case completeTransactionPrerequisiteMissing
+        case completeTransactionSignatureSetMismatch
+        case completeTransactionValidationMismatch
+        case completeTransactionValidationFailed(
+            OpalFusion.Mosaic.OpalMainnetAlpha
+                .CompleteTransactionValidationRejection.Reason
+        )
         case anonymousComponentSetIncomplete
         case componentSetDoesNotMatchAnonymousAdmissions
         case unsignedTransactionInvalid(
@@ -115,7 +125,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case preSignAcknowledgementAdmissionUnavailable
         case transcriptAcknowledgementMismatch
         case preSignAcknowledgementSetDoesNotMatchCollection
-        case bchSigningAdmissionUnavailable
         case unsupportedAnonymousBCHSignature
         case runtimeSessionBridgeMismatch
         case inPlaceRetryNotPermitted
@@ -174,11 +183,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case authorizationResponseSetValidated(
             AuthorizationResponseValidationDelivery
         )
+        case completeTransactionValidationFailed(
+            OpalFusion.Mosaic.OpalMainnetAlpha
+                .CompleteTransactionValidationRejection
+        )
         case cancel
         case retryRequested
     }
 
     enum Outcome: Sendable, Equatable {
+        case completed
         case failed(Failure)
         case cancelled(during: OpalFusion.Mosaic.Attempt.Phase)
     }
@@ -231,6 +245,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         )
         case bchSignatureSetReady(
             OpalFusion.Mosaic.OpalMainnetAlpha.BCHSignatureSet
+        )
+        case bchSignatureSetAdmitted(
+            OpalFusion.Mosaic.OpalMainnetAlpha.BCHSignatureSet
+        )
+        case completeTransactionAdmitted(
+            OpalFusion.Mosaic.OpalMainnetAlpha.CompleteTransactionPayload
+        )
+        case completeTransactionValidationRequired(
+            OpalFusion.Mosaic.OpalMainnetAlpha.CompleteTransactionCandidate
+        )
+        case completeTransactionValidated(
+            OpalFusion.Mosaic.OpalMainnetAlpha.CompleteTransactionValidation
         )
         case preSignAcknowledgementAdmitted(
             OpalFusion.Mosaic.OpalMainnetAlpha

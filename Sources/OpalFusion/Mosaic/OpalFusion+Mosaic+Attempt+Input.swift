@@ -14,6 +14,7 @@ extension OpalFusion.Mosaic.Attempt {
             case anonymousComponentSetReceived
             case transcriptAgreementValidated
             case signedTransactionValidated
+            case completeTransactionValidated
             case abort
             case cancel
             case retryRequested
@@ -34,6 +35,9 @@ extension OpalFusion.Mosaic.Attempt {
         )
         case transcriptAgreementValidated([TranscriptAcknowledgementValidation])
         case signedTransactionValidated(contributorSigners: [ControlIdentity])
+        /// An exact complete transaction was independently validated for an anonymous-signature
+        /// profile. The profile-specific runtime owns the sealed evidence for this fact.
+        case completeTransactionValidated
         case abort(AbortReason)
         case cancel
         case retryRequested
@@ -62,6 +66,8 @@ extension OpalFusion.Mosaic.Attempt {
                 .transcriptAgreementValidated
             case .signedTransactionValidated:
                 .signedTransactionValidated
+            case .completeTransactionValidated:
+                .completeTransactionValidated
             case .abort:
                 .abort
             case .cancel:

@@ -153,4 +153,49 @@ extension MosaicAttemptCoreValidator {
         )
         #expect(freshAttempt.state == .discovery)
     }
+
+    @Test("Mainnet alpha completes only from anonymous complete-transaction validation")
+    func validateProfileSpecificCompletionFacts() throws {
+        var mainnetLegacy = try Self.makeScenario(
+            at: .bchSigning,
+            profile: .opalMainnetAlpha
+        )
+        let legacyFailure = Attempt.Failure.invalidTransition(
+            from: .bchSigning,
+            received: .signedTransactionValidated
+        )
+        #expect(
+            mainnetLegacy.attempt.apply(
+                input: .signedTransactionValidated(
+                    contributorSigners: mainnetLegacy.roster.contributors
+                )
+            ) == Self.terminationEffects(
+                outcome: .failed(legacyFailure),
+                reservationRoster: mainnetLegacy.roster
+            )
+        )
+
+        var mainnet = try Self.makeScenario(
+            at: .bchSigning,
+            profile: .opalMainnetAlpha
+        )
+        #expect(
+            mainnet.attempt.apply(input: .completeTransactionValidated)
+                == [.attemptTerminated(.completed)]
+        )
+        #expect(mainnet.attempt.state == .terminal(.completed))
+
+        var v0 = try Self.makeScenario(at: .bchSigning)
+        let v0Failure = Attempt.Failure.invalidTransition(
+            from: .bchSigning,
+            received: .completeTransactionValidated
+        )
+        #expect(
+            v0.attempt.apply(input: .completeTransactionValidated)
+                == Self.terminationEffects(
+                    outcome: .failed(v0Failure),
+                    reservationRoster: v0.roster
+                )
+        )
+    }
 }

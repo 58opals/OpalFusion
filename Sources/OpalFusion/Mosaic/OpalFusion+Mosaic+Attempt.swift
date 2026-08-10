@@ -273,12 +273,35 @@ extension OpalFusion.Mosaic {
                 .bchSigning(roster, _),
                 .signedTransactionValidated(contributorSigners)
             ):
+                guard configuration.profile != .opalMainnetAlpha else {
+                    return terminate(
+                        with: .failed(
+                            .invalidTransition(
+                                from: .bchSigning,
+                                received: .signedTransactionValidated
+                            )
+                        )
+                    )
+                }
                 if let failure = contributorSetFailure(
                     contributorSigners,
                     roster: roster,
                     phase: .bchSigning
                 ) {
                     return terminate(with: .failed(failure))
+                }
+                return terminate(with: .completed)
+
+            case (.bchSigning, .completeTransactionValidated):
+                guard configuration.profile == .opalMainnetAlpha else {
+                    return terminate(
+                        with: .failed(
+                            .invalidTransition(
+                                from: .bchSigning,
+                                received: .completeTransactionValidated
+                            )
+                        )
+                    )
                 }
                 return terminate(with: .completed)
 

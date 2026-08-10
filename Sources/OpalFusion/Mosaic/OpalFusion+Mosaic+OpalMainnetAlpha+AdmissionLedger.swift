@@ -56,6 +56,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             ControlIdentity: PreSignAcknowledgementSubmission
         ] = [:]
         private var acknowledgementSet: PreSignAcknowledgementSet?
+        private var readyBCHSignatureSet: BCHSignatureSet?
+        private var admittedBCHSignatureSet: BCHSignatureSet?
+        private var completeTransactionCandidate: CompleteTransactionCandidate?
+        private var completeTransactionValidation: CompleteTransactionValidation?
+        private var completeTransactionValidationRejection:
+            CompleteTransactionValidationRejection?
 
         private var acceptedAnonymousComponents: [AcceptedAnonymousComponent] = []
         private var acceptedAnonymousBCHSignatures:
@@ -101,6 +107,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return receive(delivery)
             case let .authorizationResponseSetValidated(delivery):
                 return receiveAuthorizationResponseValidation(delivery)
+            case let .completeTransactionValidationFailed(rejection):
+                return rejectCompleteTransactionValidation(rejection)
             case .cancel:
                 let phase = currentPhase
                 return terminate(with: .cancelled(during: phase))
@@ -114,6 +122,74 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return [.inputRejected(.inputAfterTermination)]
             }
             return terminate(with: .failed(.runtimeSessionBridgeMismatch))
+        }
+
+        /// Completes admission only after authoritative previous-output validation reproduced the
+        /// exact conductor-published transaction for this routed candidate.
+        mutating func complete(
+            using validation: CompleteTransactionValidation
+        ) -> [Effect] {
+            if case .terminal = state {
+                if completeTransactionValidation == validation {
+                    return [.exactDuplicateIgnored]
+                }
+                return [.inputRejected(.inputAfterTermination)]
+            }
+            let candidate = validation.candidate
+            guard candidate.attemptIdentifier == attemptIdentifier else {
+                return [.inputRejected(.attemptIdentifierMismatch)]
+            }
+            guard candidate.generationIdentifier == generationIdentifier else {
+                return [.inputRejected(.generationIdentifierMismatch)]
+            }
+            guard candidate.materialIdentifier == materialIdentifier else {
+                return [.inputRejected(.materialIdentifierMismatch)]
+            }
+            guard currentPhase == .bchSigning,
+                  completeTransactionCandidate == candidate,
+                  validation.completeTransaction
+                    == candidate.payload.completeTransaction else {
+                return terminate(
+                    with: .failed(.completeTransactionValidationMismatch)
+                )
+            }
+            completeTransactionValidation = validation
+            state = .terminal(.completed)
+            return [
+                .completeTransactionValidated(validation),
+                .attemptTerminated(.completed),
+            ]
+        }
+
+        private mutating func rejectCompleteTransactionValidation(
+            _ rejection: CompleteTransactionValidationRejection
+        ) -> [Effect] {
+            if case .terminal = state {
+                if completeTransactionValidationRejection == rejection {
+                    return [.exactDuplicateIgnored]
+                }
+                return [.inputRejected(.inputAfterTermination)]
+            }
+            let candidate = rejection.candidate
+            guard candidate.attemptIdentifier == attemptIdentifier else {
+                return [.inputRejected(.attemptIdentifierMismatch)]
+            }
+            guard candidate.generationIdentifier == generationIdentifier else {
+                return [.inputRejected(.generationIdentifierMismatch)]
+            }
+            guard candidate.materialIdentifier == materialIdentifier else {
+                return [.inputRejected(.materialIdentifierMismatch)]
+            }
+            guard currentPhase == .bchSigning,
+                  completeTransactionCandidate == candidate else {
+                return [.inputRejected(.completeTransactionValidationMismatch)]
+            }
+            completeTransactionValidationRejection = rejection
+            return terminate(
+                with: .failed(
+                    .completeTransactionValidationFailed(rejection.reason)
+                )
+            )
         }
 
         func phaseTransitionRequest(
@@ -451,9 +527,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             if acceptedAnonymousBCHSignatures.count
                 == transcript.transaction.inputs.count {
                 do {
-                    effects.append(
-                        .bchSignatureSetReady(
-                            try .init(
+                    let signatureSet = try BCHSignatureSet(
                                 roundIdentifier: roundIdentifier,
                                 transcriptRoot:
                                     transcript.transcriptRoot.validatedBytes,
@@ -463,8 +537,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                                 expectedInputCount:
                                     transcript.transaction.inputs.count
                             )
-                        )
-                    )
+                    readyBCHSignatureSet = signatureSet
+                    effects.append(.bchSignatureSetReady(signatureSet))
                 } catch {
                     return terminate(
                         with: .failed(.bchSignatureSetConstructionFailed)
@@ -698,6 +772,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return .profileOnly
             case (.transcriptAgreement, .preSignAcknowledgementSet):
                 return .preSignAcknowledgementSet(roster: roster)
+            case (.bchSigning, .bchSignatureSet):
+                guard let transcript else {
+                    throw ContractError.aggregateDecodingContextMismatch(kind)
+                }
+                return .bchSignatureSet(
+                    expectedInputCount: transcript.transaction.inputs.count
+                )
+            case (.bchSigning, .completeTransaction):
+                guard let transcript else {
+                    throw ContractError.aggregateDecodingContextMismatch(kind)
+                }
+                return .completeTransaction(expectedTranscript: transcript)
             default:
                 throw ContractError.aggregateDecodingContextMismatch(kind)
             }
@@ -749,8 +835,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return receiveComponentSet(componentSet)
             case let .preSignAcknowledgementSet(acknowledgementSet):
                 return receivePreSignAcknowledgementSet(acknowledgementSet)
-            case .bchSignatureSet, .completeTransaction:
-                return terminate(with: .failed(.bchSigningAdmissionUnavailable))
+            case let .bchSignatureSet(signatureSet):
+                return receiveBCHSignatureSet(signatureSet)
+            case let .completeTransaction(payload):
+                return receiveCompleteTransaction(payload)
             }
         }
 
@@ -1060,6 +1148,70 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             acknowledgementSet = set
             return [.preSignAcknowledgementSetAdmitted(set)]
+        }
+
+        private mutating func receiveBCHSignatureSet(
+            _ signatureSet: BCHSignatureSet
+        ) -> [Effect] {
+            guard admittedBCHSignatureSet == nil else {
+                return terminate(
+                    with: .failed(.conflictingDocument(.bchSignatureSet))
+                )
+            }
+            guard let transcript,
+                  signatureSet.roundIdentifier == roundIdentifier,
+                  signatureSet.transcriptRoot
+                    == transcript.transcriptRoot.validatedBytes else {
+                return terminate(
+                    with: .failed(.bchSignatureSetDoesNotMatchAnonymousAdmissions)
+                )
+            }
+            if localRole == .conductor {
+                guard readyBCHSignatureSet == signatureSet else {
+                    return terminate(
+                        with: .failed(
+                            .bchSignatureSetDoesNotMatchAnonymousAdmissions
+                        )
+                    )
+                }
+            }
+            admittedBCHSignatureSet = signatureSet
+            return [.bchSignatureSetAdmitted(signatureSet)]
+        }
+
+        private mutating func receiveCompleteTransaction(
+            _ payload: CompleteTransactionPayload
+        ) -> [Effect] {
+            guard completeTransactionCandidate == nil else {
+                return terminate(
+                    with: .failed(.conflictingDocument(.completeTransaction))
+                )
+            }
+            guard let transcript, let admittedBCHSignatureSet else {
+                return terminate(
+                    with: .failed(.completeTransactionPrerequisiteMissing)
+                )
+            }
+            let candidate: CompleteTransactionCandidate
+            do {
+                candidate = try .init(
+                    attemptIdentifier: attemptIdentifier,
+                    generationIdentifier: generationIdentifier,
+                    materialIdentifier: materialIdentifier,
+                    transcript: transcript,
+                    signatureSet: admittedBCHSignatureSet,
+                    payload: payload
+                )
+            } catch {
+                return terminate(
+                    with: .failed(.completeTransactionSignatureSetMismatch)
+                )
+            }
+            completeTransactionCandidate = candidate
+            return [
+                .completeTransactionAdmitted(payload),
+                .completeTransactionValidationRequired(candidate),
+            ]
         }
 
         private func phaseAdvancePrerequisiteIsSatisfied(

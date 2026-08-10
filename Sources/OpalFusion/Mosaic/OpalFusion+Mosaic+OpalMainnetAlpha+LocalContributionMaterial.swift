@@ -374,6 +374,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 }
             }
         }
+
+        func validateCommitmentInclusion(
+            in commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet
+        ) throws(ValidationError) {
+            for slot in slots {
+                guard commitmentSet.commitments.filter({
+                    $0 == slot.commitment
+                }).count == 1 else {
+                    throw .commitmentMissing(slot: slot.slot)
+                }
+            }
+        }
     }
 }
 
@@ -415,6 +427,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.LocalContributionMaterial:
               transcript.manifest == manifest.binding else {
             throw ValidationError.bindingMismatch
         }
+        try validateCommitmentInclusion(in: transcript.commitmentSet)
         let setup = try OpalCrypto.Pedersen.Setup()
         for slot in slots {
             let expectedSaltCommitment = try OpalFusion.Mosaic.OpalMainnetAlpha
@@ -443,11 +456,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.LocalContributionMaterial:
                       nonce: slot.pedersenNonce
                   ) else {
                 throw ValidationError.componentOpeningMismatch(slot: slot.slot)
-            }
-            guard transcript.commitmentSet.commitments.filter({
-                $0 == slot.commitment
-            }).count == 1 else {
-                throw ValidationError.commitmentMissing(slot: slot.slot)
             }
             guard transcript.componentSet.components.filter({
                 $0 == slot.component
