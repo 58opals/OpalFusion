@@ -94,6 +94,15 @@ enum MosaicMainnetAlphaFixtures {
         return evaluator
     }
 
+    static func requireAuthorizationEvaluators() throws {
+        // Acquire both real, purpose-separated fixtures during suite setup.
+        // Some suites perform several minutes of deterministic work before
+        // their first blind-authorization assertion, and Security.framework
+        // can transiently decline deferred RSA generation in a loaded host.
+        _ = try authorizationEvaluator()
+        _ = try bchSignatureAuthorizationEvaluator()
+    }
+
     private static func generateAuthorizationEvaluator()
         -> OpalV0.AuthorizationEvaluator? {
         authorizationEvaluatorGenerationLock.lock()

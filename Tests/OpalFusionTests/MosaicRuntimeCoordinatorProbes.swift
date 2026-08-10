@@ -103,6 +103,7 @@ actor MosaicRuntimeCoordinatorHostProbe:
     let finalizedTransaction: OpalFusion.Host.FinalizedTransaction
     let reserveSuspension: MosaicRuntimeCoordinatorSuspensionProbe?
     let signingSuspension: MosaicRuntimeCoordinatorSuspensionProbe?
+    let completeCommitSuspension: MosaicRuntimeCoordinatorSuspensionProbe?
 
     private var shouldFailReservation = false
     private var shouldFailCompleteCommit = false
@@ -126,12 +127,14 @@ actor MosaicRuntimeCoordinatorHostProbe:
         lease: OpalFusion.Host.MosaicReservationLease,
         finalizedTransaction: OpalFusion.Host.FinalizedTransaction,
         reserveSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
-        signingSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil
+        signingSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
+        completeCommitSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil
     ) {
         self.lease = lease
         self.finalizedTransaction = finalizedTransaction
         self.reserveSuspension = reserveSuspension
         self.signingSuspension = signingSuspension
+        self.completeCommitSuspension = completeCommitSuspension
     }
 
     func failCompleteCommit() {
@@ -185,6 +188,7 @@ actor MosaicRuntimeCoordinatorHostProbe:
         _ reservationReference: OpalFusion.Host.MosaicReservationReference,
         completeTransaction: OpalFusion.Host.MosaicCompleteTransaction
     ) async throws {
+        await completeCommitSuspension?.suspendIfArmed()
         guard !shouldFailCompleteCommit else {
             throw ProbeFailure.completeCommit
         }

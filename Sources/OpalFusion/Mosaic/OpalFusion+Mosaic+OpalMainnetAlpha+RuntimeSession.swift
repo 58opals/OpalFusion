@@ -6,8 +6,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// This reducer translates only typed documents admitted by `AdmissionLedger`. A contributor's
     /// wallet-reservation phase cannot advance until an external material owner seals the exact
     /// reservation reference and published `PlayerCommit` to this attempt, generation, and material
-    /// identity. The mainnet-alpha runtime driver remains disabled until ordered wallet execution,
-    /// recovery, and transport composition are complete.
+    /// identity. The internal post-manifest role façade can route already-authenticated deliveries
+    /// into this reducer, while the generic transport-facing runtime driver remains disabled until
+    /// durable recovery and production transport composition are complete.
     struct RuntimeSession: Sendable {
         private struct LocalAttemptPhaseTransitionValidator:
             AdmissionLedger.PhaseTransitionValidating

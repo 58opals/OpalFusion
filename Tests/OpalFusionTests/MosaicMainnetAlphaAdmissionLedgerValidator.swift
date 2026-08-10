@@ -11,6 +11,10 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Ledger = Alpha.AdmissionLedger
 
+    init() throws {
+        try MosaicMainnetAlphaFixtures.requireAuthorizationEvaluators()
+    }
+
     @Test("Derive a zero sequence epoch and require a local roster member")
     func validateInitialization() throws {
         let conductorHarness = try Fixture.makeHarness(localRole: .conductor)

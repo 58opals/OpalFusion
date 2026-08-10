@@ -10,6 +10,10 @@ struct MosaicOpalV0AuthorizationValidator {
     typealias Attempt = OpalFusion.Mosaic.Attempt
     typealias Ledger = OpalFusion.Mosaic.OpalV0.AuthorizationIssuanceLedger
 
+    init() throws {
+        try MosaicMainnetAlphaFixtures.requireAuthorizationEvaluators()
+    }
+
     @Test("Wait for every contributor's 23 requests before evaluation")
     func waitForCompleteRequestSet() throws {
         let roster = try makeRoster()

@@ -4,11 +4,13 @@ This guide separates fast deterministic package checks from slow live CashFusion
 
 ## Default Local Loop
 
-Run the full deterministic local suite for normal repo work:
+Run the full deterministic local suite for normal repo work through the repository wrapper. It keeps the Security.framework-backed Mosaic authorization suites in one serialized process while leaving the remaining deterministic tests in the normal pool:
 
 ```bash
-swift test
+./scripts/run-validation-loop.sh all
 ```
+
+Use `swift test --filter <suite>` for focused work. An unrestricted raw `swift test` can exhaust transient RSA key generation when all cryptographic suites start together and is not the full-suite validation lane.
 
 Run a build-only check when you only need package compilation:
 
@@ -38,9 +40,9 @@ The local suite covers the protocol-neutral facade invariants, native protobuf p
 
 ## Coverage Boundary
 
-Passing `swift test` or `./scripts/run-validation-loop.sh all` means the deterministic package checks passed. It does not prove complete OpalFusion capability, complete Electron Cash compatibility, successful operation against a real coordinator, or any live Mosaic support.
+Passing `./scripts/run-validation-loop.sh all` means the deterministic package checks passed. It does not prove complete OpalFusion capability, complete Electron Cash compatibility, successful operation against a real coordinator, or any live Mosaic support.
 
-Mainnet-alpha.4 validation pins the profile and alpha.3 rejection; exact 138/161/184 capacity; 6–8-contributor overhead shares; salt commitment, salted-component, component-binding, purpose-separated authorization input, spent identifier, 417-byte token, 550-byte BCH-signature submission, PlayerCommit, dual-vector response-set, acknowledgement-set, transcript, signature-set, and complete-transaction vectors; exact 23-slot material with zero blanks and 24-member rejection; P2PKH input checks; Pedersen openings and grouped sums; and one structurally valid globally balanced off-commitment component. Admission-ledger tests cover attempt/generation/material routing, sender-global control replay, complete PlayerCommit and response barriers, real material-derived tokens crossing both anonymous gates, component sequence zero, signature sequence one, raw wrong-purpose rejection, same-x/opposite-parity aggregate rejection, published communication-key rejection, exact-duplicate precedence, semantic-rejection non-consumption, mailbox/sender/token/input conflicts, incomplete/extra signatures, shuffled complete-set determinism, terminal absorption, and in-place retry rejection. Runtime-session tests consume the exact acknowledgement set, signature set, complete payload, and candidate-bound completion validation. Resolver, signing-request, local-signature, assembler, and contributor-executor suites prove deterministic previous-output-backed all-input validation, exact host finalization and commit, pre-sign release, and post-sign recovery ordering. The conductor-coordinator suite proves the six-contributor post-manifest path through 276 blind evaluations, 138 admitted components, complete acknowledgements, all-input signature validation, exact assembly, and candidate-bound completion without wallet, network, or broadcast calls.
+Mainnet-alpha.4 validation pins the profile and alpha.3 rejection; exact 138/161/184 capacity; 6–8-contributor overhead shares; salt commitment, salted-component, component-binding, purpose-separated authorization input, spent identifier, 417-byte token, 550-byte BCH-signature submission, PlayerCommit, dual-vector response-set, acknowledgement-set, transcript, signature-set, and complete-transaction vectors; exact 23-slot material with zero blanks and 24-member rejection; P2PKH input checks; Pedersen openings and grouped sums; and one structurally valid globally balanced off-commitment component. Admission-ledger tests cover attempt/generation/material routing, sender-global control replay, complete PlayerCommit and response barriers, real material-derived tokens crossing both anonymous gates, component sequence zero, signature sequence one, raw wrong-purpose rejection, same-x/opposite-parity aggregate rejection, published communication-key rejection, exact-duplicate precedence, semantic-rejection non-consumption, mailbox/sender/token/input conflicts, incomplete/extra signatures, shuffled complete-set determinism, terminal absorption, and in-place retry rejection. Runtime-session tests consume the exact acknowledgement set, signature set, complete payload, and candidate-bound completion validation. Resolver, signing-request, local-signature, assembler, and contributor-executor suites prove deterministic previous-output-backed all-input validation, exact host finalization and commit, pre-sign release, and post-sign recovery ordering. The conductor-coordinator suite proves the six-contributor post-manifest path through 276 blind evaluations, 138 admitted components, complete acknowledgements, all-input signature validation, exact assembly, and candidate-bound completion without wallet, network, or broadcast calls. Combined post-manifest driver and coordinator suites prove exact role selection, construction failure, bounded queues, causal effect draining, control and anonymous forwarding, contributor authority denial, one-shot lifecycle, source-loss ordering, and terminal state projection without adding a transport or public session.
 
 The transcript-binding contract supports Opal v0 and mainnet-alpha, while `RuntimeSessionDriver` supports only Opal v0 and rejects draft and mainnet-alpha. Passing these suites does not prove production stateful ownership of live reservation material, cross-attempt secret freshness or erasure, app-authoritative previous-output and host composition, mailbox or Tor transport, durable crash recovery, independent protocol/privacy review, app broadcast approval, or live mainnet execution. The accepted alpha.4 off-commitment vector is evidence of a documented accountability limitation, not a privacy or membership guarantee.
 
@@ -71,6 +73,7 @@ swift test --filter MosaicRuntimeSessionValidator
 swift test --filter MosaicRuntimeSessionDriverValidator
 swift test --filter MosaicRuntimeCoordinatorValidator
 swift test --filter MosaicMainnetAlphaReservationCoordinatorValidator
+swift test --filter MosaicMainnetAlphaPostManifestRuntimeDriverValidator
 swift test --filter MosaicMainnetAlphaSigningRequestBuilderValidator
 swift test --filter MosaicPreviousOutputContractValidator
 swift test --filter MosaicSemanticValidator
@@ -122,7 +125,7 @@ Use capture only after a configured live smoke actually executes and passes the 
 
 ## Acceptance For Docs And Protocol Changes
 
-- Run `swift test` after changes that touch examples, public API references, protocol behavior, or validation docs.
+- Run `./scripts/run-validation-loop.sh all` after changes that touch examples, public API references, protocol behavior, or validation docs.
 - Run the most relevant focused filter first when changing a narrow layer.
 - Run live smoke only when the goal is coordinator-backed proof and the environment is configured.
 - Update [Opal Fusion Specification](opal-fusion-specification.md), [Mosaic Protocol Specification](mosaic-protocol-specification.md), and [Mosaic Security Model](mosaic-security-model.md) together when shared boundaries or Mosaic invariants change.

@@ -12,6 +12,10 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
     typealias ExecutionFixture = MosaicMainnetAlphaExecutionFixtures
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
 
+    init() throws {
+        try MosaicMainnetAlphaFixtures.requireAuthorizationEvaluators()
+    }
+
     private actor PublicationProbe {
         struct Waiter {
             let kind: Coordinator.PublicationKind
@@ -531,14 +535,22 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
         .timeLimit(.minutes(4))
     )
     func failAuthorizationResponsePublication() async throws {
+        let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        await suspension.arm()
         let publications = PublicationProbe(
-            failingKind: .authorizationResponseSet
+            failingKind: .authorizationResponseSet,
+            suspendingKind: .authorizationResponseSet,
+            suspension: suspension
         )
         let harness = try makeAuthorizationHarness(
             publications: publications
         )
         await harness.coordinator.start()
         _ = try await driveToAuthorizationResponses(harness)
+        await suspension.waitUntilSuspended()
+        #expect(await harness.coordinator.inputSourceDidTerminate(.failed))
+        await harness.coordinator.stop()
+        await suspension.resume()
         await harness.coordinator.waitForTermination()
 
         #expect(
@@ -1020,7 +1032,7 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
                         .encodeAnonymousComponent(payload)
                 )
                 let accepted = await harness.coordinator
-                    .submitAnonymousComponent(
+                    .submitAnonymous(
                         .init(
                             attemptIdentifier:
                                 harness.admission.attemptIdentifier,
@@ -1172,7 +1184,7 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
                     .encodeBCHSignatureSubmission(submission)
             )
             #expect(
-                await harness.coordinator.submitAnonymousBCHSignature(
+                await harness.coordinator.submitAnonymous(
                     .init(
                         attemptIdentifier: harness.admission.attemptIdentifier,
                         generationIdentifier:

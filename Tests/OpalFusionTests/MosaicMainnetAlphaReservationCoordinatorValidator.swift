@@ -16,6 +16,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         enum Signal: CaseIterable, Hashable, Sendable {
             case publicationStarted
             case validationAccepted
+            case queuedPlayerCommitAdmitted
         }
 
         private let counts = Mutex<[Signal: Int]>([:])
@@ -109,11 +110,6 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         let harness = try makeHarness()
         await harness.coordinator.start()
 
-        #expect(
-            await harness.coordinator.submit(
-                .reservationPublicationValidated(harness.externalValidation)
-            ) == false
-        )
         try await submitManifest(harness)
         await harness.signals.wait(for: .validationAccepted)
 
@@ -289,6 +285,81 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     }
 
     @Test(
+        "Ordered source loss waits for publication and releases before failure",
+        .timeLimit(.minutes(1))
+    )
+    func preserveSourceLossDuringPublication() async throws {
+        let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        await suspension.arm()
+        let harness = try makeHarness(publicationSuspension: suspension)
+        await harness.coordinator.start()
+        try await submitManifest(harness)
+        await suspension.waitUntilSuspended()
+
+        let playerCommitRun = try Fixture.aggregateRun(
+            canonicalBytes: harness.playerCommit.canonicalBytes,
+            kind: .playerCommit,
+            sender: harness.admission.localControlIdentity,
+            phase: .walletReservation,
+            sequence: 0,
+            harness: harness.admission
+        )
+        #expect(await harness.coordinator.submitControl(playerCommitRun.reservation))
+        for fragment in playerCommitRun.fragments {
+            #expect(await harness.coordinator.submitControl(fragment))
+        }
+        #expect(await harness.coordinator.inputSourceDidTerminate(.failed))
+        await harness.coordinator.stop()
+        #expect(await harness.host.releasedReferences.isEmpty)
+        await suspension.resume()
+        await harness.coordinator.waitForTermination()
+
+        #expect(harness.signals.count(.publicationStarted) == 1)
+        #expect(harness.signals.count(.validationAccepted) == 1)
+        #expect(harness.signals.count(.queuedPlayerCommitAdmitted) == 1)
+        #expect(
+            await harness.host.releasedReferences
+                == [harness.lease.reference]
+        )
+        #expect(
+            await harness.coordinator.state
+                == .terminal(.failed(.inputSourceTerminated(.failed)))
+        )
+    }
+
+    @Test(
+        "A bounded authenticated-input overflow releases the reserved lease",
+        .timeLimit(.minutes(1))
+    )
+    func failOnInputBufferOverflow() async throws {
+        let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        await suspension.arm()
+        let harness = try makeHarness(
+            publicationSuspension: suspension,
+            maximumPendingInputCount: 64
+        )
+        await harness.coordinator.start()
+        try await submitManifest(harness)
+        await suspension.waitUntilSuspended()
+
+        for _ in 0 ..< 64 {
+            #expect(await harness.coordinator.requestRetry())
+        }
+        #expect(!(await harness.coordinator.requestRetry()))
+        await suspension.resume()
+        await harness.coordinator.waitForTermination()
+
+        #expect(
+            await harness.host.releasedReferences
+                == [harness.lease.reference]
+        )
+        #expect(
+            await harness.coordinator.state
+                == .terminal(.failed(.inputBufferOverflow))
+        )
+    }
+
+    @Test(
         "Reject every substituted coordinator-bound reservation request term",
         arguments: ReservationRequestSubstitution.allCases
     )
@@ -336,9 +407,18 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         .timeLimit(.minutes(1))
     )
     func releaseAfterPublicationFailure() async throws {
-        let harness = try makeHarness(failPublication: true)
+        let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        await suspension.arm()
+        let harness = try makeHarness(
+            publicationSuspension: suspension,
+            failPublication: true
+        )
         await harness.coordinator.start()
         try await submitManifest(harness)
+        await suspension.waitUntilSuspended()
+        #expect(await harness.coordinator.inputSourceDidTerminate(.failed))
+        await harness.coordinator.stop()
+        await suspension.resume()
         await harness.coordinator.waitForTermination()
 
         #expect(
@@ -363,7 +443,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         try await submitManifest(harness)
         await harness.signals.wait(for: .validationAccepted)
 
-        #expect(await harness.coordinator.submit(.retryRequested))
+        #expect(await harness.coordinator.requestRetry())
         await harness.coordinator.waitForTermination()
 
         #expect(
@@ -503,7 +583,8 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         publicationLeaseSubstitution: PublicationLeaseSubstitution? = nil,
         reservationRequestSubstitution: ReservationRequestSubstitution? = nil,
         hostLeaseExpirationOffset: TimeInterval = 0,
-        failPublication: Bool = false
+        failPublication: Bool = false,
+        maximumPendingInputCount: Int = 256
     ) throws -> Harness {
         let admission = try Fixture.makeHarness(localRole: .contributor)
         let materialIdentifier = Session.MaterialIdentifier(
@@ -568,6 +649,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             runtimeSession: session,
             dependencies: .init(
                 transactionHost: host,
+                maximumPendingInputCount: maximumPendingInputCount,
                 expectedReservationExpiration: expectedExpiration,
                 makeReservationRequest: { eligibility in
                     try makeReservationRequest(
@@ -605,10 +687,14 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
                     )
                 },
                 runtimeEffectObserver: { effect in
-                    guard case .reservationPublicationAccepted = effect else {
-                        return
+                    switch effect {
+                    case .reservationPublicationAccepted:
+                        signals.record(.validationAccepted)
+                    case .admission(.playerCommitAdmitted):
+                        signals.record(.queuedPlayerCommitAdmitted)
+                    default:
+                        break
                     }
-                    signals.record(.validationAccepted)
                 }
             )
         )
@@ -675,9 +761,9 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             sequence: 0,
             harness: harness.admission
         )
-        #expect(await harness.coordinator.submit(.control(run.reservation)))
+        #expect(await harness.coordinator.submitControl(run.reservation))
         for fragment in run.fragments {
-            #expect(await harness.coordinator.submit(.control(fragment)))
+            #expect(await harness.coordinator.submitControl(fragment))
         }
     }
 

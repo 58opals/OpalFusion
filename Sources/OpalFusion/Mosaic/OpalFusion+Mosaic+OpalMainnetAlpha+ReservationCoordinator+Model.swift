@@ -13,6 +13,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
     struct Dependencies: Sendable {
         struct ReservationOnly: Sendable {
             let transactionHost: any OpalFusion.Host.MosaicTransactionHost
+            /// Must return after publication acknowledgement without awaiting semantic loopback or
+            /// synchronously calling back into the coordinator.
             let validateAndPublishReservedContribution: @Sendable (
                 ReservationEligibility,
                 OpalFusion.Host.MosaicReservationLease
@@ -25,6 +27,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
         }
 
         let mode: Mode
+        let maximumPendingInputCount: Int
         /// Caller-owned exact expiry until the profile freezes its manifest-deadline mapping.
         let expectedReservationExpiration: Date
         let makeReservationRequest: @Sendable (
@@ -37,6 +40,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
         let runtimeEffectObserver: @Sendable (Session.Effect) -> Void
         init(
             transactionHost: any OpalFusion.Host.MosaicTransactionHost,
+            maximumPendingInputCount: Int = 256,
             expectedReservationExpiration: Date,
             makeReservationRequest: @escaping @Sendable (
                 ReservationEligibility
@@ -54,6 +58,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
                         validateAndPublishReservedContribution
                 )
             )
+            self.maximumPendingInputCount = maximumPendingInputCount
             self.expectedReservationExpiration = expectedReservationExpiration
             self.makeReservationRequest = makeReservationRequest
             self.runtimeEffectObserver = runtimeEffectObserver
@@ -61,6 +66,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
 
         init(
             execution: ExecutionDependencies,
+            maximumPendingInputCount: Int = 256,
             expectedReservationExpiration: Date,
             makeReservationRequest: @escaping @Sendable (
                 ReservationEligibility
@@ -70,6 +76,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
             ) -> Void = { _ in }
         ) {
             mode = .contributorExecution(execution)
+            self.maximumPendingInputCount = maximumPendingInputCount
             self.expectedReservationExpiration = expectedReservationExpiration
             self.makeReservationRequest = makeReservationRequest
             self.runtimeEffectObserver = runtimeEffectObserver
@@ -114,6 +121,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
             OpalFusion.Host.MosaicReservationLease
         ) async throws -> OpalFusion.Mosaic.OpalMainnetAlpha
             .LocalContributionMaterial
+        /// Publication callbacks must return after transport acknowledgement. They must not await
+        /// semantic loopback admission or synchronously call back into the coordinator.
         let publishPlayerCommit: @Sendable (
             OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommit
         ) async throws -> Void
@@ -164,9 +173,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
     }
 
     enum InitializationError: Error, Sendable, Equatable {
+        case invalidInputBufferLimit
         case runtimeSessionNotFresh
         case localPeerIsNotContributor
     }
+
+    typealias InputSourceTermination = OpalFusion.Mosaic.OpalMainnetAlpha
+        .InputSourceTermination
 
     enum State: Sendable, Equatable {
         case idle
@@ -183,6 +196,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
     }
 
     enum Failure: Error, Sendable, Equatable {
+        case inputBufferOverflow
+        case inputSourceTerminated(InputSourceTermination)
         case missingManifest
         case effectContextMismatch
         case duplicateReservationEligibility

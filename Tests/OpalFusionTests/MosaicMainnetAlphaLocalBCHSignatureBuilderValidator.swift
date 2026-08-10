@@ -8,6 +8,10 @@ struct MosaicMainnetAlphaLocalBCHSignatureBuilderValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Fixture = MosaicMainnetAlphaExecutionFixtures
 
+    init() throws {
+        try MosaicMainnetAlphaFixtures.requireAuthorizationEvaluators()
+    }
+
     enum FinalizedSubstitution: CaseIterable, Sendable {
         case localInputUnsigned
         case nonLocalInputSigned

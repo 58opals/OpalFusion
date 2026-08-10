@@ -61,6 +61,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var transcript: OpalFusion.Mosaic.OpalV0
             .UnsignedTransactionTranscript?
         private var previousOutputValidation: PreviousOutputResolver.Validation?
+        private var queuedInputSourceTermination: InputSourceTermination?
         private var pendingFailure: Failure?
 
         private(set) var state: State = .idle
@@ -113,20 +114,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             enqueue(.control(delivery))
         }
 
-        /// Queues one already-authenticated component-mailbox delivery.
+        /// Queues one already-authenticated anonymous delivery by its envelope payload type.
         @discardableResult
-        func submitAnonymousComponent(
+        func submitAnonymous(
             _ delivery: Ledger.AnonymousDelivery
         ) -> Bool {
-            enqueue(.anonymousComponent(delivery))
-        }
-
-        /// Queues one already-authenticated BCH-signature mailbox delivery.
-        @discardableResult
-        func submitAnonymousBCHSignature(
-            _ delivery: Ledger.AnonymousDelivery
-        ) -> Bool {
-            enqueue(.anonymousBCHSignature(delivery))
+            switch delivery.envelope.payloadType {
+            case .anonymousComponent:
+                enqueue(.anonymousComponent(delivery))
+            case .bchSignatureSubmission:
+                enqueue(.anonymousBCHSignature(delivery))
+            }
         }
 
         /// Rejects an in-place retry through the paired runtime.
@@ -137,27 +135,35 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         /// Requests cancellation without cancelling an in-flight publication or resolver call.
         func stop() {
+            guard queuedInputSourceTermination == nil else {
+                return
+            }
             beginStopping()
         }
 
         /// Reports unexpected loss of the authenticated input source.
-        func inputSourceDidTerminate(_ termination: InputSourceTermination) {
+        @discardableResult
+        func inputSourceDidTerminate(
+            _ termination: InputSourceTermination
+        ) -> Bool {
             guard state == .running else {
-                return
+                return false
             }
             switch inputContinuation.yield(.inputSourceTerminated(termination)) {
             case .enqueued:
-                pendingFailure = pendingFailure
-                    ?? .inputSourceTerminated(termination)
+                queuedInputSourceTermination = termination
                 inputContinuation.finish()
+                return true
             case .dropped:
-                pendingFailure = .inputBufferOverflow
+                pendingFailure = pendingFailure ?? .inputBufferOverflow
                 beginStopping()
+                return false
             case .terminated:
-                break
+                return false
             @unknown default:
-                pendingFailure = .inputBufferOverflow
+                pendingFailure = pendingFailure ?? .inputBufferOverflow
                 beginStopping()
+                return false
             }
         }
 
@@ -175,13 +181,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case .enqueued:
                 return true
             case .dropped:
-                pendingFailure = .inputBufferOverflow
+                pendingFailure = pendingFailure ?? .inputBufferOverflow
                 beginStopping()
                 return false
             case .terminated:
                 return false
             @unknown default:
-                pendingFailure = .inputBufferOverflow
+                pendingFailure = pendingFailure ?? .inputBufferOverflow
                 beginStopping()
                 return false
             }
@@ -231,6 +237,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     )
                 )
             case let .inputSourceTerminated(termination):
+                queuedInputSourceTermination = nil
                 pendingFailure = pendingFailure
                     ?? .inputSourceTerminated(termination)
                 beginStopping()

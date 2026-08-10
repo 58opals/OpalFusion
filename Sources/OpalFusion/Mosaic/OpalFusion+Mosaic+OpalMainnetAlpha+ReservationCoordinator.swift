@@ -8,14 +8,24 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// owns attempt-fresh material, transcript inclusion, BCH signing, and exact commit ordering.
     /// Durable recovery and broadcast remain external.
     actor ReservationCoordinator {
+        private enum QueuedInput: Sendable {
+            case runtime(RuntimeSession.Input)
+            case inputSourceTerminated(InputSourceTermination)
+        }
+
         private let context: RuntimeSession.Context
         private let dependencies: Dependencies
+        private let inputStream: AsyncStream<QueuedInput>
+        private let inputContinuation: AsyncStream<QueuedInput>.Continuation
         private let effectStream: AsyncStream<RuntimeSession.Effect>
         private let effectContinuation: AsyncStream<RuntimeSession.Effect>.Continuation
         private let dispositionGate: MosaicRuntimeCoordinatorDispositionGate
 
         private var runtimeSession: RuntimeSession
+        private var inputConsumerTask: Task<Void, Never>?
         private var effectConsumerTask: Task<Void, Never>?
+        private var pendingEffectCount = 0
+        private var effectDrainWaiters: [CheckedContinuation<Void, Never>] = []
         private var admittedManifest: RoundManifest?
         private var localContributionMaterial: LocalContributionMaterial?
         private var authorizationResponseValidation:
@@ -27,6 +37,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var admittedAcknowledgementSet: PreSignAcknowledgementSet?
         private var previousOutputValidation: PreviousOutputResolver.Validation?
         private var completeTransactionValidation: CompleteTransactionValidation?
+        private var queuedInputSourceTermination: InputSourceTermination?
         private var pendingFailure: Failure?
         private var pendingRecovery: Recovery?
 
@@ -41,6 +52,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             runtimeSession: RuntimeSession,
             dependencies: Dependencies
         ) throws(InitializationError) {
+            guard dependencies.maximumPendingInputCount > 0 else {
+                throw .invalidInputBufferLimit
+            }
             let context = runtimeSession.context
             guard runtimeSession.state == .active(.manifestAgreement) else {
                 throw .runtimeSessionNotFresh
@@ -48,12 +62,21 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard context.localRole == .contributor else {
                 throw .localPeerIsNotContributor
             }
+            let (inputStream, inputContinuation) = AsyncStream<
+                QueuedInput
+            >.makeStream(
+                bufferingPolicy: .bufferingOldest(
+                    dependencies.maximumPendingInputCount
+                )
+            )
             let (effectStream, effectContinuation) = AsyncStream<
                 RuntimeSession.Effect
             >.makeStream()
             self.context = context
             self.dependencies = dependencies
             self.runtimeSession = runtimeSession
+            self.inputStream = inputStream
+            self.inputContinuation = inputContinuation
             self.effectStream = effectStream
             self.effectContinuation = effectContinuation
             dispositionGate = MosaicRuntimeCoordinatorDispositionGate()
@@ -65,46 +88,93 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return
             }
             state = .running
+            inputConsumerTask = Task { [weak self] in
+                await self?.consumeInputs()
+            }
             effectConsumerTask = Task { [weak self] in
                 await self?.consumeEffects()
             }
         }
 
-        /// Submits one already-authenticated runtime input.
-        ///
-        /// Local authority validations are accepted only from coordinator-owned host and material
-        /// paths and cannot be injected through this method.
+        /// Queues one already-authenticated control delivery.
         @discardableResult
-        func submit(_ input: RuntimeSession.Input) -> Bool {
-            guard state == .running else {
+        func submitControl(_ delivery: AdmissionLedger.ControlDelivery) -> Bool {
+            enqueue(.runtime(.control(delivery)))
+        }
+
+        /// Rejects an in-place retry through the paired runtime.
+        @discardableResult
+        func requestRetry() -> Bool {
+            enqueue(.runtime(.retryRequested))
+        }
+
+        /// Queues authenticated-source closure behind every previously accepted runtime input.
+        @discardableResult
+        func inputSourceDidTerminate(
+            _ termination: InputSourceTermination
+        ) -> Bool {
+            guard enqueue(.inputSourceTerminated(termination)) else {
                 return false
             }
-            switch input {
-            case .authorizationResponseSetValidated,
-                 .reservationPublicationValidated,
-                 .transcriptInclusionValidated,
-                 .completeTransactionValidated,
-                 .completeTransactionValidationFailed:
-                return false
-            default:
-                applyAndEnqueue(input)
-                return true
-            }
+            queuedInputSourceTermination = termination
+            inputContinuation.finish()
+            return true
         }
 
         /// Requests cancellation without cancelling an in-flight selected-mode dependency call.
         func stop() {
-            guard state == .running else {
+            guard state == .running,
+                  queuedInputSourceTermination == nil else {
                 return
             }
             state = .stopping
+            inputContinuation.finish()
             applyAndEnqueue(.cancel)
         }
 
         /// Waits until the paired runtime has terminated and reservation disposition has drained.
         func waitForTermination() async {
+            let inputConsumerTask = inputConsumerTask
             let effectConsumerTask = effectConsumerTask
+            await inputConsumerTask?.value
             await effectConsumerTask?.value
+        }
+
+        private func enqueue(_ input: QueuedInput) -> Bool {
+            guard state == .running else {
+                return false
+            }
+            switch inputContinuation.yield(input) {
+            case .enqueued:
+                return true
+            case .dropped:
+                failAndStop(.inputBufferOverflow)
+                return false
+            case .terminated:
+                return false
+            @unknown default:
+                failAndStop(.inputBufferOverflow)
+                return false
+            }
+        }
+
+        private func consumeInputs() async {
+            for await input in inputStream {
+                guard state == .running else {
+                    break
+                }
+                switch input {
+                case let .runtime(runtimeInput):
+                    applyAndEnqueue(runtimeInput)
+                case let .inputSourceTerminated(termination):
+                    queuedInputSourceTermination = nil
+                    pendingFailure = pendingFailure
+                        ?? .inputSourceTerminated(termination)
+                    state = .stopping
+                    applyAndEnqueue(.cancel)
+                }
+                await waitForEffectDrain()
+            }
         }
 
         @discardableResult
@@ -124,6 +194,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     dispositionGate.requestRelease()
                 }
                 dependencies.runtimeEffectObserver(effect)
+                pendingEffectCount += 1
                 effectContinuation.yield(effect)
             }
         }
@@ -131,6 +202,23 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private func consumeEffects() async {
             for await effect in effectStream {
                 await handle(effect)
+                pendingEffectCount -= 1
+                if pendingEffectCount == 0 {
+                    let waiters = effectDrainWaiters
+                    effectDrainWaiters.removeAll(keepingCapacity: true)
+                    for waiter in waiters {
+                        waiter.resume()
+                    }
+                }
+            }
+        }
+
+        private func waitForEffectDrain() async {
+            guard pendingEffectCount > 0 else {
+                return
+            }
+            await withCheckedContinuation { continuation in
+                effectDrainWaiters.append(continuation)
             }
         }
 
@@ -853,6 +941,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return
             }
             state = .stopping
+            inputContinuation.finish()
             applyAndEnqueue(.cancel)
         }
 
@@ -867,6 +956,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return
             }
             state = .stopping
+            inputContinuation.finish()
             applyAndEnqueue(.cancel)
         }
 
@@ -884,6 +974,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func finish(with outcome: RuntimeSession.Outcome) async {
+            inputContinuation.finish()
             if outcome == .completed {
                 if case .committed = reservationLifecycle {
                     state = .terminal(.completed)

@@ -10,6 +10,10 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
     typealias ExecutionFixture = MosaicMainnetAlphaExecutionFixtures
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
 
+    init() throws {
+        try MosaicMainnetAlphaFixtures.requireAuthorizationEvaluators()
+    }
+
     private actor PublicationProbe {
         enum Signal: CaseIterable, Hashable, Sendable {
             case playerCommitPublished
@@ -149,13 +153,21 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         .timeLimit(.minutes(3))
     )
     func executeThroughExactCommit() async throws {
-        let harness = try await makeHarness()
+        let commitSuspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        await commitSuspension.arm()
+        let harness = try await makeHarness(
+            completeCommitSuspension: commitSuspension
+        )
         await harness.coordinator.start()
         let nextSequence = try await driveThroughLocalSigning(harness)
         try await submitCompletionDocuments(
             harness,
             conductorSequence: nextSequence
         )
+        await commitSuspension.waitUntilSuspended()
+        #expect(await harness.coordinator.inputSourceDidTerminate(.finished))
+        await harness.coordinator.stop()
+        await commitSuspension.resume()
         await harness.coordinator.waitForTermination()
 
         #expect(await harness.coordinator.state == .terminal(.completed))
@@ -444,6 +456,7 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
 
     private func makeHarness(
         signingSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
+        completeCommitSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
         materialSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
         failPreviousOutputResolution: Bool = false,
         failLocalSignaturePublication: Bool = false
@@ -452,6 +465,7 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         return try makeHarness(
             prepared: prepared,
             signingSuspension: signingSuspension,
+            completeCommitSuspension: completeCommitSuspension,
             materialSuspension: materialSuspension,
             failPreviousOutputResolution: failPreviousOutputResolution,
             failLocalSignaturePublication: failLocalSignaturePublication
@@ -461,6 +475,7 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
     private func makeHarness(
         prepared: ExecutionFixture.Prepared,
         signingSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
+        completeCommitSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
         materialSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
         failPreviousOutputResolution: Bool = false,
         failLocalSignaturePublication: Bool = false
@@ -468,7 +483,8 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         let host = MosaicRuntimeCoordinatorHostProbe(
             lease: prepared.localMaterial.reservationLease,
             finalizedTransaction: prepared.localFinalizedTransaction,
-            signingSuspension: signingSuspension
+            signingSuspension: signingSuspension,
+            completeCommitSuspension: completeCommitSuspension
         )
         let probe = PublicationProbe()
         let groupedCommitmentProbe = GroupedCommitmentProbe()
@@ -743,11 +759,11 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         _ run: Fixture.AggregateRun,
         to coordinator: Coordinator
     ) async throws {
-        guard await coordinator.submit(.control(run.reservation)) else {
+        guard await coordinator.submitControl(run.reservation) else {
             throw ProbeFailure.inputRejected
         }
         for fragment in run.fragments {
-            guard await coordinator.submit(.control(fragment)) else {
+            guard await coordinator.submitControl(fragment) else {
                 throw ProbeFailure.inputRejected
             }
         }

@@ -12,6 +12,10 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias Session = Alpha.RuntimeSession
 
+    init() throws {
+        try MosaicMainnetAlphaFixtures.requireAuthorizationEvaluators()
+    }
+
     private struct Harness {
         let admission: Fixture.Harness
         let materialIdentifier: OpalFusion.Mosaic.LocalAttempt.MaterialIdentifier

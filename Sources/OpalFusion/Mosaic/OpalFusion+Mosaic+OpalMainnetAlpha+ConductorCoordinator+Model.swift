@@ -100,10 +100,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ConductorCoordinator {
         case cancelled(during: OpalFusion.Mosaic.Attempt.Phase)
     }
 
-    enum InputSourceTermination: Sendable, Equatable {
-        case finished
-        case failed
-    }
+    typealias InputSourceTermination = OpalFusion.Mosaic.OpalMainnetAlpha
+        .InputSourceTermination
 
     enum Failure: Error, Sendable, Equatable {
         case inputBufferOverflow

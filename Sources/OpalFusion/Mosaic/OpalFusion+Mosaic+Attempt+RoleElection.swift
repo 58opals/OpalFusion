@@ -238,8 +238,8 @@ extension OpalFusion.Mosaic.Attempt {
 
     /// A profile-owned dependency that validates commitments against reveals and derives the seed.
     ///
-    /// No production implementation exists until the selected profile freezes its role domains and
-    /// canonical sorted-pair document.
+    /// A selected profile can provide this only after freezing its role domains and canonical
+    /// sorted-pair document; mainnet-alpha does so without changing other profiles.
     protocol RoleSeedValidating: Sendable {
         func validateAndDeriveSeed(
             profile: OpalFusion.Mosaic.Profile,
