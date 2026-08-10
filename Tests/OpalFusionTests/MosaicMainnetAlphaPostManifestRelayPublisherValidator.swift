@@ -18,7 +18,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     }
 
     private struct ExactRelaySelectionValidator:
-        Publisher.RelaySelectionValidating
+        Alpha.PostManifestRelaySelectionValidating
     {
         let expectedRelaySetDigest: [UInt8]
         let expectedEndpoints: Set<Tracker.Endpoint>
@@ -35,7 +35,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     }
 
     private struct RejectingRelaySelectionValidator:
-        Publisher.RelaySelectionValidating
+        Alpha.PostManifestRelaySelectionValidating
     {
         func validateRelaySelection(
             manifestRelaySetDigest _: [UInt8],
@@ -57,10 +57,10 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     func requireExactRoutesAndLimits() async throws {
         let connections = makeConnections()
         #expect(
-            throws: Publisher.RelaySelectionValidation.ValidationError
+            throws: Alpha.PostManifestRelaySelectionValidation.ValidationError
                 .invalidRelaySetDigest(actual: 31)
         ) {
-            _ = try Publisher.RelaySelectionValidation(
+            _ = try Alpha.PostManifestRelaySelectionValidation(
                 manifestRelaySetDigest: Array(relaySetDigest.dropLast()),
                 endpoints: selectedEndpoints,
                 using: ExactRelaySelectionValidator(
@@ -70,29 +70,29 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
             )
         }
         #expect(
-            throws: Publisher.RelaySelectionValidation.ValidationError
+            throws: Alpha.PostManifestRelaySelectionValidation.ValidationError
                 .invalidRelayCount(actual: 2)
         ) {
-            _ = try Publisher.RelaySelectionValidation(
+            _ = try Alpha.PostManifestRelaySelectionValidation(
                 manifestRelaySetDigest: relaySetDigest,
                 endpoints: Array(selectedEndpoints.prefix(2)),
                 using: RejectingRelaySelectionValidator()
             )
         }
         #expect(
-            throws: Publisher.RelaySelectionValidation.ValidationError
+            throws: Alpha.PostManifestRelaySelectionValidation.ValidationError
                 .duplicateRelay(endpoint(1))
         ) {
-            _ = try Publisher.RelaySelectionValidation(
+            _ = try Alpha.PostManifestRelaySelectionValidation(
                 manifestRelaySetDigest: relaySetDigest,
                 endpoints: [endpoint(1), endpoint(2), endpoint(1)],
                 using: RejectingRelaySelectionValidator()
             )
         }
         #expect(
-            throws: Publisher.RelaySelectionValidation.ValidationError.rejected
+            throws: Alpha.PostManifestRelaySelectionValidation.ValidationError.rejected
         ) {
-            _ = try Publisher.RelaySelectionValidation(
+            _ = try Alpha.PostManifestRelaySelectionValidation(
                 manifestRelaySetDigest: relaySetDigest,
                 endpoints: selectedEndpoints,
                 using: RejectingRelaySelectionValidator()
@@ -543,7 +543,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     }
 
     private func makePublisher(
-        routes: [Publisher.Route]
+        routes: [Alpha.PostManifestRelayRoute]
     ) throws -> Publisher {
         try .init(
             routes: routes,
@@ -562,7 +562,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     }
 
     private func makeRelaySelectionValidation() throws
-        -> Publisher.RelaySelectionValidation
+        -> Alpha.PostManifestRelaySelectionValidation
     {
         try .init(
             manifestRelaySetDigest: relaySetDigest,
@@ -582,7 +582,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
 
     private func makeRoutes(
         _ connections: [ScriptedMosaicTorWebSocketConnection]
-    ) -> [Publisher.Route] {
+    ) -> [Alpha.PostManifestRelayRoute] {
         zip(1..., connections).map {
             .init(endpoint: endpoint($0.0), connection: $0.1)
         }

@@ -39,8 +39,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private(set) var state: State = .idle
 
         init(
-            routes: [Route],
-            relaySelection: RelaySelectionValidation,
+            routes: [PostManifestRelayRoute],
+            relaySelection: PostManifestRelaySelectionValidation,
             codingLimits: Nostr.RelayMessageCodingLimits,
             maximumPendingRelayOutputCount: Int
         ) throws(InitializationError) {

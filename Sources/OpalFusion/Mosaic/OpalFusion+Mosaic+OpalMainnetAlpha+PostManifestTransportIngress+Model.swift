@@ -36,6 +36,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestTransportIngress {
             self.capabilitiesByIdentity = capabilitiesByIdentity
         }
 
+        init(_ capability: Transport.RecipientCapability) {
+            capabilitiesByIdentity = [
+                capability.recipientEventIdentity: capability,
+            ]
+        }
+
         func capability(
             for recipientEventIdentity: Data
         ) -> Transport.RecipientCapability? {
