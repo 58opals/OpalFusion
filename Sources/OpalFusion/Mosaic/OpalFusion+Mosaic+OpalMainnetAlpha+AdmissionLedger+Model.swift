@@ -139,7 +139,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         let currentUnixSeconds: UInt64
     }
 
-    struct AnonymousComponentDelivery: Sendable, Equatable {
+    struct AnonymousDelivery: Sendable, Equatable {
         let attemptIdentifier: AttemptIdentifier
         let generationIdentifier: GenerationIdentifier
         let envelope: OpalFusion.Mosaic.OpalMainnetAlpha.AnonymousEnvelope

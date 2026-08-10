@@ -282,7 +282,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         mutating func receiveAnonymousComponent(
-            _ delivery: AnonymousComponentDelivery
+            _ delivery: AnonymousDelivery
         ) -> [Effect] {
             if case .terminal = state {
                 if isExactRecordedAnonymousDelivery(delivery) {
@@ -390,7 +390,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         mutating func receiveAnonymousBCHSignature<Validator>(
-            _ delivery: AnonymousComponentDelivery,
+            _ delivery: AnonymousDelivery,
             using validator: Validator
         ) -> [Effect] where Validator: AnonymousBCHSignatureAdmissionValidating {
             if case .terminal = state {
@@ -1274,7 +1274,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func isExactRecordedAnonymousDelivery(
-            _ delivery: AnonymousComponentDelivery
+            _ delivery: AnonymousDelivery
         ) -> Bool {
             delivery.attemptIdentifier == attemptIdentifier
                 && delivery.generationIdentifier == generationIdentifier

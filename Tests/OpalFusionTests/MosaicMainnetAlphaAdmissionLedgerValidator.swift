@@ -1107,7 +1107,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             expiryUnixSeconds: 1_800_000_060,
             payload: [0xAA]
         )
-        let anonymousDelivery = Ledger.AnonymousComponentDelivery(
+        let anonymousDelivery = Ledger.AnonymousDelivery(
             attemptIdentifier: harness.attemptIdentifier,
             generationIdentifier: harness.generationIdentifier,
             envelope: anonymousEnvelope,
@@ -1306,7 +1306,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         let messageIdentifier = try OpalFusion.Mosaic.RuntimeSession
             .MessageIdentifier(bytes: [UInt8](repeating: 0xE2, count: 32))
-        let delivery = Ledger.AnonymousComponentDelivery(
+        let delivery = Ledger.AnonymousDelivery(
             attemptIdentifier: conductorHarness.attemptIdentifier,
             generationIdentifier: conductorHarness.generationIdentifier,
             envelope: envelope,
@@ -1497,7 +1497,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 ]
         )
 
-        let conflictingDelivery = Ledger.AnonymousComponentDelivery(
+        let conflictingDelivery = Ledger.AnonymousDelivery(
             attemptIdentifier: conductorHarness.attemptIdentifier,
             generationIdentifier: conductorHarness.generationIdentifier,
             envelope: envelope,
@@ -2213,7 +2213,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
 
         let invalidDeliveries: [
-            (Ledger.AnonymousComponentDelivery, Ledger.Failure)
+            (Ledger.AnonymousDelivery, Ledger.Failure)
         ] = [
             (
                 try makeBCHSignatureDelivery(
@@ -2500,7 +2500,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             }
         }
 
-        var firstDelivery: Ledger.AnonymousComponentDelivery?
+        var firstDelivery: Ledger.AnonymousDelivery?
         var readySignatureSet: Alpha.BCHSignatureSet?
         for (ordinal, inputIndex) in acceptedInputs.indices.reversed()
             .enumerated() {
@@ -2557,7 +2557,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             }
         }
         let duplicate = try #require(firstDelivery)
-        let expiredDuplicate = Ledger.AnonymousComponentDelivery(
+        let expiredDuplicate = Ledger.AnonymousDelivery(
             attemptIdentifier: duplicate.attemptIdentifier,
             generationIdentifier: duplicate.generationIdentifier,
             envelope: duplicate.envelope,
@@ -2780,7 +2780,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         recipientEventIdentity: [UInt8]? = nil,
         expiryUnixSeconds: UInt64 = 1_800_000_060,
         currentUnixSeconds: UInt64 = 1_800_000_000
-    ) throws -> Ledger.AnonymousComponentDelivery {
+    ) throws -> Ledger.AnonymousDelivery {
         let roundIdentifier = roundIdentifier
             ?? harness.manifest.core.roundIdentifier
         let authorizationToken: Alpha.AuthorizationToken

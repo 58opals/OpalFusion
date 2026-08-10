@@ -169,7 +169,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         mutating func receiveAnonymousComponent(
-            _ delivery: AdmissionLedger.AnonymousComponentDelivery
+            _ delivery: AdmissionLedger.AnonymousDelivery
         ) -> [Effect] {
             guard case .active = state else {
                 return [.inputRejected(.inputAfterTermination)]
@@ -180,7 +180,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         mutating func receiveAnonymousBCHSignature<Validator>(
-            _ delivery: AdmissionLedger.AnonymousComponentDelivery,
+            _ delivery: AdmissionLedger.AnonymousDelivery,
             using validator: Validator
         ) -> [Effect] where Validator: AnonymousBCHSignatureAdmissionValidating {
             guard case .active = state else {
