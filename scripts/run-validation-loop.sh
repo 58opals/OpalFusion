@@ -74,11 +74,19 @@ run_serial_filter() {
 }
 
 MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicOpalV0AuthorizationValidator'
+MOSAIC_MATERIAL_FILTER='MosaicMainnetAlpha4MaterialValidator'
+MAXIMUM_PARALLEL_TEST_WIDTH=4
 
 run_mosaic_rsa_dependent_tests() {
   # Keep the two real purpose-separated evaluator fixtures in one process and
   # outside the parallel pool. OpalCrypto serializes its Security.framework RSA operations.
   run_serial_filter "$MOSAIC_RSA_DEPENDENT_FILTER"
+}
+
+run_bounded_test() {
+  run_test \
+    --experimental-maximum-parallelization-width "$MAXIMUM_PARALLEL_TEST_WIDTH" \
+    "$@"
 }
 
 case "$mode" in
@@ -90,9 +98,11 @@ case "$mode" in
     ;;
   all)
     run_mosaic_rsa_dependent_tests
+    run_serial_filter "$MOSAIC_MATERIAL_FILTER"
     run_serial_filter MosaicMainnetAlphaContractValidator
     run_serial_filter ClientSessionValidator
-    run_test --skip "$MOSAIC_RSA_DEPENDENT_FILTER|MosaicMainnetAlphaContractValidator|ClientSessionValidator"
+    run_bounded_test \
+      --skip "$MOSAIC_RSA_DEPENDENT_FILTER|$MOSAIC_MATERIAL_FILTER|MosaicMainnetAlphaContractValidator|ClientSessionValidator"
     ;;
   codec)
     run_filter CashFusionPrimaryMessageCodecValidator
@@ -115,8 +125,9 @@ case "$mode" in
     ;;
   mosaic)
     run_mosaic_rsa_dependent_tests
-    run_test --filter Mosaic \
-      --skip "$MOSAIC_RSA_DEPENDENT_FILTER|MosaicMainnetAlphaContractValidator"
+    run_serial_filter "$MOSAIC_MATERIAL_FILTER"
+    run_bounded_test --filter Mosaic \
+      --skip "$MOSAIC_RSA_DEPENDENT_FILTER|$MOSAIC_MATERIAL_FILTER|MosaicMainnetAlphaContractValidator"
     run_serial_filter MosaicMainnetAlphaContractValidator
     run_filter FusionFacadeScaffoldValidator
     ;;

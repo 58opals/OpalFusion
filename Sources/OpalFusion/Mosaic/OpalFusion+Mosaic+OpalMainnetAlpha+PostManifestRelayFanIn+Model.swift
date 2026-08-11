@@ -17,6 +17,31 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
 
+    /// One externally provisioned recipient mailbox and its isolated three-route subscription set.
+    ///
+    /// The caller remains responsible for recipient allocation, endpoint-to-capability binding,
+    /// and Tor circuit isolation. The fan-in validates the entire supplied collection before opening any
+    /// route and then feeds every group into one shared runtime authority.
+    struct RecipientRouteGroup: Sendable {
+        let recipient: Transport.RecipientCapability
+        let routes: [RelayRoute]
+        let subscriptionIdentifiers: [
+            RelayEndpoint: Nostr.SubscriptionIdentifier
+        ]
+
+        init(
+            recipient: Transport.RecipientCapability,
+            routes: [RelayRoute],
+            subscriptionIdentifiers: [
+                RelayEndpoint: Nostr.SubscriptionIdentifier
+            ]
+        ) {
+            self.recipient = recipient
+            self.routes = routes
+            self.subscriptionIdentifiers = subscriptionIdentifiers
+        }
+    }
+
     struct Dependencies: Sendable {
         /// Observes one completed ingress decision inline without controlling fan-in lifecycle.
         ///
@@ -38,6 +63,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
     }
 
     enum InitializationError: Error, Sendable, Equatable {
+        case invalidRecipientGroupCount(actual: Int)
+        case invalidRecipientSet
+        case invalidRecipientChannels
         case invalidRelayCount(actual: Int)
         case duplicateRelay(RelayEndpoint)
         case duplicateConnection

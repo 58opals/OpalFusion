@@ -3,19 +3,21 @@
 import Foundation
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
-    /// Fans one recipient's signed post-manifest gift wraps in from exactly three Tor routes.
+    /// Fans one attempt's provisioned recipient mailboxes through isolated three-route groups.
     ///
-    /// The route owner supplies distinct opaque endpoints, Tor-only connections, and fresh
-    /// connection-local subscription identifiers. This actor starts every subscription before
-    /// consuming, preserves each relay's source order while serializing every signed EVENT copy,
-    /// and treats loss of any selected source as terminal. Endpoint provisioning, reconnect,
-    /// persistence, recipient-key ownership, duplicate merging, and concrete Tor isolation remain
+    /// The route owner supplies every immutable recipient capability, distinct Tor-only
+    /// connection, and fresh subscription identifier. This actor constructs one shared ingress,
+    /// runtime, and replay authority; starts every route-group subscription before consuming;
+    /// binds each EVENT recipient back to that route; preserves each route's source order while
+    /// serializing every signed EVENT copy; and treats loss of any selected source as terminal.
+    /// Recipient allocation, endpoint provisioning,
+    /// reconnect, persistence, duplicate merging, and concrete Tor circuit isolation remain
     /// external.
     actor PostManifestRelayFanIn {
         private typealias Session = OpalFusion.Mosaic.NIP01RelaySession
 
         private struct SessionRoute: Sendable {
-            let endpoint: RelayEndpoint
+            let recipientEventIdentity: Data
             let subscription: Nostr.RelaySubscription
             let session: Session
         }
@@ -59,54 +61,51 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         init(
             bootstrap: Driver.Bootstrap,
             roleDependencies: Driver.RoleDependencies,
-            recipient: Transport.RecipientCapability,
-            ingressDependencies: Ingress.Dependencies,
-            routes: [RelayRoute],
+            recipientRouteGroups: [RecipientRouteGroup],
             relaySelection: RelaySelectionValidation,
-            subscriptionIdentifiers: [
-                RelayEndpoint: Nostr.SubscriptionIdentifier
-            ],
+            ingressDependencies: Ingress.Dependencies,
             codingLimits: Nostr.RelayMessageCodingLimits,
             maximumPendingEventCount: Int,
             dependencies: Dependencies = .init()
         ) throws(InitializationError) {
-            guard routes.count
-                    == OpalFusion.Mosaic.OpalMainnetAlpha.relayCount else {
-                throw .invalidRelayCount(actual: routes.count)
+            guard !recipientRouteGroups.isEmpty else {
+                throw .invalidRecipientGroupCount(actual: 0)
             }
-
-            var endpoints: Set<RelayEndpoint> = []
-            var connections: Set<ObjectIdentifier> = []
-            for route in routes {
-                guard endpoints.insert(route.endpoint).inserted else {
-                    throw .duplicateRelay(route.endpoint)
-                }
-                guard connections.insert(
-                    ObjectIdentifier(route.connection as AnyObject)
-                ).inserted else {
-                    throw .duplicateConnection
-                }
-            }
-            guard endpoints == Set(relaySelection.endpoints) else {
-                throw .relaySelectionMismatch
-            }
-            guard relaySelection.manifestRelaySetDigest
-                    == bootstrap.proposalValidation.core.relaySetDigest else {
-                throw .relaySelectionManifestMismatch
-            }
-            guard subscriptionIdentifiers.count
-                    == OpalFusion.Mosaic.OpalMainnetAlpha.relayCount else {
-                throw .invalidSubscriptionCount(
-                    actual: subscriptionIdentifiers.count
+            let maximumAnonymousRecipientCount = bootstrap.proposalValidation
+                .core.roster.contributors.count
+                * OpalFusion.Mosaic.OpalMainnetAlpha
+                    .componentCountPerContributor
+            let maximumRecipientGroupCount = 1
+                + (roleDependencies.role == .conductor
+                    ? maximumAnonymousRecipientCount
+                    : 0)
+            guard recipientRouteGroups.count <= maximumRecipientGroupCount else {
+                throw .invalidRecipientGroupCount(
+                    actual: recipientRouteGroups.count
                 )
             }
-            guard Set(subscriptionIdentifiers.keys) == endpoints else {
-                throw .subscriptionSetMismatch
+            let recipients = recipientRouteGroups.map(\.recipient)
+            let recipientSet: Ingress.RecipientSet
+            do {
+                recipientSet = try .init(recipients)
+            } catch {
+                throw .invalidRecipientSet
             }
-            var distinctSubscriptions: Set<Nostr.SubscriptionIdentifier> = []
-            for identifier in subscriptionIdentifiers.values {
-                guard distinctSubscriptions.insert(identifier).inserted else {
-                    throw .duplicateSubscriptionIdentifier
+            let controlRecipientCount = recipients.reduce(into: 0) {
+                count,
+                recipient in
+                guard recipient.channel == .control else { return }
+                count += 1
+            }
+            switch roleDependencies.role {
+            case .contributor:
+                guard recipients.count == 1,
+                      controlRecipientCount == 1 else {
+                    throw .invalidRecipientChannels
+                }
+            case .conductor:
+                guard controlRecipientCount == 1 else {
+                    throw .invalidRecipientChannels
                 }
             }
             guard maximumPendingEventCount > 0 else {
@@ -123,56 +122,99 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw .incompatibleCodingLimits
             }
 
-            let filter: Nostr.RelayFilter
-            do {
-                filter = try Transport.relayFilter(
-                    recipientPublicKey:
-                        recipient.signingKey.bip340VerificationKey
-                )
-            } catch {
-                throw .invalidSubscription
+            guard relaySelection.manifestRelaySetDigest
+                    == bootstrap.proposalValidation.core.relaySetDigest else {
+                throw .relaySelectionManifestMismatch
             }
-
+            var connections: Set<ObjectIdentifier> = []
+            var distinctSubscriptions: Set<Nostr.SubscriptionIdentifier> = []
             var sessionRoutes: [SessionRoute] = []
             do {
-                for route in routes {
-                    guard let identifier = subscriptionIdentifiers[
-                        route.endpoint
-                    ] else {
+                sessionRoutes.reserveCapacity(
+                    recipientRouteGroups.count
+                        * OpalFusion.Mosaic.OpalMainnetAlpha.relayCount
+                )
+                for group in recipientRouteGroups {
+                    guard group.routes.count
+                            == OpalFusion.Mosaic.OpalMainnetAlpha.relayCount else {
+                        throw InitializationError.invalidRelayCount(
+                            actual: group.routes.count
+                        )
+                    }
+                    var endpoints: Set<RelayEndpoint> = []
+                    for route in group.routes {
+                        guard endpoints.insert(route.endpoint).inserted else {
+                            throw InitializationError.duplicateRelay(route.endpoint)
+                        }
+                        guard connections.insert(
+                            ObjectIdentifier(route.connection as AnyObject)
+                        ).inserted else {
+                            throw InitializationError.duplicateConnection
+                        }
+                    }
+                    guard endpoints == Set(relaySelection.endpoints) else {
+                        throw InitializationError.relaySelectionMismatch
+                    }
+                    guard group.subscriptionIdentifiers.count
+                            == OpalFusion.Mosaic.OpalMainnetAlpha.relayCount else {
+                        throw InitializationError.invalidSubscriptionCount(
+                            actual: group.subscriptionIdentifiers.count
+                        )
+                    }
+                    guard Set(group.subscriptionIdentifiers.keys) == endpoints else {
                         throw InitializationError.subscriptionSetMismatch
                     }
-                    let subscription = try Nostr.RelaySubscription(
-                        identifier: identifier,
-                        filters: [filter]
-                    )
-                    _ = try Nostr.RelayMessageCodec.encode(
-                        .request(subscription),
-                        limits: codingLimits
-                    )
-                    let encodedIdentifier = try JSONEncoder().encode(
-                        identifier.value
-                    )
-                    let maximumInboundEventFrameByteCount = Data(
-                        "[\"EVENT\",".utf8
-                    ).count + encodedIdentifier.count + 1
-                        + OpalFusion.Mosaic.OpalMainnetAlpha
-                            .nip59MaximumGiftWrapJSONByteCount + 1
-                    guard codingLimits.maximumFrameByteCount
-                            >= maximumInboundEventFrameByteCount else {
-                        throw InitializationError.incompatibleCodingLimits
+                    for identifier in group.subscriptionIdentifiers.values {
+                        guard distinctSubscriptions.insert(identifier).inserted else {
+                            throw InitializationError
+                                .duplicateSubscriptionIdentifier
+                        }
                     }
-                    sessionRoutes.append(
-                        .init(
-                            endpoint: route.endpoint,
-                            subscription: subscription,
-                            session: try Session(
-                                connection: route.connection,
-                                codingLimits: codingLimits,
-                                maximumPendingOutputCount:
-                                    maximumPendingEventCount
+                    let filter = try Transport.relayFilter(
+                        recipientPublicKey:
+                            group.recipient.signingKey.bip340VerificationKey
+                    )
+                    for route in group.routes {
+                        guard let identifier = group.subscriptionIdentifiers[
+                            route.endpoint
+                        ] else {
+                            throw InitializationError.subscriptionSetMismatch
+                        }
+                        let subscription = try Nostr.RelaySubscription(
+                            identifier: identifier,
+                            filters: [filter]
+                        )
+                        _ = try Nostr.RelayMessageCodec.encode(
+                            .request(subscription),
+                            limits: codingLimits
+                        )
+                        let encodedIdentifier = try JSONEncoder().encode(
+                            identifier.value
+                        )
+                        let maximumInboundEventFrameByteCount = Data(
+                            "[\"EVENT\",".utf8
+                        ).count + encodedIdentifier.count + 1
+                            + OpalFusion.Mosaic.OpalMainnetAlpha
+                                .nip59MaximumGiftWrapJSONByteCount + 1
+                        guard codingLimits.maximumFrameByteCount
+                                >= maximumInboundEventFrameByteCount else {
+                            throw InitializationError.incompatibleCodingLimits
+                        }
+                        sessionRoutes.append(
+                            .init(
+                                recipientEventIdentity:
+                                    group.recipient.recipientEventIdentity,
+                                subscription: subscription,
+                                session: try Session(
+                                    connection: route.connection,
+                                    codingLimits: codingLimits,
+                                    // The caller-owned count bounds the shared FIFO. Each route
+                                    // retains at most one frame while all subscriptions start.
+                                    maximumPendingOutputCount: 1
+                                )
                             )
                         )
-                    )
+                    }
                 }
             } catch let error as InitializationError {
                 throw error
@@ -180,7 +222,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw .invalidSubscription
             }
 
-            let recipientSet = Ingress.RecipientSet(recipient)
             do {
                 ingress = try .init(
                     bootstrap: bootstrap,
@@ -204,7 +245,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.eventContinuation = eventContinuation
         }
 
-        /// Starts the private ingress and all three subscriptions exactly once.
+        /// Starts the private ingress and every recipient subscription exactly once.
         func start() async throws {
             guard state == .idle else { throw Failure.alreadyUsed }
             state = .starting
@@ -271,8 +312,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     throw Failure.cancelled
                 }
                 guard !didFail,
-                      startedRoutes.count
-                        == OpalFusion.Mosaic.OpalMainnetAlpha.relayCount else {
+                      startedRoutes.count == routes.count else {
                     let shutdown = beginShutdown(.sourceFailed)
                     await shutdown.value
                     throw Failure.sourceFailed
@@ -283,12 +323,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     await self.consumeEvents()
                 }
                 state = .running
-                readerTasks = startedRoutes.map { started in
-                    Task { [weak self] in
-                        guard let self else { return }
-                        await self.consume(started)
-                    }
-                }
             } onCancel: {
                 Task { await self.stop() }
             }
@@ -326,12 +360,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     group.addTask {
                         do {
                             let output = try await route.session.start()
+                            let started = StartedRoute(
+                                route: route,
+                                output: output
+                            )
+                            await self.startReading(started)
                             try await route.session.subscribe(
                                 route.subscription
                             )
-                            return .started(
-                                .init(route: route, output: output)
-                            )
+                            return .started(started)
                         } catch {
                             guard !Task.isCancelled else {
                                 return .cancelled
@@ -357,14 +394,36 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
-        private func consume(_ started: StartedRoute) async {
+        private func startReading(_ started: StartedRoute) async {
+            guard state == .starting else { return }
+            await withCheckedContinuation { continuation in
+                let task = Task {
+                    await self.consume(
+                        started,
+                        startupContinuation: continuation
+                    )
+                }
+                readerTasks.append(task)
+            }
+        }
+
+        private func consume(
+            _ started: StartedRoute,
+            startupContinuation: CheckedContinuation<Void, Never>
+        ) async {
+            var iterator = started.output.makeAsyncIterator()
+            startupContinuation.resume()
             do {
-                for try await message in started.output {
-                    guard state == .running else { return }
+                while let message = try await iterator.next() {
+                    guard state == .starting || state == .running else {
+                        return
+                    }
                     switch message {
                     case let .event(identifier, event):
                         guard identifier
-                                == started.route.subscription.identifier else {
+                                == started.route.subscription.identifier,
+                              (try? Transport.recipientEventIdentity(in: event))
+                                == started.route.recipientEventIdentity else {
                             sourceDidFail()
                             return
                         }
@@ -385,10 +444,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         return
                     }
                 }
-                guard state == .running else { return }
+                guard state == .starting || state == .running else {
+                    return
+                }
                 sourceDidFail()
             } catch {
-                guard state == .running else { return }
+                guard state == .starting || state == .running else {
+                    return
+                }
                 sourceDidFail()
             }
         }
@@ -404,7 +467,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func sourceDidFail() {
-            guard state == .running else { return }
+            guard state == .starting || state == .running else { return }
             _ = beginShutdown(.sourceFailed)
         }
 

@@ -41,6 +41,41 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         }
     }
 
+    private actor RejectingCompleteTransactionHost:
+        OpalFusion.Host.MosaicCompleteTransactionHost {
+        func reserveMosaicContribution(
+            for _: OpalFusion.Host.MosaicReservationRequest
+        ) async throws -> OpalFusion.Host.MosaicReservationLease {
+            throw ProbeFailure.unexpectedInvocation
+        }
+
+        func finalizeMosaicTransaction(
+            for _: OpalFusion.Host.MosaicTransactionSigningRequest
+        ) async throws -> OpalFusion.Host.FinalizedTransaction {
+            throw ProbeFailure.unexpectedInvocation
+        }
+
+        func releaseMosaicReservation(
+            _: OpalFusion.Host.MosaicReservationReference
+        ) async throws {
+            throw ProbeFailure.unexpectedInvocation
+        }
+
+        func commitMosaicReservation(
+            _: OpalFusion.Host.MosaicReservationReference,
+            finalizedTransaction _: OpalFusion.Host.FinalizedTransaction
+        ) async throws {
+            throw ProbeFailure.unexpectedInvocation
+        }
+
+        func commitMosaicReservation(
+            _: OpalFusion.Host.MosaicReservationReference,
+            completeTransaction _: OpalFusion.Host.MosaicCompleteTransaction
+        ) async throws {
+            throw ProbeFailure.unexpectedInvocation
+        }
+    }
+
     private final class SubmissionProbe: @unchecked Sendable {
         struct Observation: Sendable, Equatable {
             let identifier: OpalCrypto.Signature.Digest
@@ -264,6 +299,22 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let ledger: Fixture.Harness
     }
 
+    private struct MultiRecipientHarness {
+        let fanIn: FanIn
+        let controlConnections: [ScriptedMosaicTorWebSocketConnection]
+        let anonymousConnections: [ScriptedMosaicTorWebSocketConnection]
+        let controlSubscriptions: [
+            Tracker.Endpoint: Nostr.SubscriptionIdentifier
+        ]
+        let anonymousSubscriptions: [
+            Tracker.Endpoint: Nostr.SubscriptionIdentifier
+        ]
+        let controlRecipient: OpalCrypto.Secp256k1.SigningKey
+        let anonymousRecipient: OpalCrypto.Secp256k1.SigningKey
+        let submissionProbe: SubmissionProbe
+        let ledger: Fixture.Harness
+    }
+
     @Test("Reject mismatched routes subscriptions and limits")
     func rejectInvalidConstruction() async throws {
         let ledger = try Fixture.makeHarness(localRole: .conductor)
@@ -337,34 +388,352 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     }
 
     @Test(
+        "Reject invalid recipient route groups before opening a route",
+        .timeLimit(.minutes(1))
+    )
+    func rejectInvalidRecipientRouteGroups() async throws {
+        let ledger = try Fixture.makeHarness(localRole: .conductor)
+        let controlConnections = makeConnections()
+        let anonymousConnections = makeConnections()
+        let controlSubscriptions = try makeSubscriptions(prefix: "control")
+        let anonymousSubscriptions = try makeSubscriptions(prefix: "anonymous")
+        let controlRecipient = try signingKey(21)
+        let anonymousRecipient = try signingKey(22)
+        let controlGroup = try recipientRouteGroup(
+            recipient: controlRecipient,
+            channel: .control,
+            connections: controlConnections,
+            subscriptions: controlSubscriptions
+        )
+        let anonymousGroup = try recipientRouteGroup(
+            recipient: anonymousRecipient,
+            channel: .anonymous,
+            connections: anonymousConnections,
+            subscriptions: anonymousSubscriptions
+        )
+
+        #expect(
+            throws: FanIn.InitializationError
+                .invalidRecipientGroupCount(actual: 0)
+        ) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: []
+            )
+        }
+        let duplicateRecipientGroup = try recipientRouteGroup(
+            recipient: controlRecipient,
+            channel: .anonymous,
+            connections: anonymousConnections,
+            subscriptions: anonymousSubscriptions
+        )
+        #expect(throws: FanIn.InitializationError.invalidRecipientSet) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: [
+                    controlGroup,
+                    duplicateRecipientGroup,
+                ]
+            )
+        }
+        let secondControlGroup = try recipientRouteGroup(
+            recipient: anonymousRecipient,
+            channel: .control,
+            connections: anonymousConnections,
+            subscriptions: anonymousSubscriptions
+        )
+        #expect(throws: FanIn.InitializationError.invalidRecipientChannels) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: [controlGroup, secondControlGroup]
+            )
+        }
+        #expect(throws: FanIn.InitializationError.invalidRecipientChannels) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: [anonymousGroup]
+            )
+        }
+        let maximumGroupCount = 1
+            + ledger.manifest.core.roster.contributors.count
+                * Alpha.componentCountPerContributor
+        #expect(throws: FanIn.InitializationError.invalidRecipientSet) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: Array(
+                    repeating: controlGroup,
+                    count: maximumGroupCount
+                )
+            )
+        }
+        #expect(
+            throws: FanIn.InitializationError.invalidRecipientGroupCount(
+                actual: maximumGroupCount + 1
+            )
+        ) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: Array(
+                    repeating: controlGroup,
+                    count: maximumGroupCount + 1
+                )
+            )
+        }
+        let contributorLedger = try Fixture.makeHarness(
+            localRole: .contributor
+        )
+        #expect(throws: FanIn.InitializationError.invalidRecipientChannels) {
+            _ = try makeFanIn(
+                ledger: contributorLedger,
+                recipientRouteGroups: [anonymousGroup],
+                roleDependencies: contributorDependencies
+            )
+        }
+        let reusedConnectionGroup = try recipientRouteGroup(
+            recipient: anonymousRecipient,
+            channel: .anonymous,
+            connections: [
+                controlConnections[0],
+                anonymousConnections[1],
+                anonymousConnections[2],
+            ],
+            subscriptions: anonymousSubscriptions
+        )
+        #expect(throws: FanIn.InitializationError.duplicateConnection) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: [controlGroup, reusedConnectionGroup]
+            )
+        }
+        var reusedSubscriptions = anonymousSubscriptions
+        reusedSubscriptions[endpoint(1)] = controlSubscriptions[endpoint(1)]
+        let reusedSubscriptionGroup = try recipientRouteGroup(
+            recipient: anonymousRecipient,
+            channel: .anonymous,
+            connections: anonymousConnections,
+            subscriptions: reusedSubscriptions
+        )
+        #expect(
+            throws: FanIn.InitializationError
+                .duplicateSubscriptionIdentifier
+        ) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: [
+                    controlGroup,
+                    reusedSubscriptionGroup,
+                ]
+            )
+        }
+
+        for connection in controlConnections + anonymousConnections {
+            #expect(await connection.openCount == 0)
+        }
+    }
+
+    @Test(
+        "Start every recipient route group before forwarding into one runtime",
+        .timeLimit(.minutes(1))
+    )
+    func routeMultipleRecipientsThroughOneRuntime() async throws {
+        let harness = try makeMultiRecipientHarness()
+        let ledger = harness.ledger
+        let controlConnections = harness.controlConnections
+        let anonymousConnections = harness.anonymousConnections
+        let controlSubscriptions = harness.controlSubscriptions
+        let anonymousSubscriptions = harness.anonymousSubscriptions
+        let controlRecipient = harness.controlRecipient
+        let anonymousRecipient = harness.anonymousRecipient
+        let probe = harness.submissionProbe
+        let fanIn = harness.fanIn
+        let controlEvent = try controlGiftWrap(
+            manifestRun(ledger).reservation.envelope,
+            ledger: ledger,
+            recipient: controlRecipient
+        )
+        let anonymousEvent = try anonymousGiftWrap(
+            ledger: ledger,
+            recipient: anonymousRecipient
+        )
+        await anonymousConnections[2].suspendNextSend()
+
+        let starting = Task { try await fanIn.start() }
+        await anonymousConnections[2].waitUntilSendSuspends()
+        await controlConnections[0].waitUntilSentTextCount(1)
+        await controlConnections[0].receive(
+            try relayEventFrame(
+                subscription: try #require(
+                    controlSubscriptions[endpoint(1)]
+                ),
+                event: controlEvent
+            )
+        )
+        #expect(probe.observations.isEmpty)
+
+        await anonymousConnections[2].resumeSend()
+        try await starting.value
+        await probe.waitUntilCount(1)
+        await anonymousConnections[0].receive(
+            try relayEventFrame(
+                subscription: try #require(
+                    anonymousSubscriptions[endpoint(1)]
+                ),
+                event: anonymousEvent
+            )
+        )
+        await probe.waitUntilCount(2)
+
+        #expect(
+            probe.observations.map(\.identifier)
+                == [controlEvent.identifier, anonymousEvent.identifier]
+        )
+        #expect(probe.observations.map(\.decision) == [.accepted, .accepted])
+        #expect(await fanIn.state == .running)
+        let limits = try relayLimits(
+            subscriptionIdentifiers: Array(controlSubscriptions.values)
+                + Array(anonymousSubscriptions.values)
+        )
+        for (connections, subscriptions, recipient) in [
+            (controlConnections, controlSubscriptions, controlRecipient),
+            (anonymousConnections, anonymousSubscriptions, anonymousRecipient),
+        ] {
+            for (index, connection) in connections.enumerated() {
+                let identifier = try #require(
+                    subscriptions[endpoint(index + 1)]
+                )
+                #expect(
+                    await connection.sentTexts
+                        == [try expectedRequestFrame(
+                            recipient: recipient,
+                            identifier: identifier,
+                            limits: limits
+                        )]
+                )
+            }
+        }
+
+        await fanIn.stop()
+        #expect(await fanIn.waitForTermination() == .stopped)
+        for connection in controlConnections + anonymousConnections {
+            #expect(await connection.closeCount == 1)
+        }
+    }
+
+    @Test(
+        "Reject a valid event delivered through another recipient route",
+        .timeLimit(.minutes(1))
+    )
+    func rejectCrossRecipientRouteDelivery() async throws {
+        let harness = try makeMultiRecipientHarness()
+        let event = try anonymousGiftWrap(
+            ledger: harness.ledger,
+            recipient: harness.anonymousRecipient
+        )
+        try await harness.fanIn.start()
+
+        await harness.controlConnections[0].receive(
+            try relayEventFrame(
+                subscription: try #require(
+                    harness.controlSubscriptions[endpoint(1)]
+                ),
+                event: event
+            )
+        )
+
+        #expect(
+            await harness.fanIn.waitForTermination()
+                == .failed(.sourceFailed)
+        )
+        #expect(harness.submissionProbe.observations.isEmpty)
+        for connection in harness.controlConnections
+            + harness.anonymousConnections {
+            #expect(await connection.closeCount == 1)
+        }
+    }
+
+    @Test(
+        "Fail when startup input exceeds the shared event FIFO",
+        .timeLimit(.minutes(1))
+    )
+    func failOnSharedStartupBufferOverflow() async throws {
+        let connections = makeConnections()
+        await connections[2].suspendNextSend()
+        let harness = try makeHarness(
+            connections: connections,
+            maximumPendingEventCount: 1
+        )
+        let event = try manifestReservationGiftWrap(harness)
+        let identifier = try #require(
+            harness.subscriptions[endpoint(1)]
+        )
+
+        let starting = Task { try await harness.fanIn.start() }
+        await connections[2].waitUntilSendSuspends()
+        await connections[0].waitUntilSentTextCount(1)
+        await connections[0].receive(
+            try relayEventFrame(subscription: identifier, event: event)
+        )
+        await connections[0].receive(
+            try relayEventFrame(subscription: identifier, event: event)
+        )
+        await connections[0].waitUntilClosed()
+        await connections[2].resumeSend()
+
+        await #expect(throws: FanIn.Failure.sourceFailed) {
+            try await starting.value
+        }
+        #expect(harness.submissionProbe.observations.isEmpty)
+        for connection in connections {
+            #expect(await connection.closeCount == 1)
+        }
+    }
+
+    @Test(
         "Subscribe every route before forwarding buffered input",
         .timeLimit(.minutes(1))
     )
     func startAllRoutesBeforeForwarding() async throws {
         let connections = makeConnections()
         await connections[2].suspendNextSend()
-        let harness = try makeHarness(connections: connections)
+        let harness = try makeHarness(
+            connections: connections,
+            maximumPendingEventCount: 2
+        )
         let event = try manifestReservationGiftWrap(harness)
+        let identifier = try #require(
+            harness.subscriptions[endpoint(1)]
+        )
 
         let starting = Task { try await harness.fanIn.start() }
         await connections[2].waitUntilSendSuspends()
+        await connections[0].waitUntilSentTextCount(1)
         #expect(await harness.fanIn.state == .starting)
         await connections[0].receive(
             try relayEventFrame(
-                subscription: try #require(
-                    harness.subscriptions[endpoint(1)]
-                ),
+                subscription: identifier,
                 event: event
+            )
+        )
+        await connections[0].receive(
+            try relayEventFrame(subscription: identifier, event: event)
+        )
+        await connections[0].receive(
+            textFrame(
+                "[\"EOSE\"," + Nostr.EventCodec.encodeString(identifier.value)
+                    + "]"
             )
         )
         #expect(harness.submissionProbe.observations.isEmpty)
 
         await connections[2].resumeSend()
         try await starting.value
-        await harness.submissionProbe.waitUntilCount(1)
+        await harness.submissionProbe.waitUntilCount(2)
         #expect(
             harness.submissionProbe.observations
-                == [.init(identifier: event.identifier, decision: .accepted)]
+                == [
+                    .init(identifier: event.identifier, decision: .accepted),
+                    .init(identifier: event.identifier, decision: .accepted),
+                ]
         )
         for (index, connection) in connections.enumerated() {
             let identifier = try #require(
@@ -840,6 +1209,48 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         )
     }
 
+    private func makeMultiRecipientHarness(
+        submissionProbe: SubmissionProbe = .init()
+    ) throws -> MultiRecipientHarness {
+        let ledger = try Fixture.makeHarness(localRole: .conductor)
+        let controlConnections = makeConnections()
+        let anonymousConnections = makeConnections()
+        let controlSubscriptions = try makeSubscriptions(prefix: "control")
+        let anonymousSubscriptions = try makeSubscriptions(
+            prefix: "anonymous"
+        )
+        let controlRecipient = try signingKey(21)
+        let anonymousRecipient = try signingKey(22)
+        let controlGroup = try recipientRouteGroup(
+            recipient: controlRecipient,
+            channel: .control,
+            connections: controlConnections,
+            subscriptions: controlSubscriptions
+        )
+        let anonymousGroup = try recipientRouteGroup(
+            recipient: anonymousRecipient,
+            channel: .anonymous,
+            connections: anonymousConnections,
+            subscriptions: anonymousSubscriptions
+        )
+        let fanIn = try makeFanIn(
+            ledger: ledger,
+            recipientRouteGroups: [controlGroup, anonymousGroup],
+            submissionProbe: submissionProbe
+        )
+        return .init(
+            fanIn: fanIn,
+            controlConnections: controlConnections,
+            anonymousConnections: anonymousConnections,
+            controlSubscriptions: controlSubscriptions,
+            anonymousSubscriptions: anonymousSubscriptions,
+            controlRecipient: controlRecipient,
+            anonymousRecipient: anonymousRecipient,
+            submissionProbe: submissionProbe,
+            ledger: ledger
+        )
+    }
+
     private func makeFanIn(
         ledger: Fixture.Harness,
         connections: [any OpalFusion.Mosaic.TorWebSocketConnectioning],
@@ -854,18 +1265,58 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         beforeDriverStart: @escaping @Sendable () async -> Void = {},
         clockGate: BlockingClockGate? = nil
     ) throws -> FanIn {
-        let selectedEndpoints = (1 ... Alpha.relayCount).map(endpoint)
         let recipient = try recipient ?? signingKey(21)
         let relaySetDigest = relaySetDigest
             ?? ledger.manifest.core.relaySetDigest
+        let group = try recipientRouteGroup(
+            recipient: recipient,
+            channel: .control,
+            connections: connections,
+            subscriptions: subscriptions
+        )
+        return try makeFanIn(
+            ledger: ledger,
+            recipientRouteGroups: [group],
+            submissionProbe: submissionProbe,
+            maximumPendingEventCount: maximumPendingEventCount,
+            maximumFrameByteCount: maximumFrameByteCount,
+            relaySetDigest: relaySetDigest,
+            beforeDriverStart: beforeDriverStart,
+            clockGate: clockGate
+        )
+    }
+
+    private func makeFanIn(
+        ledger: Fixture.Harness,
+        recipientRouteGroups: [FanIn.RecipientRouteGroup],
+        roleDependencies: Alpha.PostManifestRuntimeDriver.RoleDependencies? = nil,
+        submissionProbe: SubmissionProbe = .init(),
+        maximumPendingEventCount: Int = 8,
+        maximumFrameByteCount: Int? = nil,
+        relaySetDigest: [UInt8]? = nil,
+        beforeDriverStart: @escaping @Sendable () async -> Void = {},
+        clockGate: BlockingClockGate? = nil
+    ) throws -> FanIn {
         let limits = try relayLimits(
-            subscriptions: subscriptions,
+            subscriptionIdentifiers: recipientRouteGroups.flatMap {
+                $0.subscriptionIdentifiers.values
+            },
             maximumFrameByteCount: maximumFrameByteCount
         )
         return try .init(
             bootstrap: bootstrap(ledger),
-            roleDependencies: conductorDependencies,
-            recipient: .init(channel: .control, signingKey: recipient),
+            roleDependencies: roleDependencies ?? conductorDependencies,
+            recipientRouteGroups: recipientRouteGroups,
+            relaySelection: try .init(
+                manifestRelaySetDigest:
+                    relaySetDigest ?? ledger.manifest.core.relaySetDigest,
+                endpoints: (1 ... Alpha.relayCount).map(endpoint),
+                using: ExactRelaySelectionValidator(
+                    digest:
+                        relaySetDigest ?? ledger.manifest.core.relaySetDigest,
+                    endpoints: Set((1 ... Alpha.relayCount).map(endpoint))
+                )
+            ),
             ingressDependencies: .init(
                 currentUnixSeconds: {
                     clockGate?.block()
@@ -873,18 +1324,6 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
                 },
                 beforeDriverStart: beforeDriverStart
             ),
-            routes: zip(selectedEndpoints, connections).map {
-                .init(endpoint: $0.0, connection: $0.1)
-            },
-            relaySelection: .init(
-                manifestRelaySetDigest: relaySetDigest,
-                endpoints: selectedEndpoints,
-                using: ExactRelaySelectionValidator(
-                    digest: relaySetDigest,
-                    endpoints: Set(selectedEndpoints)
-                )
-            ),
-            subscriptionIdentifiers: subscriptions,
             codingLimits: limits,
             maximumPendingEventCount: maximumPendingEventCount,
             dependencies: .init(submissionObserver: {
@@ -892,6 +1331,24 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
                 decision in
                 submissionProbe.record(identifier, decision)
             })
+        )
+    }
+
+    private func recipientRouteGroup(
+        recipient: OpalCrypto.Secp256k1.SigningKey,
+        channel: Transport.Channel,
+        connections: [any OpalFusion.Mosaic.TorWebSocketConnectioning],
+        subscriptions: [
+            Tracker.Endpoint: Nostr.SubscriptionIdentifier
+        ]
+    ) throws -> FanIn.RecipientRouteGroup {
+        let selectedEndpoints = (1 ... Alpha.relayCount).map(endpoint)
+        return .init(
+            recipient: .init(channel: channel, signingKey: recipient),
+            routes: zip(selectedEndpoints, connections).map {
+                .init(endpoint: $0.0, connection: $0.1)
+            },
+            subscriptionIdentifiers: subscriptions
         )
     }
 
@@ -904,6 +1361,39 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
                 previousOutputSource: RejectingPreviousOutputSource(),
                 maximumPendingInputCount: 8,
                 handoffPublication: { _ in
+                    throw ProbeFailure.unexpectedInvocation
+                }
+            )
+        )
+    }
+
+    private var contributorDependencies:
+        Alpha.PostManifestRuntimeDriver.RoleDependencies {
+        let host = RejectingCompleteTransactionHost()
+        return .contributor(
+            .init(
+                execution: .init(
+                    transactionHost: host,
+                    previousOutputSource: RejectingPreviousOutputSource(),
+                    makeLocalContributionMaterial: { _, _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    },
+                    publishPlayerCommit: { _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    },
+                    publishAnonymousComponents: { _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    },
+                    publishPreSignAcknowledgement: { _, _, _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    },
+                    publishLocalBCHSignatures: { _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    }
+                ),
+                expectedReservationExpiration: .distantFuture,
+                maximumPendingInputCount: 8,
+                makeReservationRequest: { _ in
                     throw ProbeFailure.unexpectedInvocation
                 }
             )
@@ -976,6 +1466,46 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         )
     }
 
+    private func anonymousGiftWrap(
+        ledger: Fixture.Harness,
+        recipient: OpalCrypto.Secp256k1.SigningKey
+    ) throws -> Nostr.Event {
+        let sender = try signingKey(23)
+        let envelope = try Alpha.AnonymousEnvelope(
+            roundIdentifier: ledger.manifest.core.roundIdentifier,
+            phase: .anonymousComponentSubmission,
+            senderCommunicationPublicKey: Array(
+                sender.publicKey.compressedRepresentation
+            ),
+            recipientEventIdentity: Array(
+                recipient.bip340VerificationKey.rawRepresentation
+            ),
+            sequence: 0,
+            payloadType: .anonymousComponent,
+            expiryUnixSeconds: ledger.manifest.core.deadlines.bchSigning + 1,
+            payload: [0x00]
+        )
+        return try Transport.makeAnonymousGiftWrap(
+            envelope,
+            context: .init(
+                attemptIdentifier: ledger.attemptIdentifier,
+                generationIdentifier: ledger.generationIdentifier,
+                phaseStartUnixSeconds:
+                    ledger.manifest.core.deadlines.phaseStart
+            ),
+            timestamps: .init(
+                phaseStartUnixSeconds:
+                    ledger.manifest.core.deadlines.phaseStart,
+                currentUnixSeconds:
+                    ledger.manifest.core.deadlines.phaseStart + 1,
+                sealCreatedAt: ledger.manifest.core.deadlines.phaseStart,
+                giftWrapCreatedAt: ledger.manifest.core.deadlines.phaseStart
+            ),
+            senderCommunicationSigningKey: sender,
+            recipientPublicKey: recipient.bip340VerificationKey
+        )
+    }
+
     private func makeConnections()
         -> [ScriptedMosaicTorWebSocketConnection] {
         (0 ..< Alpha.relayCount).map { _ in
@@ -983,12 +1513,14 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         }
     }
 
-    private func makeSubscriptions() throws -> [
+    private func makeSubscriptions(
+        prefix: String = "alpha5-fanin"
+    ) throws -> [
         Tracker.Endpoint: Nostr.SubscriptionIdentifier
     ] {
         try Dictionary(
             uniqueKeysWithValues: (1 ... Alpha.relayCount).map {
-                (endpoint($0), try .init("alpha5-fanin-\($0)"))
+                (endpoint($0), try .init("\(prefix)-\($0)"))
             }
         )
     }
@@ -999,7 +1531,17 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         ],
         maximumFrameByteCount: Int? = nil
     ) throws -> Nostr.RelayMessageCodingLimits {
-        let identifierWidth = try subscriptions.values.map {
+        try relayLimits(
+            subscriptionIdentifiers: Array(subscriptions.values),
+            maximumFrameByteCount: maximumFrameByteCount
+        )
+    }
+
+    private func relayLimits(
+        subscriptionIdentifiers: [Nostr.SubscriptionIdentifier],
+        maximumFrameByteCount: Int? = nil
+    ) throws -> Nostr.RelayMessageCodingLimits {
+        let identifierWidth = try subscriptionIdentifiers.map {
             try JSONEncoder().encode($0.value).count
         }.max() ?? 0
         let derivedMaximum = Data("[\"EVENT\",".utf8).count
