@@ -4,6 +4,8 @@ Status: Draft architecture contract. CashFusion has a live pilot implementation.
 
 An internal control-batch publisher validates a bridge-minted batch against the exact bootstrap-derived context, complete roster recipient allocation, and manifest relay selection; obtains every externally provisioned recipient route group before publication without disclosing control identities; rejects connection reuse across recipients; and returns only after every delegated exact-three-route/two-accepted-ACK publisher has closed. It owns no endpoint provisioning or endpoint-to-capability proof, concrete Tor circuit, persistence, reconnect, durable acknowledgement or delivery state, retry, or semantic loopback admission.
 
+A separate internal anonymous-batch publisher accepts only a bridge-minted purpose and material binding, obtains the complete route allocation using only recipient event identities before exposing a sealed wrap to relay publishers, requires an injected per-recipient publication permit, rejects batch-wide connection reuse, and returns only after every exact-three-route/two-accepted-ACK operation has closed. The injected providers own timing and route authority; this value does not define timing, provision endpoints or Tor circuits, persist acknowledgements, retry, perform semantic loopback, or enable live execution.
+
 This document defines the Opal Fusion product hierarchy, engine-selection contract, shared session boundary, and source-of-truth order. It does not redefine the CashFusion or Mosaic wire protocols.
 
 ## 1. Normative Language

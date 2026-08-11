@@ -21,30 +21,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha
         case bchSignatures
     }
 
-    struct RecipientGiftWrap: Sendable, Equatable {
-        let recipientEventIdentity: Data
-        let giftWrap: OpalFusion.Mosaic.OpalMainnetAlpha
-            .PostManifestRelayPublisher.GiftWrap
-
-        init(
-            recipientEventIdentity: Data,
-            giftWrap: OpalFusion.Mosaic.OpalMainnetAlpha
-                .PostManifestRelayPublisher.GiftWrap
-        ) {
-            self.recipientEventIdentity = recipientEventIdentity
-            self.giftWrap = giftWrap
-        }
-    }
-
-    /// One purpose-specific anonymous publication handoff without contributor or slot labels.
-    struct GiftWrapBatch: Sendable, Equatable {
-        let recipients: [RecipientGiftWrap]
-
-        init(recipients: [RecipientGiftWrap]) {
-            self.recipients = recipients
-        }
-    }
-
     struct TimestampRequest: Sendable, Equatable {
         let recipientEventIdentity: Data
         let phase: OpalFusion.Mosaic.Attempt.Phase

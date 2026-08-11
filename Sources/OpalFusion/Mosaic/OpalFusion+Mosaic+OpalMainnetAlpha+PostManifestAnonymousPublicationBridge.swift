@@ -10,6 +10,49 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// mailboxes with distinct one-time sender identities. It owns no route selection, timing
     /// policy, persistence, retry, semantic loopback, wallet authority, or broadcast permission.
     actor PostManifestAnonymousPublicationBridge {
+        struct RecipientGiftWrap: Sendable, Equatable {
+            let recipientEventIdentity: Data
+            let giftWrap: OpalFusion.Mosaic.OpalMainnetAlpha
+                .PostManifestRelayPublisher.GiftWrap
+
+            fileprivate init(
+                recipientEventIdentity: Data,
+                giftWrap: OpalFusion.Mosaic.OpalMainnetAlpha
+                    .PostManifestRelayPublisher.GiftWrap
+            ) {
+                self.recipientEventIdentity = recipientEventIdentity
+                self.giftWrap = giftWrap
+            }
+        }
+
+        /// One bridge-minted, purpose-specific anonymous publication handoff.
+        struct GiftWrapBatch: Sendable, Equatable {
+            private let context: Context
+            private let materialBinding: MaterialBinding
+            let kind: PublicationKind
+            let recipients: [RecipientGiftWrap]
+
+            fileprivate init(
+                context: Context,
+                materialBinding: MaterialBinding,
+                kind: PublicationKind,
+                recipients: [RecipientGiftWrap]
+            ) {
+                self.context = context
+                self.materialBinding = materialBinding
+                self.kind = kind
+                self.recipients = recipients
+            }
+
+            func isBound(
+                to context: Context,
+                materialBinding: MaterialBinding
+            ) -> Bool {
+                self.context == context
+                    && self.materialBinding == materialBinding
+            }
+        }
+
         private struct EnvelopeMaterial: Sendable {
             let recipientEventIdentity: Data
             let senderPrivateKey: OpalCrypto.Secp256k1.PrivateKey
@@ -87,7 +130,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw terminate(.giftWrapConstructionFailed)
             }
 
-            try await handoff(materials, expiryUnixSeconds: expiryUnixSeconds)
+            try await handoff(
+                materials,
+                kind: .components,
+                expiryUnixSeconds: expiryUnixSeconds
+            )
             guard state == .publishing(.components) else {
                 throw terminalFailure()
             }
@@ -124,7 +171,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     payload: entry.submission.canonicalBytes
                 )
             }
-            try await handoff(materials, expiryUnixSeconds: expiryUnixSeconds)
+            try await handoff(
+                materials,
+                kind: .bchSignatures,
+                expiryUnixSeconds: expiryUnixSeconds
+            )
             guard state == .publishing(.bchSignatures) else {
                 throw terminalFailure()
             }
@@ -157,6 +208,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private func handoff(
             _ materials: [EnvelopeMaterial],
+            kind: PublicationKind,
             expiryUnixSeconds: UInt64
         ) async throws(Failure) {
             try failIfCancelled()
@@ -212,7 +264,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         giftWrap: try .init(validating: event)
                     )
                 }
-                batch = .init(recipients: recipients)
+                batch = .init(
+                    context: context,
+                    materialBinding: expectedMaterialBinding,
+                    kind: kind,
+                    recipients: recipients
+                )
             } catch {
                 if Task.isCancelled {
                     throw terminate(.cancelled)

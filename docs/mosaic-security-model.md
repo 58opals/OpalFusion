@@ -8,6 +8,8 @@ The implemented [`Mosaic/0-opal.1`](mosaic-v0-profile.md) slice is a chipnet-onl
 
 The internal control-batch publisher rejects cross-attempt, generation, material, manifest, sender, recipient-allocation, and relay-selection substitution before route provisioning. Its provider receives only the complete recipient event-identity set, and batch-global connection checks prevent accidental capability reuse across recipients; this does not prove endpoint authority, independent Tor circuits, delivery durability, or privacy against a malicious route provider.
 
+The internal anonymous-batch publisher accepts only a bridge-minted purpose and exact material binding, withholds every sealed wrap until complete route preflight, and awaits a separate injected permit immediately before each recipient publication. The permit proves only caller authorization at that moment, not timing privacy; connection-object uniqueness prevents accidental in-process reuse, not shared infrastructure or Tor circuits; and two accepted acknowledgements are not durable delivery evidence.
+
 ## 1. Security Objectives
 
 Mosaic aims to ensure:
@@ -128,6 +130,8 @@ Nostr provides replicated signed events and convenient relay discovery; it does 
 The local material builder and contributor-side anonymous-publication bridge enforce four x-only identity roles—published grouped-commitment communication, component-envelope communication, BCH-signature-envelope communication, and recipient mailbox—that are mutually distinct across one local material's 23 slots and disjoint from roster control identities. The bridge converts only exact-material-bound sealed component and local-signature validations into NIP-59 wraps and proves same-mailbox sequence zero then one, whole-batch handoff, and terminal no-reuse inside one process; it does not prove that caller-generated keys were fresh across attempts, that a handoff used independent Tor circuits, that a relay stored the wraps, or that semantic loopback admitted them.
 
 The control-batch publisher narrows the bridge callback by preflighting one complete route allocation keyed only by recipient event identity, then delegating each gift wrap to its own exact-three-route/two-accepted-ACK operation. It closes every returned route on success, failure, or caller cancellation, but owns no durable delivery evidence and cannot establish that opaque route capabilities correspond to independent Tor circuits or honest relay operators.
+
+The anonymous-batch publisher applies the same preflight, sibling-cancellation, and closure limits to one bridge-sealed anonymous purpose batch. Its additional publication-permit seam is deliberately an injected authority rather than a scheduler, privacy proof, deadline, or durable authorization record.
 
 The initial Mosaic transport therefore requires:
 

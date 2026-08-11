@@ -48,6 +48,8 @@ The generic NIP-59 suite validates both official gift-wrap kinds, independent de
 
 The control-batch publisher suite proves foreign attempt, generation, material, manifest, and recipient-allocation rejection before route provisioning; one complete roster-sized route request keyed only by recipient event identity; manifest, recipient, and coding validation; cross-recipient connection uniqueness; per-recipient byte-identical three-route publication; two accepted acknowledgements for every roster member; all-route closure before success; and cleanup on allocation, quorum, and cancellation failures.
 
+The anonymous-batch publisher suite proves bridge-sealed purpose and material binding; exact component and local-input recipient sets; recipient-only complete route requests; zero permit or event exposure before batch-global route preflight; per-recipient permit gating; cross-recipient connection uniqueness; byte-identical exact-three-route publication; two accepted acknowledgements per sealed wrap; and cleanup on permit, allocation, quorum, publication, and cancellation failures. The injected permits and routes are not evidence of timing privacy, endpoint authority, concrete Tor routing, durable delivery, persistence, retry, semantic loopback, a live Mosaic session, or mainnet execution.
+
 The fan-in suite also pins route-to-recipient `p` binding before shared ingress, pre-subscription route drains, multiple stored events plus EOSE buffered without early admission, an exact roster-derived mailbox-group count boundary, and terminal failure when startup input exceeds the shared FIFO.
 
 The current local suite does not replace a live coordinator smoke, reviewed transcript replay, wallet/app integration validation, or host-owned policy checks for coin selection, funding, signing authority, persistence, broadcast, retry behavior, and user-facing fusion controls. Those responsibilities remain separate proof gates or downstream integration concerns.
@@ -87,6 +89,7 @@ swift test --filter MosaicMainnetAlphaPostManifestNIP59TransportValidator
 swift test --filter MosaicMainnetAlphaPostManifestTransportIngressValidator
 swift test --filter MosaicMainnetAlphaControlPublicationBridgeValidator
 swift test --filter MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator
+swift test --filter MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator
 swift test --filter MosaicMainnetAlphaPostManifestControlBatchPublisherValidator
 swift test --filter MosaicMainnetAlphaPostManifestRelayPublisherValidator
 swift test --filter MosaicMainnetAlphaPostManifestRelayFanInValidator
