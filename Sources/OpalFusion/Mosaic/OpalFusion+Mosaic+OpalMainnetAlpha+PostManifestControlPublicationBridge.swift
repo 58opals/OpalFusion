@@ -17,6 +17,36 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case preSignAcknowledgement
         }
 
+        struct RecipientGiftWrap: Sendable, Equatable {
+            let controlIdentity: ControlIdentity
+            let giftWrap: PostManifestRelayPublisher.GiftWrap
+
+            fileprivate init(
+                controlIdentity: ControlIdentity,
+                giftWrap: PostManifestRelayPublisher.GiftWrap
+            ) {
+                self.controlIdentity = controlIdentity
+                self.giftWrap = giftWrap
+            }
+        }
+
+        /// One bridge-minted control envelope wrapped once for every roster recipient.
+        struct GiftWrapBatch: Sendable, Equatable {
+            let context: Context
+            let envelope: ControlEnvelope
+            let recipients: [RecipientGiftWrap]
+
+            fileprivate init(
+                context: Context,
+                envelope: ControlEnvelope,
+                recipients: [RecipientGiftWrap]
+            ) {
+                self.context = context
+                self.envelope = envelope
+                self.recipients = recipients
+            }
+        }
+
         private let context: Context
         private let controlSigningKey: OpalCrypto.Secp256k1.SigningKey
         private let eventSigningKey: OpalCrypto.Secp256k1.SigningKey
@@ -452,6 +482,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         )
                     }
                     batch = .init(
+                        context: context,
                         envelope: envelope,
                         recipients: recipientGiftWraps
                     )

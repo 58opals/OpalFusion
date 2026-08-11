@@ -84,18 +84,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestControlPublicationBridg
         let expiryUnixSeconds: UInt64
     }
 
-    struct RecipientGiftWrap: Sendable, Equatable {
-        let controlIdentity: ControlIdentity
-        let giftWrap: OpalFusion.Mosaic.OpalMainnetAlpha
-            .PostManifestRelayPublisher.GiftWrap
-    }
-
-    /// One signed control envelope wrapped once for every roster recipient.
-    struct GiftWrapBatch: Sendable, Equatable {
-        let envelope: OpalFusion.Mosaic.OpalMainnetAlpha.ControlEnvelope
-        let recipients: [RecipientGiftWrap]
-    }
-
     struct Dependencies: Sendable {
         /// Supplies caller-owned cover timestamps without defining a protocol clock policy.
         let makeLayerTimestamps: @Sendable (
