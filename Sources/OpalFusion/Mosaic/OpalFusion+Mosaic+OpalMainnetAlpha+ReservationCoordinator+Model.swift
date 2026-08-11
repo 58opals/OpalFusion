@@ -124,15 +124,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
         /// Publication callbacks must return after transport acknowledgement. They must not await
         /// semantic loopback admission or synchronously call back into the coordinator.
         let publishPlayerCommit: @Sendable (
-            OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommit
+            OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession
+                .ReservationPublicationValidation
         ) async throws -> Void
         let publishAnonymousComponents: @Sendable (
             [LocalAnonymousComponentPublication]
         ) async throws -> Void
         let publishPreSignAcknowledgement: @Sendable (
-            OpalFusion.Mosaic.Attempt.ControlIdentity,
-            [UInt8],
-            OpalFusion.Mosaic.Attempt.TranscriptRoot
+            OpalFusion.Mosaic.LocalAttempt.TranscriptInclusionValidation
         ) async throws -> Void
         let publishLocalBCHSignatures: @Sendable (
             [OpalFusion.Mosaic.OpalMainnetAlpha.LocalBCHSignaturePublication]
@@ -147,15 +146,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
             ) async throws -> OpalFusion.Mosaic.OpalMainnetAlpha
                 .LocalContributionMaterial,
             publishPlayerCommit: @escaping @Sendable (
-                OpalFusion.Mosaic.OpalMainnetAlpha.PlayerCommit
+                OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession
+                    .ReservationPublicationValidation
             ) async throws -> Void,
             publishAnonymousComponents: @escaping @Sendable (
                 [LocalAnonymousComponentPublication]
             ) async throws -> Void,
             publishPreSignAcknowledgement: @escaping @Sendable (
-                OpalFusion.Mosaic.Attempt.ControlIdentity,
-                [UInt8],
-                OpalFusion.Mosaic.Attempt.TranscriptRoot
+                OpalFusion.Mosaic.LocalAttempt.TranscriptInclusionValidation
             ) async throws -> Void,
             publishLocalBCHSignatures: @escaping @Sendable (
                 [OpalFusion.Mosaic.OpalMainnetAlpha

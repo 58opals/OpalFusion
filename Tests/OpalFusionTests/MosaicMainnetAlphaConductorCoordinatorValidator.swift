@@ -8,6 +8,7 @@ import Testing
 @Suite("Mosaic mainnet-alpha conductor coordinator")
 struct MosaicMainnetAlphaConductorCoordinatorValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
+    typealias Bridge = Alpha.PostManifestControlPublicationBridge
     typealias Coordinator = Alpha.ConductorCoordinator
     typealias ExecutionFixture = MosaicMainnetAlphaExecutionFixtures
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
@@ -28,6 +29,7 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
         }
 
         private var publications: [Coordinator.Publication] = []
+        private var validations: [Coordinator.PublicationValidation] = []
         private var waiters: [UUID: Waiter] = [:]
         private let failingKind: Coordinator.PublicationKind?
         private let suspendingKind: Coordinator.PublicationKind?
@@ -43,13 +45,17 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
             self.suspension = suspension
         }
 
-        func publish(_ publication: Coordinator.Publication) async throws {
+        func publish(
+            _ validation: Coordinator.PublicationValidation
+        ) async throws {
+            let publication = validation.publication
             if publication.kind == suspendingKind {
                 await suspension?.suspendIfArmed()
             }
             guard publication.kind != failingKind else {
                 throw ProbeFailure.injected
             }
+            validations.append(validation)
             publications.append(publication)
             var completed: [UUID] = []
             for (identifier, waiter) in waiters {
@@ -104,6 +110,10 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
 
         func values() -> [Coordinator.Publication] {
             publications
+        }
+
+        func validationValues() -> [Coordinator.PublicationValidation] {
+            validations
         }
     }
 
@@ -285,6 +295,46 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
                 == .terminal(.completed)
         )
         let values = await harness.publications.values()
+        let validations = await harness.publications.validationValues()
+        #expect(validations.map(\.publication) == values)
+        #expect(
+            validations.allSatisfy {
+                $0.attemptIdentifier == harness.admission.attemptIdentifier
+                    && $0.generationIdentifier
+                        == harness.admission.generationIdentifier
+                    && $0.materialIdentifier
+                        == harness.admission.materialIdentifier
+                    && $0.conductor
+                        == harness.admission.localControlIdentity
+                    && $0.manifestBinding
+                        == harness.admission.manifest.binding
+            }
+        )
+
+        let alternateManifest = try Alpha.RoundManifest(
+            core: harness.admission.manifest.core,
+            signatures: MosaicManifestSignatureFixtures.manifestSignatures(
+                for: harness.admission.manifest.core.roster,
+                binding: harness.admission.manifest.binding,
+                auxiliaryRandomnessByte: 0xA6
+            )
+        )
+        #expect(alternateManifest.core == harness.admission.manifest.core)
+        #expect(alternateManifest.binding != harness.admission.manifest.binding)
+        let alternateManifestBridge = try makePublicationBridge(
+            manifest: alternateManifest,
+            admission: harness.admission
+        )
+        try await alternateManifestBridge.publishManifest(
+            expiryUnixSeconds: 1_800_000_200
+        )
+        let coordinatorValidation = try #require(validations.first)
+        await #expect(throws: Bridge.Failure.invalidPublication) {
+            try await alternateManifestBridge.publish(
+                coordinatorValidation,
+                expiryUnixSeconds: 1_800_000_200
+            )
+        }
         #expect(
             values.compactMap { publication -> Alpha.AuthorizationResponseSet? in
                 guard case let .authorizationResponseSet(value) = publication else {
@@ -903,6 +953,69 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
             materialIdentifier: harness.materialIdentifier,
             localControlIdentity: harness.localControlIdentity,
             proposalValidation: harness.proposalValidation
+        )
+    }
+
+    private func makePublicationBridge(
+        manifest: Alpha.RoundManifest,
+        admission: Fixture.Harness
+    ) throws -> Bridge {
+        let bootstrap = Alpha.PostManifestRuntimeDriver.Bootstrap(
+            validatedAttempt: Fixture.makeValidatedAttempt(
+                election: admission.election
+            ),
+            attemptIdentifier: admission.attemptIdentifier,
+            generationIdentifier: admission.generationIdentifier,
+            materialIdentifier: admission.materialIdentifier,
+            localControlIdentity: admission.localControlIdentity,
+            proposalValidation: admission.proposalValidation
+        )
+        let context = try Bridge.Context(
+            validating: manifest,
+            against: bootstrap
+        )
+        let controlScalar = try #require(
+            MosaicMainnetAlphaFixtures.scalarByte(
+                for: admission.localControlIdentity
+            )
+        )
+        let controlSigningKey = try OpalCrypto.Secp256k1.SigningKey(
+            rawRepresentation: scalarBytes(Int(controlScalar))
+        )
+        let eventSigningKey = try OpalCrypto.Secp256k1.SigningKey(
+            rawRepresentation: scalarBytes(20)
+        )
+        let recipients = try context.roster.controlIdentities.enumerated().map {
+            index, identity in
+            let recipientKey = try OpalCrypto.Secp256k1.SigningKey(
+                rawRepresentation: scalarBytes(30 + index)
+            )
+            return Bridge.Recipient(
+                controlIdentity: identity,
+                eventVerificationKey: recipientKey.bip340VerificationKey
+            )
+        }
+        return try Bridge(
+            context: context,
+            controlSigningKey: controlSigningKey,
+            eventSigningKey: eventSigningKey,
+            recipients: recipients,
+            dependencies: .init(
+                makeLayerTimestamps: { _ in
+                    try .init(
+                        phaseStartUnixSeconds: context.phaseStartUnixSeconds,
+                        currentUnixSeconds: 1_800_000_100,
+                        sealCreatedAt: 1_800_000_098,
+                        giftWrapCreatedAt: 1_800_000_099
+                    )
+                },
+                makeSignatureAuxiliaryRandomness: {
+                    try .init(
+                        rawRepresentation: Data(repeating: 0xA5, count: 32)
+                    )
+                },
+                handoffGiftWrapBatch: { _ in }
+            )
         )
     }
 

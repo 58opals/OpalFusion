@@ -508,20 +508,19 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
                         await materialSuspension?.suspendIfArmed()
                         return prepared.localMaterial
                     },
-                    publishPlayerCommit: { playerCommit in
-                        await probe.publish(playerCommit)
+                    publishPlayerCommit: { validation in
+                        await probe.publish(validation.request.playerCommit)
                     },
                     publishAnonymousComponents: { publications in
                         await probe.publishAnonymousComponents(publications)
                     },
-                    publishPreSignAcknowledgement: {
-                        contributor,
-                        roundIdentifier,
-                        transcriptRoot in
+                    publishPreSignAcknowledgement: { validation in
                         await probe.publishPreSign(
-                            contributor: contributor,
-                            roundIdentifier: roundIdentifier,
-                            transcriptRoot: transcriptRoot
+                            contributor: validation.contributor,
+                            roundIdentifier:
+                                validation.transcript.manifest.roundIdentifier,
+                            transcriptRoot:
+                                validation.transcript.transcriptRoot
                         )
                     },
                     publishLocalBCHSignatures: { publications in

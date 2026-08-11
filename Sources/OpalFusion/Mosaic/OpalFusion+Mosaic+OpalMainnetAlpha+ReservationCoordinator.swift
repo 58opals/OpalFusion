@@ -479,7 +479,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 }
                 localContributionMaterial = material
                 do {
-                    try await execution.publishPlayerCommit(material.playerCommit)
+                    try await execution.publishPlayerCommit(validation)
                 } catch {
                     dispositionGate.finishReservationPublication()
                     failAndStop(.reservationPublicationFailed)
@@ -646,14 +646,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot
         ) async {
             guard let execution = dependencies.execution,
+                  let transcriptInclusionValidation,
+                  transcriptInclusionValidation.contributor == contributor,
+                  transcriptInclusionValidation.transcript.manifest
+                    .roundIdentifier == roundIdentifier,
+                  transcriptInclusionValidation.transcript.transcriptRoot
+                    == transcriptRoot,
                   !shouldStopBeforeSigning else {
                 return
             }
             do {
                 try await execution.publishPreSignAcknowledgement(
-                    contributor,
-                    roundIdentifier,
-                    transcriptRoot
+                    transcriptInclusionValidation
                 )
             } catch {
                 failAndStop(.preSignAcknowledgementPublicationFailed)

@@ -7,6 +7,29 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// the paired runtime. Transport framing, event kinds, relay selection, and retry policy remain
     /// outside this actor.
     actor ConductorCoordinator {
+        /// One coordinator-minted publication bound to the exact runtime material.
+        struct PublicationValidation: Sendable, Equatable {
+            let attemptIdentifier: Session.AttemptIdentifier
+            let generationIdentifier: Session.GenerationIdentifier
+            let materialIdentifier: Session.MaterialIdentifier
+            let conductor: Session.ControlIdentity
+            let manifestBinding: OpalFusion.Mosaic.Attempt.ManifestBinding
+            let publication: Publication
+
+            fileprivate init(
+                context: Session.Context,
+                manifestBinding: OpalFusion.Mosaic.Attempt.ManifestBinding,
+                publication: Publication
+            ) {
+                attemptIdentifier = context.attemptIdentifier
+                generationIdentifier = context.generationIdentifier
+                materialIdentifier = context.materialIdentifier
+                conductor = context.localControlIdentity
+                self.manifestBinding = manifestBinding
+                self.publication = publication
+            }
+        }
+
         private enum QueuedInput: Sendable {
             case control(Ledger.ControlDelivery)
             case anonymousComponent(Ledger.AnonymousDelivery)
@@ -55,6 +78,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var expectedAuthorizationResponseSets: [
             OpalFusion.Mosaic.Attempt.ControlIdentity: AuthorizationResponseSet
         ] = [:]
+        private var admittedManifestBinding: OpalFusion.Mosaic.Attempt
+            .ManifestBinding?
         private var admittedAnonymousComponents: [
             AnonymousComponentAdmissionValidation
         ] = []
@@ -293,6 +318,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     fail(.authorizationKeyMismatch)
                     return
                 }
+                admittedManifestBinding = manifest.binding
 
             case let .playerCommitUnanimityReached(commits):
                 await issueAndPublishAuthorizationResponses(for: commits)
@@ -638,8 +664,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard state == .running else {
                 return
             }
+            guard let admittedManifestBinding else {
+                fail(.unexpectedLocalAttemptEffect)
+                return
+            }
             do {
-                try await dependencies.handoffPublication(publication)
+                try await dependencies.handoffPublication(
+                    .init(
+                        context: context,
+                        manifestBinding: admittedManifestBinding,
+                        publication: publication
+                    )
+                )
             } catch {
                 guard state == .running else { return }
                 fail(.publicationFailed(publication.kind))

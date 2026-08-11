@@ -449,7 +449,7 @@ struct MosaicMainnetAlphaPostManifestRuntimeDriverValidator {
                         publishAnonymousComponents: { _ in
                             throw ProbeFailure.unexpectedInvocation
                         },
-                        publishPreSignAcknowledgement: { _, _, _ in
+                        publishPreSignAcknowledgement: { _ in
                             throw ProbeFailure.unexpectedInvocation
                         },
                         publishLocalBCHSignatures: { _ in

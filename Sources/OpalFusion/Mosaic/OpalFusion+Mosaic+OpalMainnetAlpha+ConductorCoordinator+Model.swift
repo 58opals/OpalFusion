@@ -15,7 +15,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ConductorCoordinator {
         ///
         /// This operation must return after publication acknowledgement. It must not wait for the
         /// document's semantic loopback admission or synchronously call back into the coordinator.
-        let handoffPublication: @Sendable (Publication) async throws -> Void
+        let handoffPublication: @Sendable (
+            PublicationValidation
+        ) async throws -> Void
 
         init(
             componentAuthorizationEvaluator: OpalFusion.Mosaic.OpalV0
@@ -25,7 +27,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ConductorCoordinator {
             previousOutputSource: any OpalFusion.Host.MosaicPreviousOutputSource,
             maximumPendingInputCount: Int,
             handoffPublication: @escaping @Sendable (
-                Publication
+                PublicationValidation
             ) async throws -> Void
         ) {
             self.componentAuthorizationEvaluator =

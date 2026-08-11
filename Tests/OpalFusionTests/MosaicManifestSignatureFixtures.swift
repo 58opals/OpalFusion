@@ -21,7 +21,8 @@ enum MosaicManifestSignatureFixtures {
 
     static func manifestSignature(
         signer: Attempt.ControlIdentity,
-        binding: Attempt.ManifestBinding
+        binding: Attempt.ManifestBinding,
+        auxiliaryRandomnessByte: UInt8 = 0xA5
     ) -> Attempt.ManifestSignature {
         guard let signingKey = signingKeysByIdentity[signer] else {
             preconditionFailure(
@@ -33,7 +34,10 @@ enum MosaicManifestSignatureFixtures {
         )
         let auxiliaryRandomness = try! OpalCrypto.Signature.BIP340
             .AuxiliaryRandomness(
-                rawRepresentation: Data(repeating: 0xA5, count: 32)
+                rawRepresentation: Data(
+                    repeating: auxiliaryRandomnessByte,
+                    count: 32
+                )
             )
         let signature = try! signingKey.signBIP340(
             digest: digest,
@@ -47,10 +51,15 @@ enum MosaicManifestSignatureFixtures {
 
     static func manifestSignatures(
         for roster: Attempt.Roster,
-        binding: Attempt.ManifestBinding
+        binding: Attempt.ManifestBinding,
+        auxiliaryRandomnessByte: UInt8 = 0xA5
     ) -> [Attempt.ManifestSignature] {
         roster.controlIdentities.map {
-            manifestSignature(signer: $0, binding: binding)
+            manifestSignature(
+                signer: $0,
+                binding: binding,
+                auxiliaryRandomnessByte: auxiliaryRandomnessByte
+            )
         }
     }
 
