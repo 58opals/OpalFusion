@@ -1,0 +1,117 @@
+// OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestContributorTransportBridge+Model.swift
+
+import Foundation
+import OpalCrypto
+
+extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBridge {
+    typealias Coordinator = OpalFusion.Mosaic.OpalMainnetAlpha
+        .ReservationCoordinator
+    typealias Driver = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestRuntimeDriver
+    typealias ControlBridge = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestControlPublicationBridge
+    typealias ControlPublisher = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestControlBatchPublisher
+    typealias AnonymousBridge = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestAnonymousPublicationBridge
+    typealias AnonymousPublisher = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestAnonymousBatchPublisher
+    typealias FanIn = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestRelayFanIn
+    typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestNIP59Transport
+    typealias Nostr = OpalFusion.Mosaic.NostrNamespace
+
+    enum Publication: Sendable, Equatable {
+        case playerCommit
+        case anonymousComponents
+        case preSignAcknowledgement
+        case localBCHSignatures
+    }
+
+    struct Dependencies: Sendable {
+        /// Supplies the caller-owned expiry for one already-authorized publication.
+        ///
+        /// This seam deliberately does not derive a timing policy from the signed manifest.
+        let makeExpiryUnixSeconds: @Sendable (Publication) throws -> UInt64
+        let makeControlLayerTimestamps: @Sendable (
+            ControlBridge.TimestampRequest
+        ) throws -> Transport.LayerTimestamps
+        let makeAnonymousLayerTimestamps: @Sendable (
+            AnonymousBridge.TimestampRequest
+        ) throws -> Transport.LayerTimestamps
+        let makeControlSignatureAuxiliaryRandomness: @Sendable () throws
+            -> OpalCrypto.Signature.BIP340.AuxiliaryRandomness
+        let provideControlRoutes: ControlPublisher.RouteProvider
+        let provideAnonymousRoutes: AnonymousPublisher.RouteProvider
+        let awaitAnonymousPublicationPermit:
+            AnonymousPublisher.PublicationPermitProvider
+
+        init(
+            makeExpiryUnixSeconds: @escaping @Sendable (
+                Publication
+            ) throws -> UInt64,
+            makeControlLayerTimestamps: @escaping @Sendable (
+                ControlBridge.TimestampRequest
+            ) throws -> Transport.LayerTimestamps,
+            makeAnonymousLayerTimestamps: @escaping @Sendable (
+                AnonymousBridge.TimestampRequest
+            ) throws -> Transport.LayerTimestamps,
+            makeControlSignatureAuxiliaryRandomness: @escaping @Sendable () throws
+                -> OpalCrypto.Signature.BIP340.AuxiliaryRandomness = {
+                    try .init(
+                        rawRepresentation: OpalCrypto.SecureRandom.makeBytes(
+                            count: 32
+                        )
+                    )
+                },
+            provideControlRoutes: @escaping ControlPublisher.RouteProvider,
+            provideAnonymousRoutes: @escaping AnonymousPublisher.RouteProvider,
+            awaitAnonymousPublicationPermit: @escaping
+                AnonymousPublisher.PublicationPermitProvider
+        ) {
+            self.makeExpiryUnixSeconds = makeExpiryUnixSeconds
+            self.makeControlLayerTimestamps = makeControlLayerTimestamps
+            self.makeAnonymousLayerTimestamps = makeAnonymousLayerTimestamps
+            self.makeControlSignatureAuxiliaryRandomness =
+                makeControlSignatureAuxiliaryRandomness
+            self.provideControlRoutes = provideControlRoutes
+            self.provideAnonymousRoutes = provideAnonymousRoutes
+            self.awaitAnonymousPublicationPermit =
+                awaitAnonymousPublicationPermit
+        }
+    }
+
+    enum InitializationError: Error, Sendable, Equatable {
+        case invalidContext(ControlBridge.Context.ValidationError)
+        case localPeerIsNotContributor
+        case missingLocalControlRecipient
+        case localControlRecipientMismatch
+        case controlPublisher(ControlPublisher.InitializationError)
+        case controlBridge(ControlBridge.InitializationError)
+    }
+
+    enum State: Sendable, Equatable {
+        case awaitingMaterial
+        case preparingMaterial
+        case readyForPlayerCommit
+        case publishing(Publication)
+        case playerCommitPublished
+        case anonymousComponentsPublished
+        case preSignAcknowledgementPublished
+        case draining(Failure)
+        case completed
+        case terminal(Failure)
+    }
+
+    enum Failure: Error, Sendable, Equatable {
+        case materialConstructionFailed
+        case materialBindingFailed
+        case invalidPublicationOrder
+        case concurrentOperation
+        case expiryUnavailable(Publication)
+        case publicationFailed(Publication)
+        case cancelled
+        case inputAfterTermination
+    }
+}

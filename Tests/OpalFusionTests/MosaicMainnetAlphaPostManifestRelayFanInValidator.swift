@@ -400,12 +400,14 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let controlRecipient = try signingKey(21)
         let anonymousRecipient = try signingKey(22)
         let controlGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: controlRecipient,
             channel: .control,
             connections: controlConnections,
             subscriptions: controlSubscriptions
         )
         let anonymousGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: anonymousRecipient,
             channel: .anonymous,
             connections: anonymousConnections,
@@ -422,6 +424,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
             )
         }
         let duplicateRecipientGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: controlRecipient,
             channel: .anonymous,
             connections: anonymousConnections,
@@ -437,6 +440,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
             )
         }
         let secondControlGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: anonymousRecipient,
             channel: .control,
             connections: anonymousConnections,
@@ -490,6 +494,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
             )
         }
         let reusedConnectionGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: anonymousRecipient,
             channel: .anonymous,
             connections: [
@@ -508,6 +513,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         var reusedSubscriptions = anonymousSubscriptions
         reusedSubscriptions[endpoint(1)] = controlSubscriptions[endpoint(1)]
         let reusedSubscriptionGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: anonymousRecipient,
             channel: .anonymous,
             connections: anonymousConnections,
@@ -523,6 +529,53 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
                     controlGroup,
                     reusedSubscriptionGroup,
                 ]
+            )
+        }
+
+        let currentBootstrap = bootstrap(ledger)
+        let foreignBootstrap = Alpha.PostManifestRuntimeDriver.Bootstrap(
+            validatedAttempt: currentBootstrap.validatedAttempt,
+            attemptIdentifier: .init(validatedBytes: [0xFA]),
+            generationIdentifier: currentBootstrap.generationIdentifier,
+            materialIdentifier: currentBootstrap.materialIdentifier,
+            localControlIdentity: currentBootstrap.localControlIdentity,
+            proposalValidation: currentBootstrap.proposalValidation
+        )
+        let foreignBindingGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: foreignBootstrap),
+            recipient: try signingKey(23),
+            channel: .control,
+            connections: makeConnections(),
+            subscriptions: try makeSubscriptions(prefix: "foreign-binding")
+        )
+        #expect(
+            throws: FanIn.InitializationError
+                .recipientAttemptBindingMismatch
+        ) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: [foreignBindingGroup]
+            )
+        }
+
+        let claimedGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: currentBootstrap),
+            recipient: try signingKey(24),
+            channel: .control,
+            connections: makeConnections(),
+            subscriptions: try makeSubscriptions(prefix: "claimed-binding")
+        )
+        _ = try makeFanIn(
+            ledger: ledger,
+            recipientRouteGroups: [claimedGroup]
+        )
+        #expect(
+            throws: FanIn.InitializationError
+                .recipientAttemptBindingMismatch
+        ) {
+            _ = try makeFanIn(
+                ledger: ledger,
+                recipientRouteGroups: [claimedGroup]
             )
         }
 
@@ -1222,12 +1275,14 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let controlRecipient = try signingKey(21)
         let anonymousRecipient = try signingKey(22)
         let controlGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: controlRecipient,
             channel: .control,
             connections: controlConnections,
             subscriptions: controlSubscriptions
         )
         let anonymousGroup = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: anonymousRecipient,
             channel: .anonymous,
             connections: anonymousConnections,
@@ -1269,6 +1324,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let relaySetDigest = relaySetDigest
             ?? ledger.manifest.core.relaySetDigest
         let group = try recipientRouteGroup(
+            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: recipient,
             channel: .control,
             connections: connections,
@@ -1335,6 +1391,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     }
 
     private func recipientRouteGroup(
+        attemptBinding: FanIn.AttemptBinding,
         recipient: OpalCrypto.Secp256k1.SigningKey,
         channel: Transport.Channel,
         connections: [any OpalFusion.Mosaic.TorWebSocketConnectioning],
@@ -1344,6 +1401,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     ) throws -> FanIn.RecipientRouteGroup {
         let selectedEndpoints = (1 ... Alpha.relayCount).map(endpoint)
         return .init(
+            attemptBinding: attemptBinding,
             recipient: .init(channel: channel, signingKey: recipient),
             routes: zip(selectedEndpoints, connections).map {
                 .init(endpoint: $0.0, connection: $0.1)

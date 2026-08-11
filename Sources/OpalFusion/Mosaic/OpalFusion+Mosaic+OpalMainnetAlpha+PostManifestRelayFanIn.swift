@@ -108,6 +108,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     throw .invalidRecipientChannels
                 }
             }
+            guard recipientRouteGroups.allSatisfy({
+                $0.isBound(to: bootstrap)
+            }) else {
+                throw .recipientAttemptBindingMismatch
+            }
             guard maximumPendingEventCount > 0 else {
                 throw .invalidEventBufferLimit
             }
@@ -231,6 +236,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
             } catch let error {
                 throw .ingress(error)
+            }
+            guard recipientRouteGroups.allSatisfy({
+                $0.claimAttemptBinding()
+            }) else {
+                throw .recipientAttemptBindingMismatch
             }
 
             self.routes = sessionRoutes

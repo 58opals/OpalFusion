@@ -1,6 +1,7 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestRelayFanIn+Model.swift
 
 import OpalCrypto
+import Synchronization
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
     typealias Driver = OpalFusion.Mosaic.OpalMainnetAlpha
@@ -17,12 +18,56 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
 
+    /// Opaque attempt facts that prevent a provisioned mailbox group from crossing runtimes.
+    final class AttemptBinding: Sendable {
+        private struct Facts: Sendable, Equatable {
+            let attemptIdentifier: Driver.Session.AttemptIdentifier
+            let generationIdentifier: Driver.Session.GenerationIdentifier
+            let materialIdentifier: Driver.Session.MaterialIdentifier
+            let localControlIdentity: Driver.Session.ControlIdentity
+            let manifestCore: OpalFusion.Mosaic.OpalMainnetAlpha
+                .RoundManifestCore
+        }
+
+        private let facts: Facts
+        private let isClaimed = Mutex(false)
+
+        init(bootstrap: Driver.Bootstrap) {
+            facts = .init(
+                attemptIdentifier: bootstrap.attemptIdentifier,
+                generationIdentifier: bootstrap.generationIdentifier,
+                materialIdentifier: bootstrap.materialIdentifier,
+                localControlIdentity: bootstrap.localControlIdentity,
+                manifestCore: bootstrap.proposalValidation.core
+            )
+        }
+
+        func matches(_ bootstrap: Driver.Bootstrap) -> Bool {
+            facts == .init(
+                attemptIdentifier: bootstrap.attemptIdentifier,
+                generationIdentifier: bootstrap.generationIdentifier,
+                materialIdentifier: bootstrap.materialIdentifier,
+                localControlIdentity: bootstrap.localControlIdentity,
+                manifestCore: bootstrap.proposalValidation.core
+            )
+        }
+
+        func claim() -> Bool {
+            isClaimed.withLock {
+                guard !$0 else { return false }
+                $0 = true
+                return true
+            }
+        }
+    }
+
     /// One externally provisioned recipient mailbox and its isolated three-route subscription set.
     ///
     /// The caller remains responsible for recipient allocation, endpoint-to-capability binding,
     /// and Tor circuit isolation. The fan-in validates the entire supplied collection before opening any
     /// route and then feeds every group into one shared runtime authority.
     struct RecipientRouteGroup: Sendable {
+        private let attemptBinding: AttemptBinding
         let recipient: Transport.RecipientCapability
         let routes: [RelayRoute]
         let subscriptionIdentifiers: [
@@ -30,15 +75,25 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         ]
 
         init(
+            attemptBinding: AttemptBinding,
             recipient: Transport.RecipientCapability,
             routes: [RelayRoute],
             subscriptionIdentifiers: [
                 RelayEndpoint: Nostr.SubscriptionIdentifier
             ]
         ) {
+            self.attemptBinding = attemptBinding
             self.recipient = recipient
             self.routes = routes
             self.subscriptionIdentifiers = subscriptionIdentifiers
+        }
+
+        func isBound(to bootstrap: Driver.Bootstrap) -> Bool {
+            attemptBinding.matches(bootstrap)
+        }
+
+        func claimAttemptBinding() -> Bool {
+            attemptBinding.claim()
         }
     }
 
@@ -66,6 +121,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         case invalidRecipientGroupCount(actual: Int)
         case invalidRecipientSet
         case invalidRecipientChannels
+        case recipientAttemptBindingMismatch
         case invalidRelayCount(actual: Int)
         case duplicateRelay(RelayEndpoint)
         case duplicateConnection
