@@ -14,6 +14,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
         let localControlIdentity: ControlIdentity
         let localRole: OpalFusion.Mosaic.Role
         let roster: OpalFusion.Mosaic.Attempt.Roster
+        let proposalRoundIdentifier: [UInt8]
     }
 
     enum InitializationError: Error, Sendable, Equatable {

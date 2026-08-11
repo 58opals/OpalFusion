@@ -51,6 +51,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private let localControlIdentity: ControlIdentity
         private let localRole: OpalFusion.Mosaic.Role
         private let roster: OpalFusion.Mosaic.Attempt.Roster
+        private let proposalRoundIdentifier: [UInt8]
 
         private var localAttempt: OpalFusion.Mosaic.LocalAttempt
         private var admissionLedger: AdmissionLedger
@@ -80,7 +81,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 materialIdentifier: materialIdentifier,
                 localControlIdentity: localControlIdentity,
                 localRole: localRole,
-                roster: roster
+                roster: roster,
+                proposalRoundIdentifier: proposalRoundIdentifier
             )
         }
 
@@ -134,6 +136,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.localControlIdentity = localControlIdentity
             self.localRole = localAttempt.localRole
             self.roster = roleElection.roster
+            self.proposalRoundIdentifier = proposalValidation.core.roundIdentifier
             self.localAttempt = localAttempt
             self.admissionLedger = admissionLedger
         }

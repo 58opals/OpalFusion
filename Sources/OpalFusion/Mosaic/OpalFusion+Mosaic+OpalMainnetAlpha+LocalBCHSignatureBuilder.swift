@@ -6,6 +6,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let slot: Int
         let recipientEventIdentity: [UInt8]
         let submission: BCHSignatureSubmission
+
+        fileprivate init(
+            slot: Int,
+            recipientEventIdentity: [UInt8],
+            submission: BCHSignatureSubmission
+        ) {
+            self.slot = slot
+            self.recipientEventIdentity = recipientEventIdentity
+            self.submission = submission
+        }
     }
 
     /// Extracts only the exact local signatures produced by the wallet host.

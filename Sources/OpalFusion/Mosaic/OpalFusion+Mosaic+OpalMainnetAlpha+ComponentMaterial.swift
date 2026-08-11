@@ -64,6 +64,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let salt: [UInt8]
         let pedersenNonce: OpalCrypto.Pedersen.Nonce
         let communicationPrivateKey: OpalCrypto.Secp256k1.PrivateKey
+        let componentEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey
+        let bchSignatureEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey
         let componentAuthorizationNonce: [UInt8]
         let bchSignatureAuthorizationNonce: [UInt8]
         let recipientEventIdentity: [UInt8]
@@ -72,6 +74,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             salt: [UInt8],
             pedersenNonce: OpalCrypto.Pedersen.Nonce,
             communicationPrivateKey: OpalCrypto.Secp256k1.PrivateKey,
+            componentEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey,
+            bchSignatureEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey,
             componentAuthorizationNonce: [UInt8],
             bchSignatureAuthorizationNonce: [UInt8],
             recipientEventIdentity: [UInt8]
@@ -99,6 +103,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.salt = Array(salt)
             self.pedersenNonce = pedersenNonce
             self.communicationPrivateKey = communicationPrivateKey
+            self.componentEnvelopePrivateKey = componentEnvelopePrivateKey
+            self.bchSignatureEnvelopePrivateKey =
+                bchSignatureEnvelopePrivateKey
             self.componentAuthorizationNonce = Array(
                 componentAuthorizationNonce
             )
@@ -118,6 +125,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let pedersenNonce: OpalCrypto.Pedersen.Nonce
         let commitment: OpalFusion.Mosaic.OpalV0.ComponentCommitment
         let communicationPrivateKey: OpalCrypto.Secp256k1.PrivateKey
+        let componentEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey
+        let bchSignatureEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey
         let recipientEventIdentity: [UInt8]
         let componentAuthorizationRequest: AuthorizationRequest
         let bchSignatureAuthorizationRequest: AuthorizationRequest

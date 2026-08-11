@@ -210,6 +210,90 @@ struct MosaicMainnetAlpha4MaterialValidator {
             )
         }
 
+        var duplicateComponentEnvelopeKey = prepared.secrets
+        duplicateComponentEnvelopeKey[1] = try replacing(
+            duplicateComponentEnvelopeKey[1],
+            componentEnvelopePrivateKey:
+                duplicateComponentEnvelopeKey[0]
+                    .componentEnvelopePrivateKey
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateComponentEnvelopeKey(slot: 1)) {
+            _ = try rebuild(
+                prepared,
+                secrets: duplicateComponentEnvelopeKey
+            )
+        }
+
+        var crossRoleOppositeParityKey = prepared.secrets
+        crossRoleOppositeParityKey[1] = try replacing(
+            crossRoleOppositeParityKey[1],
+            componentEnvelopePrivateKey: .init(
+                rawRepresentation: Data(
+                    MosaicOpalV0WireContractValidator.bytes(
+                        hexadecimal:
+                            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036410e"
+                    )
+                )
+            )
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateComponentEnvelopeKey(slot: 1)) {
+            _ = try rebuild(
+                prepared,
+                secrets: crossRoleOppositeParityKey
+            )
+        }
+
+        var duplicateBCHEnvelopeKey = prepared.secrets
+        duplicateBCHEnvelopeKey[1] = try replacing(
+            duplicateBCHEnvelopeKey[1],
+            bchSignatureEnvelopePrivateKey:
+                duplicateBCHEnvelopeKey[0]
+                    .bchSignatureEnvelopePrivateKey
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateBCHSignatureEnvelopeKey(slot: 1)) {
+            _ = try rebuild(
+                prepared,
+                secrets: duplicateBCHEnvelopeKey
+            )
+        }
+
+        var oppositeParityBCHEnvelopeKey = prepared.secrets
+        oppositeParityBCHEnvelopeKey[1] = try replacing(
+            oppositeParityBCHEnvelopeKey[1],
+            bchSignatureEnvelopePrivateKey: .init(
+                rawRepresentation: Data(
+                    MosaicOpalV0WireContractValidator.bytes(
+                        hexadecimal:
+                            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036410e"
+                    )
+                )
+            )
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateBCHSignatureEnvelopeKey(slot: 1)) {
+            _ = try rebuild(
+                prepared,
+                secrets: oppositeParityBCHEnvelopeKey
+            )
+        }
+
+        var crossAnonymousPurposeKey = prepared.secrets
+        crossAnonymousPurposeKey[1] = try replacing(
+            crossAnonymousPurposeKey[1],
+            bchSignatureEnvelopePrivateKey:
+                crossAnonymousPurposeKey[0].componentEnvelopePrivateKey
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateBCHSignatureEnvelopeKey(slot: 1)) {
+            _ = try rebuild(
+                prepared,
+                secrets: crossAnonymousPurposeKey
+            )
+        }
+
         var crossPurposeNonce = prepared.secrets
         crossPurposeNonce[1] = try replacing(
             crossPurposeNonce[1],
@@ -268,6 +352,51 @@ struct MosaicMainnetAlpha4MaterialValidator {
         #expect(throws: Alpha.LocalContributionMaterial.BuildError
             .duplicateRecipientEventIdentity(slot: 1)) {
             _ = try rebuild(prepared, secrets: senderMailboxCollision)
+        }
+
+        var anonymousSenderMailboxCollision = prepared.secrets
+        anonymousSenderMailboxCollision[1] = try replacing(
+            anonymousSenderMailboxCollision[1],
+            recipientEventIdentity: Array(
+                anonymousSenderMailboxCollision[0]
+                    .componentEnvelopePrivateKey.makeSigningKey()
+                    .publicKey.compressedRepresentation.dropFirst()
+            )
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateRecipientEventIdentity(slot: 1)) {
+            _ = try rebuild(
+                prepared,
+                secrets: anonymousSenderMailboxCollision
+            )
+        }
+
+        var bchSenderMailboxCollision = prepared.secrets
+        bchSenderMailboxCollision[1] = try replacing(
+            bchSenderMailboxCollision[1],
+            recipientEventIdentity: Array(
+                bchSenderMailboxCollision[0]
+                    .bchSignatureEnvelopePrivateKey.makeSigningKey()
+                    .publicKey.compressedRepresentation.dropFirst()
+            )
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateRecipientEventIdentity(slot: 1)) {
+            _ = try rebuild(
+                prepared,
+                secrets: bchSenderMailboxCollision
+            )
+        }
+
+        var rosterIdentityCollision = prepared.secrets
+        rosterIdentityCollision[0] = try replacing(
+            rosterIdentityCollision[0],
+            recipientEventIdentity:
+                prepared.manifest.core.roster.conductor.validatedBytes
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .anonymousIdentityReusesControlIdentity(slot: 0)) {
+            _ = try rebuild(prepared, secrets: rosterIdentityCollision)
         }
     }
 
@@ -491,6 +620,12 @@ struct MosaicMainnetAlpha4MaterialValidator {
                 communicationPrivateKey: .init(
                     rawRepresentation: scalarBytes(ordinal + 50)
                 ),
+                componentEnvelopePrivateKey: .init(
+                    rawRepresentation: scalarBytes(1_000 + ordinal)
+                ),
+                bchSignatureEnvelopePrivateKey: .init(
+                    rawRepresentation: scalarBytes(2_000 + ordinal)
+                ),
                 componentAuthorizationNonce:
                     MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
                         20_000 + ordinal
@@ -500,7 +635,7 @@ struct MosaicMainnetAlpha4MaterialValidator {
                         30_000 + ordinal
                     ),
                 recipientEventIdentity: [UInt8](
-                    try signingKey(scalar: ordinal + 100)
+                    try signingKey(scalar: 3_000 + ordinal)
                         .bip340VerificationKey.rawRepresentation
                 )
             )
@@ -596,6 +731,8 @@ struct MosaicMainnetAlpha4MaterialValidator {
         salt: [UInt8]? = nil,
         pedersenNonce: OpalCrypto.Pedersen.Nonce? = nil,
         communicationPrivateKey: OpalCrypto.Secp256k1.PrivateKey? = nil,
+        componentEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey? = nil,
+        bchSignatureEnvelopePrivateKey: OpalCrypto.Secp256k1.PrivateKey? = nil,
         componentAuthorizationNonce: [UInt8]? = nil,
         bchSignatureAuthorizationNonce: [UInt8]? = nil,
         recipientEventIdentity: [UInt8]? = nil
@@ -605,6 +742,12 @@ struct MosaicMainnetAlpha4MaterialValidator {
             pedersenNonce: pedersenNonce ?? value.pedersenNonce,
             communicationPrivateKey:
                 communicationPrivateKey ?? value.communicationPrivateKey,
+            componentEnvelopePrivateKey:
+                componentEnvelopePrivateKey
+                    ?? value.componentEnvelopePrivateKey,
+            bchSignatureEnvelopePrivateKey:
+                bchSignatureEnvelopePrivateKey
+                    ?? value.bchSignatureEnvelopePrivateKey,
             componentAuthorizationNonce:
                 componentAuthorizationNonce
                     ?? value.componentAuthorizationNonce,
@@ -623,8 +766,11 @@ struct MosaicMainnetAlpha4MaterialValidator {
     }
 
     private func scalarBytes(_ scalar: Int) -> Data {
-        precondition((1 ... 255).contains(scalar))
-        return Data(repeating: 0, count: 31) + Data([UInt8(scalar)])
+        precondition(scalar > 0)
+        var value = UInt32(scalar).bigEndian
+        var result = Data(repeating: 0, count: 28)
+        withUnsafeBytes(of: &value) { result.append(contentsOf: $0) }
+        return result
     }
 
     private func p2pkhLockingScript(publicKey: [UInt8]) -> [UInt8] {

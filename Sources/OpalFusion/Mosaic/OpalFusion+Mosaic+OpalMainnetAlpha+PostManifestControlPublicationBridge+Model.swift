@@ -17,6 +17,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestControlPublicationBridg
         enum ValidationError: Error, Sendable, Equatable {
             case runtimeBootstrapMismatch
             case manifestProposalMismatch
+            case localMaterialMismatch
         }
 
         let attemptIdentifier: AttemptIdentifier
@@ -53,6 +54,33 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestControlPublicationBridg
             generationIdentifier = runtimeContext.generationIdentifier
             materialIdentifier = runtimeContext.materialIdentifier
             self.manifest = manifest
+            localControlIdentity = runtimeContext.localControlIdentity
+        }
+
+        init(
+            validating material: OpalFusion.Mosaic.OpalMainnetAlpha
+                .LocalContributionMaterial,
+            against runtimeContext: OpalFusion.Mosaic.OpalMainnetAlpha
+                .RuntimeSession.Context
+        ) throws(ValidationError) {
+            guard runtimeContext.localRole == .contributor,
+                  runtimeContext.attemptIdentifier
+                    == material.attemptIdentifier,
+                  runtimeContext.generationIdentifier
+                    == material.generationIdentifier,
+                  runtimeContext.materialIdentifier
+                    == material.materialIdentifier,
+                  runtimeContext.localControlIdentity
+                    == material.contributor,
+                  runtimeContext.roster == material.manifest.core.roster,
+                  runtimeContext.proposalRoundIdentifier
+                    == material.manifest.core.roundIdentifier else {
+                throw .localMaterialMismatch
+            }
+            attemptIdentifier = runtimeContext.attemptIdentifier
+            generationIdentifier = runtimeContext.generationIdentifier
+            materialIdentifier = runtimeContext.materialIdentifier
+            manifest = material.manifest
             localControlIdentity = runtimeContext.localControlIdentity
         }
 

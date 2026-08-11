@@ -169,7 +169,8 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             materialIdentifier: harness.context.materialIdentifier,
             localControlIdentity: harness.context.roster.conductor,
             localRole: .conductor,
-            roster: harness.context.roster
+            roster: harness.context.roster,
+            proposalRoundIdentifier: harness.context.proposalRoundIdentifier
         )
         #expect(throws: Builder.Failure.localPeerIsNotContributor) {
             _ = try build(harness, context: conductorContext)
@@ -187,7 +188,8 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             ),
             localControlIdentity: harness.context.localControlIdentity,
             localRole: harness.context.localRole,
-            roster: harness.context.roster
+            roster: harness.context.roster,
+            proposalRoundIdentifier: harness.context.proposalRoundIdentifier
         )
         #expect(throws: Builder.Failure.contextBindingMismatch) {
             _ = try build(harness, context: foreignContext)
@@ -455,7 +457,8 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             materialIdentifier: materialIdentifier,
             localControlIdentity: admission.localControlIdentity,
             localRole: .contributor,
-            roster: admission.election.result.roster
+            roster: admission.election.result.roster,
+            proposalRoundIdentifier: admission.manifest.core.roundIdentifier
         )
         let preparation = try MosaicUnsignedTransactionTranscriptFixtures
             .prepare(
@@ -560,7 +563,8 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             materialIdentifier: materialIdentifier,
             localControlIdentity: admission.localControlIdentity,
             localRole: .contributor,
-            roster: admission.election.result.roster
+            roster: admission.election.result.roster,
+            proposalRoundIdentifier: admission.manifest.core.roundIdentifier
         )
         let commitmentSet = try MosaicUnsignedTransactionTranscriptFixtures
             .makeCommitmentSet(

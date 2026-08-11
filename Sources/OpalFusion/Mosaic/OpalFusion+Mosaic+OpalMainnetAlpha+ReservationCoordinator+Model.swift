@@ -128,13 +128,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
                 .ReservationPublicationValidation
         ) async throws -> Void
         let publishAnonymousComponents: @Sendable (
-            [LocalAnonymousComponentPublication]
+            AnonymousComponentPublicationValidation
         ) async throws -> Void
         let publishPreSignAcknowledgement: @Sendable (
             OpalFusion.Mosaic.LocalAttempt.TranscriptInclusionValidation
         ) async throws -> Void
         let publishLocalBCHSignatures: @Sendable (
-            [OpalFusion.Mosaic.OpalMainnetAlpha.LocalBCHSignaturePublication]
+            AnonymousBCHSignaturePublicationValidation
         ) async throws -> Void
 
         init(
@@ -150,14 +150,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
                     .ReservationPublicationValidation
             ) async throws -> Void,
             publishAnonymousComponents: @escaping @Sendable (
-                [LocalAnonymousComponentPublication]
+                AnonymousComponentPublicationValidation
             ) async throws -> Void,
             publishPreSignAcknowledgement: @escaping @Sendable (
                 OpalFusion.Mosaic.LocalAttempt.TranscriptInclusionValidation
             ) async throws -> Void,
             publishLocalBCHSignatures: @escaping @Sendable (
-                [OpalFusion.Mosaic.OpalMainnetAlpha
-                    .LocalBCHSignaturePublication]
+                AnonymousBCHSignaturePublicationValidation
             ) async throws -> Void
         ) {
             self.transactionHost = transactionHost

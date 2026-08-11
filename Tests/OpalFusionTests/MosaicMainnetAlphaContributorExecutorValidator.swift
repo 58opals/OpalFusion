@@ -27,14 +27,22 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         private let signalContinuations: [Signal: AsyncStream<Void>.Continuation]
         private(set) var playerCommit: Alpha.PlayerCommit?
         private(set) var anonymousComponents:
-            [Coordinator.LocalAnonymousComponentPublication] = []
+            [Coordinator.AnonymousComponentPublicationValidation.Entry] = []
+        private(set) var anonymousComponentContext:
+            Coordinator.AnonymousPublicationContext?
+        private(set) var anonymousComponentMaterialBinding:
+            Coordinator.AnonymousMaterialBinding?
         private(set) var preSignPublication: (
             contributor: OpalFusion.Mosaic.Attempt.ControlIdentity,
             roundIdentifier: [UInt8],
             transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot
         )?
-        private(set) var localSignatures: [Alpha.LocalBCHSignaturePublication]
-            = []
+        private(set) var localSignatures:
+            [Coordinator.AnonymousBCHSignaturePublicationValidation.Entry] = []
+        private(set) var localSignatureContext:
+            Coordinator.AnonymousPublicationContext?
+        private(set) var localSignatureMaterialBinding:
+            Coordinator.AnonymousMaterialBinding?
 
         init() {
             var streams: [Signal: AsyncStream<Void>] = [:]
@@ -56,9 +64,12 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         }
 
         func publishAnonymousComponents(
-            _ publications: [Coordinator.LocalAnonymousComponentPublication]
+            _ validation: Coordinator
+                .AnonymousComponentPublicationValidation
         ) {
-            anonymousComponents = publications
+            anonymousComponentContext = validation.context
+            anonymousComponentMaterialBinding = validation.materialBinding
+            anonymousComponents = validation.entries
             record(.anonymousComponentsPublished)
         }
 
@@ -76,9 +87,12 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         }
 
         func publishLocalSignatures(
-            _ publications: [Alpha.LocalBCHSignaturePublication]
+            _ validation: Coordinator
+                .AnonymousBCHSignaturePublicationValidation
         ) {
-            localSignatures = publications
+            localSignatureContext = validation.context
+            localSignatureMaterialBinding = validation.materialBinding
+            localSignatures = validation.entries
             record(.localSignaturesPublished)
         }
 
@@ -194,6 +208,22 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
             await harness.probe.playerCommit
                 == harness.prepared.localMaterial.playerCommit
         )
+        let expectedAnonymousContext = try Coordinator
+            .AnonymousPublicationContext(
+                validating: harness.prepared.localMaterial,
+                against: harness.prepared.session.context
+            )
+        let expectedMaterialBinding = Coordinator.AnonymousMaterialBinding(
+            material: harness.prepared.localMaterial
+        )
+        #expect(
+            await harness.probe.anonymousComponentContext
+                == expectedAnonymousContext
+        )
+        #expect(
+            await harness.probe.anonymousComponentMaterialBinding
+                == expectedMaterialBinding
+        )
         let anonymousComponents = await harness.probe.anonymousComponents
         #expect(anonymousComponents.count == Alpha.componentCountPerContributor)
         for publication in anonymousComponents {
@@ -221,6 +251,14 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         )
         let localSignatures = await harness.probe.localSignatures
         #expect(localSignatures.count == 1)
+        #expect(
+            await harness.probe.localSignatureContext
+                == expectedAnonymousContext
+        )
+        #expect(
+            await harness.probe.localSignatureMaterialBinding
+                == expectedMaterialBinding
+        )
         let localInputIndex = try #require(
             harness.prepared.signingRequest.localInputIndices.first
         )

@@ -598,8 +598,21 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard !shouldStopBeforeSigning else {
                 return
             }
+            let publicationValidation: AnonymousComponentPublicationValidation
             do {
-                try await execution.publishAnonymousComponents(publications)
+                publicationValidation = try .init(
+                    validating: publications,
+                    material: material,
+                    runtimeContext: context
+                )
+            } catch {
+                failAndStop(.anonymousComponentPublicationFailed)
+                return
+            }
+            do {
+                try await execution.publishAnonymousComponents(
+                    publicationValidation
+                )
             } catch {
                 failAndStop(.anonymousComponentPublicationFailed)
                 return
@@ -761,7 +774,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return
             }
             do {
-                try await execution.publishLocalBCHSignatures(publications)
+                let publicationValidation = try
+                    AnonymousBCHSignaturePublicationValidation(
+                        validating: publications,
+                        transcriptInclusion:
+                            transcriptInclusionValidation,
+                        material: material,
+                        runtimeContext: context
+                    )
+                try await execution.publishLocalBCHSignatures(
+                    publicationValidation
+                )
             } catch {
                 failAfterSigning(
                     .localBCHSignaturePublicationFailed,

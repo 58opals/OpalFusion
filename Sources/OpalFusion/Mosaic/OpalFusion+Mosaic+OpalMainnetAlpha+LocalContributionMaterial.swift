@@ -24,9 +24,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case duplicateSalt(slot: Int)
             case duplicatePedersenNonce(slot: Int)
             case duplicateCommunicationKey(slot: Int)
+            case duplicateComponentEnvelopeKey(slot: Int)
+            case duplicateBCHSignatureEnvelopeKey(slot: Int)
             case duplicateComponentAuthorizationNonce(slot: Int)
             case duplicateBCHSignatureAuthorizationNonce(slot: Int)
             case duplicateRecipientEventIdentity(slot: Int)
+            case anonymousIdentityReusesControlIdentity(slot: Int)
             case contributionBalanceMismatch(expected: UInt64, actual: Int64)
             case cryptographicMaterialInvalid(slot: Int)
             case groupedCommitmentInvalid
@@ -93,6 +96,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw .slotSecretCountMismatch(actual: slotSecrets.count)
             }
             try validateUniqueSlotSecrets(slotSecrets)
+            try validateAnonymousIdentities(
+                slotSecrets,
+                against: manifest.core.roster
+            )
 
             var outpoints: Set<Outpoint> = []
             var payloads: [OpalFusion.Mosaic.OpalV0.ComponentPayload] = []
@@ -242,6 +249,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                             commitment: commitment,
                             communicationPrivateKey:
                                 secrets.communicationPrivateKey,
+                            componentEnvelopePrivateKey:
+                                secrets.componentEnvelopePrivateKey,
+                            bchSignatureEnvelopePrivateKey:
+                                secrets.bchSignatureEnvelopePrivateKey,
                             recipientEventIdentity:
                                 secrets.recipientEventIdentity,
                             componentAuthorizationRequest: componentRequest,
@@ -358,6 +369,32 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     throw .duplicateCommunicationKey(slot: slot)
                 }
                 guard oneTimeMaterial.insert(
+                    value.componentEnvelopePrivateKey.rawRepresentation
+                ).inserted else {
+                    throw .duplicateComponentEnvelopeKey(slot: slot)
+                }
+                let componentEnvelopeIdentity = value
+                    .componentEnvelopePrivateKey.makeSigningKey().publicKey
+                    .compressedRepresentation.dropFirst()
+                guard oneTimeMaterial.insert(
+                    Data(componentEnvelopeIdentity)
+                ).inserted else {
+                    throw .duplicateComponentEnvelopeKey(slot: slot)
+                }
+                guard oneTimeMaterial.insert(
+                    value.bchSignatureEnvelopePrivateKey.rawRepresentation
+                ).inserted else {
+                    throw .duplicateBCHSignatureEnvelopeKey(slot: slot)
+                }
+                let bchSignatureEnvelopeIdentity = value
+                    .bchSignatureEnvelopePrivateKey.makeSigningKey().publicKey
+                    .compressedRepresentation.dropFirst()
+                guard oneTimeMaterial.insert(
+                    Data(bchSignatureEnvelopeIdentity)
+                ).inserted else {
+                    throw .duplicateBCHSignatureEnvelopeKey(slot: slot)
+                }
+                guard oneTimeMaterial.insert(
                     Data(value.componentAuthorizationNonce)
                 ).inserted else {
                     throw .duplicateComponentAuthorizationNonce(slot: slot)
@@ -371,6 +408,37 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     Data(value.recipientEventIdentity)
                 ).inserted else {
                     throw .duplicateRecipientEventIdentity(slot: slot)
+                }
+            }
+        }
+
+        private static func validateAnonymousIdentities(
+            _ secrets: [ComponentSlotSecrets],
+            against roster: OpalFusion.Mosaic.Attempt.Roster
+        ) throws(BuildError) {
+            let controlIdentities = Set(
+                roster.controlIdentities.map { Data($0.validatedBytes) }
+            )
+            for (slot, value) in secrets.enumerated() {
+                let identities = [
+                    Data(
+                        value.communicationPrivateKey.makeSigningKey()
+                            .publicKey.compressedRepresentation.dropFirst()
+                    ),
+                    Data(
+                        value.componentEnvelopePrivateKey.makeSigningKey()
+                            .publicKey.compressedRepresentation.dropFirst()
+                    ),
+                    Data(
+                        value.bchSignatureEnvelopePrivateKey.makeSigningKey()
+                            .publicKey.compressedRepresentation.dropFirst()
+                    ),
+                    Data(value.recipientEventIdentity),
+                ]
+                guard identities.allSatisfy({
+                    !controlIdentities.contains($0)
+                }) else {
+                    throw .anonymousIdentityReusesControlIdentity(slot: slot)
                 }
             }
         }

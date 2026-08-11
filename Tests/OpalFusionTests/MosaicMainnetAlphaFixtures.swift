@@ -398,6 +398,12 @@ enum MosaicMainnetAlphaFixtures {
                 communicationPrivateKey: .init(
                     rawRepresentation: scalarBytes(1_000 + ordinal)
                 ),
+                componentEnvelopePrivateKey: .init(
+                    rawRepresentation: scalarBytes(3_000 + ordinal)
+                ),
+                bchSignatureEnvelopePrivateKey: .init(
+                    rawRepresentation: scalarBytes(4_000 + ordinal)
+                ),
                 componentAuthorizationNonce:
                     MosaicUnsignedTransactionTranscriptFixtures.indexedDigest(
                         20_000 + ordinal
