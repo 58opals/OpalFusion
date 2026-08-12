@@ -244,7 +244,8 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
                 subscriptions: subscriptions
             )
             owners[localControlIdentity] = owner
-            let groups = try await owner.makeInboundRecipientRouteGroups()
+            let provisioning = try await owner.provisionInboundRuntime()
+            let groups = provisioning.recipientRouteGroups
             let expectedCount = owner.localRole == .conductor
                 ? 1 + fixture.manifest.core.roster.contributors.count
                     * Alpha.componentCountPerContributor
@@ -463,7 +464,7 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
         )
         await #expect(throws: Owner.Failure.routeAllocationMismatch) {
             _ = try await wrongEndpointOwner
-                .makeInboundRecipientRouteGroups()
+                .provisionInboundRuntime()
         }
         #expect(wrongEndpointProvisioner.activity.snapshot.opens == 0)
         #expect(wrongEndpointProvisioner.activity.snapshot.sends == 0)
@@ -483,7 +484,7 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
         )
         await #expect(throws: Owner.Failure.duplicateIsolationLease) {
             _ = try await duplicateLeaseOwner
-                .makeInboundRecipientRouteGroups()
+                .provisionInboundRuntime()
         }
         #expect(duplicateLeaseProvisioner.activity.snapshot.opens == 0)
         #expect(duplicateLeaseProvisioner.activity.snapshot.sends == 0)
@@ -508,10 +509,10 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
             subscriptions: subscriptions
         )
 
-        let inbound = try await owner.makeInboundRecipientRouteGroups()
-        #expect(inbound.count == 1)
+        let inbound = try await owner.provisionInboundRuntime()
+        #expect(inbound.recipientRouteGroups.count == 1)
         await #expect(throws: Owner.Failure.inboundRoutesAlreadyIssued) {
-            _ = try await owner.makeInboundRecipientRouteGroups()
+            _ = try await owner.provisionInboundRuntime()
         }
 
         await #expect(throws: Owner.Failure.duplicateConnection) {

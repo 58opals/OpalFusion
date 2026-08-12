@@ -40,6 +40,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case runtime(Driver.State)
         }
 
+        private enum RuntimeAuthorization: Sendable {
+            case componentRouteGroups
+            case provisioned(AttemptTransportOwner.InboundRuntimeProvisioning)
+        }
+
+        private struct Construction: Sendable {
+            let routes: [SessionRoute]
+            let ingress: Ingress
+        }
+
         private let routes: [SessionRoute]
         private let ingress: Ingress
         private let dependencies: Dependencies
@@ -59,6 +69,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private(set) var state: State = .idle
 
+        /// Lower-level construction used by focused fan-in component tests.
+        ///
+        /// Private mainnet composition uses the owner-provisioned initializer below. This seam
+        /// retains direct route-group construction so fan-in validation and lifecycle tests do
+        /// not need to allocate a production-complete conductor mailbox set.
         init(
             bootstrap: Driver.Bootstrap,
             roleDependencies: Driver.RoleDependencies,
@@ -69,6 +84,74 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             maximumPendingEventCount: Int,
             dependencies: Dependencies = .init()
         ) throws(InitializationError) {
+            let construction = try Self.makeConstruction(
+                bootstrap: bootstrap,
+                roleDependencies: roleDependencies,
+                recipientRouteGroups: recipientRouteGroups,
+                relaySelection: relaySelection,
+                ingressDependencies: ingressDependencies,
+                codingLimits: codingLimits,
+                maximumPendingEventCount: maximumPendingEventCount,
+                authorization: .componentRouteGroups
+            )
+            routes = construction.routes
+            ingress = construction.ingress
+            self.dependencies = dependencies
+            let (eventStream, eventContinuation) = AsyncStream<Nostr.Event>
+                .makeStream(
+                    bufferingPolicy: .bufferingOldest(
+                        maximumPendingEventCount
+                    )
+                )
+            self.eventStream = eventStream
+            self.eventContinuation = eventContinuation
+        }
+
+        /// Constructs the private mainnet runtime only from one owner-provisioned capability.
+        init(
+            bootstrap: Driver.Bootstrap,
+            roleDependencies: Driver.RoleDependencies,
+            inboundRuntimeProvisioning:
+                AttemptTransportOwner.InboundRuntimeProvisioning,
+            ingressDependencies: Ingress.Dependencies,
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingEventCount: Int,
+            dependencies: Dependencies = .init()
+        ) throws(InitializationError) {
+            let construction = try Self.makeConstruction(
+                bootstrap: bootstrap,
+                roleDependencies: roleDependencies,
+                recipientRouteGroups:
+                    inboundRuntimeProvisioning.recipientRouteGroups,
+                relaySelection: inboundRuntimeProvisioning.relaySelection,
+                ingressDependencies: ingressDependencies,
+                codingLimits: codingLimits,
+                maximumPendingEventCount: maximumPendingEventCount,
+                authorization: .provisioned(inboundRuntimeProvisioning)
+            )
+            routes = construction.routes
+            ingress = construction.ingress
+            self.dependencies = dependencies
+            let (eventStream, eventContinuation) = AsyncStream<Nostr.Event>
+                .makeStream(
+                    bufferingPolicy: .bufferingOldest(
+                        maximumPendingEventCount
+                    )
+                )
+            self.eventStream = eventStream
+            self.eventContinuation = eventContinuation
+        }
+
+        private static func makeConstruction(
+            bootstrap: Driver.Bootstrap,
+            roleDependencies: Driver.RoleDependencies,
+            recipientRouteGroups: [RecipientRouteGroup],
+            relaySelection: RelaySelectionValidation,
+            ingressDependencies: Ingress.Dependencies,
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingEventCount: Int,
+            authorization: RuntimeAuthorization
+        ) throws(InitializationError) -> Construction {
             guard !recipientRouteGroups.isEmpty else {
                 throw .invalidRecipientGroupCount(actual: 0)
             }
@@ -109,10 +192,20 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     throw .invalidRecipientChannels
                 }
             }
-            guard recipientRouteGroups.allSatisfy({
-                $0.isBound(to: bootstrap)
-            }) else {
-                throw .recipientAttemptBindingMismatch
+            switch authorization {
+            case .componentRouteGroups:
+                guard recipientRouteGroups.allSatisfy({
+                    $0.isBound(to: bootstrap)
+                }) else {
+                    throw .recipientAttemptBindingMismatch
+                }
+            case let .provisioned(provisioning):
+                guard provisioning.matches(
+                    bootstrap,
+                    role: roleDependencies.role
+                ) else {
+                    throw .runtimeAuthorizationMismatch
+                }
             }
             guard maximumPendingEventCount > 0 else {
                 throw .invalidEventBufferLimit
@@ -228,6 +321,23 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw .invalidSubscription
             }
 
+            switch authorization {
+            case .componentRouteGroups:
+                guard recipientRouteGroups.allSatisfy({
+                    $0.claimAttemptBinding()
+                }) else {
+                    throw .recipientAttemptBindingMismatch
+                }
+            case let .provisioned(provisioning):
+                guard provisioning.claim(
+                    bootstrap,
+                    role: roleDependencies.role
+                ) else {
+                    throw .runtimeAuthorizationAlreadyUsed
+                }
+            }
+
+            let ingress: Ingress
             do {
                 ingress = try .init(
                     bootstrap: bootstrap,
@@ -238,22 +348,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             } catch let error {
                 throw .ingress(error)
             }
-            guard recipientRouteGroups.allSatisfy({
-                $0.claimAttemptBinding()
-            }) else {
-                throw .recipientAttemptBindingMismatch
-            }
-
-            self.routes = sessionRoutes
-            self.dependencies = dependencies
-            let (eventStream, eventContinuation) = AsyncStream<Nostr.Event>
-                .makeStream(
-                    bufferingPolicy: .bufferingOldest(
-                        maximumPendingEventCount
-                    )
-                )
-            self.eventStream = eventStream
-            self.eventContinuation = eventContinuation
+            return .init(routes: sessionRoutes, ingress: ingress)
         }
 
         /// Starts the private ingress and every recipient subscription exactly once.

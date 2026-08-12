@@ -8,6 +8,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         .PostManifestRuntimeDriver
     typealias Ingress = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestTransportIngress
+    typealias AttemptTransportOwner = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestAttemptTransportOwner
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias RelayEndpoint = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestRelayEndpoint
@@ -133,6 +135,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         case incompatibleCodingLimits
         case invalidEventBufferLimit
         case invalidSubscription
+        case runtimeAuthorizationMismatch
+        case runtimeAuthorizationAlreadyUsed
         case ingress(Ingress.InitializationError)
     }
 

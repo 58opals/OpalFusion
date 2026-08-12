@@ -65,6 +65,46 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        /// One complete, owner-validated inbound allocation for private runtime construction.
+        ///
+        /// Every route group shares one attempt binding, so constructing the authorized fan-in
+        /// consumes exactly one capability rather than one claim per mailbox. The capability
+        /// grants neither event admission nor wallet or broadcast authority.
+        struct InboundRuntimeProvisioning: Sendable {
+            let recipientRouteGroups: [FanIn.RecipientRouteGroup]
+            let relaySelection: PostManifestRelaySelectionValidation
+
+            private let role: Role
+            private let attemptBinding: FanIn.AttemptBinding
+
+            fileprivate init(
+                role: Role,
+                attemptBinding: FanIn.AttemptBinding,
+                recipientRouteGroups: [FanIn.RecipientRouteGroup],
+                relaySelection: PostManifestRelaySelectionValidation
+            ) {
+                self.role = role
+                self.attemptBinding = attemptBinding
+                self.recipientRouteGroups = recipientRouteGroups
+                self.relaySelection = relaySelection
+            }
+
+            func matches(
+                _ bootstrap: Driver.Bootstrap,
+                role: Role
+            ) -> Bool {
+                self.role == role && attemptBinding.matches(bootstrap)
+            }
+
+            func claim(
+                _ bootstrap: Driver.Bootstrap,
+                role: Role
+            ) -> Bool {
+                guard matches(bootstrap, role: role) else { return false }
+                return attemptBinding.claim()
+            }
+        }
+
         enum RoutePurpose: Sendable, Hashable {
             case inboundControl
             case inboundAnonymous
@@ -345,9 +385,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.dependencies = dependencies
         }
 
-        /// Provisions the complete inbound mailbox set once without opening any route.
-        func makeInboundRecipientRouteGroups() async throws(Failure)
-            -> [FanIn.RecipientRouteGroup] {
+        /// Provisions and authorizes the complete inbound runtime once without opening a route.
+        func provisionInboundRuntime() async throws(Failure)
+            -> InboundRuntimeProvisioning {
             var recipients: [(RoutePurpose, Transport.RecipientCapability)] = [
                 (.inboundControl, localControlRecipientCapability),
             ]
@@ -374,7 +414,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     ($0.1.recipientEventIdentity, $0.1)
                 }
             )
-            return groups.map { group in
+            let attemptBinding = FanIn.AttemptBinding(bootstrap: bootstrap)
+            let recipientRouteGroups = groups.map { group in
                 guard let capability = capabilitiesByIdentity[
                     group.recipientEventIdentity
                 ] else {
@@ -383,12 +424,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     )
                 }
                 return FanIn.RecipientRouteGroup(
-                    attemptBinding: .init(bootstrap: bootstrap),
+                    attemptBinding: attemptBinding,
                     recipient: capability,
                     routes: group.routes,
                     subscriptionIdentifiers: group.subscriptionIdentifiers
                 )
             }
+            return .init(
+                role: localRole,
+                attemptBinding: attemptBinding,
+                recipientRouteGroups: recipientRouteGroups,
+                relaySelection: relaySelection
+            )
         }
 
         nonisolated var controlRouteProvider: ControlPublisher.RouteProvider {
