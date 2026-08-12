@@ -10,6 +10,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     actor ReservationCoordinator {
         private enum QueuedInput: Sendable {
             case runtime(RuntimeSession.Input)
+            case authenticatedControl(AdmissionLedger.ControlDelivery)
             case inputSourceTerminated(InputSourceTermination)
         }
 
@@ -41,6 +42,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private let effectStream: AsyncStream<RuntimeSession.Effect>
         private let effectContinuation: AsyncStream<RuntimeSession.Effect>.Continuation
         private let dispositionGate: MosaicRuntimeCoordinatorDispositionGate
+        private let admissionJournal: PostManifestAdmissionJournal?
 
         private var runtimeSession: RuntimeSession
         private var inputConsumerTask: Task<Void, Never>?
@@ -70,7 +72,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         init(
             runtimeSession: RuntimeSession,
-            dependencies: Dependencies
+            dependencies: Dependencies,
+            admissionJournal: PostManifestAdmissionJournal? = nil
         ) throws(InitializationError) {
             guard dependencies.maximumPendingInputCount > 0 else {
                 throw .invalidInputBufferLimit
@@ -99,6 +102,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.inputContinuation = inputContinuation
             self.effectStream = effectStream
             self.effectContinuation = effectContinuation
+            self.admissionJournal = admissionJournal
             dispositionGate = MosaicRuntimeCoordinatorDispositionGate()
         }
 
@@ -120,6 +124,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         @discardableResult
         func submitControl(_ delivery: AdmissionLedger.ControlDelivery) -> Bool {
             enqueue(.runtime(.control(delivery)))
+        }
+
+        /// Queues one transport-authenticated delivery behind the write-ahead journal boundary.
+        @discardableResult
+        func submitAuthenticatedControl(
+            _ delivery: AdmissionLedger.ControlDelivery
+        ) -> Bool {
+            enqueue(.authenticatedControl(delivery))
         }
 
         /// Rejects an in-place retry through the paired runtime.
@@ -186,6 +198,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 switch input {
                 case let .runtime(runtimeInput):
                     applyAndEnqueue(runtimeInput)
+                case let .authenticatedControl(delivery):
+                    applyAuthenticatedControl(delivery)
                 case let .inputSourceTerminated(termination):
                     queuedInputSourceTermination = nil
                     recordFailure(.inputSourceTerminated(termination))
@@ -194,6 +208,23 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 }
                 await waitForEffectDrain()
             }
+        }
+
+        private func applyAuthenticatedControl(
+            _ delivery: AdmissionLedger.ControlDelivery
+        ) {
+            var stagedRuntime = runtimeSession
+            let application = stagedRuntime.applyAuthenticatedControl(delivery)
+            if application.didConsumeReplayState {
+                do {
+                    try admissionJournal?.record(.init(control: delivery))
+                } catch {
+                    failAndStop(.admissionJournalFailed)
+                    return
+                }
+            }
+            runtimeSession = stagedRuntime
+            enqueue(application.effects)
         }
 
         @discardableResult

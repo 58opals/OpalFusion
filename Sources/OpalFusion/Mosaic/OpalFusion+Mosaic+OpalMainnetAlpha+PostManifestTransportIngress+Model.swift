@@ -5,6 +5,8 @@ import Foundation
 extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestTransportIngress {
     typealias Driver = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestRuntimeDriver
+    typealias AdmissionJournal = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestAdmissionJournal
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
 
@@ -41,23 +43,38 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestTransportIngress {
         ) -> Transport.RecipientCapability? {
             capabilitiesByIdentity[recipientEventIdentity]
         }
+
+        var recipientBindings: [AdmissionJournal.RecipientBinding] {
+            capabilitiesByIdentity.map { identity, capability in
+                .init(
+                    channel: capability.channel,
+                    eventIdentity: [UInt8](identity)
+                )
+            }
+        }
     }
 
     struct Dependencies: Sendable {
         let currentUnixSeconds: @Sendable () -> UInt64
         let beforeDriverStart: @Sendable () async -> Void
+        /// Defaults to attempt-local memory only; callers own any durable implementation.
+        let admissionJournalStore: AdmissionJournal.Store
 
         init(
             currentUnixSeconds: @escaping @Sendable () -> UInt64,
-            beforeDriverStart: @escaping @Sendable () async -> Void = {}
+            beforeDriverStart: @escaping @Sendable () async -> Void = {},
+            admissionJournalStore: AdmissionJournal.Store = .volatile
         ) {
             self.currentUnixSeconds = currentUnixSeconds
             self.beforeDriverStart = beforeDriverStart
+            self.admissionJournalStore = admissionJournalStore
         }
     }
 
     enum InitializationError: Error, Sendable, Equatable {
         case runtimeDriver(Driver.InitializationError)
+        case admissionJournal(AdmissionJournal.InitializationError)
+        case runtimeRecoveryRequired
     }
 
     enum State: Sendable, Equatable {

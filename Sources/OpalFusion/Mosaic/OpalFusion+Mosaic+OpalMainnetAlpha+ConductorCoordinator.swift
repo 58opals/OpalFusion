@@ -32,8 +32,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private enum QueuedInput: Sendable {
             case control(Ledger.ControlDelivery)
+            case authenticatedControl(Ledger.ControlDelivery)
             case anonymousComponent(Ledger.AnonymousDelivery)
             case anonymousBCHSignature(Ledger.AnonymousDelivery)
+            case authenticatedAnonymousComponent(Ledger.AnonymousDelivery)
+            case authenticatedAnonymousBCHSignature(Ledger.AnonymousDelivery)
             case inputSourceTerminated(InputSourceTermination)
             case retryRequested
         }
@@ -71,6 +74,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private let dependencies: Dependencies
         private let inputStream: AsyncStream<QueuedInput>
         private let inputContinuation: AsyncStream<QueuedInput>.Continuation
+        private let admissionJournal: PostManifestAdmissionJournal?
 
         private var runtimeSession: Session
         private var inputConsumerTask: Task<Void, Never>?
@@ -97,7 +101,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         init(
             runtimeSession: Session,
-            dependencies: Dependencies
+            dependencies: Dependencies,
+            admissionJournal: PostManifestAdmissionJournal? = nil
         ) throws(InitializationError) {
             guard dependencies.maximumPendingInputCount > 0 else {
                 throw .invalidInputBufferLimit
@@ -120,6 +125,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.runtimeSession = runtimeSession
             self.inputStream = inputStream
             self.inputContinuation = inputContinuation
+            self.admissionJournal = admissionJournal
         }
 
         /// Starts the single ordered input consumer once.
@@ -139,6 +145,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             enqueue(.control(delivery))
         }
 
+        /// Queues one transport-authenticated control delivery behind write-ahead admission.
+        @discardableResult
+        func submitAuthenticatedControl(
+            _ delivery: Ledger.ControlDelivery
+        ) -> Bool {
+            enqueue(.authenticatedControl(delivery))
+        }
+
         /// Queues one already-authenticated anonymous delivery by its envelope payload type.
         @discardableResult
         func submitAnonymous(
@@ -149,6 +163,19 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 enqueue(.anonymousComponent(delivery))
             case .bchSignatureSubmission:
                 enqueue(.anonymousBCHSignature(delivery))
+            }
+        }
+
+        /// Queues one transport-authenticated anonymous delivery behind write-ahead admission.
+        @discardableResult
+        func submitAuthenticatedAnonymous(
+            _ delivery: Ledger.AnonymousDelivery
+        ) -> Bool {
+            switch delivery.envelope.payloadType {
+            case .anonymousComponent:
+                enqueue(.authenticatedAnonymousComponent(delivery))
+            case .bchSignatureSubmission:
+                enqueue(.authenticatedAnonymousBCHSignature(delivery))
             }
         }
 
@@ -247,6 +274,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             switch input {
             case let .control(delivery):
                 effects = runtimeSession.apply(input: .control(delivery))
+            case let .authenticatedControl(delivery):
+                guard let stagedEffects = applyAuthenticatedControl(delivery)
+                else { return }
+                effects = stagedEffects
             case let .anonymousComponent(delivery):
                 effects = runtimeSession.receiveAnonymousComponent(delivery)
             case let .anonymousBCHSignature(delivery):
@@ -261,6 +292,21 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         previousOutputs: previousOutputValidation
                     )
                 )
+            case let .authenticatedAnonymousComponent(delivery):
+                guard let stagedEffects = applyAuthenticatedAnonymousComponent(
+                    delivery
+                ) else { return }
+                effects = stagedEffects
+            case let .authenticatedAnonymousBCHSignature(delivery):
+                if case .active(.bchSigning) = runtimeSession.state,
+                   previousOutputValidation == nil {
+                    fail(.bchSignatureAdmissionUnavailable)
+                    return
+                }
+                guard let stagedEffects = applyAuthenticatedAnonymousBCHSignature(
+                    delivery
+                ) else { return }
+                effects = stagedEffects
             case let .inputSourceTerminated(termination):
                 queuedInputSourceTermination = nil
                 pendingFailure = pendingFailure
@@ -271,6 +317,72 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 effects = runtimeSession.apply(input: .retryRequested)
             }
             await handle(effects)
+        }
+
+        private func applyAuthenticatedControl(
+            _ delivery: Ledger.ControlDelivery
+        ) -> [Session.Effect]? {
+            var stagedRuntime = runtimeSession
+            let application = stagedRuntime.applyAuthenticatedControl(delivery)
+            return install(
+                stagedRuntime,
+                effects: application.effects,
+                record: application.didConsumeReplayState
+                    ? .init(control: delivery)
+                    : nil
+            )
+        }
+
+        private func applyAuthenticatedAnonymousComponent(
+            _ delivery: Ledger.AnonymousDelivery
+        ) -> [Session.Effect]? {
+            var stagedRuntime = runtimeSession
+            let application = stagedRuntime
+                .receiveAuthenticatedAnonymousComponent(delivery)
+            return install(
+                stagedRuntime,
+                effects: application.effects,
+                record: application.didConsumeReplayState
+                    ? .init(anonymous: delivery)
+                    : nil
+            )
+        }
+
+        private func applyAuthenticatedAnonymousBCHSignature(
+            _ delivery: Ledger.AnonymousDelivery
+        ) -> [Session.Effect]? {
+            var stagedRuntime = runtimeSession
+            let application = stagedRuntime
+                .receiveAuthenticatedAnonymousBCHSignature(
+                    delivery,
+                    using: RoutedBCHSignatureValidator(
+                        previousOutputs: previousOutputValidation
+                    )
+                )
+            return install(
+                stagedRuntime,
+                effects: application.effects,
+                record: application.didConsumeReplayState
+                    ? .init(anonymous: delivery)
+                    : nil
+            )
+        }
+
+        private func install(
+            _ stagedRuntime: Session,
+            effects: [Session.Effect],
+            record: PostManifestAdmissionJournal.AcceptedRecord?
+        ) -> [Session.Effect]? {
+            do {
+                if let record {
+                    try admissionJournal?.record(record)
+                }
+            } catch {
+                fail(.admissionJournalFailed)
+                return nil
+            }
+            runtimeSession = stagedRuntime
+            return effects
         }
 
         private func handle(_ effects: [Session.Effect]) async {

@@ -5,9 +5,11 @@ import Foundation
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Owns authenticated NIP-59 admission into one post-manifest role driver.
     ///
-    /// Relay fan-in, recipient-key generation or persistence, Tor, reconnect, publication,
-    /// and durable replay remain outside this actor. Callers submit only a signed gift wrap;
-    /// this ingress selects its attempt-scoped decryption authority before runtime admission.
+    /// Relay fan-in, recipient-key generation or persistence, Tor, reconnect, and publication
+    /// remain outside this actor. Callers submit only a signed gift wrap; this ingress selects its
+    /// attempt-scoped decryption authority and installs one write-ahead admission journal before
+    /// runtime admission. A restored nonempty journal fails closed until full runtime recovery is
+    /// available.
     actor PostManifestTransportIngress {
         private enum StartupDisposition {
             case stop
@@ -27,10 +29,26 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             recipientSet: RecipientSet,
             dependencies: Dependencies
         ) throws(InitializationError) {
+            let admissionJournal: AdmissionJournal
+            do {
+                admissionJournal = try .init(
+                    context: .init(
+                        bootstrap: bootstrap,
+                        recipientBindings: recipientSet.recipientBindings
+                    ),
+                    store: dependencies.admissionJournalStore
+                )
+            } catch let error {
+                throw .admissionJournal(error)
+            }
+            guard !admissionJournal.requiresRuntimeRecovery else {
+                throw .runtimeRecoveryRequired
+            }
             do {
                 driver = try Driver(
                     bootstrap: bootstrap,
-                    dependencies: roleDependencies
+                    dependencies: roleDependencies,
+                    admissionJournal: admissionJournal
                 )
             } catch let error {
                 throw .runtimeDriver(error)

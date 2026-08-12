@@ -7,12 +7,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     ///
     /// The route owner supplies every immutable recipient capability, distinct Tor-only
     /// connection, and fresh subscription identifier. This actor constructs one shared ingress,
-    /// runtime, and replay authority; starts every route-group subscription before consuming;
-    /// binds each EVENT recipient back to that route; preserves each route's source order while
-    /// serializing every signed EVENT copy; and treats loss of any selected source as terminal.
-    /// Recipient allocation, endpoint provisioning,
-    /// reconnect, persistence, duplicate merging, and concrete Tor circuit isolation remain
-    /// external.
+    /// runtime, and admission-journal authority; starts every route-group subscription before
+    /// consuming; binds each EVENT recipient back to that route; preserves each route's source
+    /// order while serializing every signed EVENT copy; and treats loss of any selected source as
+    /// terminal. The injected journal store is the append boundary for semantically admitted
+    /// replay facts and is durable only when its implementation is durable. Recipient allocation,
+    /// endpoint provisioning, full runtime recovery, reconnect, and concrete Tor circuit isolation
+    /// remain external.
     actor PostManifestRelayFanIn {
         private typealias Session = OpalFusion.Mosaic.NIP01RelaySession
 

@@ -117,6 +117,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        mutating func applyAuthenticatedControl(
+            _ delivery: ControlDelivery
+        ) -> (effects: [Effect], didConsumeReplayState: Bool) {
+            let wasRecorded = isExactRecordedControlDelivery(delivery)
+            let effects = apply(input: .control(delivery))
+            return (
+                effects: effects,
+                didConsumeReplayState: !wasRecorded
+                    && isExactRecordedControlDelivery(delivery)
+            )
+        }
+
         mutating func terminateForRuntimeSessionBridgeMismatch() -> [Effect] {
             guard case .active = state else {
                 return [.inputRejected(.inputAfterTermination)]
@@ -389,6 +401,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             return [.anonymousComponentAdmitted(validation)]
         }
 
+        mutating func receiveAuthenticatedAnonymousComponent(
+            _ delivery: AnonymousDelivery
+        ) -> (effects: [Effect], didConsumeReplayState: Bool) {
+            let wasRecorded = isExactRecordedAnonymousDelivery(delivery)
+            let effects = receiveAnonymousComponent(delivery)
+            return (
+                effects: effects,
+                didConsumeReplayState: !wasRecorded
+                    && isExactRecordedAnonymousDelivery(delivery)
+            )
+        }
+
         mutating func receiveAnonymousBCHSignature<Validator>(
             _ delivery: AnonymousDelivery,
             using validator: Validator
@@ -546,6 +570,23 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 }
             }
             return effects
+        }
+
+        mutating func receiveAuthenticatedAnonymousBCHSignature<Validator>(
+            _ delivery: AnonymousDelivery,
+            using validator: Validator
+        ) -> (effects: [Effect], didConsumeReplayState: Bool)
+        where Validator: AnonymousBCHSignatureAdmissionValidating {
+            let wasRecorded = isExactRecordedAnonymousDelivery(delivery)
+            let effects = receiveAnonymousBCHSignature(
+                delivery,
+                using: validator
+            )
+            return (
+                effects: effects,
+                didConsumeReplayState: !wasRecorded
+                    && isExactRecordedAnonymousDelivery(delivery)
+            )
         }
 
         private func isPublishedCommunicationEventIdentity(

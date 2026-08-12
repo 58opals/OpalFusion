@@ -18,6 +18,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private let coordinator: Coordinator
         private let transportContext: Transport.RuntimeContext
+        private let admissionJournal: AdmissionJournal?
 
         var state: State {
             get async {
@@ -32,7 +33,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         init(
             bootstrap: Bootstrap,
-            dependencies: RoleDependencies
+            dependencies: RoleDependencies,
+            admissionJournal: AdmissionJournal? = nil
         ) throws(InitializationError) {
             let runtimeSession: Session
             do {
@@ -61,6 +63,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 phaseStartUnixSeconds:
                     bootstrap.proposalValidation.core.deadlines.phaseStart
             )
+            self.admissionJournal = admissionJournal
 
             switch dependencies {
             case let .contributor(dependencies):
@@ -71,7 +74,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     coordinator = .contributor(
                         try ReservationCoordinator(
                             runtimeSession: runtimeSession,
-                            dependencies: dependencies.coordinatorDependencies
+                            dependencies: dependencies.coordinatorDependencies,
+                            admissionJournal: admissionJournal
                         )
                     )
                 } catch {
@@ -86,7 +90,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     coordinator = .conductor(
                         try ConductorCoordinator(
                             runtimeSession: runtimeSession,
-                            dependencies: dependencies
+                            dependencies: dependencies,
+                            admissionJournal: admissionJournal
                         )
                     )
                 } catch {
@@ -137,13 +142,25 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         ) async -> Bool {
             switch (coordinator, delivery.storage) {
             case let (.contributor(coordinator), .control(delivery)):
-                await coordinator.submitControl(delivery)
+                if admissionJournal == nil {
+                    await coordinator.submitControl(delivery)
+                } else {
+                    await coordinator.submitAuthenticatedControl(delivery)
+                }
             case (.contributor, .anonymous):
                 false
             case let (.conductor(coordinator), .control(delivery)):
-                await coordinator.submitControl(delivery)
+                if admissionJournal == nil {
+                    await coordinator.submitControl(delivery)
+                } else {
+                    await coordinator.submitAuthenticatedControl(delivery)
+                }
             case let (.conductor(coordinator), .anonymous(delivery)):
-                await coordinator.submitAnonymous(delivery)
+                if admissionJournal == nil {
+                    await coordinator.submitAnonymous(delivery)
+                } else {
+                    await coordinator.submitAuthenticatedAnonymous(delivery)
+                }
             }
         }
 

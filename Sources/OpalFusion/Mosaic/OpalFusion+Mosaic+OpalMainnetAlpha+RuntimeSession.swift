@@ -172,6 +172,24 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        mutating func applyAuthenticatedControl(
+            _ delivery: AdmissionLedger.ControlDelivery
+        ) -> (effects: [Effect], didConsumeReplayState: Bool) {
+            guard case .active = state else {
+                return (
+                    effects: [.inputRejected(.inputAfterTermination)],
+                    didConsumeReplayState: false
+                )
+            }
+            let application = admissionLedger.applyAuthenticatedControl(
+                delivery
+            )
+            return (
+                effects: receiveAdmissionEffects(application.effects),
+                didConsumeReplayState: application.didConsumeReplayState
+            )
+        }
+
         mutating func receiveAnonymousComponent(
             _ delivery: AdmissionLedger.AnonymousDelivery
         ) -> [Effect] {
@@ -180,6 +198,23 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             return receiveAdmissionEffects(
                 admissionLedger.receiveAnonymousComponent(delivery)
+            )
+        }
+
+        mutating func receiveAuthenticatedAnonymousComponent(
+            _ delivery: AdmissionLedger.AnonymousDelivery
+        ) -> (effects: [Effect], didConsumeReplayState: Bool) {
+            guard case .active = state else {
+                return (
+                    effects: [.inputRejected(.inputAfterTermination)],
+                    didConsumeReplayState: false
+                )
+            }
+            let application = admissionLedger
+                .receiveAuthenticatedAnonymousComponent(delivery)
+            return (
+                effects: receiveAdmissionEffects(application.effects),
+                didConsumeReplayState: application.didConsumeReplayState
             )
         }
 
@@ -195,6 +230,28 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     delivery,
                     using: validator
                 )
+            )
+        }
+
+        mutating func receiveAuthenticatedAnonymousBCHSignature<Validator>(
+            _ delivery: AdmissionLedger.AnonymousDelivery,
+            using validator: Validator
+        ) -> (effects: [Effect], didConsumeReplayState: Bool)
+        where Validator: AnonymousBCHSignatureAdmissionValidating {
+            guard case .active = state else {
+                return (
+                    effects: [.inputRejected(.inputAfterTermination)],
+                    didConsumeReplayState: false
+                )
+            }
+            let application = admissionLedger
+                .receiveAuthenticatedAnonymousBCHSignature(
+                    delivery,
+                    using: validator
+                )
+            return (
+                effects: receiveAdmissionEffects(application.effects),
+                didConsumeReplayState: application.didConsumeReplayState
             )
         }
 

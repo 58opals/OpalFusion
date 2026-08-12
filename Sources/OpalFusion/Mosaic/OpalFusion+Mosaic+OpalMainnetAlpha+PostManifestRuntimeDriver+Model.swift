@@ -14,6 +14,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRuntimeDriver {
     typealias Ledger = OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
+    typealias AdmissionJournal = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestAdmissionJournal
     typealias InputSourceTermination = OpalFusion.Mosaic.OpalMainnetAlpha
         .InputSourceTermination
 
