@@ -314,17 +314,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw terminate(.cancelled)
             }
             self.anonymousBridge = anonymousBridge
-            state = .readyForPlayerCommit
+            state = .ready(.playerCommit)
             return material
         }
 
         private func publishPlayerCommit(
             _ validation: RuntimeSession.ReservationPublicationValidation
         ) async throws(Failure) {
-            try beginPublication(
-                .playerCommit,
-                expected: .readyForPlayerCommit
-            )
+            try beginPublication(.playerCommit)
             let expiry = try expiry(for: .playerCommit)
             let controlBridge = controlBridge
             let task = startPublicationTask {
@@ -335,18 +332,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             try await finishPublication(
                 task,
-                .playerCommit,
-                next: .playerCommitPublished
+                .playerCommit
             )
         }
 
         private func publishAnonymousComponents(
             _ validation: Coordinator.AnonymousComponentPublicationValidation
         ) async throws(Failure) {
-            try beginPublication(
-                .anonymousComponents,
-                expected: .playerCommitPublished
-            )
+            try beginPublication(.anonymousComponents)
             let expiry = try expiry(for: .anonymousComponents)
             guard let anonymousBridge else {
                 throw terminate(.materialBindingFailed)
@@ -359,8 +352,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             try await finishPublication(
                 task,
-                .anonymousComponents,
-                next: .anonymousComponentsPublished
+                .anonymousComponents
             )
         }
 
@@ -368,10 +360,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             _ validation: OpalFusion.Mosaic.LocalAttempt
                 .TranscriptInclusionValidation
         ) async throws(Failure) {
-            try beginPublication(
-                .preSignAcknowledgement,
-                expected: .anonymousComponentsPublished
-            )
+            try beginPublication(.preSignAcknowledgement)
             let expiry = try expiry(for: .preSignAcknowledgement)
             let controlBridge = controlBridge
             let task = startPublicationTask {
@@ -382,18 +371,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             try await finishPublication(
                 task,
-                .preSignAcknowledgement,
-                next: .preSignAcknowledgementPublished
+                .preSignAcknowledgement
             )
         }
 
         private func publishLocalBCHSignatures(
             _ validation: Coordinator.AnonymousBCHSignaturePublicationValidation
         ) async throws(Failure) {
-            try beginPublication(
-                .localBCHSignatures,
-                expected: .preSignAcknowledgementPublished
-            )
+            try beginPublication(.localBCHSignatures)
             let expiry = try expiry(for: .localBCHSignatures)
             guard let anonymousBridge else {
                 throw terminate(.materialBindingFailed)
@@ -406,8 +391,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             try await finishPublication(
                 task,
-                .localBCHSignatures,
-                next: .completed
+                .localBCHSignatures
             )
         }
 
@@ -457,8 +441,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func beginPublication(
-            _ publication: Publication,
-            expected: State
+            _ publication: Publication
         ) throws(Failure) {
             switch state {
             case let .draining(failure):
@@ -471,7 +454,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard !Task.isCancelled else {
                 throw terminate(.cancelled)
             }
-            guard state == expected else {
+            guard state == .ready(publication) else {
                 if state == .preparingMaterial || isPublishing {
                     let failure = reservePendingTermination(
                         .concurrentOperation
@@ -532,8 +515,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private func finishPublication(
             _ task: Task<PublicationTaskResult, Never>,
-            _ publication: Publication,
-            next: State
+            _ publication: Publication
         ) async throws(Failure) {
             let result = await withTaskCancellationHandler {
                 await task.value
@@ -552,7 +534,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             switch result {
             case .success:
-                state = next
+                state = publication.next.map(State.ready) ?? .completed
                 resumeTerminationWaitersIfNeeded()
             case .failed:
                 throw terminate(.publicationFailed(publication))

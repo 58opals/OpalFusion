@@ -27,6 +27,19 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         case anonymousComponents
         case preSignAcknowledgement
         case localBCHSignatures
+
+        var next: Self? {
+            switch self {
+            case .playerCommit:
+                .anonymousComponents
+            case .anonymousComponents:
+                .preSignAcknowledgement
+            case .preSignAcknowledgement:
+                .localBCHSignatures
+            case .localBCHSignatures:
+                nil
+            }
+        }
     }
 
     struct Dependencies: Sendable {
@@ -94,11 +107,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
     enum State: Sendable, Equatable {
         case awaitingMaterial
         case preparingMaterial
-        case readyForPlayerCommit
+        case ready(Publication)
         case publishing(Publication)
-        case playerCommitPublished
-        case anonymousComponentsPublished
-        case preSignAcknowledgementPublished
         case draining(Failure)
         case completed
         case terminal(Failure)

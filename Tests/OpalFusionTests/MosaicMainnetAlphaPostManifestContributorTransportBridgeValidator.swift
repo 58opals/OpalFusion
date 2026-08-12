@@ -6,7 +6,7 @@ import Synchronization
 import Testing
 @testable import OpalFusion
 
-@Suite("Mosaic mainnet-alpha contributor transport binding", .serialized)
+@Suite("Mosaic mainnet-alpha contributor transport binding")
 struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Attempt = OpalFusion.Mosaic.Attempt
@@ -25,10 +25,18 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     typealias Transport = Alpha.PostManifestNIP59Transport
 
     private static let currentUnixSeconds: UInt64 = 1_800_000_100
-    private static let expiryUnixSeconds: UInt64 = 1_800_000_200
+    static let expiryUnixSeconds: UInt64 = 1_800_000_200
 
     private enum ProbeFailure: Error {
         case injected
+    }
+
+    private struct AcceptReservationPublicationValidator:
+        RuntimeSession.ReservationPublicationValidating
+    {
+        func validateReservationPublication(
+            _: RuntimeSession.ReservationPublicationRequest
+        ) throws {}
     }
 
     private struct ExactRelaySelectionValidator:
@@ -48,22 +56,15 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         }
     }
 
-    private struct SharedFixture: Sendable {
+    struct SharedFixture: Sendable {
         let bootstrap: Alpha.PostManifestRuntimeDriver.Bootstrap
         let conductorBootstrap: Alpha.PostManifestRuntimeDriver.Bootstrap
         let manifest: Alpha.RoundManifest
         let context: ControlBridge.Context
         let eligibility: Coordinator.ReservationEligibility
-        let material: Alpha.LocalContributionMaterial
-        let foreignMaterial: Alpha.LocalContributionMaterial
+        let reservationLease: OpalFusion.Host.MosaicReservationLease
         let reservationValidation:
             RuntimeSession.ReservationPublicationValidation
-        let componentValidation:
-            Coordinator.AnonymousComponentPublicationValidation
-        let transcriptInclusion:
-            LocalAttempt.TranscriptInclusionValidation
-        let signatureValidation:
-            Coordinator.AnonymousBCHSignaturePublicationValidation
         let previousOutputSource: ExecutionFixture.PreviousOutputSource
         let finalizedTransaction: OpalFusion.Host.FinalizedTransaction
         let controlSigningKey: OpalCrypto.Secp256k1.SigningKey
@@ -74,7 +75,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         let codingLimits: Nostr.RelayMessageCodingLimits
     }
 
-    private final class PublicationAuthorityProbe: Sendable {
+    final class PublicationAuthorityProbe: Sendable {
         private struct Storage: Sendable {
             var expiries: [Bridge.Publication] = []
             var controlTimestamps: [ControlBridge.TimestampRequest] = []
@@ -134,7 +135,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         }
     }
 
-    private actor PermitProbe {
+    actor PermitProbe {
         private(set) var requests: [
             AnonymousPublisher.PublicationPermitRequest
         ] = []
@@ -147,7 +148,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     }
 
     /// Holds an operation past cancellation until the test explicitly releases it.
-    private actor ExplicitReleaseGate {
+    actor ExplicitReleaseGate {
         private var isArmed = false
         private var hasSuspended = false
         private var resumeContinuation: CheckedContinuation<Void, Never>?
@@ -196,7 +197,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         }
     }
 
-    private actor RouteFactory {
+    actor RouteFactory {
         private let endpoints: [Tracker.Endpoint]
         private(set) var controlRequestCounts: [Int] = []
         private(set) var anonymousRequestCounts: [Int] = []
@@ -240,7 +241,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         }
     }
 
-    private actor ImmediateAcknowledgementConnection:
+    actor ImmediateAcknowledgementConnection:
         OpalFusion.Mosaic.TorWebSocketConnectioning
     {
         private let stream: MessageStream
@@ -288,18 +289,11 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     }
 
     private static let sharedFixtureTask = Task {
-        try await makeSharedFixture()
+        try makeSharedFixture()
     }
 
-    init() throws {
-        try MosaicMainnetAlphaFixtures.requireAuthorizationEvaluators()
-    }
-
-    @Test(
-        "Bind material to every ordered contributor transport callback",
-        .timeLimit(.minutes(5))
-    )
-    func bindOrderedTransportCallbacks() async throws {
+    @Test("Bind inbound control routes to the exact bootstrap")
+    func bindInboundControlRoutes() async throws {
         let fixture = try await Self.sharedFixtureTask.value
         let routeFactory = RouteFactory(endpoints: selectedEndpoints)
         let permitProbe = PermitProbe()
@@ -312,20 +306,6 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             permitProbe: permitProbe,
             authority: authority
         )
-        let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
-            finalizedTransaction: fixture.finalizedTransaction
-        )
-        let execution = bridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { eligibility, lease in
-                #expect(eligibility == fixture.eligibility)
-                #expect(lease == fixture.material.reservationLease)
-                return fixture.material
-            }
-        )
-
         let inboundRoutes = selectedEndpoints.map {
             Alpha.PostManifestRelayRoute(
                 endpoint: $0,
@@ -367,95 +347,9 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             proposalValidation: fixture.bootstrap.proposalValidation
         )
         #expect(!inbound.isBound(to: foreignBootstrap))
-
-        let material = try await execution.makeLocalContributionMaterial(
-            fixture.eligibility,
-            fixture.material.reservationLease
-        )
-        #expect(material.materialIdentifier == fixture.material.materialIdentifier)
-        try await execution.publishPlayerCommit(
-            fixture.reservationValidation
-        )
-        try await execution.publishAnonymousComponents(
-            fixture.componentValidation
-        )
-        try await execution.publishPreSignAcknowledgement(
-            fixture.transcriptInclusion
-        )
-        try await execution.publishLocalBCHSignatures(
-            fixture.signatureValidation
-        )
-
-        #expect(await bridge.state == .completed)
-        #expect(
-            await routeFactory.controlRequestCounts
-                == Array(repeating: fixture.context.roster.candidateCount, count: 6)
-        )
-        #expect(
-            await routeFactory.anonymousRequestCounts
-                == [Alpha.componentCountPerContributor, 1]
-        )
-        let permitRequests = await permitProbe.requests
-        #expect(
-            permitRequests.filter { $0.kind == .components }.count
-                == Alpha.componentCountPerContributor
-        )
-        #expect(
-            permitRequests.filter { $0.kind == .bchSignatures }.count == 1
-        )
-        #expect(
-            Set(
-                permitRequests.filter { $0.kind == .components }
-                    .map(\.recipientEventIdentity)
-            ) == Set(
-                fixture.componentValidation.entries.map {
-                    Data($0.recipientEventIdentity)
-                }
-            )
-        )
-        #expect(
-            Set(
-                permitRequests.filter { $0.kind == .bchSignatures }
-                    .map(\.recipientEventIdentity)
-            ) == Set(
-                fixture.signatureValidation.entries.map {
-                    Data($0.recipientEventIdentity)
-                }
-            )
-        )
-
-        let authoritySnapshot = authority.snapshot()
-        #expect(
-            authoritySnapshot.expiries == [
-                .playerCommit,
-                .anonymousComponents,
-                .preSignAcknowledgement,
-                .localBCHSignatures,
-            ]
-        )
-        #expect(authoritySnapshot.controlTimestamps.count == 6)
-        #expect(
-            authoritySnapshot.anonymousTimestamps.count
-                == Alpha.componentCountPerContributor + 1
-        )
-        #expect(
-            authoritySnapshot.controlTimestamps.allSatisfy {
-                $0.expiryUnixSeconds == Self.expiryUnixSeconds
-            }
-        )
-        #expect(
-            authoritySnapshot.anonymousTimestamps.allSatisfy {
-                $0.expiryUnixSeconds == Self.expiryUnixSeconds
-            }
-        )
         await bridge.requestStop()
         await bridge.requestStop()
-        #expect(await bridge.waitForTermination() == .completed)
-        await #expect(throws: Bridge.Failure.inputAfterTermination) {
-            try await execution.publishLocalBCHSignatures(
-                fixture.signatureValidation
-            )
-        }
+        #expect(await bridge.waitForTermination() == .terminal(.cancelled))
         await #expect(throws: Bridge.Failure.inputAfterTermination) {
             _ = try await bridge.makeInboundControlRouteGroup(
                 routes: inboundRoutes,
@@ -589,13 +483,15 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             authority: authority
         )
         let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
+            lease: fixture.reservationLease,
             finalizedTransaction: fixture.finalizedTransaction
         )
         let earlyExecution = earlyBridge.makeExecutionDependencies(
             transactionHost: host,
             previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.material }
+            makeLocalContributionMaterial: { _, _ in
+                throw ProbeFailure.injected
+            }
         )
         await #expect(throws: Bridge.Failure.invalidPublicationOrder) {
             try await earlyExecution.publishPlayerCommit(
@@ -605,53 +501,6 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         #expect(
             await earlyBridge.state
                 == .terminal(.invalidPublicationOrder)
-        )
-
-        let foreignBridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority
-        )
-        let foreignExecution = foreignBridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.foreignMaterial }
-        )
-        await #expect(throws: Bridge.Failure.materialBindingFailed) {
-            try await foreignExecution.makeLocalContributionMaterial(
-                fixture.eligibility,
-                fixture.material.reservationLease
-            )
-        }
-        #expect(
-            await foreignBridge.state
-                == .terminal(.materialBindingFailed)
-        )
-
-        let foreignContextBridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority
-        )
-        let foreignContextExecution = foreignContextBridge
-            .makeExecutionDependencies(
-                transactionHost: host,
-                previousOutputSource: fixture.previousOutputSource,
-                makeLocalContributionMaterial: { _, _ in
-                    fixture.foreignMaterial
-                }
-            )
-        await #expect(throws: Bridge.Failure.materialBindingFailed) {
-            try await foreignContextExecution.makeLocalContributionMaterial(
-                fixture.eligibility,
-                fixture.foreignMaterial.reservationLease
-            )
-        }
-        #expect(
-            await foreignContextBridge.state
-                == .terminal(.materialBindingFailed)
         )
 
         let mismatchedEligibilityBridge = try makeBridge(
@@ -667,7 +516,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
                 previousOutputSource: fixture.previousOutputSource,
                 makeLocalContributionMaterial: { _, _ in
                     materialCallCount.withLock { $0 += 1 }
-                    return fixture.material
+                    throw ProbeFailure.injected
                 }
             )
         let mismatchedEligibility = Coordinator.ReservationEligibility(
@@ -692,7 +541,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             try await mismatchedEligibilityExecution
                 .makeLocalContributionMaterial(
                     mismatchedEligibility,
-                    fixture.material.reservationLease
+                    fixture.reservationLease
                 )
         }
         #expect(materialCallCount.withLock { $0 } == 0)
@@ -717,261 +566,13 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         await #expect(throws: Bridge.Failure.materialConstructionFailed) {
             try await materialFailureExecution.makeLocalContributionMaterial(
                 fixture.eligibility,
-                fixture.material.reservationLease
+                fixture.reservationLease
             )
         }
         #expect(
             await materialFailureBridge.state
                 == .terminal(.materialConstructionFailed)
         )
-    }
-
-    @Test(
-        "Terminalize PlayerCommit publication when expiry authority fails",
-        .timeLimit(.minutes(5))
-    )
-    func terminalizePlayerCommitExpiryFailure() async throws {
-        try await assertExpiryFailure(for: .playerCommit)
-    }
-
-    @Test(
-        "Terminalize component publication when expiry authority fails",
-        .timeLimit(.minutes(5))
-    )
-    func terminalizeComponentExpiryFailure() async throws {
-        try await assertExpiryFailure(for: .anonymousComponents)
-    }
-
-    @Test(
-        "Terminalize acknowledgement publication when expiry authority fails",
-        .timeLimit(.minutes(5))
-    )
-    func terminalizeAcknowledgementExpiryFailure() async throws {
-        try await assertExpiryFailure(for: .preSignAcknowledgement)
-    }
-
-    @Test(
-        "Terminalize signature publication when expiry authority fails",
-        .timeLimit(.minutes(5))
-    )
-    func terminalizeSignatureExpiryFailure() async throws {
-        try await assertExpiryFailure(for: .localBCHSignatures)
-    }
-
-    @Test(
-        "Terminalize failed control and anonymous publications",
-        .timeLimit(.minutes(5))
-    )
-    func terminalizePublicationFailures() async throws {
-        let fixture = try await Self.sharedFixtureTask.value
-        let routeFactory = RouteFactory(endpoints: selectedEndpoints)
-        let permitProbe = PermitProbe()
-        let authority = PublicationAuthorityProbe(
-            phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
-        )
-        let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
-            finalizedTransaction: fixture.finalizedTransaction
-        )
-
-        let controlBridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority,
-            provideControlRoutes: { _ in
-                throw ProbeFailure.injected
-            }
-        )
-        let controlExecution = controlBridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.material }
-        )
-        _ = try await controlExecution.makeLocalContributionMaterial(
-            fixture.eligibility,
-            fixture.material.reservationLease
-        )
-        await #expect(
-            throws: Bridge.Failure.publicationFailed(.playerCommit)
-        ) {
-            try await controlExecution.publishPlayerCommit(
-                fixture.reservationValidation
-            )
-        }
-        #expect(
-            await controlBridge.state
-                == .terminal(.publicationFailed(.playerCommit))
-        )
-
-        let anonymousBridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority,
-            awaitAnonymousPublicationPermit: { _ in
-                throw ProbeFailure.injected
-            }
-        )
-        let anonymousExecution = anonymousBridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.material }
-        )
-        _ = try await anonymousExecution.makeLocalContributionMaterial(
-            fixture.eligibility,
-            fixture.material.reservationLease
-        )
-        try await anonymousExecution.publishPlayerCommit(
-            fixture.reservationValidation
-        )
-        await #expect(
-            throws: Bridge.Failure.publicationFailed(.anonymousComponents)
-        ) {
-            try await anonymousExecution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-        }
-        #expect(
-            await anonymousBridge.state
-                == .terminal(.publicationFailed(.anonymousComponents))
-        )
-    }
-
-    @Test(
-        "Drain concurrent relay publication before terminal state",
-        .timeLimit(.minutes(5))
-    )
-    func drainConcurrentPublication() async throws {
-        let fixture = try await Self.sharedFixtureTask.value
-        let routeFactory = RouteFactory(endpoints: selectedEndpoints)
-        let permitProbe = PermitProbe()
-        let authority = PublicationAuthorityProbe(
-            phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
-        )
-        let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
-            finalizedTransaction: fixture.finalizedTransaction
-        )
-
-        let concurrentSuspension = ExplicitReleaseGate()
-        await concurrentSuspension.arm()
-        let concurrentBridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority,
-            awaitAnonymousPublicationPermit: { _ in
-                await concurrentSuspension.suspendIfArmed()
-            }
-        )
-        let concurrentExecution = concurrentBridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.material }
-        )
-        _ = try await concurrentExecution.makeLocalContributionMaterial(
-            fixture.eligibility,
-            fixture.material.reservationLease
-        )
-        try await concurrentExecution.publishPlayerCommit(
-            fixture.reservationValidation
-        )
-        let firstPublication = Task {
-            try await concurrentExecution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-        }
-        await concurrentSuspension.waitUntilSuspended()
-        #expect(
-            await concurrentBridge.state
-                == .publishing(.anonymousComponents)
-        )
-        await #expect(throws: Bridge.Failure.concurrentOperation) {
-            try await concurrentExecution.publishPreSignAcknowledgement(
-                fixture.transcriptInclusion
-            )
-        }
-        await concurrentSuspension.waitUntilCancellationRequested()
-        #expect(
-            await concurrentBridge.state
-                == .draining(.concurrentOperation)
-        )
-        await concurrentBridge.requestStop()
-        await concurrentSuspension.resume()
-        await #expect(throws: Bridge.Failure.concurrentOperation) {
-            try await firstPublication.value
-        }
-        #expect(
-            await concurrentBridge.waitForTermination()
-                == .terminal(.concurrentOperation)
-        )
-    }
-
-    @Test(
-        "Drain stopped relay publication before terminal state",
-        .timeLimit(.minutes(5))
-    )
-    func drainStoppedPublication() async throws {
-        let fixture = try await Self.sharedFixtureTask.value
-        let routeFactory = RouteFactory(endpoints: selectedEndpoints)
-        let permitProbe = PermitProbe()
-        let authority = PublicationAuthorityProbe(
-            phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
-        )
-        let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
-            finalizedTransaction: fixture.finalizedTransaction
-        )
-        let stopSuspension = ExplicitReleaseGate()
-        await stopSuspension.arm()
-        let stoppedBridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority,
-            awaitAnonymousPublicationPermit: { _ in
-                await stopSuspension.suspendIfArmed()
-            }
-        )
-        let stoppedExecution = stoppedBridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.material }
-        )
-        _ = try await stoppedExecution.makeLocalContributionMaterial(
-            fixture.eligibility,
-            fixture.material.reservationLease
-        )
-        try await stoppedExecution.publishPlayerCommit(
-            fixture.reservationValidation
-        )
-        let stoppedPublication = Task {
-            try await stoppedExecution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-        }
-        await stopSuspension.waitUntilSuspended()
-        #expect(
-            await stoppedBridge.state
-                == .publishing(.anonymousComponents)
-        )
-        await stoppedBridge.requestStop()
-        await stopSuspension.waitUntilCancellationRequested()
-        #expect(await stoppedBridge.state == .draining(.cancelled))
-        await stopSuspension.resume()
-        await #expect(throws: Bridge.Failure.cancelled) {
-            try await stoppedPublication.value
-        }
-        #expect(
-            await stoppedBridge.waitForTermination()
-                == .terminal(.cancelled)
-        )
-        await #expect(throws: Bridge.Failure.inputAfterTermination) {
-            try await stoppedExecution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-        }
     }
 
     @Test(
@@ -986,7 +587,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
         )
         let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
+            lease: fixture.reservationLease,
             finalizedTransaction: fixture.finalizedTransaction
         )
         let materialGate = ExplicitReleaseGate()
@@ -1006,13 +607,13 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
                 materialTaskWasCancelled.withLock {
                     $0 = Task.isCancelled
                 }
-                return fixture.material
+                throw ProbeFailure.injected
             }
         )
         let materialTask = Task {
             try await execution.makeLocalContributionMaterial(
                 fixture.eligibility,
-                fixture.material.reservationLease
+                fixture.reservationLease
             )
         }
         await materialGate.waitUntilSuspended()
@@ -1032,66 +633,6 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     }
 
     @Test(
-        "Drain directly cancelled relay publication before terminal state",
-        .timeLimit(.minutes(5))
-    )
-    func drainCancelledPublication() async throws {
-        let fixture = try await Self.sharedFixtureTask.value
-        let routeFactory = RouteFactory(endpoints: selectedEndpoints)
-        let permitProbe = PermitProbe()
-        let authority = PublicationAuthorityProbe(
-            phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
-        )
-        let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
-            finalizedTransaction: fixture.finalizedTransaction
-        )
-        let publicationGate = ExplicitReleaseGate()
-        await publicationGate.arm()
-        let bridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority,
-            awaitAnonymousPublicationPermit: { _ in
-                await publicationGate.suspendIfArmed()
-            }
-        )
-        let execution = bridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.material }
-        )
-        _ = try await execution.makeLocalContributionMaterial(
-            fixture.eligibility,
-            fixture.material.reservationLease
-        )
-        try await execution.publishPlayerCommit(
-            fixture.reservationValidation
-        )
-        let publicationTask = Task {
-            try await execution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-        }
-        await publicationGate.waitUntilSuspended()
-        publicationTask.cancel()
-        await publicationGate.waitUntilCancellationRequested()
-        #expect(
-            await bridge.state == .publishing(.anonymousComponents)
-        )
-        await publicationGate.resume()
-        await #expect(throws: Bridge.Failure.cancelled) {
-            try await publicationTask.value
-        }
-        #expect(
-            await bridge.waitForTermination() == .terminal(.cancelled)
-        )
-        await bridge.requestStop()
-        #expect(await bridge.state == .terminal(.cancelled))
-    }
-
-    @Test(
         "Terminalize concurrent and cancelled material binding without reuse",
         .timeLimit(.minutes(5))
     )
@@ -1103,7 +644,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
         )
         let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
+            lease: fixture.reservationLease,
             finalizedTransaction: fixture.finalizedTransaction
         )
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
@@ -1121,20 +662,20 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             makeLocalContributionMaterial: { _, _ in
                 callCount.withLock { $0 += 1 }
                 await suspension.suspendIfArmed()
-                return fixture.material
+                throw ProbeFailure.injected
             }
         )
         let first = Task {
             try await execution.makeLocalContributionMaterial(
                 fixture.eligibility,
-                fixture.material.reservationLease
+                fixture.reservationLease
             )
         }
         await suspension.waitUntilSuspended()
         await #expect(throws: Bridge.Failure.concurrentOperation) {
             try await execution.makeLocalContributionMaterial(
                 fixture.eligibility,
-                fixture.material.reservationLease
+                fixture.reservationLease
             )
         }
         #expect(
@@ -1165,13 +706,13 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             previousOutputSource: fixture.previousOutputSource,
             makeLocalContributionMaterial: { _, _ in
                 await cancellationSuspension.suspendIfArmed()
-                return fixture.material
+                throw ProbeFailure.injected
             }
         )
         let cancelled = Task {
             try await cancelledExecution.makeLocalContributionMaterial(
                 fixture.eligibility,
-                fixture.material.reservationLease
+                fixture.reservationLease
             )
         }
         await cancellationSuspension.waitUntilSuspended()
@@ -1187,9 +728,70 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         #expect(await permitProbe.requests.isEmpty)
     }
 
-    private static func makeSharedFixture() async throws -> SharedFixture {
-        let prepared = try await ExecutionFixture.prepare()
-        let admission = prepared.admission
+    private static func makeSharedFixture() throws -> SharedFixture {
+        let admission = try Fixture.makeHarness(
+            localRole: .contributor,
+            verificationKey:
+                MosaicMainnetAlphaFixtures.rsaVerificationKey(),
+            bchSignatureVerificationKey:
+                MosaicMainnetAlphaFixtures
+                    .bchSignatureRSAVerificationKey()
+        )
+        let session = try RuntimeSession(
+            validatedAttempt: Fixture.makeValidatedAttempt(
+                election: admission.election
+            ),
+            attemptIdentifier: admission.attemptIdentifier,
+            generationIdentifier: admission.generationIdentifier,
+            materialIdentifier: admission.materialIdentifier,
+            localControlIdentity: admission.localControlIdentity,
+            proposalValidation: admission.proposalValidation
+        )
+        let reservationLease = try makeReservationLease()
+        let reservationValidation = try RuntimeSession
+            .ReservationPublicationValidation(
+                validating: .init(
+                    attemptIdentifier: admission.attemptIdentifier,
+                    generationIdentifier: admission.generationIdentifier,
+                    materialIdentifier: admission.materialIdentifier,
+                    contributor: admission.localControlIdentity,
+                    manifest: admission.manifest,
+                    reservationLease: reservationLease,
+                    playerCommit: try Alpha.PlayerCommit(
+                        roundIdentifier:
+                            admission.manifest.core.roundIdentifier,
+                        contributor: admission.localControlIdentity,
+                        groupedCommitment:
+                            MosaicOpalV0WireContractValidator
+                                .makeMainnetGroupedCommitment(),
+                        componentAuthorizationRequests:
+                            MosaicMainnetAlphaFixtures
+                                .makeAuthorizationRequests(),
+                        bchSignatureAuthorizationRequests:
+                            MosaicMainnetAlphaFixtures
+                                .makeAuthorizationRequests(byteOffset: 0x40)
+                    )
+                ),
+                using: AcceptReservationPublicationValidator()
+            )
+        return try makeSharedFixture(
+            admission: admission,
+            runtimeContext: session.context,
+            reservationLease: reservationLease,
+            reservationValidation: reservationValidation,
+            previousOutputSource: .init(inputsByOutpoint: [:]),
+            finalizedTransaction: .init(signedFusionTransactionBytes: [])
+        )
+    }
+
+    static func makeSharedFixture(
+        admission: Fixture.Harness,
+        runtimeContext: RuntimeSession.Context,
+        reservationLease: OpalFusion.Host.MosaicReservationLease,
+        reservationValidation: RuntimeSession.ReservationPublicationValidation,
+        previousOutputSource: ExecutionFixture.PreviousOutputSource,
+        finalizedTransaction: OpalFusion.Host.FinalizedTransaction
+    ) throws -> SharedFixture {
         let manifest = admission.manifest
         let bootstrap = Alpha.PostManifestRuntimeDriver.Bootstrap(
             validatedAttempt: Fixture.makeValidatedAttempt(
@@ -1215,67 +817,10 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             validating: manifest,
             against: bootstrap
         )
-        let localMaterial = prepared.localMaterial
         let eligibility = Coordinator.ReservationEligibility(
-            context: prepared.session.context,
+            context: runtimeContext,
             manifest: manifest
         )
-        let reservationValidation = try RuntimeSession
-            .ReservationPublicationValidation(
-                validating: .init(
-                    attemptIdentifier: localMaterial.attemptIdentifier,
-                    generationIdentifier: localMaterial.generationIdentifier,
-                    materialIdentifier: localMaterial.materialIdentifier,
-                    contributor: localMaterial.contributor,
-                    manifest: localMaterial.manifest,
-                    reservationLease: localMaterial.reservationLease,
-                    playerCommit: localMaterial.playerCommit
-                ),
-                using: localMaterial
-            )
-        let componentTokens = prepared.localAuthorizationValidation
-            .componentAuthorizationTokens
-        let componentPublications = try localMaterial.slots.map { slot in
-            Coordinator.LocalAnonymousComponentPublication(
-                slot: slot.slot,
-                recipientEventIdentity: slot.recipientEventIdentity,
-                payload: try .init(
-                    roundIdentifier: manifest.core.roundIdentifier,
-                    authorizationToken: componentTokens[slot.slot],
-                    component: slot.component
-                )
-            )
-        }
-        let componentValidation = try Coordinator
-            .AnonymousComponentPublicationValidation(
-                validating: componentPublications,
-                material: localMaterial,
-                runtimeContext: prepared.session.context
-            )
-        let transcript = prepared.materialized.prepared.transcript
-        let transcriptInclusion = try LocalAttempt
-            .TranscriptInclusionValidation(
-                attemptIdentifier: localMaterial.attemptIdentifier,
-                generationIdentifier: localMaterial.generationIdentifier,
-                contributor: localMaterial.contributor,
-                materialIdentifier: localMaterial.materialIdentifier,
-                transcript: transcript,
-                using: localMaterial
-            )
-        let signaturePublications = try Alpha.LocalBCHSignatureBuilder.build(
-            finalizedTransaction: prepared.localFinalizedTransaction,
-            signingRequest: prepared.signingRequest,
-            transcript: transcript,
-            material: localMaterial,
-            authorizationValidation: prepared.localAuthorizationValidation
-        )
-        let signatureValidation = try Coordinator
-            .AnonymousBCHSignaturePublicationValidation(
-                validating: signaturePublications,
-                transcriptInclusion: transcriptInclusion,
-                material: localMaterial,
-                runtimeContext: prepared.session.context
-            )
 
         let controlScalar = try #require(
             MosaicMainnetAlphaFixtures.scalarByte(
@@ -1317,25 +862,16 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             maximumMessageStringByteCount: 256,
             event: (try Transport.codingLimits).event
         )
-        let foreignMaterial = try #require(
-            prepared.materialized.materials.first {
-                $0.key != localMaterial.contributor
-            }?.value
-        )
         return .init(
             bootstrap: bootstrap,
             conductorBootstrap: conductorBootstrap,
             manifest: manifest,
             context: context,
             eligibility: eligibility,
-            material: localMaterial,
-            foreignMaterial: foreignMaterial,
+            reservationLease: reservationLease,
             reservationValidation: reservationValidation,
-            componentValidation: componentValidation,
-            transcriptInclusion: transcriptInclusion,
-            signatureValidation: signatureValidation,
-            previousOutputSource: prepared.previousOutputSource,
-            finalizedTransaction: prepared.localFinalizedTransaction,
+            previousOutputSource: previousOutputSource,
+            finalizedTransaction: finalizedTransaction,
             controlSigningKey: controlSigningKey,
             controlEventSigningKey: controlEventSigningKey,
             controlRecipients: controlRecipients,
@@ -1348,7 +884,40 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         )
     }
 
-    private func makeBridge(
+    private static func makeReservationLease() throws
+        -> OpalFusion.Host.MosaicReservationLease {
+        try .init(
+            reference: .init(
+                identifier: UUID(
+                    uuid: (
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 65
+                    )
+                ),
+                generation: 1
+            ),
+            expiresAt: Date(timeIntervalSince1970: 1_900_000_000),
+            participantReservation: .init(
+                inputs: [
+                    .init(
+                        outpointTransactionHashBytes:
+                            [UInt8](repeating: 0x51, count: 32),
+                        outpointIndex: 0,
+                        amountSatoshis: 100_000,
+                        lockingScriptBytes: [0x51]
+                    ),
+                ],
+                outputs: [
+                    .init(
+                        lockingScriptBytes: [0x51],
+                        amountSatoshis: 99_000
+                    ),
+                ]
+            )
+        )
+    }
+
+    func makeBridge(
         fixture: SharedFixture,
         routeFactory: RouteFactory,
         permitProbe: PermitProbe,
@@ -1407,125 +976,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         )
     }
 
-    private func assertExpiryFailure(
-        for publication: Bridge.Publication
-    ) async throws {
-        let fixture = try await Self.sharedFixtureTask.value
-        let routeFactory = RouteFactory(endpoints: selectedEndpoints)
-        let permitProbe = PermitProbe()
-        let authority = PublicationAuthorityProbe(
-            phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
-        )
-        let bridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority,
-            makeExpiryUnixSeconds: { requestedPublication in
-                guard requestedPublication != publication else {
-                    throw ProbeFailure.injected
-                }
-                return Self.expiryUnixSeconds
-            }
-        )
-        let host = MosaicRuntimeCoordinatorHostProbe(
-            lease: fixture.material.reservationLease,
-            finalizedTransaction: fixture.finalizedTransaction
-        )
-        let execution = bridge.makeExecutionDependencies(
-            transactionHost: host,
-            previousOutputSource: fixture.previousOutputSource,
-            makeLocalContributionMaterial: { _, _ in fixture.material }
-        )
-        _ = try await execution.makeLocalContributionMaterial(
-            fixture.eligibility,
-            fixture.material.reservationLease
-        )
-        try await publishPreceding(
-            publication,
-            execution: execution,
-            fixture: fixture
-        )
-        await #expect(
-            throws: Bridge.Failure.expiryUnavailable(publication)
-        ) {
-            try await publish(
-                publication,
-                execution: execution,
-                fixture: fixture
-            )
-        }
-        #expect(
-            await bridge.state
-                == .terminal(.expiryUnavailable(publication))
-        )
-        await #expect(throws: Bridge.Failure.inputAfterTermination) {
-            try await publish(
-                publication,
-                execution: execution,
-                fixture: fixture
-            )
-        }
-    }
-
-    private func publishPreceding(
-        _ publication: Bridge.Publication,
-        execution: Coordinator.ExecutionDependencies,
-        fixture: SharedFixture
-    ) async throws {
-        switch publication {
-        case .playerCommit:
-            return
-        case .anonymousComponents:
-            try await execution.publishPlayerCommit(
-                fixture.reservationValidation
-            )
-        case .preSignAcknowledgement:
-            try await execution.publishPlayerCommit(
-                fixture.reservationValidation
-            )
-            try await execution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-        case .localBCHSignatures:
-            try await execution.publishPlayerCommit(
-                fixture.reservationValidation
-            )
-            try await execution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-            try await execution.publishPreSignAcknowledgement(
-                fixture.transcriptInclusion
-            )
-        }
-    }
-
-    private func publish(
-        _ publication: Bridge.Publication,
-        execution: Coordinator.ExecutionDependencies,
-        fixture: SharedFixture
-    ) async throws {
-        switch publication {
-        case .playerCommit:
-            try await execution.publishPlayerCommit(
-                fixture.reservationValidation
-            )
-        case .anonymousComponents:
-            try await execution.publishAnonymousComponents(
-                fixture.componentValidation
-            )
-        case .preSignAcknowledgement:
-            try await execution.publishPreSignAcknowledgement(
-                fixture.transcriptInclusion
-            )
-        case .localBCHSignatures:
-            try await execution.publishLocalBCHSignatures(
-                fixture.signatureValidation
-            )
-        }
-    }
-
-    private static var selectedEndpoints: [Tracker.Endpoint] {
+    static var selectedEndpoints: [Tracker.Endpoint] {
         (1 ... Alpha.relayCount).map {
             .init(validatedIdentifier: "relay-\($0)")
         }

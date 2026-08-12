@@ -50,7 +50,7 @@ The control-batch publisher suite proves foreign attempt, generation, material, 
 
 The anonymous-batch publisher suite proves bridge-sealed purpose and material binding; exact component and local-input recipient sets; recipient-only complete route requests; zero permit or event exposure before batch-global route preflight; per-recipient permit gating; cross-recipient connection uniqueness; byte-identical exact-three-route publication; two accepted acknowledgements per sealed wrap; and cleanup on permit, allocation, quorum, publication, and cancellation failures. The injected permits and routes are not evidence of timing privacy, endpoint authority, concrete Tor routing, durable delivery, persistence, retry, semantic loopback, a live Mosaic session, or mainnet execution.
 
-The contributor transport bridge suite uses one real 23-slot material fixture to prove exact bootstrap, manifest, local-control mailbox, lease, and material binding across the coordinator's PlayerCommit, component, acknowledgement, and local-signature callbacks. It checks the ordered cross-lane state, exact route and permit requests, injected expiry propagation, pre-exposure rejection, concurrent-use drain ordering, stop-request and termination-wait behavior, cancelled material construction, typed dependency terminalization, terminal absorption, and no in-place reuse. It also checks the bridge-minted route group's local and foreign bootstrap binding; the fan-in suite separately rejects foreign-attempt and repeated claims of attempt-bound route groups before opening a route. These suites do not compose fan-in lifecycle or prove production key distribution, route authority, timing policy, persistence, semantic loopback, or live execution.
+The fast contributor transport bridge validator uses embedded verification keys, byte-shaped authorization requests, and a test lease without constructing evaluator-backed material. It proves exact bootstrap, manifest, and local-control mailbox binding; pre-material publication order; invalid eligibility before wallet work; construction failure; concurrent-use drain ordering; stop-request and termination-wait behavior; cancelled material construction; terminal absorption; no in-place reuse; and local versus foreign bootstrap binding for bridge-minted inbound route groups. The serialized contributor transport bridge conformance validator shares one evaluator-backed real 23-slot fixture to preserve lease and material binding; the ordered PlayerCommit → components → acknowledgement → local-signature path; exact route and permit requests; injected expiry propagation; and post-material publication failure, cancellation, and drain semantics. The fan-in suite separately rejects foreign-attempt and repeated claims of attempt-bound route groups before opening a route. These suites do not compose fan-in lifecycle or prove production key distribution, route authority, timing policy, persistence, semantic loopback, or live execution.
 
 The fan-in suite also pins route-to-recipient `p` binding before shared ingress, pre-subscription route drains, multiple stored events plus EOSE buffered without early admission, an exact roster-derived mailbox-group count boundary, and terminal failure when startup input exceeds the shared FIFO.
 
@@ -96,6 +96,7 @@ swift test --filter MosaicMainnetAlphaPostManifestControlBatchPublisherValidator
 swift test --filter MosaicMainnetAlphaPostManifestRelayPublisherValidator
 swift test --filter MosaicMainnetAlphaPostManifestRelayFanInValidator
 swift test --filter MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator
+swift test --filter MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator
 swift test --filter MosaicNIP01RelaySessionValidator
 swift test --filter MosaicOpalV0ProfileValidator
 swift test --filter MosaicOpalV0AuthorizationValidator
@@ -114,7 +115,7 @@ swift test --filter MosaicMainnetAlphaContributorExecutorValidator
 swift test --filter MosaicMainnetAlphaConductorCoordinatorValidator
 ```
 
-Use these as fast feedback loops before running broader validation. They are deterministic and do not require coordinator credentials, wallet secrets, live UTXOs, Tor, or funded test material.
+Use these as fast feedback loops before running broader validation, except for `MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator`: it is deterministic but intentionally slow and belongs to the wrapper's serialized RSA-dependent lane. None of the focused filters require coordinator credentials, wallet secrets, live UTXOs, Tor, or funded test material.
 
 `./scripts/run-validation-loop.sh mosaic` runs every `Mosaic*` suite followed by `FusionFacadeScaffoldValidator`. Passing it proves only the bounded deterministic conformance and public-scaffold checks described above.
 
