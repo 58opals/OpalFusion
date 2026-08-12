@@ -18,6 +18,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         .PostManifestAnonymousBatchPublisher
     typealias FanIn = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestRelayFanIn
+    typealias AttemptTransportOwner = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestAttemptTransportOwner
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
@@ -43,6 +45,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
     }
 
     struct Dependencies: Sendable {
+        private enum RouteAuthority: Sendable {
+            case direct(
+                control: ControlPublisher.RouteProvider,
+                anonymous: AnonymousPublisher.PurposefulRouteProvider
+            )
+            case managed(AttemptTransportOwner)
+        }
+
         /// Supplies the caller-owned expiry for one already-authorized publication.
         ///
         /// This seam deliberately does not derive a timing policy from the signed manifest.
@@ -55,8 +65,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         ) throws -> Transport.LayerTimestamps
         let makeControlSignatureAuxiliaryRandomness: @Sendable () throws
             -> OpalCrypto.Signature.BIP340.AuxiliaryRandomness
-        let provideControlRoutes: ControlPublisher.RouteProvider
-        let provideAnonymousRoutes: AnonymousPublisher.RouteProvider
+        private let routeAuthority: RouteAuthority
         let awaitAnonymousPublicationPermit:
             AnonymousPublisher.PublicationPermitProvider
 
@@ -88,16 +97,79 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
             self.makeAnonymousLayerTimestamps = makeAnonymousLayerTimestamps
             self.makeControlSignatureAuxiliaryRandomness =
                 makeControlSignatureAuxiliaryRandomness
-            self.provideControlRoutes = provideControlRoutes
-            self.provideAnonymousRoutes = provideAnonymousRoutes
+            routeAuthority = .direct(
+                control: provideControlRoutes,
+                anonymous: { _, requests in
+                    try await provideAnonymousRoutes(requests)
+                }
+            )
             self.awaitAnonymousPublicationPermit =
                 awaitAnonymousPublicationPermit
+        }
+
+        init(
+            makeExpiryUnixSeconds: @escaping @Sendable (
+                Publication
+            ) throws -> UInt64,
+            makeControlLayerTimestamps: @escaping @Sendable (
+                ControlBridge.TimestampRequest
+            ) throws -> Transport.LayerTimestamps,
+            makeAnonymousLayerTimestamps: @escaping @Sendable (
+                AnonymousBridge.TimestampRequest
+            ) throws -> Transport.LayerTimestamps,
+            makeControlSignatureAuxiliaryRandomness: @escaping @Sendable () throws
+                -> OpalCrypto.Signature.BIP340.AuxiliaryRandomness = {
+                    try .init(
+                        rawRepresentation: OpalCrypto.SecureRandom.makeBytes(
+                            count: 32
+                        )
+                    )
+                },
+            attemptTransportOwner: AttemptTransportOwner,
+            awaitAnonymousPublicationPermit: @escaping
+                AnonymousPublisher.PublicationPermitProvider
+        ) {
+            self.makeExpiryUnixSeconds = makeExpiryUnixSeconds
+            self.makeControlLayerTimestamps = makeControlLayerTimestamps
+            self.makeAnonymousLayerTimestamps = makeAnonymousLayerTimestamps
+            self.makeControlSignatureAuxiliaryRandomness =
+                makeControlSignatureAuxiliaryRandomness
+            routeAuthority = .managed(attemptTransportOwner)
+            self.awaitAnonymousPublicationPermit =
+                awaitAnonymousPublicationPermit
+        }
+
+        var attemptTransportOwner: AttemptTransportOwner? {
+            guard case let .managed(owner) = routeAuthority else {
+                return nil
+            }
+            return owner
+        }
+
+        var provideControlRoutes: ControlPublisher.RouteProvider {
+            switch routeAuthority {
+            case let .direct(control, _):
+                control
+            case let .managed(owner):
+                owner.controlRouteProvider
+            }
+        }
+
+        var provideAnonymousRoutes:
+            AnonymousPublisher.PurposefulRouteProvider {
+            switch routeAuthority {
+            case let .direct(_, anonymous):
+                anonymous
+            case let .managed(owner):
+                owner.anonymousRouteProvider
+            }
         }
     }
 
     enum InitializationError: Error, Sendable, Equatable {
         case invalidContext(ControlBridge.Context.ValidationError)
         case localPeerIsNotContributor
+        case attemptTransportOwnerMismatch
         case missingLocalControlRecipient
         case localControlRecipientMismatch
         case controlPublisher(ControlPublisher.InitializationError)
@@ -123,5 +195,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         case publicationFailed(Publication)
         case cancelled
         case inputAfterTermination
+        case managedInboundProvisioningRequired
     }
 }

@@ -12,11 +12,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// semantic loopback, relay ingress lifecycle, timing policy, persistence, retry, nor
     /// broadcast permission.
     actor PostManifestContributorTransportBridge {
+        private enum InboundAuthority: Sendable {
+            case direct(
+                attemptBinding: FanIn.AttemptBinding,
+                recipient: Transport.RecipientCapability
+            )
+            case managed(AttemptTransportOwner)
+        }
+
         private let context: ControlBridge.Context
-        private let inboundAttemptBinding: FanIn.AttemptBinding
+        private let inboundAuthority: InboundAuthority
         private let controlBridge: ControlBridge
-        private let localControlRecipientCapability: Transport
-            .RecipientCapability
         private let relaySelection: PostManifestRelaySelectionValidation
         private let codingLimits: Nostr.RelayMessageCodingLimits
         private let maximumPendingRelayOutputCount: Int
@@ -78,6 +84,23 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     == localRecipient.eventVerificationKey.rawRepresentation else {
                 throw .localControlRecipientMismatch
             }
+            let attemptTransportOwner = dependencies.attemptTransportOwner
+            if let attemptTransportOwner {
+                guard attemptTransportOwner.binding
+                        == AttemptTransportOwner.Binding(
+                            context: context,
+                            role: .contributor
+                        ),
+                      attemptTransportOwner.controlRecipients
+                        == controlRecipients,
+                      attemptTransportOwner
+                        .localControlRecipientCapability
+                        .recipientEventIdentity
+                        == localControlRecipientCapability
+                            .recipientEventIdentity else {
+                    throw .attemptTransportOwnerMismatch
+                }
+            }
 
             let controlPublisher: ControlPublisher
             do {
@@ -116,15 +139,50 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
 
             self.context = context
-            inboundAttemptBinding = .init(bootstrap: bootstrap)
+            if let attemptTransportOwner {
+                inboundAuthority = .managed(attemptTransportOwner)
+            } else {
+                inboundAuthority = .direct(
+                    attemptBinding: .init(bootstrap: bootstrap),
+                    recipient: localControlRecipientCapability
+                )
+            }
             self.controlBridge = controlBridge
-            self.localControlRecipientCapability =
-                localControlRecipientCapability
             self.relaySelection = relaySelection
             self.codingLimits = codingLimits
             self.maximumPendingRelayOutputCount =
                 maximumPendingRelayOutputCount
             self.dependencies = dependencies
+        }
+
+        init(
+            bootstrap: Driver.Bootstrap,
+            manifest: RoundManifest,
+            controlSigningKey: OpalCrypto.Secp256k1.SigningKey,
+            controlEventSigningKey: OpalCrypto.Secp256k1.SigningKey,
+            relaySelection: PostManifestRelaySelectionValidation,
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingRelayOutputCount: Int,
+            dependencies: Dependencies
+        ) throws(InitializationError) {
+            guard let attemptTransportOwner =
+                dependencies.attemptTransportOwner else {
+                throw .attemptTransportOwnerMismatch
+            }
+            try self.init(
+                bootstrap: bootstrap,
+                manifest: manifest,
+                controlSigningKey: controlSigningKey,
+                controlEventSigningKey: controlEventSigningKey,
+                controlRecipients: attemptTransportOwner.controlRecipients,
+                localControlRecipientCapability:
+                    attemptTransportOwner.localControlRecipientCapability,
+                relaySelection: relaySelection,
+                codingLimits: codingLimits,
+                maximumPendingRelayOutputCount:
+                    maximumPendingRelayOutputCount,
+                dependencies: dependencies
+            )
         }
 
         /// Produces the exact contributor callbacks consumed by the reservation coordinator.
@@ -181,9 +239,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             default:
                 break
             }
+            guard case let .direct(attemptBinding, recipient) =
+                inboundAuthority else {
+                throw .managedInboundProvisioningRequired
+            }
             return .init(
-                attemptBinding: inboundAttemptBinding,
-                recipient: localControlRecipientCapability,
+                attemptBinding: attemptBinding,
+                recipient: recipient,
                 routes: routes,
                 subscriptionIdentifiers: subscriptionIdentifiers
             )
@@ -277,7 +339,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard materialContext == context else {
                 throw terminate(.materialBindingFailed)
             }
-
             let anonymousPublisher: AnonymousPublisher
             do {
                 anonymousPublisher = try .init(
@@ -287,7 +348,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     codingLimits: codingLimits,
                     maximumPendingRelayOutputCount:
                         maximumPendingRelayOutputCount,
-                    provideRoutes: dependencies.provideAnonymousRoutes,
+                    provideRoutesForPublication:
+                        dependencies.provideAnonymousRoutes,
                     awaitPublicationPermit:
                         dependencies.awaitAnonymousPublicationPermit
                 )

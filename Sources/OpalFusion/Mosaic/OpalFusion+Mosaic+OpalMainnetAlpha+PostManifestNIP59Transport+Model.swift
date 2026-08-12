@@ -17,10 +17,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestNIP59Transport {
     struct RecipientCapability: Sendable {
         let channel: Channel
         let signingKey: OpalCrypto.Secp256k1.SigningKey
-
-        var recipientEventIdentity: Data {
-            signingKey.bip340VerificationKey.rawRepresentation
-        }
+        let recipientEventIdentity: Data
 
         init(
             channel: Channel,
@@ -28,6 +25,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestNIP59Transport {
         ) {
             self.channel = channel
             self.signingKey = signingKey
+            recipientEventIdentity = signingKey.bip340VerificationKey
+                .rawRepresentation
         }
     }
 

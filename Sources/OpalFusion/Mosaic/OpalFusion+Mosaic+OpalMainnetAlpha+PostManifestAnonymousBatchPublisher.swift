@@ -70,6 +70,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             [RecipientRouteRequest]
         ) async throws -> [RecipientRouteGroup]
 
+        /// Purpose-aware route allocation used by the attempt transport owner.
+        ///
+        /// The publication kind lets one peer-local owner reject circuit reuse across its
+        /// component and BCH-signature branches without exposing signed event bytes.
+        typealias PurposefulRouteProvider = @Sendable (
+            PublicationKind,
+            [RecipientRouteRequest]
+        ) async throws -> [RecipientRouteGroup]
+
         /// Supplies caller-owned timing authority for one already-bound anonymous recipient.
         ///
         /// The provider must promptly honor cancellation. A permit defines neither a scheduling
@@ -98,7 +107,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private let relaySelection: PostManifestRelaySelectionValidation
         private let codingLimits: Nostr.RelayMessageCodingLimits
         private let maximumPendingRelayOutputCount: Int
-        private let provideRoutes: RouteProvider
+        private let provideRoutes: PurposefulRouteProvider
         private let awaitPublicationPermit: PublicationPermitProvider
 
         init(
@@ -108,6 +117,29 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             codingLimits: Nostr.RelayMessageCodingLimits,
             maximumPendingRelayOutputCount: Int,
             provideRoutes: @escaping RouteProvider,
+            awaitPublicationPermit: @escaping PublicationPermitProvider
+        ) throws(InitializationError) {
+            try self.init(
+                context: context,
+                material: material,
+                relaySelection: relaySelection,
+                codingLimits: codingLimits,
+                maximumPendingRelayOutputCount:
+                    maximumPendingRelayOutputCount,
+                provideRoutesForPublication: { _, requests in
+                    try await provideRoutes(requests)
+                },
+                awaitPublicationPermit: awaitPublicationPermit
+            )
+        }
+
+        init(
+            context: Context,
+            material: LocalContributionMaterial,
+            relaySelection: PostManifestRelaySelectionValidation,
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingRelayOutputCount: Int,
+            provideRoutesForPublication: @escaping PurposefulRouteProvider,
             awaitPublicationPermit: @escaping PublicationPermitProvider
         ) throws(InitializationError) {
             guard context.roster.contributors.contains(
@@ -157,7 +189,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.codingLimits = codingLimits
             self.maximumPendingRelayOutputCount =
                 maximumPendingRelayOutputCount
-            self.provideRoutes = provideRoutes
+            provideRoutes = provideRoutesForPublication
             self.awaitPublicationPermit = awaitPublicationPermit
         }
 
@@ -177,7 +209,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
             let routeGroups: [RecipientRouteGroup]
             do {
-                routeGroups = try await provideRoutes(routeRequests)
+                routeGroups = try await provideRoutes(batch.kind, routeRequests)
             } catch {
                 guard !Task.isCancelled else { throw .cancelled }
                 throw .routeProvisioningFailed
