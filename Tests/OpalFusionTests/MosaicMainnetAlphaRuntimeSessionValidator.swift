@@ -141,6 +141,27 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         }
     }
 
+    @Test("Bridge construction rejects an attempt before role election")
+    func rejectAttemptBeforeRoleElection() throws {
+        let harness = try Fixture.makeHarness(localRole: .contributor)
+        let unvalidatedAttempt = OpalFusion.Mosaic.Attempt(
+            configuration: .init(profile: .opalMainnetAlpha)
+        )
+
+        #expect(throws: Session.InitializationError.attemptNotReady) {
+            _ = try Session(
+                validatedAttempt: unvalidatedAttempt,
+                attemptIdentifier: harness.attemptIdentifier,
+                generationIdentifier: harness.generationIdentifier,
+                materialIdentifier: .init(
+                    opaqueBytes: [UInt8](repeating: 0xA3, count: 32)
+                ),
+                localControlIdentity: harness.localControlIdentity,
+                proposalValidation: harness.proposalValidation
+            )
+        }
+    }
+
     @Test(
         "Bridge reaches the exact transcript only after reservation-publication binding",
         .timeLimit(.minutes(2))

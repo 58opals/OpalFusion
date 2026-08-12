@@ -528,6 +528,24 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         }
     }
 
+    @Test("Construction requires a positive input buffer")
+    func rejectInvalidInputBuffer() async throws {
+        let admission = try Fixture.makeHarness(localRole: .contributor)
+        let session = try makeRuntimeSession(admission: admission)
+        let host = try makeHost()
+
+        #expect(throws: Coordinator.InitializationError.invalidInputBufferLimit) {
+            _ = try Coordinator(
+                runtimeSession: session,
+                dependencies: rejectingDependencies(
+                    host: host,
+                    maximumPendingInputCount: 0
+                )
+            )
+        }
+        #expect(await host.reservationRequests.isEmpty)
+    }
+
     @Test("Reject an already-advanced runtime before invoking wallet authority")
     func rejectAdvancedRuntime() async throws {
         let admission = try Fixture.makeHarness(localRole: .contributor)
@@ -736,10 +754,12 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     }
 
     private func rejectingDependencies(
-        host: MosaicRuntimeCoordinatorHostProbe
+        host: MosaicRuntimeCoordinatorHostProbe,
+        maximumPendingInputCount: Int = 256
     ) -> Coordinator.Dependencies {
         .init(
             transactionHost: host,
+            maximumPendingInputCount: maximumPendingInputCount,
             expectedReservationExpiration: Date(
                 timeIntervalSince1970: 1_900_000_000
             ),

@@ -24,6 +24,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private(set) var state: State = .idle
 
         init(
+            claimedRuntimeConstruction: AttemptTransportOwner
+                .InboundRuntimeProvisioning.ClaimedRuntimeConstruction,
             bootstrap: Driver.Bootstrap,
             roleDependencies: Driver.RoleDependencies,
             recipientSet: RecipientSet,
@@ -46,6 +48,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             do {
                 driver = try Driver(
+                    claimedRuntimeConstruction: claimedRuntimeConstruction,
                     bootstrap: bootstrap,
                     dependencies: roleDependencies,
                     admissionJournal: admissionJournal

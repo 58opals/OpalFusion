@@ -373,14 +373,6 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
                 }
             )
         )
-        await #expect(
-            throws: Bridge.Failure.managedInboundProvisioningRequired
-        ) {
-            _ = try await managedBridge.makeInboundControlRouteGroup(
-                routes: [],
-                subscriptionIdentifiers: [:]
-            )
-        }
         await managedBridge.requestStop()
         #expect(
             await managedBridge.waitForTermination()

@@ -18,7 +18,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private let coordinator: Coordinator
         private let transportContext: Transport.RuntimeContext
-        private let admissionJournal: AdmissionJournal?
 
         var state: State {
             get async {
@@ -32,9 +31,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         init(
+            claimedRuntimeConstruction _: PostManifestAttemptTransportOwner
+                .InboundRuntimeProvisioning.ClaimedRuntimeConstruction,
             bootstrap: Bootstrap,
             dependencies: RoleDependencies,
-            admissionJournal: AdmissionJournal? = nil
+            admissionJournal: AdmissionJournal
         ) throws(InitializationError) {
             let runtimeSession: Session
             do {
@@ -63,8 +64,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 phaseStartUnixSeconds:
                     bootstrap.proposalValidation.core.deadlines.phaseStart
             )
-            self.admissionJournal = admissionJournal
-
             switch dependencies {
             case let .contributor(dependencies):
                 guard dependencies.maximumPendingInputCount > 0 else {
@@ -142,25 +141,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         ) async -> Bool {
             switch (coordinator, delivery.storage) {
             case let (.contributor(coordinator), .control(delivery)):
-                if admissionJournal == nil {
-                    await coordinator.submitControl(delivery)
-                } else {
-                    await coordinator.submitAuthenticatedControl(delivery)
-                }
+                await coordinator.submitAuthenticatedControl(delivery)
             case (.contributor, .anonymous):
                 false
             case let (.conductor(coordinator), .control(delivery)):
-                if admissionJournal == nil {
-                    await coordinator.submitControl(delivery)
-                } else {
-                    await coordinator.submitAuthenticatedControl(delivery)
-                }
+                await coordinator.submitAuthenticatedControl(delivery)
             case let (.conductor(coordinator), .anonymous(delivery)):
-                if admissionJournal == nil {
-                    await coordinator.submitAnonymous(delivery)
-                } else {
-                    await coordinator.submitAuthenticatedAnonymous(delivery)
-                }
+                await coordinator.submitAuthenticatedAnonymous(delivery)
             }
         }
 

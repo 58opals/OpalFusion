@@ -40,18 +40,24 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case runtime(Driver.State)
         }
 
-        private enum RuntimeAuthorization: Sendable {
-            case componentRouteGroups
-            case provisioned(AttemptTransportOwner.InboundRuntimeProvisioning)
+        /// A request that only this file can mint at the runtime-adoption boundary.
+        struct RuntimeConstructionRequest: Sendable {
+            fileprivate init() {}
         }
 
-        private struct Construction: Sendable {
-            let routes: [SessionRoute]
-            let ingress: Ingress
+        private struct RoutePlanEntry: Sendable {
+            let recipientEventIdentity: Data
+            let subscription: Nostr.RelaySubscription
+            let connection: any OpalFusion.Mosaic.TorWebSocketConnectioning
+        }
+
+        private struct ValidatedRoutePlan: Sendable {
+            let recipientSet: Ingress.RecipientSet
+            let entries: [RoutePlanEntry]
         }
 
         private let routes: [SessionRoute]
-        private let ingress: Ingress
+        private let runtime: RuntimeEndpoint
         private let dependencies: Dependencies
         private let eventStream: AsyncStream<Nostr.Event>
         private var eventContinuation: AsyncStream<Nostr.Event>.Continuation
@@ -69,33 +75,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private(set) var state: State = .idle
 
-        /// Lower-level construction used by focused fan-in component tests.
-        ///
-        /// Private mainnet composition uses the owner-provisioned initializer below. This seam
-        /// retains direct route-group construction so fan-in validation and lifecycle tests do
-        /// not need to allocate a production-complete conductor mailbox set.
-        init(
-            bootstrap: Driver.Bootstrap,
-            roleDependencies: Driver.RoleDependencies,
-            recipientRouteGroups: [RecipientRouteGroup],
-            relaySelection: RelaySelectionValidation,
-            ingressDependencies: Ingress.Dependencies,
-            codingLimits: Nostr.RelayMessageCodingLimits,
+        private init(
+            routes: [SessionRoute],
+            runtime: RuntimeEndpoint,
             maximumPendingEventCount: Int,
-            dependencies: Dependencies = .init()
-        ) throws(InitializationError) {
-            let construction = try Self.makeConstruction(
-                bootstrap: bootstrap,
-                roleDependencies: roleDependencies,
-                recipientRouteGroups: recipientRouteGroups,
-                relaySelection: relaySelection,
-                ingressDependencies: ingressDependencies,
-                codingLimits: codingLimits,
-                maximumPendingEventCount: maximumPendingEventCount,
-                authorization: .componentRouteGroups
-            )
-            routes = construction.routes
-            ingress = construction.ingress
+            dependencies: Dependencies
+        ) {
+            self.routes = routes
+            self.runtime = runtime
             self.dependencies = dependencies
             let (eventStream, eventContinuation) = AsyncStream<Nostr.Event>
                 .makeStream(
@@ -107,8 +94,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.eventContinuation = eventContinuation
         }
 
-        /// Constructs the private mainnet runtime only from one owner-provisioned capability.
-        init(
+        /// Constructs the private mainnet runtime from one owner-provisioned capability.
+        ///
+        /// Claiming is the route-ownership transfer point. Any later construction failure closes
+        /// every transferred route before this factory returns.
+        static func make(
             bootstrap: Driver.Bootstrap,
             roleDependencies: Driver.RoleDependencies,
             inboundRuntimeProvisioning:
@@ -117,50 +107,132 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             codingLimits: Nostr.RelayMessageCodingLimits,
             maximumPendingEventCount: Int,
             dependencies: Dependencies = .init()
-        ) throws(InitializationError) {
-            let construction = try Self.makeConstruction(
-                bootstrap: bootstrap,
-                roleDependencies: roleDependencies,
-                recipientRouteGroups:
-                    inboundRuntimeProvisioning.recipientRouteGroups,
-                relaySelection: inboundRuntimeProvisioning.relaySelection,
-                ingressDependencies: ingressDependencies,
-                codingLimits: codingLimits,
-                maximumPendingEventCount: maximumPendingEventCount,
-                authorization: .provisioned(inboundRuntimeProvisioning)
-            )
-            routes = construction.routes
-            ingress = construction.ingress
-            self.dependencies = dependencies
-            let (eventStream, eventContinuation) = AsyncStream<Nostr.Event>
-                .makeStream(
-                    bufferingPolicy: .bufferingOldest(
-                        maximumPendingEventCount
-                    )
-                )
-            self.eventStream = eventStream
-            self.eventContinuation = eventContinuation
-        }
-
-        private static func makeConstruction(
-            bootstrap: Driver.Bootstrap,
-            roleDependencies: Driver.RoleDependencies,
-            recipientRouteGroups: [RecipientRouteGroup],
-            relaySelection: RelaySelectionValidation,
-            ingressDependencies: Ingress.Dependencies,
-            codingLimits: Nostr.RelayMessageCodingLimits,
-            maximumPendingEventCount: Int,
-            authorization: RuntimeAuthorization
-        ) throws(InitializationError) -> Construction {
-            guard !recipientRouteGroups.isEmpty else {
-                throw .invalidRecipientGroupCount(actual: 0)
+        ) async throws(InitializationError) -> Self {
+            guard inboundRuntimeProvisioning.matches(
+                bootstrap,
+                role: roleDependencies.role
+            ) else {
+                throw .runtimeAuthorizationMismatch
             }
             let maximumAnonymousRecipientCount = bootstrap.proposalValidation
                 .core.roster.contributors.count
                 * OpalFusion.Mosaic.OpalMainnetAlpha
                     .componentCountPerContributor
+            let plan = try makeValidatedRoutePlan(
+                role: roleDependencies.role,
+                maximumAnonymousRecipientCount: maximumAnonymousRecipientCount,
+                manifestRelaySetDigest:
+                    bootstrap.proposalValidation.core.relaySetDigest,
+                recipientRouteGroups:
+                    inboundRuntimeProvisioning.recipientRouteGroups,
+                relaySelection: inboundRuntimeProvisioning.relaySelection,
+                codingLimits: codingLimits,
+                maximumPendingEventCount: maximumPendingEventCount
+            )
+            let routes = try makeSessionRoutes(
+                plan.entries,
+                codingLimits: codingLimits
+            )
+            guard let claimedRuntimeConstruction =
+                inboundRuntimeProvisioning.claim(
+                .init(),
+                bootstrap,
+                role: roleDependencies.role
+            ) else {
+                throw .runtimeAuthorizationAlreadyUsed
+            }
+
+            let ingress: Ingress
+            do {
+                ingress = try .init(
+                    claimedRuntimeConstruction: claimedRuntimeConstruction,
+                    bootstrap: bootstrap,
+                    roleDependencies: roleDependencies,
+                    recipientSet: plan.recipientSet,
+                    dependencies: ingressDependencies
+                )
+            } catch let error {
+                await closePreparedRoutes(routes)
+                throw .ingress(error)
+            }
+            return .init(
+                routes: routes,
+                runtime: .init(ingress: ingress),
+                maximumPendingEventCount: maximumPendingEventCount,
+                dependencies: dependencies
+            )
+        }
+
+        /// Validates raw route data without claiming authority or constructing a runtime/session.
+        static func validateRoutePlan(
+            role: OpalFusion.Mosaic.Role,
+            maximumAnonymousRecipientCount: Int,
+            manifestRelaySetDigest: [UInt8],
+            recipientRouteGroups: [RecipientRouteGroup],
+            relaySelection: RelaySelectionValidation,
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingEventCount: Int
+        ) throws(InitializationError) {
+            _ = try makeValidatedRoutePlan(
+                role: role,
+                maximumAnonymousRecipientCount: maximumAnonymousRecipientCount,
+                manifestRelaySetDigest: manifestRelaySetDigest,
+                recipientRouteGroups: recipientRouteGroups,
+                relaySelection: relaySelection,
+                codingLimits: codingLimits,
+                maximumPendingEventCount: maximumPendingEventCount
+            )
+        }
+
+        /// Builds transport-only fan-in around an injected endpoint after pure route validation.
+        ///
+        /// This component seam cannot construct ingress or the mainnet runtime. It exists so
+        /// route startup, bounded FIFO, source-loss, and closure behavior stay fast to test.
+        static func makeComponent(
+            role: OpalFusion.Mosaic.Role,
+            maximumAnonymousRecipientCount: Int,
+            manifestRelaySetDigest: [UInt8],
+            recipientRouteGroups: [RecipientRouteGroup],
+            relaySelection: RelaySelectionValidation,
+            runtime: RuntimeEndpoint,
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingEventCount: Int,
+            dependencies: Dependencies = .init()
+        ) throws(InitializationError) -> Self {
+            let plan = try makeValidatedRoutePlan(
+                role: role,
+                maximumAnonymousRecipientCount: maximumAnonymousRecipientCount,
+                manifestRelaySetDigest: manifestRelaySetDigest,
+                recipientRouteGroups: recipientRouteGroups,
+                relaySelection: relaySelection,
+                codingLimits: codingLimits,
+                maximumPendingEventCount: maximumPendingEventCount
+            )
+            return try .init(
+                routes: makeSessionRoutes(
+                    plan.entries,
+                    codingLimits: codingLimits
+                ),
+                runtime: runtime,
+                maximumPendingEventCount: maximumPendingEventCount,
+                dependencies: dependencies
+            )
+        }
+
+        private static func makeValidatedRoutePlan(
+            role: OpalFusion.Mosaic.Role,
+            maximumAnonymousRecipientCount: Int,
+            manifestRelaySetDigest: [UInt8],
+            recipientRouteGroups: [RecipientRouteGroup],
+            relaySelection: RelaySelectionValidation,
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingEventCount: Int
+        ) throws(InitializationError) -> ValidatedRoutePlan {
+            guard !recipientRouteGroups.isEmpty else {
+                throw .invalidRecipientGroupCount(actual: 0)
+            }
             let maximumRecipientGroupCount = 1
-                + (roleDependencies.role == .conductor
+                + (role == .conductor
                     ? maximumAnonymousRecipientCount
                     : 0)
             guard recipientRouteGroups.count <= maximumRecipientGroupCount else {
@@ -181,7 +253,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 guard recipient.channel == .control else { return }
                 count += 1
             }
-            switch roleDependencies.role {
+            switch role {
             case .contributor:
                 guard recipients.count == 1,
                       controlRecipientCount == 1 else {
@@ -190,21 +262,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case .conductor:
                 guard controlRecipientCount == 1 else {
                     throw .invalidRecipientChannels
-                }
-            }
-            switch authorization {
-            case .componentRouteGroups:
-                guard recipientRouteGroups.allSatisfy({
-                    $0.isBound(to: bootstrap)
-                }) else {
-                    throw .recipientAttemptBindingMismatch
-                }
-            case let .provisioned(provisioning):
-                guard provisioning.matches(
-                    bootstrap,
-                    role: roleDependencies.role
-                ) else {
-                    throw .runtimeAuthorizationMismatch
                 }
             }
             guard maximumPendingEventCount > 0 else {
@@ -222,14 +279,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
 
             guard relaySelection.manifestRelaySetDigest
-                    == bootstrap.proposalValidation.core.relaySetDigest else {
+                    == manifestRelaySetDigest else {
                 throw .relaySelectionManifestMismatch
             }
             var connections: Set<ObjectIdentifier> = []
             var distinctSubscriptions: Set<Nostr.SubscriptionIdentifier> = []
-            var sessionRoutes: [SessionRoute] = []
+            var entries: [RoutePlanEntry] = []
             do {
-                sessionRoutes.reserveCapacity(
+                entries.reserveCapacity(
                     recipientRouteGroups.count
                         * OpalFusion.Mosaic.OpalMainnetAlpha.relayCount
                 )
@@ -299,18 +356,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                                 >= maximumInboundEventFrameByteCount else {
                             throw InitializationError.incompatibleCodingLimits
                         }
-                        sessionRoutes.append(
+                        entries.append(
                             .init(
                                 recipientEventIdentity:
                                     group.recipient.recipientEventIdentity,
                                 subscription: subscription,
-                                session: try Session(
-                                    connection: route.connection,
-                                    codingLimits: codingLimits,
-                                    // The caller-owned count bounds the shared FIFO. Each route
-                                    // retains at most one frame while all subscriptions start.
-                                    maximumPendingOutputCount: 1
-                                )
+                                connection: route.connection
                             )
                         )
                     }
@@ -321,34 +372,43 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw .invalidSubscription
             }
 
-            switch authorization {
-            case .componentRouteGroups:
-                guard recipientRouteGroups.allSatisfy({
-                    $0.claimAttemptBinding()
-                }) else {
-                    throw .recipientAttemptBindingMismatch
-                }
-            case let .provisioned(provisioning):
-                guard provisioning.claim(
-                    bootstrap,
-                    role: roleDependencies.role
-                ) else {
-                    throw .runtimeAuthorizationAlreadyUsed
-                }
-            }
+            return .init(recipientSet: recipientSet, entries: entries)
+        }
 
-            let ingress: Ingress
+        private static func makeSessionRoutes(
+            _ entries: [RoutePlanEntry],
+            codingLimits: Nostr.RelayMessageCodingLimits
+        ) throws(InitializationError) -> [SessionRoute] {
             do {
-                ingress = try .init(
-                    bootstrap: bootstrap,
-                    roleDependencies: roleDependencies,
-                    recipientSet: recipientSet,
-                    dependencies: ingressDependencies
-                )
-            } catch let error {
-                throw .ingress(error)
+                return try entries.map { entry in
+                    .init(
+                        recipientEventIdentity: entry.recipientEventIdentity,
+                        subscription: entry.subscription,
+                        session: try Session(
+                            connection: entry.connection,
+                            codingLimits: codingLimits,
+                            maximumPendingOutputCount: 1
+                        )
+                    )
+                }
+            } catch {
+                throw .invalidSubscription
             }
-            return .init(routes: sessionRoutes, ingress: ingress)
+        }
+
+        private static func closePreparedRoutes(
+            _ routes: [SessionRoute]
+        ) async {
+            let cleanup = Task {
+                await withTaskGroup(of: Void.self) { tasks in
+                    for route in routes {
+                        tasks.addTask {
+                            await route.session.stop()
+                        }
+                    }
+                }
+            }
+            await cleanup.value
         }
 
         /// Starts the private ingress and every recipient subscription exactly once.
@@ -357,7 +417,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             state = .starting
 
             try await withTaskCancellationHandler {
-                let didStartIngress = await ingress.start()
+                let didStartIngress = await runtime.start()
                 completeIngressStartup()
                 guard state == .starting else {
                     await shutdownTask?.value
@@ -369,8 +429,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     throw Failure.cancelled
                 }
                 guard didStartIngress,
-                      await ingress.state == .running else {
-                    let runtimeState = await ingress.waitForTermination()
+                      await runtime.state() == .running else {
+                    let runtimeState = await runtime.waitForTermination()
                     if let runtimeState {
                         await finishWithoutStartedRoutes(
                             .runtime(runtimeState)
@@ -381,9 +441,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     throw Failure.runtimeTerminated
                 }
 
-                runtimeTask = Task { [weak self, ingress] in
+                runtimeTask = Task { [weak self, runtime] in
                     guard let self else { return }
-                    guard let runtimeState = await ingress.waitForTermination()
+                    guard let runtimeState = await runtime.waitForTermination()
                     else { return }
                     await self.runtimeDidTerminate(runtimeState)
                 }
@@ -564,7 +624,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private func consumeEvents() async {
             for await event in eventStream {
-                let decision = await ingress.submit(event)
+                let decision = await runtime.submit(event)
                 dependencies.submissionObserver(
                     event.identifier,
                     decision
@@ -610,9 +670,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
             switch cause {
             case .stopped:
-                await ingress.stop()
+                await runtime.stop()
             case .sourceFailed:
-                _ = await ingress.inputSourceDidTerminate(.failed)
+                _ = await runtime.inputSourceDidTerminate(.failed)
             case .runtime:
                 break
             }
@@ -621,10 +681,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let termination: Termination
             switch cause {
             case .stopped:
-                _ = await ingress.waitForTermination()
+                _ = await runtime.waitForTermination()
                 termination = .stopped
             case .sourceFailed:
-                if let runtimeState = await ingress.waitForTermination(),
+                if let runtimeState = await runtime.waitForTermination(),
                    !isSourceFailure(runtimeState) {
                     termination = .runtime(runtimeState)
                 } else {

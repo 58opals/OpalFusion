@@ -17,7 +17,7 @@ This is not a live BCH mainnet engine. No public Mosaic session, concrete Tor or
 | 3 | Admission replay | One attempt-bound journal records only semantically accepted control and anonymous replay facts before coordinator effects; restored partial runtime state fails closed. | `79c366b` |
 | 4 | Attempt transport provisioning | One peer-local owner provisions mailbox route groups, rejects local capability reuse, and can mint one role-complete inbound provisioning value. | `1fe3380` |
 | 5 | Private rehearsal | The explicitly slow real-RSABSSA rehearsal covers conductor authorization and contributor BCH signing through exact host commit without wallet, relay, Tor, node, or broadcast access. | `70ba317` |
-| 6 | Private execution gate | The owner-provisioned path rejects foreign bootstrap, role substitution, and a second claim before constructing ingress and the specialized driver. The sole-constructor stop condition remains open because fan-in still exposes an internal raw route-group initializer for component tests. | `6884256` |
+| 6 | Private execution gate | Owner provisioning is the sole runtime-construction authority. Fan-in alone requests the one claim, passes its immutable token through ingress to the specialized driver, rejects substitution or reuse, and closes transferred routes after construction failure. Pure route validation and an inert endpoint keep component feedback RSA-free without another runtime constructor. | `6884256`, current cleanup |
 
 ## Ownership
 
@@ -27,26 +27,24 @@ This is not a live BCH mainnet engine. No public Mosaic session, concrete Tor or
 | Admission and replay | OpalFusion `AdmissionLedger` plus the post-manifest admission journal for accepted replay facts. |
 | Wallet lifecycle | OpalBase host actor and wallet attempt journal; OpalFusion returns exact release, commit, or recovery requirements but does not persist wallet recovery. |
 | Outbound publication | OpalFusion attempt transport owner, control/anonymous bridges, batch publishers, and one-shot relay publisher over injected routes. |
-| Inbound fan-in | Intended production composition uses the owner-issued inbound provisioning value; fan-in and ingress own subscription startup, bounded serialization, recipient authentication, and typed delivery. |
+| Inbound fan-in | The attempt transport owner issues one role-complete provisioning value and owns its single claim; fan-in, ingress, and the specialized driver consume the resulting immutable token while fan-in owns subscription startup, bounded serialization, failure rollback, and drain. |
 | Cryptography | OpalCrypto supplies BCH, NIP-44, Pedersen, and RSABSSA primitives without phase, wallet, transport, or broadcast authority. |
 
 ## Package Boundary Assessment
 
 The dependency direction is acyclic: OpalBase depends on OpalFusion and OpalCrypto, while OpalFusion depends on OpalCrypto and OpalCrypto has no upward dependency. OpalFusion defines the protocol-required host capabilities, OpalBase implements them with independent wallet validation and durable intent, and OpalCrypto remains a computation-focused leaf.
 
-The boundary shape is sound, but live enablement still requires an exact cross-repository integration-contract identifier instead of relying indefinitely on the `.opalMainnetAlpha` enum case across moving `develop` dependencies, a network-attested transaction client above the existing OpalBase broadcast coordinator, and an authenticated durable codec/store/loader for wallet and runtime recovery. OpalFusion's single Swift target also means an `internal` test-convenience constructor is callable by future production composition code, which is why the raw fan-in path is a real authority gap rather than merely a test detail.
+The boundary shape is sound, but live enablement still requires exact enforcement of the existing versioned cross-repository profile pair instead of relying indefinitely on the `.opalMainnetAlpha` enum case across moving `develop` dependencies, a network-attested transaction client above the existing OpalBase broadcast coordinator, and an authenticated durable codec/store/loader for wallet and runtime recovery. OpalFusion's single Swift target still exposes internal types across source files, but no internal caller can mint the fan-in request plus claimed runtime token outside the owner-provisioned path.
 
 ## Validation Lanes
 
-The latest bounded validation passed `swift build` in 3.04 seconds, `swift test list` with a 6.51-second build phase, `swift test --skip-build --filter MosaicMainnetAlphaExecutionGateValidator` with 1/1 test passing in 14.273 seconds, and `git diff --check`. The focused execution-gate filter does not generate RSA authorization evaluators.
+The fast structural lane is `swift test --skip-build --filter MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator`; it has no dependency on the shared Mosaic mainnet fixture or an authorization evaluator. The owner-authorized `MosaicMainnetAlphaExecutionGateValidator` uses only embedded public verification keys and likewise does not generate RSA signing keys.
 
 The serialized `./scripts/run-validation-loop.sh mosaic-rehearsal` lane remains the intentionally slow milestone proof because it generates real RSABSSA signing keys. It was not rerun during the final fast-gate slice.
 
 ## Open Gates
 
-1. Make owner-issued inbound provisioning the sole module-internal runtime construction authority and make route adoption failure-safe, while retaining RSA-free fan-in validation through a non-constructing test seam. Stop when no raw route-group initializer can create ingress or the mainnet runtime, every failure after route transfer closes or safely returns the transferred routes, and the focused RSA-free filter still passes within its budget.
-2. Supply authenticated recipient distribution, encrypted persistence, authoritative relay selection, concrete Tor route and isolation proof, acknowledgement persistence, reconnect policy, and complete runtime/coordinator crash restoration. Stop at a durable fresh-process recovery proof with no replayed coordinator or wallet effect.
-3. Add app-owned public composition only after independent protocol and security review. Preserve the private `OpalFusion.Session` initializer and disabled generic mainnet driver until that review explicitly authorizes a public execution surface.
-4. Validate real wallet and node integration on BCH mainnet with explicit user approval and the existing OpalBase broadcast gates. Stop before value movement unless the app has persisted approval and broadcast intent for the exact committed candidate.
-
-No next implementation slice begins from this record.
+1. Enforce the existing exact profile and transaction-profile identifier pair at the OpalBase integration boundary. Stop when dependency/profile drift fails before wallet or recovery mutation and a deterministic focused policy filter passes.
+2. Add authenticated durable recovery codec/store/loading boundaries and a fresh-process proof that recovery never repeats material construction, signing, release, commit, approval, or broadcast intent. Stop when corrupted, substituted, or incompatible records fail closed and one exact recoverable action is reconstructed.
+3. Require a network-attested transaction client above the existing approval and persisted-intent gates. Stop when a mismatched network client cannot receive transaction bytes and no default or test path broadcasts.
+4. Remove only remaining module-boundary debt that materially weakens these authorities. Stop when the authority graph has no alternate constructor or duplicated lifecycle owner; do not reorganize unrelated protocol code.

@@ -16,8 +16,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         .PostManifestAnonymousPublicationBridge
     typealias AnonymousPublisher = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestAnonymousBatchPublisher
-    typealias FanIn = OpalFusion.Mosaic.OpalMainnetAlpha
-        .PostManifestRelayFanIn
     typealias AttemptTransportOwner = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestAttemptTransportOwner
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
@@ -195,6 +193,5 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         case publicationFailed(Publication)
         case cancelled
         case inputAfterTermination
-        case managedInboundProvisioningRequired
     }
 }

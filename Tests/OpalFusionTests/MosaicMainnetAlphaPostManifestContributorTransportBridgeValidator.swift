@@ -292,72 +292,6 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         try makeSharedFixture()
     }
 
-    @Test("Bind inbound control routes to the exact bootstrap")
-    func bindInboundControlRoutes() async throws {
-        let fixture = try await Self.sharedFixtureTask.value
-        let routeFactory = RouteFactory(endpoints: selectedEndpoints)
-        let permitProbe = PermitProbe()
-        let authority = PublicationAuthorityProbe(
-            phaseStartUnixSeconds: fixture.context.phaseStartUnixSeconds
-        )
-        let bridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority
-        )
-        let inboundRoutes = selectedEndpoints.map {
-            Alpha.PostManifestRelayRoute(
-                endpoint: $0,
-                connection: ImmediateAcknowledgementConnection()
-            )
-        }
-        let inboundSubscriptions = try Dictionary(
-            uniqueKeysWithValues: selectedEndpoints.enumerated().map {
-                index,
-                endpoint in
-                (endpoint, try Nostr.SubscriptionIdentifier("inbound-\(index)"))
-            }
-        )
-        let inbound = try await bridge.makeInboundControlRouteGroup(
-            routes: inboundRoutes,
-            subscriptionIdentifiers: inboundSubscriptions
-        )
-        #expect(inbound.recipient.channel == .control)
-        #expect(
-            inbound.recipient.recipientEventIdentity
-                == fixture.localControlRecipientCapability
-                    .recipientEventIdentity
-        )
-        #expect(inbound.routes.map(\.endpoint) == selectedEndpoints)
-        #expect(
-            inbound.routes.map { ObjectIdentifier($0.connection) }
-                == inboundRoutes.map { ObjectIdentifier($0.connection) }
-        )
-        #expect(inbound.subscriptionIdentifiers == inboundSubscriptions)
-        #expect(inbound.isBound(to: fixture.bootstrap))
-        let foreignBootstrap = Alpha.PostManifestRuntimeDriver.Bootstrap(
-            validatedAttempt: fixture.bootstrap.validatedAttempt,
-            attemptIdentifier: .init(
-                validatedBytes: Array(repeating: 0xFA, count: 32)
-            ),
-            generationIdentifier: fixture.bootstrap.generationIdentifier,
-            materialIdentifier: fixture.bootstrap.materialIdentifier,
-            localControlIdentity: fixture.bootstrap.localControlIdentity,
-            proposalValidation: fixture.bootstrap.proposalValidation
-        )
-        #expect(!inbound.isBound(to: foreignBootstrap))
-        await bridge.requestStop()
-        await bridge.requestStop()
-        #expect(await bridge.waitForTermination() == .terminal(.cancelled))
-        await #expect(throws: Bridge.Failure.inputAfterTermination) {
-            _ = try await bridge.makeInboundControlRouteGroup(
-                routes: inboundRoutes,
-                subscriptionIdentifiers: inboundSubscriptions
-            )
-        }
-    }
-
     @Test(
         "Reject wrong role, mailbox, order, and material before exposure",
         .timeLimit(.minutes(5))
@@ -454,25 +388,6 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
                 permitProbe: permitProbe,
                 authority: authority,
                 controlEventSigningKey: fixture.controlSigningKey
-            )
-        }
-
-        let idleBridge = try makeBridge(
-            fixture: fixture,
-            routeFactory: routeFactory,
-            permitProbe: permitProbe,
-            authority: authority
-        )
-        await idleBridge.requestStop()
-        await idleBridge.requestStop()
-        #expect(
-            await idleBridge.waitForTermination()
-                == .terminal(.cancelled)
-        )
-        await #expect(throws: Bridge.Failure.inputAfterTermination) {
-            _ = try await idleBridge.makeInboundControlRouteGroup(
-                routes: [],
-                subscriptionIdentifiers: [:]
             )
         }
 

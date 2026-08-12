@@ -1,7 +1,6 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestRelayFanIn+Model.swift
 
 import OpalCrypto
-import Synchronization
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
     typealias Driver = OpalFusion.Mosaic.OpalMainnetAlpha
@@ -20,56 +19,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
 
-    /// Opaque attempt facts that prevent a provisioned mailbox group from crossing runtimes.
-    final class AttemptBinding: Sendable {
-        private struct Facts: Sendable, Equatable {
-            let attemptIdentifier: Driver.Session.AttemptIdentifier
-            let generationIdentifier: Driver.Session.GenerationIdentifier
-            let materialIdentifier: Driver.Session.MaterialIdentifier
-            let localControlIdentity: Driver.Session.ControlIdentity
-            let manifestCore: OpalFusion.Mosaic.OpalMainnetAlpha
-                .RoundManifestCore
-        }
-
-        private let facts: Facts
-        private let isClaimed = Mutex(false)
-
-        init(bootstrap: Driver.Bootstrap) {
-            facts = .init(
-                attemptIdentifier: bootstrap.attemptIdentifier,
-                generationIdentifier: bootstrap.generationIdentifier,
-                materialIdentifier: bootstrap.materialIdentifier,
-                localControlIdentity: bootstrap.localControlIdentity,
-                manifestCore: bootstrap.proposalValidation.core
-            )
-        }
-
-        func matches(_ bootstrap: Driver.Bootstrap) -> Bool {
-            facts == .init(
-                attemptIdentifier: bootstrap.attemptIdentifier,
-                generationIdentifier: bootstrap.generationIdentifier,
-                materialIdentifier: bootstrap.materialIdentifier,
-                localControlIdentity: bootstrap.localControlIdentity,
-                manifestCore: bootstrap.proposalValidation.core
-            )
-        }
-
-        func claim() -> Bool {
-            isClaimed.withLock {
-                guard !$0 else { return false }
-                $0 = true
-                return true
-            }
-        }
-    }
-
     /// One externally provisioned recipient mailbox and its isolated three-route subscription set.
     ///
     /// The caller remains responsible for recipient allocation, endpoint-to-capability binding,
     /// and Tor circuit isolation. The fan-in validates the entire supplied collection before opening any
     /// route and then feeds every group into one shared runtime authority.
     struct RecipientRouteGroup: Sendable {
-        private let attemptBinding: AttemptBinding
         let recipient: Transport.RecipientCapability
         let routes: [RelayRoute]
         let subscriptionIdentifiers: [
@@ -77,25 +32,78 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         ]
 
         init(
-            attemptBinding: AttemptBinding,
             recipient: Transport.RecipientCapability,
             routes: [RelayRoute],
             subscriptionIdentifiers: [
                 RelayEndpoint: Nostr.SubscriptionIdentifier
             ]
         ) {
-            self.attemptBinding = attemptBinding
             self.recipient = recipient
             self.routes = routes
             self.subscriptionIdentifiers = subscriptionIdentifiers
         }
 
-        func isBound(to bootstrap: Driver.Bootstrap) -> Bool {
-            attemptBinding.matches(bootstrap)
+    }
+
+    /// Runtime lifecycle operations consumed by fan-in after authorized composition.
+    ///
+    /// The production value wraps one authenticated ingress. Focused transport tests may inject
+    /// an inert endpoint, but this value cannot construct an ingress or runtime driver.
+    struct RuntimeEndpoint: Sendable {
+        private let startOperation: @Sendable () async -> Bool
+        private let stateOperation: @Sendable () async -> Ingress.State
+        private let submitOperation: @Sendable (Nostr.Event) async -> Ingress.Decision
+        private let sourceTerminationOperation: @Sendable (
+            OpalFusion.Mosaic.OpalMainnetAlpha.InputSourceTermination
+        ) async -> Bool
+        private let stopOperation: @Sendable () async -> Void
+        private let waitOperation: @Sendable () async -> Driver.State?
+
+        init(
+            start: @escaping @Sendable () async -> Bool,
+            state: @escaping @Sendable () async -> Ingress.State,
+            submit: @escaping @Sendable (Nostr.Event) async -> Ingress.Decision,
+            inputSourceDidTerminate: @escaping @Sendable (
+                OpalFusion.Mosaic.OpalMainnetAlpha.InputSourceTermination
+            ) async -> Bool,
+            stop: @escaping @Sendable () async -> Void,
+            waitForTermination: @escaping @Sendable () async -> Driver.State?
+        ) {
+            startOperation = start
+            stateOperation = state
+            submitOperation = submit
+            sourceTerminationOperation = inputSourceDidTerminate
+            stopOperation = stop
+            waitOperation = waitForTermination
         }
 
-        func claimAttemptBinding() -> Bool {
-            attemptBinding.claim()
+        init(ingress: Ingress) {
+            self.init(
+                start: { await ingress.start() },
+                state: { await ingress.state },
+                submit: { await ingress.submit($0) },
+                inputSourceDidTerminate: {
+                    await ingress.inputSourceDidTerminate($0)
+                },
+                stop: { await ingress.stop() },
+                waitForTermination: { await ingress.waitForTermination() }
+            )
+        }
+
+        func start() async -> Bool { await startOperation() }
+        func state() async -> Ingress.State { await stateOperation() }
+        func submit(_ event: Nostr.Event) async -> Ingress.Decision {
+            await submitOperation(event)
+        }
+        func inputSourceDidTerminate(
+            _ termination: OpalFusion.Mosaic.OpalMainnetAlpha
+                .InputSourceTermination
+        ) async -> Bool {
+            await sourceTerminationOperation(termination)
+        }
+        func stop() async { await stopOperation() }
+        func waitForTermination() async -> Driver.State? {
+            await waitOperation()
         }
     }
 
@@ -123,7 +131,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         case invalidRecipientGroupCount(actual: Int)
         case invalidRecipientSet
         case invalidRecipientChannels
-        case recipientAttemptBindingMismatch
         case invalidRelayCount(actual: Int)
         case duplicateRelay(RelayEndpoint)
         case duplicateConnection

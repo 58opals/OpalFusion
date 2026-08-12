@@ -11,7 +11,6 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     typealias FanIn = Alpha.PostManifestRelayFanIn
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias Ingress = Alpha.PostManifestTransportIngress
-    typealias Journal = Alpha.PostManifestAdmissionJournal
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias Tracker = OpalFusion.Mosaic.RelayPublicationTracker
     typealias Transport = Alpha.PostManifestNIP59Transport
@@ -141,86 +140,104 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         }
     }
 
-    private final class AdmissionJournalProbe: @unchecked Sendable {
-        private let lock = NSLock()
-        private var waiters: [
-            (
-                count: Int,
-                continuation: CheckedContinuation<Void, Never>
-            )
-        ] = []
-        private var storedRecords: [Journal.AcceptedRecord] = []
-        private var shouldFailAppend = false
-
-        var records: [Journal.AcceptedRecord] {
-            withLock { storedRecords }
-        }
-
-        var store: Journal.Store {
-            .init(
-                load: { _ in nil },
-                append: { [self] _, expectedCount, record in
-                    let satisfied = try withLock { () throws -> [
-                        (
-                            count: Int,
-                            continuation: CheckedContinuation<Void, Never>
-                        )
-                    ] in
-                        guard !shouldFailAppend else {
-                            throw ProbeFailure.unexpectedInvocation
-                        }
-                        guard storedRecords.count == expectedCount else {
-                            throw ProbeFailure.unexpectedInvocation
-                        }
-                        storedRecords.append(record)
-                        let satisfied = waiters.filter {
-                            storedRecords.count >= $0.count
-                        }
-                        waiters.removeAll {
-                            storedRecords.count >= $0.count
-                        }
-                        return satisfied
-                    }
-                    for waiter in satisfied {
-                        waiter.continuation.resume()
-                    }
-                }
-            )
-        }
-
-        func failAppend() {
-            withLock { shouldFailAppend = true }
-        }
-
-        func waitUntilCount(_ count: Int) async {
-            await withCheckedContinuation { continuation in
-                let shouldResume = withLock {
-                    guard storedRecords.count < count else {
-                        return true
-                    }
-                    waiters.append((count, continuation))
-                    return false
-                }
-                if shouldResume {
-                    continuation.resume()
-                }
-            }
-        }
-
-        private func withLock<Result>(
-            _ operation: () throws -> Result
-        ) rethrows -> Result {
-            lock.lock()
-            defer { lock.unlock() }
-            return try operation()
-        }
-    }
-
     private actor CompletionProbe {
         private(set) var isCompleted = false
 
         func markCompleted() {
             isCompleted = true
+        }
+    }
+
+    private actor RuntimeProbe {
+        private let beforeStart: @Sendable () async -> Void
+        private let clockGate: BlockingClockGate?
+        private var terminalState: Alpha.PostManifestRuntimeDriver.State?
+        private var waiters: [
+            CheckedContinuation<Alpha.PostManifestRuntimeDriver.State?, Never>
+        ] = []
+
+        private(set) var state: Ingress.State = .idle
+
+        init(
+            beforeStart: @escaping @Sendable () async -> Void = {},
+            clockGate: BlockingClockGate? = nil
+        ) {
+            self.beforeStart = beforeStart
+            self.clockGate = clockGate
+        }
+
+        nonisolated var endpoint: FanIn.RuntimeEndpoint {
+            .init(
+                start: { await self.start() },
+                state: { await self.state },
+                submit: { await self.submit($0) },
+                inputSourceDidTerminate: {
+                    await self.inputSourceDidTerminate($0)
+                },
+                stop: { await self.stop() },
+                waitForTermination: { await self.waitForTermination() }
+            )
+        }
+
+        func start() async -> Bool {
+            guard state == .idle else { return false }
+            state = .starting
+            await beforeStart()
+            guard state == .starting else { return true }
+            state = .running
+            return true
+        }
+
+        func submit(_: Nostr.Event) -> Ingress.Decision {
+            guard state == .running else { return .rejected(.notRunning) }
+            clockGate?.block()
+            return .accepted
+        }
+
+        func inputSourceDidTerminate(
+            _ termination: Alpha.InputSourceTermination
+        ) -> Bool {
+            guard state == .running || state == .starting else { return false }
+            finish(
+                .conductor(
+                    .terminal(.failed(.inputSourceTerminated(termination)))
+                )
+            )
+            return true
+        }
+
+        func stop() {
+            guard terminalState == nil else { return }
+            finish(
+                .conductor(
+                    .terminal(.cancelled(during: .manifestAgreement))
+                )
+            )
+        }
+
+        func terminate(_ terminalState: Alpha.PostManifestRuntimeDriver.State) {
+            guard self.terminalState == nil else { return }
+            finish(terminalState)
+        }
+
+        func waitForTermination() async
+            -> Alpha.PostManifestRuntimeDriver.State? {
+            if let terminalState { return terminalState }
+            return await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+
+        private func finish(
+            _ terminalState: Alpha.PostManifestRuntimeDriver.State
+        ) {
+            self.terminalState = terminalState
+            state = .terminal(terminalState)
+            let waiters = waiters
+            self.waiters.removeAll()
+            for waiter in waiters {
+                waiter.resume(returning: terminalState)
+            }
         }
     }
 
@@ -366,6 +383,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
 
     private struct Harness {
         let fanIn: FanIn
+        let runtimeProbe: RuntimeProbe
         let connections: [ScriptedMosaicTorWebSocketConnection]
         let subscriptions: [
             Tracker.Endpoint: Nostr.SubscriptionIdentifier
@@ -377,6 +395,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
 
     private struct MultiRecipientHarness {
         let fanIn: FanIn
+        let runtimeProbe: RuntimeProbe
         let controlConnections: [ScriptedMosaicTorWebSocketConnection]
         let anonymousConnections: [ScriptedMosaicTorWebSocketConnection]
         let controlSubscriptions: [
@@ -389,287 +408,6 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let anonymousRecipient: OpalCrypto.Secp256k1.SigningKey
         let submissionProbe: SubmissionProbe
         let ledger: Fixture.Harness
-    }
-
-    @Test("Reject mismatched routes subscriptions and limits")
-    func rejectInvalidConstruction() async throws {
-        let ledger = try Fixture.makeHarness(
-            localRole: .conductor,
-            verificationKey: try MosaicMainnetAlphaFixtures
-                .rsaVerificationKey(),
-            bchSignatureVerificationKey: try MosaicMainnetAlphaFixtures
-                .bchSignatureRSAVerificationKey()
-        )
-        let connections = makeConnections()
-        let subscriptions = try makeSubscriptions()
-
-        #expect(
-            throws: FanIn.InitializationError.invalidRelayCount(actual: 2)
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                connections: Array(connections.prefix(2)),
-                subscriptions: subscriptions
-            )
-        }
-        #expect(throws: FanIn.InitializationError.duplicateConnection) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                connections: [
-                    connections[0], connections[1], connections[0],
-                ],
-                subscriptions: subscriptions
-            )
-        }
-        var duplicateSubscriptions = subscriptions
-        duplicateSubscriptions[endpoint(3)] = subscriptions[endpoint(1)]
-        #expect(
-            throws: FanIn.InitializationError
-                .duplicateSubscriptionIdentifier
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                connections: connections,
-                subscriptions: duplicateSubscriptions
-            )
-        }
-        #expect(
-            throws: FanIn.InitializationError.invalidEventBufferLimit
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                connections: connections,
-                subscriptions: subscriptions,
-                maximumPendingEventCount: 0
-            )
-        }
-        #expect(
-            throws: FanIn.InitializationError
-                .relaySelectionManifestMismatch
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                connections: connections,
-                subscriptions: subscriptions,
-                relaySetDigest: [UInt8](repeating: 0x45, count: 32)
-            )
-        }
-        #expect(
-            throws: FanIn.InitializationError.incompatibleCodingLimits
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                connections: connections,
-                subscriptions: subscriptions,
-                maximumFrameByteCount: 256
-            )
-        }
-        for connection in connections {
-            #expect(await connection.openCount == 0)
-        }
-    }
-
-    @Test(
-        "Reject invalid recipient route groups before opening a route",
-        .timeLimit(.minutes(1))
-    )
-    func rejectInvalidRecipientRouteGroups() async throws {
-        let ledger = try Fixture.makeHarness(
-            localRole: .conductor,
-            verificationKey: try MosaicMainnetAlphaFixtures
-                .rsaVerificationKey(),
-            bchSignatureVerificationKey: try MosaicMainnetAlphaFixtures
-                .bchSignatureRSAVerificationKey()
-        )
-        let controlConnections = makeConnections()
-        let anonymousConnections = makeConnections()
-        let controlSubscriptions = try makeSubscriptions(prefix: "control")
-        let anonymousSubscriptions = try makeSubscriptions(prefix: "anonymous")
-        let controlRecipient = try signingKey(21)
-        let anonymousRecipient = try signingKey(22)
-        let controlGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
-            recipient: controlRecipient,
-            channel: .control,
-            connections: controlConnections,
-            subscriptions: controlSubscriptions
-        )
-        let anonymousGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
-            recipient: anonymousRecipient,
-            channel: .anonymous,
-            connections: anonymousConnections,
-            subscriptions: anonymousSubscriptions
-        )
-
-        #expect(
-            throws: FanIn.InitializationError
-                .invalidRecipientGroupCount(actual: 0)
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: []
-            )
-        }
-        let duplicateRecipientGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
-            recipient: controlRecipient,
-            channel: .anonymous,
-            connections: anonymousConnections,
-            subscriptions: anonymousSubscriptions
-        )
-        #expect(throws: FanIn.InitializationError.invalidRecipientSet) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: [
-                    controlGroup,
-                    duplicateRecipientGroup,
-                ]
-            )
-        }
-        let secondControlGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
-            recipient: anonymousRecipient,
-            channel: .control,
-            connections: anonymousConnections,
-            subscriptions: anonymousSubscriptions
-        )
-        #expect(throws: FanIn.InitializationError.invalidRecipientChannels) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: [controlGroup, secondControlGroup]
-            )
-        }
-        #expect(throws: FanIn.InitializationError.invalidRecipientChannels) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: [anonymousGroup]
-            )
-        }
-        let maximumGroupCount = 1
-            + ledger.manifest.core.roster.contributors.count
-                * Alpha.componentCountPerContributor
-        #expect(throws: FanIn.InitializationError.invalidRecipientSet) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: Array(
-                    repeating: controlGroup,
-                    count: maximumGroupCount
-                )
-            )
-        }
-        #expect(
-            throws: FanIn.InitializationError.invalidRecipientGroupCount(
-                actual: maximumGroupCount + 1
-            )
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: Array(
-                    repeating: controlGroup,
-                    count: maximumGroupCount + 1
-                )
-            )
-        }
-        let contributorLedger = try Fixture.makeHarness(
-            localRole: .contributor
-        )
-        #expect(throws: FanIn.InitializationError.invalidRecipientChannels) {
-            _ = try makeFanIn(
-                ledger: contributorLedger,
-                recipientRouteGroups: [anonymousGroup],
-                roleDependencies: contributorDependencies
-            )
-        }
-        let reusedConnectionGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
-            recipient: anonymousRecipient,
-            channel: .anonymous,
-            connections: [
-                controlConnections[0],
-                anonymousConnections[1],
-                anonymousConnections[2],
-            ],
-            subscriptions: anonymousSubscriptions
-        )
-        #expect(throws: FanIn.InitializationError.duplicateConnection) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: [controlGroup, reusedConnectionGroup]
-            )
-        }
-        var reusedSubscriptions = anonymousSubscriptions
-        reusedSubscriptions[endpoint(1)] = controlSubscriptions[endpoint(1)]
-        let reusedSubscriptionGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
-            recipient: anonymousRecipient,
-            channel: .anonymous,
-            connections: anonymousConnections,
-            subscriptions: reusedSubscriptions
-        )
-        #expect(
-            throws: FanIn.InitializationError
-                .duplicateSubscriptionIdentifier
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: [
-                    controlGroup,
-                    reusedSubscriptionGroup,
-                ]
-            )
-        }
-
-        let currentBootstrap = bootstrap(ledger)
-        let foreignBootstrap = Alpha.PostManifestRuntimeDriver.Bootstrap(
-            validatedAttempt: currentBootstrap.validatedAttempt,
-            attemptIdentifier: .init(validatedBytes: [0xFA]),
-            generationIdentifier: currentBootstrap.generationIdentifier,
-            materialIdentifier: currentBootstrap.materialIdentifier,
-            localControlIdentity: currentBootstrap.localControlIdentity,
-            proposalValidation: currentBootstrap.proposalValidation
-        )
-        let foreignBindingGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: foreignBootstrap),
-            recipient: try signingKey(23),
-            channel: .control,
-            connections: makeConnections(),
-            subscriptions: try makeSubscriptions(prefix: "foreign-binding")
-        )
-        #expect(
-            throws: FanIn.InitializationError
-                .recipientAttemptBindingMismatch
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: [foreignBindingGroup]
-            )
-        }
-
-        let claimedGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: currentBootstrap),
-            recipient: try signingKey(24),
-            channel: .control,
-            connections: makeConnections(),
-            subscriptions: try makeSubscriptions(prefix: "claimed-binding")
-        )
-        _ = try makeFanIn(
-            ledger: ledger,
-            recipientRouteGroups: [claimedGroup]
-        )
-        #expect(
-            throws: FanIn.InitializationError
-                .recipientAttemptBindingMismatch
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                recipientRouteGroups: [claimedGroup]
-            )
-        }
-
-        for connection in controlConnections + anonymousConnections {
-            #expect(await connection.openCount == 0)
-        }
     }
 
     @Test(
@@ -1103,131 +841,6 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     }
 
     @Test(
-        "Journal one admitted record for three identical relay copies",
-        .timeLimit(.minutes(1))
-    )
-    func validatePostManifestReplayJournalRelayMerge() async throws {
-        let journalProbe = AdmissionJournalProbe()
-        let harness = try makeHarness(
-            admissionJournalStore: journalProbe.store
-        )
-        let run = try manifestRun(harness.ledger)
-        let event = try controlGiftWrap(
-            run.reservation.envelope,
-            ledger: harness.ledger,
-            recipient: harness.recipient
-        )
-        try await harness.fanIn.start()
-
-        await harness.connections[0].receive(
-            try relayEventFrame(
-                subscription: try #require(
-                    harness.subscriptions[endpoint(1)]
-                ),
-                event: event
-            )
-        )
-        await journalProbe.waitUntilCount(1)
-        for index in 1 ..< Alpha.relayCount {
-            await harness.connections[index].receive(
-                try relayEventFrame(
-                    subscription: try #require(
-                        harness.subscriptions[endpoint(index + 1)]
-                    ),
-                    event: event
-                )
-            )
-        }
-        await harness.submissionProbe.waitUntilCount(Alpha.relayCount)
-
-        #expect(journalProbe.records.count == 1)
-        #expect(
-            journalProbe.records.first
-                == .control(
-                    sender: run.reservation.envelope.senderControlIdentity,
-                    sequence: run.reservation.envelope.sequence,
-                    messageDigest: run.reservation.envelope.messageDigest
-                )
-        )
-        #expect(await harness.fanIn.state == .running)
-        await harness.fanIn.stop()
-    }
-
-    @Test(
-        "Fail before runtime effects when admission persistence fails",
-        .timeLimit(.minutes(1))
-    )
-    func validatePostManifestReplayJournalAppendFailure() async throws {
-        let journalProbe = AdmissionJournalProbe()
-        journalProbe.failAppend()
-        let harness = try makeHarness(
-            admissionJournalStore: journalProbe.store
-        )
-        let event = try manifestReservationGiftWrap(harness)
-        try await harness.fanIn.start()
-
-        await harness.connections[0].receive(
-            try relayEventFrame(
-                subscription: try #require(
-                    harness.subscriptions[endpoint(1)]
-                ),
-                event: event
-            )
-        )
-
-        let runtimeState = Alpha.PostManifestRuntimeDriver.State.conductor(
-            .terminal(.failed(.admissionJournalFailed))
-        )
-        #expect(
-            await harness.fanIn.waitForTermination()
-                == .runtime(runtimeState)
-        )
-        #expect(journalProbe.records.isEmpty)
-        for connection in harness.connections {
-            #expect(await connection.closeCount == 1)
-        }
-    }
-
-    @Test("Require full runtime recovery for a restored nonempty journal")
-    func validatePostManifestReplayJournalPartialRecovery() async throws {
-        let ledger = try Fixture.makeHarness(
-            localRole: .conductor,
-            verificationKey: try MosaicMainnetAlphaFixtures
-                .rsaVerificationKey(),
-            bchSignatureVerificationKey: try MosaicMainnetAlphaFixtures
-                .bchSignatureRSAVerificationKey()
-        )
-        let connections = makeConnections()
-        let record = Journal.AcceptedRecord.control(
-            sender: ledger.election.result.roster.conductor,
-            sequence: 0,
-            messageDigest: [UInt8](repeating: 0xA5, count: 32)
-        )
-        let store = Journal.Store(
-            load: { context in
-                .init(context: context, acceptedRecords: [record])
-            },
-            append: { _, _, _ in throw ProbeFailure.unexpectedInvocation }
-        )
-
-        #expect(
-            throws: FanIn.InitializationError.ingress(
-                .runtimeRecoveryRequired
-            )
-        ) {
-            _ = try makeFanIn(
-                ledger: ledger,
-                connections: connections,
-                subscriptions: try makeSubscriptions(),
-                admissionJournalStore: store
-            )
-        }
-        for connection in connections {
-            #expect(await connection.openCount == 0)
-        }
-    }
-
-    @Test(
         "Ignore EOSE and NOTICE without suppressing later EVENT input",
         .timeLimit(.minutes(1))
     )
@@ -1410,30 +1023,12 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     )
     func runtimeTerminationWins() async throws {
         let harness = try makeHarness()
-        let run = try manifestRun(harness.ledger)
-        let identifier = try #require(
-            harness.subscriptions[endpoint(1)]
-        )
         try await harness.fanIn.start()
-
-        let envelopes = [run.reservation] + run.fragments
-        for envelope in envelopes {
-            await harness.connections[0].receive(
-                try relayEventFrame(
-                    subscription: identifier,
-                    event: try controlGiftWrap(
-                        envelope.envelope,
-                        ledger: harness.ledger,
-                        recipient: harness.recipient
-                    )
-                )
-            )
-        }
-        await harness.connections[0].finishInput()
 
         let runtimeState = Alpha.PostManifestRuntimeDriver.State.conductor(
             .terminal(.failed(.authorizationKeyMismatch))
         )
+        await harness.runtimeProbe.terminate(runtimeState)
         #expect(
             await harness.fanIn.waitForTermination()
                 == .runtime(runtimeState)
@@ -1449,8 +1044,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         submissionProbe: SubmissionProbe = .init(),
         maximumPendingEventCount: Int = 8,
         beforeDriverStart: @escaping @Sendable () async -> Void = {},
-        clockGate: BlockingClockGate? = nil,
-        admissionJournalStore: Journal.Store = .volatile
+        clockGate: BlockingClockGate? = nil
     ) throws -> Harness {
         let ledger = try Fixture.makeHarness(
             localRole: .conductor,
@@ -1462,6 +1056,10 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let connections = connections ?? makeConnections()
         let subscriptions = try makeSubscriptions()
         let recipient = try signingKey(21)
+        let runtimeProbe = RuntimeProbe(
+            beforeStart: beforeDriverStart,
+            clockGate: clockGate
+        )
         let fanIn = try makeFanIn(
             ledger: ledger,
             connections: connections,
@@ -1469,12 +1067,11 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
             recipient: recipient,
             submissionProbe: submissionProbe,
             maximumPendingEventCount: maximumPendingEventCount,
-            beforeDriverStart: beforeDriverStart,
-            clockGate: clockGate,
-            admissionJournalStore: admissionJournalStore
+            runtime: runtimeProbe.endpoint
         )
         return .init(
             fanIn: fanIn,
+            runtimeProbe: runtimeProbe,
             connections: connections,
             subscriptions: subscriptions,
             recipient: recipient,
@@ -1501,15 +1098,14 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         )
         let controlRecipient = try signingKey(21)
         let anonymousRecipient = try signingKey(22)
+        let runtimeProbe = RuntimeProbe()
         let controlGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: controlRecipient,
             channel: .control,
             connections: controlConnections,
             subscriptions: controlSubscriptions
         )
         let anonymousGroup = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: anonymousRecipient,
             channel: .anonymous,
             connections: anonymousConnections,
@@ -1518,10 +1114,12 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let fanIn = try makeFanIn(
             ledger: ledger,
             recipientRouteGroups: [controlGroup, anonymousGroup],
-            submissionProbe: submissionProbe
+            submissionProbe: submissionProbe,
+            runtime: runtimeProbe.endpoint
         )
         return .init(
             fanIn: fanIn,
+            runtimeProbe: runtimeProbe,
             controlConnections: controlConnections,
             anonymousConnections: anonymousConnections,
             controlSubscriptions: controlSubscriptions,
@@ -1544,15 +1142,12 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         maximumPendingEventCount: Int = 8,
         maximumFrameByteCount: Int? = nil,
         relaySetDigest: [UInt8]? = nil,
-        beforeDriverStart: @escaping @Sendable () async -> Void = {},
-        clockGate: BlockingClockGate? = nil,
-        admissionJournalStore: Journal.Store = .volatile
+        runtime: FanIn.RuntimeEndpoint = RuntimeProbe().endpoint
     ) throws -> FanIn {
         let recipient = try recipient ?? signingKey(21)
         let relaySetDigest = relaySetDigest
             ?? ledger.manifest.core.relaySetDigest
         let group = try recipientRouteGroup(
-            attemptBinding: .init(bootstrap: bootstrap(ledger)),
             recipient: recipient,
             channel: .control,
             connections: connections,
@@ -1565,9 +1160,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
             maximumPendingEventCount: maximumPendingEventCount,
             maximumFrameByteCount: maximumFrameByteCount,
             relaySetDigest: relaySetDigest,
-            beforeDriverStart: beforeDriverStart,
-            clockGate: clockGate,
-            admissionJournalStore: admissionJournalStore
+            runtime: runtime
         )
     }
 
@@ -1579,9 +1172,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         maximumPendingEventCount: Int = 8,
         maximumFrameByteCount: Int? = nil,
         relaySetDigest: [UInt8]? = nil,
-        beforeDriverStart: @escaping @Sendable () async -> Void = {},
-        clockGate: BlockingClockGate? = nil,
-        admissionJournalStore: Journal.Store = .volatile
+        runtime: FanIn.RuntimeEndpoint = RuntimeProbe().endpoint
     ) throws -> FanIn {
         let limits = try relayLimits(
             subscriptionIdentifiers: recipientRouteGroups.flatMap {
@@ -1589,9 +1180,12 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
             },
             maximumFrameByteCount: maximumFrameByteCount
         )
-        return try .init(
-            bootstrap: bootstrap(ledger),
-            roleDependencies: roleDependencies ?? conductorDependencies,
+        return try FanIn.makeComponent(
+            role: (roleDependencies ?? conductorDependencies).role,
+            maximumAnonymousRecipientCount:
+                ledger.manifest.core.roster.contributors.count
+                    * Alpha.componentCountPerContributor,
+            manifestRelaySetDigest: ledger.manifest.core.relaySetDigest,
             recipientRouteGroups: recipientRouteGroups,
             relaySelection: try .init(
                 manifestRelaySetDigest:
@@ -1603,14 +1197,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
                     endpoints: Set((1 ... Alpha.relayCount).map(endpoint))
                 )
             ),
-            ingressDependencies: .init(
-                currentUnixSeconds: {
-                    clockGate?.block()
-                    return ledger.manifest.core.deadlines.phaseStart + 1
-                },
-                beforeDriverStart: beforeDriverStart,
-                admissionJournalStore: admissionJournalStore
-            ),
+            runtime: runtime,
             codingLimits: limits,
             maximumPendingEventCount: maximumPendingEventCount,
             dependencies: .init(submissionObserver: {
@@ -1622,7 +1209,6 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     }
 
     private func recipientRouteGroup(
-        attemptBinding: FanIn.AttemptBinding,
         recipient: OpalCrypto.Secp256k1.SigningKey,
         channel: Transport.Channel,
         connections: [any OpalFusion.Mosaic.TorWebSocketConnectioning],
@@ -1632,7 +1218,6 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     ) throws -> FanIn.RecipientRouteGroup {
         let selectedEndpoints = (1 ... Alpha.relayCount).map(endpoint)
         return .init(
-            attemptBinding: attemptBinding,
             recipient: .init(channel: channel, signingKey: recipient),
             routes: zip(selectedEndpoints, connections).map {
                 .init(endpoint: $0.0, connection: $0.1)

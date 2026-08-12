@@ -2,6 +2,7 @@
 
 import Foundation
 import OpalCrypto
+import Synchronization
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Owns one peer's post-manifest mailbox projection and route capabilities for one attempt.
@@ -71,20 +72,69 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         /// consumes exactly one capability rather than one claim per mailbox. The capability
         /// grants neither event admission nor wallet or broadcast authority.
         struct InboundRuntimeProvisioning: Sendable {
+            /// Opaque evidence that this provisioning was claimed for one exact runtime.
+            ///
+            /// Only `claim` can mint this value. It carries no mutable lifecycle state; the
+            /// provisioning's claim state remains the single one-attempt authority.
+            struct ClaimedRuntimeConstruction: Sendable {
+                fileprivate init() {}
+            }
+
+            private final class ClaimState: Sendable {
+                private struct Facts: Sendable, Equatable {
+                    let attemptIdentifier: Driver.Session.AttemptIdentifier
+                    let generationIdentifier: Driver.Session.GenerationIdentifier
+                    let materialIdentifier: Driver.Session.MaterialIdentifier
+                    let localControlIdentity: Driver.Session.ControlIdentity
+                    let manifestCore: RoundManifestCore
+                }
+
+                private let facts: Facts
+                private let isClaimed = Mutex(false)
+
+                init(bootstrap: Driver.Bootstrap) {
+                    facts = .init(
+                        attemptIdentifier: bootstrap.attemptIdentifier,
+                        generationIdentifier: bootstrap.generationIdentifier,
+                        materialIdentifier: bootstrap.materialIdentifier,
+                        localControlIdentity: bootstrap.localControlIdentity,
+                        manifestCore: bootstrap.proposalValidation.core
+                    )
+                }
+
+                func matches(_ bootstrap: Driver.Bootstrap) -> Bool {
+                    facts == .init(
+                        attemptIdentifier: bootstrap.attemptIdentifier,
+                        generationIdentifier: bootstrap.generationIdentifier,
+                        materialIdentifier: bootstrap.materialIdentifier,
+                        localControlIdentity: bootstrap.localControlIdentity,
+                        manifestCore: bootstrap.proposalValidation.core
+                    )
+                }
+
+                func claim() -> Bool {
+                    isClaimed.withLock {
+                        guard !$0 else { return false }
+                        $0 = true
+                        return true
+                    }
+                }
+            }
+
             let recipientRouteGroups: [FanIn.RecipientRouteGroup]
             let relaySelection: PostManifestRelaySelectionValidation
 
             private let role: Role
-            private let attemptBinding: FanIn.AttemptBinding
+            private let claimState: ClaimState
 
             fileprivate init(
                 role: Role,
-                attemptBinding: FanIn.AttemptBinding,
+                bootstrap: Driver.Bootstrap,
                 recipientRouteGroups: [FanIn.RecipientRouteGroup],
                 relaySelection: PostManifestRelaySelectionValidation
             ) {
                 self.role = role
-                self.attemptBinding = attemptBinding
+                claimState = .init(bootstrap: bootstrap)
                 self.recipientRouteGroups = recipientRouteGroups
                 self.relaySelection = relaySelection
             }
@@ -93,15 +143,19 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 _ bootstrap: Driver.Bootstrap,
                 role: Role
             ) -> Bool {
-                self.role == role && attemptBinding.matches(bootstrap)
+                self.role == role && claimState.matches(bootstrap)
             }
 
             func claim(
+                _: FanIn.RuntimeConstructionRequest,
                 _ bootstrap: Driver.Bootstrap,
                 role: Role
-            ) -> Bool {
-                guard matches(bootstrap, role: role) else { return false }
-                return attemptBinding.claim()
+            ) -> ClaimedRuntimeConstruction? {
+                guard matches(bootstrap, role: role),
+                      claimState.claim() else {
+                    return nil
+                }
+                return .init()
             }
         }
 
@@ -414,7 +468,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     ($0.1.recipientEventIdentity, $0.1)
                 }
             )
-            let attemptBinding = FanIn.AttemptBinding(bootstrap: bootstrap)
             let recipientRouteGroups = groups.map { group in
                 guard let capability = capabilitiesByIdentity[
                     group.recipientEventIdentity
@@ -424,7 +477,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     )
                 }
                 return FanIn.RecipientRouteGroup(
-                    attemptBinding: attemptBinding,
                     recipient: capability,
                     routes: group.routes,
                     subscriptionIdentifiers: group.subscriptionIdentifiers
@@ -432,7 +484,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             return .init(
                 role: localRole,
-                attemptBinding: attemptBinding,
+                bootstrap: bootstrap,
                 recipientRouteGroups: recipientRouteGroups,
                 relaySelection: relaySelection
             )

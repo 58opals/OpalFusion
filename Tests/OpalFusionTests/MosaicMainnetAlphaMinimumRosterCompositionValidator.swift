@@ -14,6 +14,7 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
     typealias Driver = Alpha.PostManifestRuntimeDriver
     typealias FanIn = Alpha.PostManifestRelayFanIn
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
+    typealias Ingress = Alpha.PostManifestTransportIngress
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias Tracker = OpalFusion.Mosaic.RelayPublicationTracker
     typealias Transport = Alpha.PostManifestNIP59Transport
@@ -50,6 +51,69 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
 
         func record() {
             invocationCount += 1
+        }
+    }
+
+    private actor RuntimeProbe {
+        private var terminalState: Driver.State?
+        private var waiters: [CheckedContinuation<Driver.State?, Never>] = []
+        private(set) var state: Ingress.State = .idle
+
+        nonisolated var endpoint: FanIn.RuntimeEndpoint {
+            .init(
+                start: { await self.start() },
+                state: { await self.state },
+                submit: { _ in .rejected(.runtimeRejected) },
+                inputSourceDidTerminate: {
+                    await self.inputSourceDidTerminate($0)
+                },
+                stop: { await self.stop() },
+                waitForTermination: { await self.waitForTermination() }
+            )
+        }
+
+        func start() -> Bool {
+            guard state == .idle else { return false }
+            state = .running
+            return true
+        }
+
+        func inputSourceDidTerminate(
+            _ termination: Alpha.InputSourceTermination
+        ) -> Bool {
+            guard state == .running else { return false }
+            finish(
+                .conductor(
+                    .terminal(.failed(.inputSourceTerminated(termination)))
+                )
+            )
+            return true
+        }
+
+        func stop() {
+            guard terminalState == nil else { return }
+            finish(
+                .conductor(
+                    .terminal(.cancelled(during: .manifestAgreement))
+                )
+            )
+        }
+
+        func waitForTermination() async -> Driver.State? {
+            if let terminalState { return terminalState }
+            return await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+
+        private func finish(_ terminalState: Driver.State) {
+            self.terminalState = terminalState
+            state = .terminal(terminalState)
+            let waiters = waiters
+            self.waiters.removeAll()
+            for waiter in waiters {
+                waiter.resume(returning: terminalState)
+            }
         }
     }
 
@@ -301,28 +365,14 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
 
         let role: OpalFusion.Mosaic.Role
         let routeGroup: FanIn.RecipientRouteGroup
-        let roleDependencies: Driver.RoleDependencies
         let contributorBridge: Bridge?
         let walletHost: RejectingWalletHost?
         if harness.localControlIdentity == harness.manifest.core.roster.conductor {
             role = .conductor
             routeGroup = .init(
-                attemptBinding: .init(bootstrap: bootstrap),
                 recipient: recipient,
                 routes: routes,
                 subscriptionIdentifiers: subscriptions
-            )
-            roleDependencies = .conductor(
-                .init(
-                    componentAuthorizationEvaluator: .unavailable,
-                    bchSignatureAuthorizationEvaluator: .unavailable,
-                    previousOutputSource: RejectingPreviousOutputSource(),
-                    maximumPendingInputCount: 8,
-                    handoffPublication: { _ in
-                        await authorityProbe.record()
-                        throw ProbeFailure.unexpectedInvocation
-                    }
-                )
             )
             contributorBridge = nil
             walletHost = nil
@@ -374,7 +424,8 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
                     }
                 )
             )
-            routeGroup = try await bridge.makeInboundControlRouteGroup(
+            routeGroup = .init(
+                recipient: recipient,
                 routes: routes,
                 subscriptionIdentifiers: subscriptions
             )
@@ -387,33 +438,21 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
                     throw ProbeFailure.unexpectedInvocation
                 }
             )
-            roleDependencies = .contributor(
-                .init(
-                    execution: execution,
-                    expectedReservationExpiration: .distantFuture,
-                    maximumPendingInputCount: 8,
-                    makeReservationRequest: { _ in
-                        await authorityProbe.record()
-                        throw ProbeFailure.unexpectedInvocation
-                    }
-                )
-            )
+            _ = execution
             contributorBridge = bridge
             walletHost = host
         }
 
-        #expect(roleDependencies.role == role)
-        let currentUnixSeconds = harness.manifest.core.deadlines.phaseStart + 1
-        let fanIn = try FanIn(
-            bootstrap: bootstrap,
-            roleDependencies: roleDependencies,
+        let runtimeProbe = RuntimeProbe()
+        let fanIn = try FanIn.makeComponent(
+            role: role,
+            maximumAnonymousRecipientCount:
+                harness.manifest.core.roster.contributors.count
+                    * Alpha.componentCountPerContributor,
+            manifestRelaySetDigest: harness.manifest.core.relaySetDigest,
             recipientRouteGroups: [routeGroup],
             relaySelection: relaySelection,
-            ingressDependencies: .init(
-                currentUnixSeconds: {
-                    currentUnixSeconds
-                }
-            ),
+            runtime: runtimeProbe.endpoint,
             codingLimits: codingLimits,
             maximumPendingEventCount: 8
         )

@@ -2,6 +2,7 @@
 
 import Foundation
 import OpalCrypto
+import Synchronization
 import Testing
 @testable import OpalFusion
 
@@ -12,6 +13,8 @@ struct MosaicMainnetAlphaExecutionGateValidator {
     typealias Driver = Alpha.PostManifestRuntimeDriver
     typealias FanIn = Alpha.PostManifestRelayFanIn
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
+    typealias Ingress = Alpha.PostManifestTransportIngress
+    typealias Journal = Alpha.PostManifestAdmissionJournal
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias Owner = Alpha.PostManifestAttemptTransportOwner
     typealias Tracker = OpalFusion.Mosaic.RelayPublicationTracker
@@ -86,6 +89,33 @@ struct MosaicMainnetAlphaExecutionGateValidator {
         ) async throws -> [OpalFusion.Host.MosaicPreviousOutput] {
             record()
             throw ProbeFailure.unexpectedInvocation
+        }
+    }
+
+    private final class SubmissionProbe: Sendable {
+        private let decisions = Mutex<[Ingress.Decision]>([])
+        private let stream: AsyncStream<Ingress.Decision>
+        private let continuation: AsyncStream<Ingress.Decision>.Continuation
+
+        init() {
+            (stream, continuation) = AsyncStream.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+        }
+
+        func record(_ decision: Ingress.Decision) {
+            decisions.withLock { $0.append(decision) }
+            continuation.yield(decision)
+        }
+
+        func first() async -> Ingress.Decision {
+            if let decision = decisions.withLock({ $0.first }) {
+                return decision
+            }
+            for await decision in stream {
+                return decision
+            }
+            return .rejected(.notRunning)
         }
     }
 
@@ -215,11 +245,11 @@ struct MosaicMainnetAlphaExecutionGateValidator {
             ),
         ]
         for substitution in substitutions {
-            #expect(
+            await #expect(
                 throws: FanIn.InitializationError
                     .runtimeAuthorizationMismatch
             ) {
-                _ = try FanIn(
+                _ = try await FanIn.make(
                     bootstrap: substitution,
                     roleDependencies: roleDependencies,
                     inboundRuntimeProvisioning: provisioning,
@@ -229,11 +259,11 @@ struct MosaicMainnetAlphaExecutionGateValidator {
                 )
             }
         }
-        #expect(
+        await #expect(
             throws: FanIn.InitializationError
                 .runtimeAuthorizationMismatch
         ) {
-            _ = try FanIn(
+            _ = try await FanIn.make(
                 bootstrap: bootstrap,
                 roleDependencies: conductorDependencies(authority: authority),
                 inboundRuntimeProvisioning: provisioning,
@@ -243,20 +273,24 @@ struct MosaicMainnetAlphaExecutionGateValidator {
             )
         }
 
-        let fanIn = try FanIn(
+        let submissionProbe = SubmissionProbe()
+        let fanIn = try await FanIn.make(
             bootstrap: bootstrap,
             roleDependencies: roleDependencies,
             inboundRuntimeProvisioning: provisioning,
             ingressDependencies: ingressDependencies,
             codingLimits: codingLimits,
-            maximumPendingEventCount: 1
+            maximumPendingEventCount: 1,
+            dependencies: .init(submissionObserver: { _, decision in
+                submissionProbe.record(decision)
+            })
         )
         #expect(await fanIn.state == .idle)
-        #expect(
+        await #expect(
             throws: FanIn.InitializationError
                 .runtimeAuthorizationAlreadyUsed
         ) {
-            _ = try FanIn(
+            _ = try await FanIn.make(
                 bootstrap: bootstrap,
                 roleDependencies: roleDependencies,
                 inboundRuntimeProvisioning: provisioning,
@@ -272,8 +306,139 @@ struct MosaicMainnetAlphaExecutionGateValidator {
         #expect(await authority.invocationCount == 0)
         for connection in connections {
             #expect(await connection.openCount == 0)
+            #expect(await connection.closeCount == 0)
             #expect(await connection.sentTexts.isEmpty)
         }
+
+        try await fanIn.start()
+        #expect(await fanIn.state == .running)
+        #expect(await authority.invocationCount == 1)
+        for connection in connections {
+            #expect(await connection.openCount == 1)
+            #expect(await connection.sentTexts.count == 1)
+        }
+
+        let run = try manifestRun(harness)
+        let localRecipientIndex = try #require(
+            harness.manifest.core.roster.controlIdentities.firstIndex(
+                of: harness.localControlIdentity
+            )
+        )
+        let localRecipient = try signingKey(100 + localRecipientIndex)
+        let giftWrap = try controlGiftWrap(
+            run.reservation.envelope,
+            harness: harness,
+            recipient: localRecipient
+        )
+        await connections[0].receive(
+            try relayEventFrame(
+                subscription: try #require(subscriptions[endpoints[0]]),
+                event: giftWrap
+            )
+        )
+        #expect(await submissionProbe.first() == .accepted)
+        #expect(await fanIn.state == .running)
+        #expect(await authority.invocationCount == 1)
+
+        await fanIn.stop()
+        #expect(await fanIn.waitForTermination() == .stopped)
+        for connection in connections {
+            #expect(await connection.closeCount == 1)
+        }
+    }
+
+    @Test("Close every transferred route when authorized ingress construction fails")
+    func closeTransferredRoutesAfterConstructionFailure() async throws {
+        let harness = try Fixture.makeHarness(
+            localRole: .contributor,
+            verificationKey: try MosaicMainnetAlphaFixtures
+                .rsaVerificationKey(),
+            bchSignatureVerificationKey: try MosaicMainnetAlphaFixtures
+                .bchSignatureRSAVerificationKey()
+        )
+        let bootstrap = makeBootstrap(harness)
+        let endpoints = (1 ... Alpha.relayCount).map {
+            Tracker.Endpoint(validatedIdentifier: "rollback-relay-\($0)")
+        }
+        let subscriptions = try Dictionary(
+            uniqueKeysWithValues: endpoints.enumerated().map { index, endpoint in
+                (endpoint, try Nostr.SubscriptionIdentifier("rollback-\(index)"))
+            }
+        )
+        let relaySelection = try Alpha.PostManifestRelaySelectionValidation(
+            manifestRelaySetDigest: harness.manifest.core.relaySetDigest,
+            endpoints: endpoints,
+            using: ExactRelaySelectionValidator(
+                digest: harness.manifest.core.relaySetDigest,
+                endpoints: Set(endpoints)
+            )
+        )
+        let connections = (0 ..< Alpha.relayCount).map { _ in
+            ScriptedMosaicTorWebSocketConnection()
+        }
+        let owner = try makeOwner(
+            harness: harness,
+            bootstrap: bootstrap,
+            endpoints: endpoints,
+            subscriptions: subscriptions,
+            connections: connections,
+            relaySelection: relaySelection
+        )
+        let provisioning = try await owner.provisionInboundRuntime()
+        let authority = RejectingAuthority()
+        let roleDependencies = contributorDependencies(authority: authority)
+        let codingLimits = try relayCodingLimits(
+            subscriptions: Array(subscriptions.values)
+        )
+        let failingStore = Journal.Store(
+            load: { _ in throw ProbeFailure.unexpectedInvocation },
+            append: { _, _, _ in throw ProbeFailure.unexpectedInvocation }
+        )
+
+        await #expect(
+            throws: FanIn.InitializationError.ingress(
+                .admissionJournal(.loadFailed)
+            )
+        ) {
+            _ = try await FanIn.make(
+                bootstrap: bootstrap,
+                roleDependencies: roleDependencies,
+                inboundRuntimeProvisioning: provisioning,
+                ingressDependencies: .init(
+                    currentUnixSeconds: {
+                        harness.manifest.core.deadlines.phaseStart + 1
+                    },
+                    admissionJournalStore: failingStore
+                ),
+                codingLimits: codingLimits,
+                maximumPendingEventCount: 1
+            )
+        }
+        for connection in connections {
+            #expect(await connection.openCount == 0)
+            #expect(await connection.closeCount == 1)
+        }
+
+        await #expect(
+            throws: FanIn.InitializationError.runtimeAuthorizationAlreadyUsed
+        ) {
+            _ = try await FanIn.make(
+                bootstrap: bootstrap,
+                roleDependencies: roleDependencies,
+                inboundRuntimeProvisioning: provisioning,
+                ingressDependencies: .init(
+                    currentUnixSeconds: {
+                        harness.manifest.core.deadlines.phaseStart + 1
+                    }
+                ),
+                codingLimits: codingLimits,
+                maximumPendingEventCount: 1
+            )
+        }
+        for connection in connections {
+            #expect(await connection.closeCount == 1)
+        }
+        #expect(await authority.invocationCount == 0)
     }
 
     private func makeOwner(
@@ -432,6 +597,72 @@ struct MosaicMainnetAlphaExecutionGateValidator {
             localControlIdentity: harness.localControlIdentity,
             proposalValidation: harness.proposalValidation
         )
+    }
+
+    private func manifestRun(
+        _ harness: Fixture.Harness
+    ) throws -> Fixture.AggregateRun {
+        try Fixture.aggregateRun(
+            canonicalBytes: harness.manifest.canonicalBytes,
+            kind: .completeManifest,
+            sender: harness.election.result.roster.conductor,
+            phase: .manifestAgreement,
+            sequence: 0,
+            harness: harness
+        )
+    }
+
+    private func controlGiftWrap(
+        _ envelope: Alpha.ControlEnvelope,
+        harness: Fixture.Harness,
+        recipient: OpalCrypto.Secp256k1.SigningKey
+    ) throws -> Nostr.Event {
+        let phaseStart = harness.manifest.core.deadlines.phaseStart
+        return try Transport.makeControlGiftWrap(
+            envelope,
+            context: .init(
+                attemptIdentifier: harness.attemptIdentifier,
+                generationIdentifier: harness.generationIdentifier,
+                phaseStartUnixSeconds: phaseStart
+            ),
+            timestamps: .init(
+                phaseStartUnixSeconds: phaseStart,
+                currentUnixSeconds: phaseStart + 1,
+                sealCreatedAt: phaseStart,
+                giftWrapCreatedAt: phaseStart
+            ),
+            senderEventSigningKey: try eventSigningKey(
+                matching: envelope.senderEventIdentity
+            ),
+            recipientPublicKey: recipient.bip340VerificationKey
+        )
+    }
+
+    private func eventSigningKey(
+        matching identity: [UInt8]
+    ) throws -> OpalCrypto.Secp256k1.SigningKey {
+        for scalar in [9, 10] {
+            let candidate = try signingKey(scalar)
+            if Array(candidate.bip340VerificationKey.rawRepresentation)
+                == identity {
+                return candidate
+            }
+        }
+        throw ProbeFailure.unexpectedInvocation
+    }
+
+    private func relayEventFrame(
+        subscription: Nostr.SubscriptionIdentifier,
+        event: Nostr.Event
+    ) throws -> OpalFusion.Mosaic.TorWebSocketMessage {
+        let encoded = try Nostr.EventCodec.encode(
+            event,
+            limits: (try Transport.codingLimits).event
+        )
+        let value = "[\"EVENT\","
+            + Nostr.EventCodec.encodeString(subscription.value)
+            + "," + String(decoding: encoded, as: UTF8.self) + "]"
+        return .text(Data(value.utf8))
     }
 
     private func relayCodingLimits(

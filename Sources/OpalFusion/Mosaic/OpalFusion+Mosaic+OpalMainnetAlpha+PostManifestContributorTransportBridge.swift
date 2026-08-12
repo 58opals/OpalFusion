@@ -12,16 +12,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// semantic loopback, relay ingress lifecycle, timing policy, persistence, retry, nor
     /// broadcast permission.
     actor PostManifestContributorTransportBridge {
-        private enum InboundAuthority: Sendable {
-            case direct(
-                attemptBinding: FanIn.AttemptBinding,
-                recipient: Transport.RecipientCapability
-            )
-            case managed(AttemptTransportOwner)
-        }
-
         private let context: ControlBridge.Context
-        private let inboundAuthority: InboundAuthority
         private let controlBridge: ControlBridge
         private let relaySelection: PostManifestRelaySelectionValidation
         private let codingLimits: Nostr.RelayMessageCodingLimits
@@ -139,14 +130,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
 
             self.context = context
-            if let attemptTransportOwner {
-                inboundAuthority = .managed(attemptTransportOwner)
-            } else {
-                inboundAuthority = .direct(
-                    attemptBinding: .init(bootstrap: bootstrap),
-                    recipient: localControlRecipientCapability
-                )
-            }
             self.controlBridge = controlBridge
             self.relaySelection = relaySelection
             self.codingLimits = codingLimits
@@ -219,35 +202,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 publishLocalBCHSignatures: { [self] validation in
                     try await publishLocalBCHSignatures(validation)
                 }
-            )
-        }
-
-        /// Mints the only contributor control route group that this attempt may feed to fan-in.
-        ///
-        /// The capability was matched to the local control-recipient allocation at construction.
-        func makeInboundControlRouteGroup(
-            routes: [PostManifestRelayRoute],
-            subscriptionIdentifiers: [
-                PostManifestRelayEndpoint: Nostr.SubscriptionIdentifier
-            ]
-        ) throws(Failure) -> FanIn.RecipientRouteGroup {
-            switch state {
-            case let .draining(failure):
-                throw failure
-            case .terminal, .completed:
-                throw .inputAfterTermination
-            default:
-                break
-            }
-            guard case let .direct(attemptBinding, recipient) =
-                inboundAuthority else {
-                throw .managedInboundProvisioningRequired
-            }
-            return .init(
-                attemptBinding: attemptBinding,
-                recipient: recipient,
-                routes: routes,
-                subscriptionIdentifiers: subscriptionIdentifiers
             )
         }
 

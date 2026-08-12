@@ -5,6 +5,8 @@ import Foundation
 extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestTransportIngress {
     typealias Driver = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestRuntimeDriver
+    typealias AttemptTransportOwner = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestAttemptTransportOwner
     typealias AdmissionJournal = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestAdmissionJournal
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
