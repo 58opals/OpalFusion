@@ -17,6 +17,7 @@ Modes:
   workflow        Run production workflow tests.
   client          Run public client session tests.
   mosaic          Run the bounded Mosaic conformance and facade tests.
+  mosaic-rehearsal Run the explicitly slow, no-network mainnet-alpha rehearsal.
   interop-parser  Run Electron Cash interop parser/environment tests only.
   --help          Show this usage.
 USAGE
@@ -74,6 +75,7 @@ run_serial_filter() {
 }
 
 MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator|MosaicOpalV0AuthorizationValidator'
+MOSAIC_MAINNET_REHEARSAL_FILTER='executeSixContributorConductor|executeThroughExactCommit'
 MOSAIC_MATERIAL_FILTER='MosaicMainnetAlpha4MaterialValidator'
 MAXIMUM_PARALLEL_TEST_WIDTH=4
 
@@ -130,6 +132,11 @@ case "$mode" in
       --skip "$MOSAIC_RSA_DEPENDENT_FILTER|$MOSAIC_MATERIAL_FILTER|MosaicMainnetAlphaContractValidator"
     run_serial_filter MosaicMainnetAlphaContractValidator
     run_filter FusionFacadeScaffoldValidator
+    ;;
+  mosaic-rehearsal)
+    # These two tests share the real purpose-separated RSA fixtures in one process.
+    # Their wallet host is in-memory, and OpalFusion exposes no broadcast callback.
+    run_serial_filter "$MOSAIC_MAINNET_REHEARSAL_FILTER"
     ;;
   interop-parser)
     run_filter ElectronCashInteropValidator

@@ -107,7 +107,7 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
     }
 
     @Test(
-        "Compose six contributors and one conductor through one-shot fan-in",
+        "Compose the BCH-mainnet minimum roster through no-broadcast fan-in",
         .timeLimit(.minutes(1))
     )
     func composeMinimumRoster() async throws {
@@ -136,6 +136,15 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
 
         #expect(roster.contributors.count == 6)
         #expect(roster.controlIdentities.count == 7)
+        #expect(
+            manifest.core.networkGenesisHash
+                == Alpha.mainnetGenesisHash
+        )
+        #expect(
+            manifest.core.transactionProfileIdentifier
+                == OpalFusion.Mosaic.Profile.opalMainnetAlpha
+                    .transactionProfileIdentifier
+        )
         #expect(Set(harnesses.map(\.localControlIdentity)).count == 7)
         #expect(harnesses.allSatisfy { $0.manifest == manifest })
         #expect(

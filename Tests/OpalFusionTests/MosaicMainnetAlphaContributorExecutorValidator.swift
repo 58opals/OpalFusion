@@ -163,7 +163,7 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
     }
 
     @Test(
-        "Execute six contributors through exact local host commit",
+        "Rehearse a six-contributor mainnet commit without broadcast",
         .timeLimit(.minutes(3))
     )
     func executeThroughExactCommit() async throws {

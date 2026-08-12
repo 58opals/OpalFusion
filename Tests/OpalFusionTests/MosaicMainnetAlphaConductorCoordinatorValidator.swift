@@ -271,7 +271,7 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
     }
 
     @Test(
-        "Execute a six-contributor conductor before ordered source closure",
+        "Rehearse six-contributor conductor completion without network handoff",
         .timeLimit(.minutes(6))
     )
     func executeSixContributorConductor() async throws {
