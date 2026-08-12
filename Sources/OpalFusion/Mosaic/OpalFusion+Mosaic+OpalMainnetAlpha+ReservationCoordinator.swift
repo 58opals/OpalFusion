@@ -13,6 +13,27 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case inputSourceTerminated(InputSourceTermination)
         }
 
+        private enum PendingDisposition: Sendable {
+            case failure(Failure)
+            case recovery(Recovery, fallbackFailure: Failure?)
+
+            var failure: Failure? {
+                switch self {
+                case let .failure(failure):
+                    return failure
+                case let .recovery(_, fallbackFailure):
+                    return fallbackFailure
+                }
+            }
+
+            var recovery: Recovery? {
+                guard case let .recovery(recovery, _) = self else {
+                    return nil
+                }
+                return recovery
+            }
+        }
+
         private let context: RuntimeSession.Context
         private let dependencies: Dependencies
         private let inputStream: AsyncStream<QueuedInput>
@@ -38,8 +59,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var previousOutputValidation: PreviousOutputResolver.Validation?
         private var completeTransactionValidation: CompleteTransactionValidation?
         private var queuedInputSourceTermination: InputSourceTermination?
-        private var pendingFailure: Failure?
-        private var pendingRecovery: Recovery?
+        private var pendingDisposition: PendingDisposition?
 
         private(set) var state: State = .idle
         private(set) var reservationLifecycle: ReservationLifecycle = .unreserved
@@ -168,8 +188,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     applyAndEnqueue(runtimeInput)
                 case let .inputSourceTerminated(termination):
                     queuedInputSourceTermination = nil
-                    pendingFailure = pendingFailure
-                        ?? .inputSourceTerminated(termination)
+                    recordFailure(.inputSourceTerminated(termination))
                     state = .stopping
                     applyAndEnqueue(.cancel)
                 }
@@ -841,7 +860,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     reason: .completeTransactionValidationFailed
                 )
             }
-            pendingFailure = pendingFailure ?? .completeTransactionValidationFailed
+            recordFailure(.completeTransactionValidationFailed)
             applyAndEnqueue(
                 .completeTransactionValidationFailed(
                     .init(candidate: candidate, reason: reason)
@@ -859,7 +878,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         reason: .completeTransactionCommitFailed
                     )
                 }
-                pendingFailure = pendingFailure ?? .completeTransactionCommitFailed
+                recordFailure(.completeTransactionCommitFailed)
                 return
             }
             do {
@@ -870,7 +889,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
                 reservationLifecycle = .committed(lease.reference)
             } catch {
-                pendingFailure = pendingFailure ?? .completeTransactionCommitFailed
+                recordFailure(.completeTransactionCommitFailed)
                 requireRecovery(
                     reference: lease.reference,
                     reason: .completeTransactionCommitFailed
@@ -953,7 +972,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                  let .locallySigned(lease, _):
                 requireRecovery(
                     reference: lease.reference,
-                    reason: pendingRecovery?.reason ?? .signingMayHaveStarted
+                    reason: pendingDisposition?.recovery?.reason
+                        ?? .signingMayHaveStarted
                 )
 
             case .unreserved, .reservationInFlight, .committed,
@@ -963,7 +983,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func failAndStop(_ failure: Failure) {
-            pendingFailure = pendingFailure ?? failure
+            recordFailure(failure)
             guard state == .running else {
                 return
             }
@@ -977,7 +997,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             reason: Recovery.Reason,
             reference: OpalFusion.Host.MosaicReservationReference
         ) {
-            pendingFailure = pendingFailure ?? failure
+            recordFailure(failure)
             requireRecovery(reference: reference, reason: reason)
             guard state == .running else {
                 return
@@ -991,13 +1011,39 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             reference: OpalFusion.Host.MosaicReservationReference,
             reason: Recovery.Reason
         ) {
-            guard pendingRecovery == nil else {
-                return
-            }
-            pendingRecovery = .init(
+            let recovery = Recovery(
                 reservationReference: reference,
                 reason: reason
             )
+            switch pendingDisposition {
+            case nil:
+                pendingDisposition = .recovery(
+                    recovery,
+                    fallbackFailure: nil
+                )
+            case let .failure(failure):
+                pendingDisposition = .recovery(
+                    recovery,
+                    fallbackFailure: failure
+                )
+            case .recovery:
+                break
+            }
+        }
+
+        private func recordFailure(_ failure: Failure) {
+            switch pendingDisposition {
+            case nil:
+                pendingDisposition = .failure(failure)
+            case .failure:
+                break
+            case let .recovery(recovery, fallbackFailure):
+                guard fallbackFailure == nil else { return }
+                pendingDisposition = .recovery(
+                    recovery,
+                    fallbackFailure: failure
+                )
+            }
         }
 
         private func finish(with outcome: RuntimeSession.Outcome) async {
@@ -1007,7 +1053,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     state = .terminal(.completed)
                 } else if let reference = reservationReference {
                     state = .recoveryRequired(
-                        pendingRecovery ?? .init(
+                        pendingDisposition?.recovery ?? .init(
                             reservationReference: reference,
                             reason: .unexpectedRuntimeCompletion
                         )
@@ -1030,13 +1076,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
             } else if let reference = signingReservationReference {
                 state = .recoveryRequired(
-                    pendingRecovery ?? .init(
+                    pendingDisposition?.recovery ?? .init(
                         reservationReference: reference,
                         reason: .signingMayHaveStarted
                     )
                 )
-            } else if let pendingFailure {
-                state = .terminal(.failed(pendingFailure))
+            } else if let failure = pendingDisposition?.failure {
+                state = .terminal(.failed(failure))
             } else {
                 switch outcome {
                 case let .failed(failure):
@@ -1081,7 +1127,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var shouldStopBeforeSigning: Bool {
             state != .running
                 || dispositionGate.isReleaseRequested
-                || pendingFailure != nil
+                || pendingDisposition != nil
         }
 
         private enum AnonymousPublicationError: Error {
