@@ -20,6 +20,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias LocalAttempt = OpalFusion.Mosaic.LocalAttempt
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
+    typealias Owner = Alpha.PostManifestAttemptTransportOwner
     typealias RuntimeSession = Alpha.RuntimeSession
     typealias Tracker = OpalFusion.Mosaic.RelayPublicationTracker
     typealias Transport = Alpha.PostManifestNIP59Transport
@@ -71,6 +72,9 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         let controlEventSigningKey: OpalCrypto.Secp256k1.SigningKey
         let controlRecipients: [ControlBridge.Recipient]
         let localControlRecipientCapability: Transport.RecipientCapability
+        let anonymousRecipientVerificationKeys: [
+            OpalCrypto.Signature.BIP340.VerificationKey
+        ]
         let relaySelection: Alpha.PostManifestRelaySelectionValidation
         let codingLimits: Nostr.RelayMessageCodingLimits
     }
@@ -206,34 +210,23 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
             self.endpoints = endpoints
         }
 
-        func controlRoutes(
-            for requests: [ControlPublisher.RecipientRouteRequest]
-        ) -> [ControlPublisher.RecipientRouteGroup] {
-            controlRequestCounts.append(requests.count)
-            return requests.map { request in
-                .init(
-                    recipientEventIdentity: request.recipientEventIdentity,
-                    routes: endpoints.map {
-                        .init(
-                            endpoint: $0,
-                            connection: ImmediateAcknowledgementConnection()
-                        )
-                    }
-                )
+        func provisionedRoutes(
+            for requests: [Owner.RouteRequest]
+        ) -> [Owner.ProvisionedRouteGroup] {
+            precondition(requests.allSatisfy { $0.endpoints == endpoints })
+            if requests.allSatisfy({ $0.purpose == .outboundControl }) {
+                controlRequestCounts.append(requests.count)
+            } else {
+                anonymousRequestCounts.append(requests.count)
             }
-        }
-
-        func anonymousRoutes(
-            for requests: [AnonymousPublisher.RecipientRouteRequest]
-        ) -> [AnonymousPublisher.RecipientRouteGroup] {
-            anonymousRequestCounts.append(requests.count)
             return requests.map { request in
                 .init(
                     recipientEventIdentity: request.recipientEventIdentity,
-                    routes: endpoints.map {
+                    routes: request.endpoints.map {
                         .init(
                             endpoint: $0,
-                            connection: ImmediateAcknowledgementConnection()
+                            connection: ImmediateAcknowledgementConnection(),
+                            isolationLease: .init(opaqueIdentifier: UUID())
                         )
                     }
                 )
@@ -293,7 +286,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     }
 
     @Test(
-        "Reject wrong role, mailbox, order, and material before exposure",
+        "Reject wrong role, order, and material before exposure",
         .timeLimit(.minutes(5))
     )
     func rejectInvalidBindingsBeforeExposure() async throws {
@@ -335,33 +328,6 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
                 permitProbe: permitProbe,
                 authority: authority,
                 bootstrap: fixture.conductorBootstrap
-            )
-        }
-        #expect(
-            throws: Bridge.InitializationError.localControlRecipientMismatch
-        ) {
-            _ = try makeBridge(
-                fixture: fixture,
-                routeFactory: routeFactory,
-                permitProbe: permitProbe,
-                authority: authority,
-                localControlRecipientCapability: .init(
-                    channel: .control,
-                    signingKey: try signingKey(120)
-                )
-            )
-        }
-        #expect(
-            throws: Bridge.InitializationError.missingLocalControlRecipient
-        ) {
-            _ = try makeBridge(
-                fixture: fixture,
-                routeFactory: routeFactory,
-                permitProbe: permitProbe,
-                authority: authority,
-                controlRecipients: fixture.controlRecipients.filter {
-                    $0.controlIdentity != fixture.context.localControlIdentity
-                }
             )
         }
         #expect(
@@ -705,7 +671,10 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         reservationLease: OpalFusion.Host.MosaicReservationLease,
         reservationValidation: RuntimeSession.ReservationPublicationValidation,
         previousOutputSource: ExecutionFixture.PreviousOutputSource,
-        finalizedTransaction: OpalFusion.Host.FinalizedTransaction
+        finalizedTransaction: OpalFusion.Host.FinalizedTransaction,
+        anonymousRecipientVerificationKeys: [
+            OpalCrypto.Signature.BIP340.VerificationKey
+        ]? = nil
     ) throws -> SharedFixture {
         let manifest = admission.manifest
         let bootstrap = Alpha.PostManifestRuntimeDriver.Bootstrap(
@@ -759,6 +728,19 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         let localRecipientKey = try #require(
             recipientKeys[admission.localControlIdentity]
         )
+        let resolvedAnonymousRecipientVerificationKeys: [
+            OpalCrypto.Signature.BIP340.VerificationKey
+        ]
+        if let suppliedAnonymousRecipientVerificationKeys =
+            anonymousRecipientVerificationKeys {
+            resolvedAnonymousRecipientVerificationKeys =
+                suppliedAnonymousRecipientVerificationKeys
+        } else {
+            resolvedAnonymousRecipientVerificationKeys = try
+                (0 ..< Alpha.componentCountPerContributor).map {
+                    try signingKey(UInt8(130 + $0)).bip340VerificationKey
+                }
+        }
         let endpoints = selectedEndpoints
         let relaySelection = try Alpha
             .PostManifestRelaySelectionValidation(
@@ -794,6 +776,8 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
                 channel: .control,
                 signingKey: localRecipientKey
             ),
+            anonymousRecipientVerificationKeys:
+                resolvedAnonymousRecipientVerificationKeys,
             relaySelection: relaySelection,
             codingLimits: codingLimits
         )
@@ -839,27 +823,44 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
         authority: PublicationAuthorityProbe,
         bootstrap: Alpha.PostManifestRuntimeDriver.Bootstrap? = nil,
         controlEventSigningKey: OpalCrypto.Secp256k1.SigningKey? = nil,
-        controlRecipients: [ControlBridge.Recipient]? = nil,
-        localControlRecipientCapability: Transport.RecipientCapability? = nil,
         maximumPendingRelayOutputCount: Int = 4,
         makeExpiryUnixSeconds: (@Sendable (
             Bridge.Publication
         ) throws -> UInt64)? = nil,
-        provideControlRoutes: ControlPublisher.RouteProvider? = nil,
-        provideAnonymousRoutes: AnonymousPublisher.RouteProvider? = nil,
+        provisionRoutes: (@Sendable (
+            [Owner.RouteRequest]
+        ) async throws -> [Owner.ProvisionedRouteGroup])? = nil,
         awaitAnonymousPublicationPermit:
             AnonymousPublisher.PublicationPermitProvider? = nil
     ) throws -> Bridge {
-        try .init(
+        let attemptTransportOwner = try Owner(
+            bootstrap: fixture.bootstrap,
+            manifest: fixture.manifest,
+            mailboxProjection: .init(
+                binding: .init(context: fixture.context, role: .contributor),
+                controlRecipients: fixture.controlRecipients,
+                localControlRecipientCapability:
+                    fixture.localControlRecipientCapability,
+                anonymous: .contributor(
+                    fixture.anonymousRecipientVerificationKeys
+                )
+            ),
+            relaySelection: fixture.relaySelection,
+            dependencies: .init(
+                provisionRoutes: provisionRoutes ?? { requests in
+                    await routeFactory.provisionedRoutes(for: requests)
+                },
+                makeSubscriptionIdentifier: { _, _ in
+                    throw ProbeFailure.injected
+                }
+            )
+        )
+        return try Bridge(
             bootstrap: bootstrap ?? fixture.bootstrap,
             manifest: fixture.manifest,
             controlSigningKey: fixture.controlSigningKey,
             controlEventSigningKey:
                 controlEventSigningKey ?? fixture.controlEventSigningKey,
-            controlRecipients: controlRecipients ?? fixture.controlRecipients,
-            localControlRecipientCapability:
-                localControlRecipientCapability
-                ?? fixture.localControlRecipientCapability,
             relaySelection: fixture.relaySelection,
             codingLimits: fixture.codingLimits,
             maximumPendingRelayOutputCount:
@@ -877,12 +878,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
                         )
                     )
                 },
-                provideControlRoutes: provideControlRoutes ?? { requests in
-                    await routeFactory.controlRoutes(for: requests)
-                },
-                provideAnonymousRoutes: provideAnonymousRoutes ?? { requests in
-                    await routeFactory.anonymousRoutes(for: requests)
-                },
+                attemptTransportOwner: attemptTransportOwner,
                 awaitAnonymousPublicationPermit:
                     awaitAnonymousPublicationPermit ?? { request in
                         await permitProbe.permit(request)

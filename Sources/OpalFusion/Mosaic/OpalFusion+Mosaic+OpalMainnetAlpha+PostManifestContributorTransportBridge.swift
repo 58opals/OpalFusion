@@ -43,8 +43,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             manifest: RoundManifest,
             controlSigningKey: OpalCrypto.Secp256k1.SigningKey,
             controlEventSigningKey: OpalCrypto.Secp256k1.SigningKey,
-            controlRecipients: [ControlBridge.Recipient],
-            localControlRecipientCapability: Transport.RecipientCapability,
             relaySelection: PostManifestRelaySelectionValidation,
             codingLimits: Nostr.RelayMessageCodingLimits,
             maximumPendingRelayOutputCount: Int,
@@ -64,34 +62,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             ) else {
                 throw .localPeerIsNotContributor
             }
-            guard let localRecipient = controlRecipients.first(where: {
-                $0.controlIdentity == context.localControlIdentity
-            }) else {
-                throw .missingLocalControlRecipient
-            }
-            guard localControlRecipientCapability.channel == .control,
-                  localControlRecipientCapability.signingKey
-                    .bip340VerificationKey.rawRepresentation
-                    == localRecipient.eventVerificationKey.rawRepresentation else {
-                throw .localControlRecipientMismatch
-            }
             let attemptTransportOwner = dependencies.attemptTransportOwner
-            if let attemptTransportOwner {
-                guard attemptTransportOwner.binding
-                        == AttemptTransportOwner.Binding(
-                            context: context,
-                            role: .contributor
-                        ),
-                      attemptTransportOwner.controlRecipients
-                        == controlRecipients,
-                      attemptTransportOwner
-                        .localControlRecipientCapability
-                        .recipientEventIdentity
-                        == localControlRecipientCapability
-                            .recipientEventIdentity else {
-                    throw .attemptTransportOwnerMismatch
-                }
+            guard attemptTransportOwner.binding
+                    == AttemptTransportOwner.Binding(
+                        context: context,
+                        role: .contributor
+                    ) else {
+                throw .attemptTransportOwnerMismatch
             }
+            let controlRecipients = attemptTransportOwner.controlRecipients
 
             let controlPublisher: ControlPublisher
             do {
@@ -136,36 +115,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.maximumPendingRelayOutputCount =
                 maximumPendingRelayOutputCount
             self.dependencies = dependencies
-        }
-
-        init(
-            bootstrap: Driver.Bootstrap,
-            manifest: RoundManifest,
-            controlSigningKey: OpalCrypto.Secp256k1.SigningKey,
-            controlEventSigningKey: OpalCrypto.Secp256k1.SigningKey,
-            relaySelection: PostManifestRelaySelectionValidation,
-            codingLimits: Nostr.RelayMessageCodingLimits,
-            maximumPendingRelayOutputCount: Int,
-            dependencies: Dependencies
-        ) throws(InitializationError) {
-            guard let attemptTransportOwner =
-                dependencies.attemptTransportOwner else {
-                throw .attemptTransportOwnerMismatch
-            }
-            try self.init(
-                bootstrap: bootstrap,
-                manifest: manifest,
-                controlSigningKey: controlSigningKey,
-                controlEventSigningKey: controlEventSigningKey,
-                controlRecipients: attemptTransportOwner.controlRecipients,
-                localControlRecipientCapability:
-                    attemptTransportOwner.localControlRecipientCapability,
-                relaySelection: relaySelection,
-                codingLimits: codingLimits,
-                maximumPendingRelayOutputCount:
-                    maximumPendingRelayOutputCount,
-                dependencies: dependencies
-            )
         }
 
         /// Produces the exact contributor callbacks consumed by the reservation coordinator.

@@ -16,6 +16,7 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias Ingress = Alpha.PostManifestTransportIngress
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
+    typealias Owner = Alpha.PostManifestAttemptTransportOwner
     typealias Tracker = OpalFusion.Mosaic.RelayPublicationTracker
     typealias Transport = Alpha.PostManifestNIP59Transport
 
@@ -383,6 +384,36 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
                     for: harness.localControlIdentity
                 )
             )
+            let context = try ControlBridge.Context(
+                validating: harness.manifest,
+                against: bootstrap
+            )
+            let anonymousRecipientVerificationKeys = try
+                (0 ..< Alpha.componentCountPerContributor).map {
+                    try signingKey(UInt8(150 + peerIndex + $0))
+                        .bip340VerificationKey
+                }
+            let attemptTransportOwner = try Owner(
+                bootstrap: bootstrap,
+                manifest: harness.manifest,
+                mailboxProjection: .init(
+                    binding: .init(context: context, role: .contributor),
+                    controlRecipients: controlRecipients,
+                    localControlRecipientCapability: recipient,
+                    anonymous: .contributor(
+                        anonymousRecipientVerificationKeys
+                    )
+                ),
+                relaySelection: relaySelection,
+                dependencies: .init(
+                    provisionRoutes: { _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    },
+                    makeSubscriptionIdentifier: { _, _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    }
+                )
+            )
             let bridge = try Bridge(
                 bootstrap: bootstrap,
                 manifest: harness.manifest,
@@ -390,8 +421,6 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
                 controlEventSigningKey: try signingKey(
                     UInt8(60 + peerIndex)
                 ),
-                controlRecipients: controlRecipients,
-                localControlRecipientCapability: recipient,
                 relaySelection: relaySelection,
                 codingLimits: codingLimits,
                 maximumPendingRelayOutputCount: 1,
@@ -413,12 +442,7 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
                             )
                         )
                     },
-                    provideControlRoutes: { _ in
-                        throw ProbeFailure.unexpectedInvocation
-                    },
-                    provideAnonymousRoutes: { _ in
-                        throw ProbeFailure.unexpectedInvocation
-                    },
+                    attemptTransportOwner: attemptTransportOwner,
                     awaitAnonymousPublicationPermit: { _ in
                         throw ProbeFailure.unexpectedInvocation
                     }

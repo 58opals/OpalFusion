@@ -251,7 +251,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValida
             routeFactory: routeFactory,
             permitProbe: permitProbe,
             authority: authority,
-            provideControlRoutes: { _ in
+            provisionRoutes: { _ in
                 throw ProbeFailure.injected
             }
         )
@@ -292,9 +292,9 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValida
             routeFactory: routeFactory,
             permitProbe: permitProbe,
             authority: authority,
-            provideControlRoutes: { requests in
+            provisionRoutes: { requests in
                 await suspension.suspendIfArmed()
-                return await routeFactory.controlRoutes(for: requests)
+                return await routeFactory.provisionedRoutes(for: requests)
             }
         )
         let execution = makeExecution(bridge: bridge, fixture: fixture)
@@ -346,9 +346,9 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValida
             routeFactory: routeFactory,
             permitProbe: permitProbe,
             authority: authority,
-            provideControlRoutes: { requests in
+            provisionRoutes: { requests in
                 await suspension.suspendIfArmed()
-                return await routeFactory.controlRoutes(for: requests)
+                return await routeFactory.provisionedRoutes(for: requests)
             }
         )
         let execution = makeExecution(bridge: bridge, fixture: fixture)
@@ -399,9 +399,9 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValida
             routeFactory: routeFactory,
             permitProbe: permitProbe,
             authority: authority,
-            provideControlRoutes: { requests in
+            provisionRoutes: { requests in
                 await suspension.suspendIfArmed()
-                return await routeFactory.controlRoutes(for: requests)
+                return await routeFactory.provisionedRoutes(for: requests)
             }
         )
         let execution = makeExecution(bridge: bridge, fixture: fixture)
@@ -522,7 +522,10 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValida
             reservationLease: localMaterial.reservationLease,
             reservationValidation: reservationValidation,
             previousOutputSource: prepared.previousOutputSource,
-            finalizedTransaction: prepared.localFinalizedTransaction
+            finalizedTransaction: prepared.localFinalizedTransaction,
+            anonymousRecipientVerificationKeys: try localMaterial.slots.map {
+                try .init(rawRepresentation: Data($0.recipientEventIdentity))
+            }
         )
         let componentTokens = prepared.localAuthorizationValidation
             .componentAuthorizationTokens

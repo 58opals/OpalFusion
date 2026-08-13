@@ -441,6 +441,56 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
             )
         }
 
+        #expect(
+            throws: Owner.InitializationError.invalidControlMailboxProjection
+        ) {
+            _ = try Owner(
+                bootstrap: contributorBootstrap,
+                manifest: fixture.manifest,
+                mailboxProjection: .init(
+                    binding: validProjection.binding,
+                    controlRecipients: validProjection.controlRecipients.filter {
+                        $0.controlIdentity != contributor
+                    },
+                    localControlRecipientCapability:
+                        validProjection.localControlRecipientCapability,
+                    anonymous: validProjection.anonymous
+                ),
+                relaySelection: fixture.relaySelection,
+                dependencies: dependencies(
+                    provisioner: inertProvisioner,
+                    subscriptions: subscriptions
+                )
+            )
+        }
+
+        let foreignControlIdentity = try #require(
+            fixture.peerIdentities.first { $0 != contributor }
+        )
+        let foreignControlCapability = try #require(
+            fixture.controlRecipientCapabilities[foreignControlIdentity]
+        )
+        #expect(
+            throws: Owner.InitializationError.invalidControlMailboxProjection
+        ) {
+            _ = try Owner(
+                bootstrap: contributorBootstrap,
+                manifest: fixture.manifest,
+                mailboxProjection: .init(
+                    binding: validProjection.binding,
+                    controlRecipients: validProjection.controlRecipients,
+                    localControlRecipientCapability: foreignControlCapability,
+                    anonymous: validProjection.anonymous
+                ),
+                relaySelection: fixture.relaySelection,
+                dependencies: dependencies(
+                    provisioner: inertProvisioner,
+                    subscriptions: subscriptions
+                )
+            )
+        }
+        #expect(await inertProvisioner.snapshot() == 0)
+
         let wrongEndpointProvisioner = RouteProvisioner(
             fault: .wrongEndpoint
         )

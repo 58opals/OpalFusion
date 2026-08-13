@@ -17,6 +17,7 @@ Modes:
   workflow        Run production workflow tests.
   client          Run public client session tests.
   mosaic          Run the bounded Mosaic conformance and facade tests.
+  mosaic-fast     Run the RSA-free Mosaic lifecycle and wiring lane.
   mosaic-rehearsal Run the explicitly slow, no-network mainnet-alpha rehearsal.
   interop-parser  Run Electron Cash interop parser/environment tests only.
   --help          Show this usage.
@@ -40,8 +41,8 @@ fi
 
 mode="$1"
 
-SPM_SCRATCH_PATH=".build"
-SPM_CACHE_PATH=".build"
+SPM_SCRATCH_PATH="${OPALFUSION_SPM_SCRATCH_PATH:-.build}"
+SPM_CACHE_PATH="${OPALFUSION_SPM_CACHE_PATH:-$SPM_SCRATCH_PATH}"
 SPM_CONFIG_PATH=".swiftpm-cache/validation/config"
 SPM_SECURITY_PATH=".swiftpm-cache/validation/security"
 SPM_MODULE_CACHE_PATH=".swiftpm-cache/validation/module-cache"
@@ -74,10 +75,24 @@ run_serial_filter() {
   run_test --no-parallel --filter "$filter_name"
 }
 
-MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator|MosaicOpalV0AuthorizationValidator'
+MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator|MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator|MosaicMainnetAlphaContractValidator|MosaicOpalV0AuthorizationValidator'
+MOSAIC_FAST_FILTER='MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator'
 MOSAIC_MAINNET_REHEARSAL_FILTER='executeSixContributorConductor|executeThroughExactCommit'
 MOSAIC_MATERIAL_FILTER='MosaicMainnetAlpha4MaterialValidator'
 MAXIMUM_PARALLEL_TEST_WIDTH=4
+
+assert_mosaic_fast_lane_is_rsa_free() {
+  local banned_pattern='requireAuthorizationEvaluators\(|authorizationEvaluator\(|bchSignatureAuthorizationEvaluator\(|AuthorizationEvaluator\.generate\(|ExecutionFixtures?\.prepare\('
+  local fast_files=(
+    Tests/OpalFusionTests/MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator.swift
+    Tests/OpalFusionTests/MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator.swift
+  )
+  command -v rg >/dev/null 2>&1 \
+    || fail "The Mosaic fast lane requires rg for its RSA-fixture guard."
+  if rg -n "$banned_pattern" "${fast_files[@]}"; then
+    fail "The Mosaic fast lane reached an RSA evaluator or real-material fixture."
+  fi
+}
 
 run_mosaic_rsa_dependent_tests() {
   # Keep the two real purpose-separated evaluator fixtures in one process and
@@ -99,12 +114,12 @@ case "$mode" in
     run_build
     ;;
   all)
+    assert_mosaic_fast_lane_is_rsa_free
     run_mosaic_rsa_dependent_tests
     run_serial_filter "$MOSAIC_MATERIAL_FILTER"
-    run_serial_filter MosaicMainnetAlphaContractValidator
     run_serial_filter ClientSessionValidator
     run_bounded_test \
-      --skip "$MOSAIC_RSA_DEPENDENT_FILTER|$MOSAIC_MATERIAL_FILTER|MosaicMainnetAlphaContractValidator|ClientSessionValidator"
+      --skip "$MOSAIC_RSA_DEPENDENT_FILTER|$MOSAIC_MATERIAL_FILTER|ClientSessionValidator"
     ;;
   codec)
     run_filter CashFusionPrimaryMessageCodecValidator
@@ -126,12 +141,16 @@ case "$mode" in
     run_filter ClientSessionValidator
     ;;
   mosaic)
+    assert_mosaic_fast_lane_is_rsa_free
     run_mosaic_rsa_dependent_tests
     run_serial_filter "$MOSAIC_MATERIAL_FILTER"
     run_bounded_test --filter Mosaic \
-      --skip "$MOSAIC_RSA_DEPENDENT_FILTER|$MOSAIC_MATERIAL_FILTER|MosaicMainnetAlphaContractValidator"
-    run_serial_filter MosaicMainnetAlphaContractValidator
+      --skip "$MOSAIC_RSA_DEPENDENT_FILTER|$MOSAIC_MATERIAL_FILTER"
     run_filter FusionFacadeScaffoldValidator
+    ;;
+  mosaic-fast)
+    assert_mosaic_fast_lane_is_rsa_free
+    run_bounded_test --filter "$MOSAIC_FAST_FILTER"
     ;;
   mosaic-rehearsal)
     # These two tests share the real purpose-separated RSA fixtures in one process.
