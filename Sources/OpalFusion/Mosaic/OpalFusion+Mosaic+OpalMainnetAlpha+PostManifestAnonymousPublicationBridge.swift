@@ -30,17 +30,20 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             private let context: Context
             private let materialBinding: MaterialBinding
             let kind: PublicationKind
+            let expiryUnixSeconds: UInt64
             let recipients: [RecipientGiftWrap]
 
             fileprivate init(
                 context: Context,
                 materialBinding: MaterialBinding,
                 kind: PublicationKind,
+                expiryUnixSeconds: UInt64,
                 recipients: [RecipientGiftWrap]
             ) {
                 self.context = context
                 self.materialBinding = materialBinding
                 self.kind = kind
+                self.expiryUnixSeconds = expiryUnixSeconds
                 self.recipients = recipients
             }
 
@@ -268,6 +271,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     context: context,
                     materialBinding: expectedMaterialBinding,
                     kind: kind,
+                    expiryUnixSeconds: expiryUnixSeconds,
                     recipients: recipients
                 )
             } catch {

@@ -1,4 +1,4 @@
-// OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestContributorTransportBridge+Model.swift
+// OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestContributorTransportBridge~Model.swift
 
 import Foundation
 import OpalCrypto
@@ -18,6 +18,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         .PostManifestAnonymousBatchPublisher
     typealias AttemptTransportOwner = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestAttemptTransportOwner
+    typealias PublicationJournal = OpalFusion.Mosaic.OpalMainnetAlpha
+        .PostManifestRelayPublicationJournal
     typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
         .PostManifestNIP59Transport
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
@@ -56,6 +58,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
         let makeControlSignatureAuxiliaryRandomness: @Sendable () throws
             -> OpalCrypto.Signature.BIP340.AuxiliaryRandomness
         let attemptTransportOwner: AttemptTransportOwner
+        let publicationJournal: PublicationJournal
         let awaitAnonymousPublicationPermit:
             AnonymousPublisher.PublicationPermitProvider
 
@@ -76,8 +79,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
                             count: 32
                         )
                     )
-                },
+            },
             attemptTransportOwner: AttemptTransportOwner,
+            publicationJournal: PublicationJournal,
             awaitAnonymousPublicationPermit: @escaping
                 AnonymousPublisher.PublicationPermitProvider
         ) {
@@ -87,6 +91,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestContributorTransportBri
             self.makeControlSignatureAuxiliaryRandomness =
                 makeControlSignatureAuxiliaryRandomness
             self.attemptTransportOwner = attemptTransportOwner
+            self.publicationJournal = publicationJournal
             self.awaitAnonymousPublicationPermit =
                 awaitAnonymousPublicationPermit
         }

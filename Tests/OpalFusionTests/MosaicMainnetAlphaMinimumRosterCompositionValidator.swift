@@ -443,6 +443,16 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
                         )
                     },
                     attemptTransportOwner: attemptTransportOwner,
+                    publicationJournal: try .init(
+                        context: .init(
+                            publicationContext: context,
+                            relaySelection: relaySelection
+                        ),
+                        persistence: .init(
+                            loadSnapshot: { _ in nil },
+                            appendRecord: { _, _, _ in }
+                        )
+                    ),
                     awaitAnonymousPublicationPermit: { _ in
                         throw ProbeFailure.unexpectedInvocation
                     }

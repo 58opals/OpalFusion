@@ -346,11 +346,16 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
                 for: representative
             )
         )
+        let representativeBootstrap = bootstrap(
+            for: representative,
+            fixture: fixture
+        )
+        let representativeContext = try ControlBridge.Context(
+            validating: fixture.manifest,
+            against: representativeBootstrap
+        )
         let managedBridge = try Bridge(
-            bootstrap: bootstrap(
-                for: representative,
-                fixture: fixture
-            ),
+            bootstrap: representativeBootstrap,
             manifest: fixture.manifest,
             controlSigningKey: try signingKey(Int(controlScalar)),
             controlEventSigningKey: try signingKey(9_000),
@@ -368,6 +373,16 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
                     throw ProbeFailure.injected
                 },
                 attemptTransportOwner: representativeOwner,
+                publicationJournal: try .init(
+                    context: .init(
+                        publicationContext: representativeContext,
+                        relaySelection: fixture.relaySelection
+                    ),
+                    persistence: .init(
+                        loadSnapshot: { _ in nil },
+                        appendRecord: { _, _, _ in }
+                    )
+                ),
                 awaitAnonymousPublicationPermit: { _ in
                     throw ProbeFailure.injected
                 }

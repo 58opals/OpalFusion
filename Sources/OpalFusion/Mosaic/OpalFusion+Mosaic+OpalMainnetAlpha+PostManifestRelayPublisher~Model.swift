@@ -1,4 +1,4 @@
-// OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestRelayPublisher+Model.swift
+// OpalFusion+Mosaic+OpalMainnetAlpha+PostManifestRelayPublisher~Model.swift
 
 import Foundation
 import OpalCrypto
@@ -63,6 +63,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayPublisher {
         case duplicateRelay(RelayEndpoint)
         case duplicateConnection
         case relaySelectionMismatch
+        case publicationJournalMismatch
         case incompatibleCodingLimits
         case invalidOutputBufferLimit
     }
@@ -71,6 +72,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayPublisher {
         case invalidGiftWrap
         case alreadyUsed
         case publicationRejected
+        case publicationInterrupted
+        case continuationMismatch
+        case journalFailed
         case cancelled
     }
 

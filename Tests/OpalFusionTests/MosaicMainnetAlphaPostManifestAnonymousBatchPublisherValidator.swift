@@ -14,6 +14,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
     typealias ExecutionFixture = MosaicMainnetAlphaExecutionFixtures
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias LocalAttempt = OpalFusion.Mosaic.LocalAttempt
+    typealias Journal = Alpha.PostManifestRelayPublicationJournal
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias Publisher = Alpha.PostManifestAnonymousBatchPublisher
     typealias Tracker = OpalFusion.Mosaic.RelayPublicationTracker
@@ -202,6 +203,10 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
     func rejectInvalidConfiguration() async throws {
         let fixture = try await Self.sharedFixtureTask.value
         let relaySelection = try makeRelaySelection(context: fixture.context)
+        let publicationJournal = try makePublicationJournal(
+            context: fixture.context,
+            relaySelection: relaySelection
+        )
         let provider: Publisher.RouteProvider = { _ in [] }
         let permit: Publisher.PublicationPermitProvider = { _ in }
 
@@ -212,6 +217,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
                 context: fixture.conductorContext,
                 material: fixture.material,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider,
@@ -223,6 +229,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
                 context: fixture.context,
                 material: fixture.foreignMaterial,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider,
@@ -240,6 +247,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
                     context: fixture.context,
                     digest: [UInt8](repeating: 0xFE, count: 32)
                 ),
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider,
@@ -251,6 +259,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
                 context: fixture.context,
                 material: fixture.material,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 0,
                 provideRoutes: provider,
@@ -276,6 +285,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
                 context: fixture.context,
                 material: fixture.material,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: incompatibleLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider,
@@ -297,10 +307,21 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             groups: allocation.groups.reversed()
         )
         let permitProbe = PermitProbe()
+        let relaySelection = try makeRelaySelection(context: fixture.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let publicationJournal = try Journal(
+            context: .init(
+                publicationContext: fixture.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
         let publisher = try makePublisher(
             fixture: fixture,
             routeProbe: routeProbe,
-            permitProbe: permitProbe
+            permitProbe: permitProbe,
+            publicationJournal: publicationJournal
         )
         let completion = CompletionProbe()
         let finalConnection = try #require(
@@ -314,6 +335,15 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             await completion.markCompleted()
         }
         await waitForEverySend(batch: batch, allocation: allocation)
+        let durableBatch = try #require(persistence.preparedBatches.first)
+        #expect(persistence.preparedBatches.count == 1)
+        #expect(durableBatch.channelPurpose == .anonymousComponents)
+        #expect(durableBatch.publications.count == batch.recipients.count)
+        #expect(
+            Set(durableBatch.publications.map {
+                $0.binding.recipientEventIdentity
+            }) == Set(batch.recipients.map(\.recipientEventIdentity))
+        )
         for recipient in batch.recipients {
             let connections = try #require(
                 allocation.connections[recipient.recipientEventIdentity]
@@ -353,6 +383,389 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             for connection in connections {
                 #expect(await connection.openCount == 1)
                 #expect(await connection.closeCount == 1)
+            }
+        }
+    }
+
+    @Test("Reject an atomic anonymous batch append before any route opens")
+    func rejectBatchAppendFailureBeforeRouteOpening() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let batch = fixture.componentBatch
+        let allocation = makeRouteAllocation(batch: batch)
+        let routeProbe = RouteProviderProbe(
+            expectedRequests: routeRequests(batch),
+            groups: allocation.groups
+        )
+        let permitProbe = PermitProbe()
+        let relaySelection = try makeRelaySelection(context: fixture.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        persistence.failNextAppend(
+            of: .prepared,
+            leaving: .priorSnapshot
+        )
+        let journal = try Journal(
+            context: .init(
+                publicationContext: fixture.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let publisher = try makePublisher(
+            fixture: fixture,
+            routeProbe: routeProbe,
+            permitProbe: permitProbe,
+            publicationJournal: journal
+        )
+
+        await #expect(throws: Publisher.Failure.publicationJournalFailed) {
+            try await publisher.publish(batch)
+        }
+
+        #expect(persistence.snapshot == nil)
+        #expect(await permitProbe.requests.isEmpty)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+                #expect(await connection.closeCount == 1)
+            }
+        }
+    }
+
+    @Test("Reject a permit-record append before its recipient route opens")
+    func rejectPermitAppendFailureBeforeRouteOpening() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let batch = fixture.signatureBatch
+        let allocation = makeRouteAllocation(batch: batch)
+        let routeProbe = RouteProviderProbe(
+            expectedRequests: routeRequests(batch),
+            groups: allocation.groups
+        )
+        let permitProbe = PermitProbe()
+        let relaySelection = try makeRelaySelection(context: fixture.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        persistence.failNextAppend(
+            of: .publicationPermitted,
+            leaving: .priorSnapshot
+        )
+        let journal = try Journal(
+            context: .init(
+                publicationContext: fixture.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let publisher = try makePublisher(
+            fixture: fixture,
+            routeProbe: routeProbe,
+            permitProbe: permitProbe,
+            publicationJournal: journal
+        )
+
+        await #expect(throws: Publisher.Failure.publicationJournalFailed) {
+            try await publisher.publish(batch)
+        }
+
+        #expect(persistence.preparedBatches.count == 1)
+        #expect((await permitProbe.requests).count == 1)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+                #expect(await connection.closeCount == 1)
+            }
+        }
+    }
+
+    @Test("Resume one durable anonymous publication without a new permit")
+    func resumeDurableAnonymousPublication() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let batch = fixture.componentBatch
+        let recipient = try #require(batch.recipients.first)
+        let relaySelection = try makeRelaySelection(context: fixture.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let firstJournal = try Journal(
+            context: .init(
+                publicationContext: fixture.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let durableBatch = try firstJournal.prepareBatch(
+            try batch.recipients.map { batchRecipient in
+                try .init(
+                    giftWrap: batchRecipient.giftWrap,
+                    binding: .init(
+                        channelPurpose: .anonymousComponents,
+                        recipientEventIdentity:
+                            batchRecipient.recipientEventIdentity,
+                        expiryUnixSeconds: batch.expiryUnixSeconds
+                    )
+                )
+            }
+        )
+        for continuation in durableBatch.continuations
+            where continuation.publication.binding.recipientEventIdentity
+                != recipient.recipientEventIdentity {
+            try firstJournal.recordCompletion(
+                .cancelled,
+                eventIdentifier: continuation.publication.eventIdentifier
+            )
+        }
+        let recipientContinuation = try #require(
+            durableBatch.continuations.first {
+                $0.publication.binding.recipientEventIdentity
+                    == recipient.recipientEventIdentity
+            }
+        )
+        try firstJournal.recordPublicationPermit(
+            eventIdentifier:
+                recipientContinuation.publication.eventIdentifier
+        )
+        #expect(persistence.preparedBatches.count == 1)
+
+        let restoredJournal = try Journal(
+            context: .init(
+                publicationContext: fixture.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let allocation = makeRouteAllocation(batch: batch)
+        let routeProbe = RouteProviderProbe(
+            expectedRequests: routeRequests(batch),
+            groups: allocation.groups
+        )
+        let permitProbe = PermitProbe()
+        let publisher = try makePublisher(
+            fixture: fixture,
+            routeProbe: routeProbe,
+            permitProbe: permitProbe,
+            publicationJournal: restoredJournal
+        )
+        let restoration = Task {
+            try await publisher.resumePendingPublications(for: .components)
+        }
+        let recipientConnections = try #require(
+            allocation.connections[recipient.recipientEventIdentity]
+        )
+        for connection in recipientConnections {
+            await connection.waitUntilSentTextCount(1)
+        }
+        await recipientConnections[0].receive(
+            acknowledgement(for: recipient.giftWrap, accepted: true)
+        )
+        await recipientConnections[1].receive(
+            acknowledgement(for: recipient.giftWrap, accepted: true)
+        )
+        try await restoration.value
+
+        #expect(await routeProbe.callCount == 1)
+        #expect(await permitProbe.requests.isEmpty)
+        for other in batch.recipients
+            where other.recipientEventIdentity
+                != recipient.recipientEventIdentity {
+            for connection in try #require(
+                allocation.connections[other.recipientEventIdentity]
+            ) {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 1)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
+        #expect(
+            restoredJournal.pendingContinuations(
+                for: .anonymousComponents
+            ).isEmpty
+        )
+    }
+
+    @Test(
+        "Complete anonymous acknowledgement-derived recovery before routing",
+        arguments: [
+            Journal.Completion.transportAccepted,
+            .transportRejected,
+        ]
+    )
+    func completeAcknowledgementDerivedAnonymousRecoveryBeforeRouting(
+        completion: Journal.Completion
+    ) async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let batch = fixture.componentBatch
+        let relaySelection = try makeRelaySelection(context: fixture.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let firstJournal = try Journal(
+            context: .init(
+                publicationContext: fixture.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let durableBatch = try firstJournal.prepareBatch(
+            try batch.recipients.map { recipient in
+                try .init(
+                    giftWrap: recipient.giftWrap,
+                    binding: .init(
+                        channelPurpose: .anonymousComponents,
+                        recipientEventIdentity:
+                            recipient.recipientEventIdentity,
+                        expiryUnixSeconds: batch.expiryUnixSeconds
+                    )
+                )
+            }
+        )
+        let target = try #require(durableBatch.continuations.first)
+        for continuation in durableBatch.continuations.dropFirst() {
+            try firstJournal.recordCompletion(
+                .cancelled,
+                eventIdentifier: continuation.publication.eventIdentifier
+            )
+        }
+        try firstJournal.recordPublicationPermit(
+            eventIdentifier: target.publication.eventIdentifier
+        )
+        let acknowledgement: Journal.RelayAcknowledgement =
+            completion == .transportAccepted ? .accepted : .rejected
+        for endpoint in target.publication.endpoints.prefix(2) {
+            try firstJournal.recordAttempt(
+                eventIdentifier: target.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+            try firstJournal.recordAcknowledgement(
+                acknowledgement,
+                eventIdentifier: target.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+        }
+
+        let restoredJournal = try Journal(
+            context: .init(
+                publicationContext: fixture.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let allocation = makeRouteAllocation(batch: batch)
+        let routeProbe = RouteProviderProbe(
+            expectedRequests: routeRequests(batch),
+            groups: allocation.groups
+        )
+        let permitProbe = PermitProbe()
+        let publisher = try makePublisher(
+            fixture: fixture,
+            routeProbe: routeProbe,
+            permitProbe: permitProbe,
+            publicationJournal: restoredJournal
+        )
+
+        if completion == .transportAccepted {
+            try await publisher.resumePendingPublications(for: .components)
+        } else {
+            await #expect(
+                throws: Publisher.Failure.recipientPublicationFailed
+            ) {
+                try await publisher.resumePendingPublications(
+                    for: .components
+                )
+            }
+        }
+
+        #expect(await routeProbe.callCount == 0)
+        #expect(await permitProbe.requests.isEmpty)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
+        #expect(
+            restoredJournal.pendingContinuations(
+                for: .anonymousComponents
+            ).isEmpty
+        )
+        let snapshot = try #require(persistence.snapshot)
+        #expect(snapshot.records.contains { record in
+            guard case let .completed(eventIdentifier, durableCompletion) =
+                    record else {
+                return false
+            }
+            return eventIdentifier == target.publication.eventIdentifier
+                && durableCompletion == completion
+        })
+    }
+
+    @Test("Reject a restored anonymous record with partial batch membership")
+    func rejectPartialRestoredBatchBeforeRouting() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let batch = fixture.componentBatch
+        let relaySelection = try makeRelaySelection(context: fixture.context)
+        let journalContext = try Journal.Context(
+            publicationContext: fixture.context,
+            relaySelection: relaySelection
+        )
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let journal = try Journal(
+            context: journalContext,
+            persistence: persistence.persistence
+        )
+        _ = try journal.prepareBatch(
+            try batch.recipients.map { recipient in
+                try .init(
+                    giftWrap: recipient.giftWrap,
+                    binding: .init(
+                        channelPurpose: .anonymousComponents,
+                        recipientEventIdentity:
+                            recipient.recipientEventIdentity,
+                        expiryUnixSeconds: batch.expiryUnixSeconds
+                    )
+                )
+            }
+        )
+        let durableBatch = try #require(persistence.preparedBatches.first)
+        persistence.replaceSnapshot(.init(
+            context: journalContext,
+            records: [
+                .prepared(.init(
+                    channelPurpose: .anonymousComponents,
+                    publications: Array(
+                        durableBatch.publications.dropLast()
+                    )
+                )),
+            ]
+        ))
+
+        let restoredJournal = try Journal(
+            context: journalContext,
+            persistence: persistence.persistence
+        )
+        let allocation = makeRouteAllocation(batch: batch)
+        let routeProbe = RouteProviderProbe(
+            expectedRequests: routeRequests(batch),
+            groups: allocation.groups
+        )
+        let permitProbe = PermitProbe()
+        let publisher = try makePublisher(
+            fixture: fixture,
+            routeProbe: routeProbe,
+            permitProbe: permitProbe,
+            publicationJournal: restoredJournal
+        )
+
+        await #expect(throws: Publisher.Failure.invalidContinuationSet) {
+            try await publisher.resumePendingPublications(for: .components)
+        }
+        #expect(await routeProbe.callCount == 0)
+        #expect(await permitProbe.requests.isEmpty)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 0)
             }
         }
     }
@@ -427,6 +840,8 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
 
         #expect(componentBatch.kind == .components)
         #expect(signatureBatch.kind == .bchSignatures)
+        #expect(componentBatch.expiryUnixSeconds == Self.expiryUnixSeconds)
+        #expect(signatureBatch.expiryUnixSeconds == Self.expiryUnixSeconds)
         #expect(
             componentBatch.isBound(
                 to: fixture.context,
@@ -479,11 +894,16 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             groups: allocation.groups
         )
         let permitProbe = PermitProbe()
+        let foreignRelaySelection = try makeRelaySelection(
+            context: fixture.foreignContext
+        )
         let publisher = try Publisher(
             context: fixture.foreignContext,
             material: fixture.foreignMaterial,
-            relaySelection: makeRelaySelection(
-                context: fixture.foreignContext
+            relaySelection: foreignRelaySelection,
+            publicationJournal: makePublicationJournal(
+                context: fixture.foreignContext,
+                relaySelection: foreignRelaySelection
             ),
             codingLimits: relayLimits,
             maximumPendingRelayOutputCount: 4,
@@ -1198,12 +1618,19 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
     private func makePublisher(
         fixture: SharedFixture,
         routeProbe: RouteProviderProbe,
-        permitProbe: PermitProbe
+        permitProbe: PermitProbe,
+        publicationJournal: Journal? = nil
     ) throws -> Publisher {
-        try .init(
+        let relaySelection = try makeRelaySelection(context: fixture.context)
+        return try .init(
             context: fixture.context,
             material: fixture.material,
-            relaySelection: makeRelaySelection(context: fixture.context),
+            relaySelection: relaySelection,
+            publicationJournal: publicationJournal
+                ?? makePublicationJournal(
+                    context: fixture.context,
+                    relaySelection: relaySelection
+                ),
             codingLimits: relayLimits,
             maximumPendingRelayOutputCount: 4,
             provideRoutes: { requests in
@@ -1212,6 +1639,22 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             awaitPublicationPermit: { request in
                 try await permitProbe.awaitPermit(request)
             }
+        )
+    }
+
+    private func makePublicationJournal(
+        context: Bridge.Context,
+        relaySelection: Alpha.PostManifestRelaySelectionValidation
+    ) throws -> Journal {
+        try .init(
+            context: .init(
+                publicationContext: context,
+                relaySelection: relaySelection
+            ),
+            persistence: .init(
+                loadSnapshot: { _ in nil },
+                appendRecord: { _, _, _ in }
+            )
         )
     }
 

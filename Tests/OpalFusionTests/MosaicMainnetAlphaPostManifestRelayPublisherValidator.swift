@@ -8,6 +8,9 @@ import Testing
 @Suite("Mosaic mainnet-alpha post-manifest relay publication validation")
 struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
+    typealias Bridge = Alpha.PostManifestControlPublicationBridge
+    typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
+    typealias Journal = Alpha.PostManifestRelayPublicationJournal
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias Publisher = Alpha.PostManifestRelayPublisher
     typealias Transport = Alpha.PostManifestNIP59Transport
@@ -154,6 +157,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
             _ = try Publisher(
                 routes: makeRoutes(connections),
                 relaySelection: makeRelaySelectionValidation(),
+                publicationJournal: try makePublicationJournal(),
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 0
             )
@@ -176,6 +180,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
             _ = try Publisher(
                 routes: makeRoutes(connections),
                 relaySelection: makeRelaySelectionValidation(),
+                publicationJournal: try makePublicationJournal(),
                 codingLimits: incompatibleLimits,
                 maximumPendingRelayOutputCount: 4
             )
@@ -243,7 +248,10 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         let connections = makeConnections()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
-        let publication = Task { try await publisher.publish(giftWrap) }
+        let binding = try publicationBinding(for: giftWrap)
+        let publication = Task {
+            try await publisher.publish(giftWrap, binding: binding)
+        }
 
         for connection in connections {
             await connection.waitUntilSentTextCount(1)
@@ -266,7 +274,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         }
 
         await #expect(throws: Publisher.Failure.alreadyUsed) {
-            try await publisher.publish(giftWrap)
+            try await publisher.publish(giftWrap, binding: binding)
         }
     }
 
@@ -279,7 +287,10 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         await connections[2].suspendNextSend()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
-        let publication = Task { try await publisher.publish(giftWrap) }
+        let binding = try publicationBinding(for: giftWrap)
+        let publication = Task {
+            try await publisher.publish(giftWrap, binding: binding)
+        }
 
         for connection in connections {
             await connection.waitUntilSentTextCount(1)
@@ -301,7 +312,10 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         await connections[2].failNextOpen()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
-        let publication = Task { try await publisher.publish(giftWrap) }
+        let binding = try publicationBinding(for: giftWrap)
+        let publication = Task {
+            try await publisher.publish(giftWrap, binding: binding)
+        }
 
         await connections[0].waitUntilSentTextCount(1)
         await connections[1].waitUntilSentTextCount(1)
@@ -315,6 +329,70 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     }
 
     @Test(
+        "Interrupt promptly when every route start fails",
+        .timeLimit(.minutes(1))
+    )
+    func interruptWhenEveryRouteStartFails() async throws {
+        let connections = makeConnections()
+        for connection in connections {
+            await connection.failNextOpen()
+        }
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let publicationJournal = try makePublicationJournal(
+            persistence: persistence.persistence
+        )
+        let publisher = try makePublisher(
+            routes: makeRoutes(connections),
+            publicationJournal: publicationJournal
+        )
+        let giftWrap = try makeGiftWrap()
+        let binding = try publicationBinding(for: giftWrap)
+
+        await #expect(throws: Publisher.Failure.publicationInterrupted) {
+            try await publisher.publish(giftWrap, binding: binding)
+        }
+
+        #expect(
+            await publisher.state
+                == .terminal(.failed(.publicationInterrupted))
+        )
+        for connection in connections {
+            #expect(await connection.openCount == 1)
+            #expect(await connection.closeCount == 1)
+            #expect(await connection.sentTexts.isEmpty)
+        }
+        let snapshot = try #require(persistence.snapshot)
+        let attemptedEndpoints: Set<Tracker.Endpoint> = Set(
+            snapshot.records.compactMap { record in
+                guard case let .attempted(eventIdentifier, endpoint) = record,
+                      eventIdentifier
+                        == giftWrap.event.identifier.rawRepresentation else {
+                    return nil
+                }
+                return endpoint
+            }
+        )
+        #expect(attemptedEndpoints == Set(selectedEndpoints))
+        #expect(!snapshot.records.contains { record in
+            guard case let .completed(eventIdentifier, _) = record else {
+                return false
+            }
+            return eventIdentifier
+                == giftWrap.event.identifier.rawRepresentation
+        })
+
+        let restoredJournal = try makePublicationJournal(
+            persistence: persistence.persistence
+        )
+        let continuation = try #require(
+            restoredJournal.pendingContinuations(for: .control).first
+        )
+        #expect(continuation.attemptedEndpoints == Set(selectedEndpoints))
+        #expect(continuation.completion == nil)
+    }
+
+    @Test(
         "Tolerate one relay send failure after the event handoff was attempted",
         .timeLimit(.minutes(1))
     )
@@ -323,7 +401,10 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         await connections[2].failNextSend()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
-        let publication = Task { try await publisher.publish(giftWrap) }
+        let binding = try publicationBinding(for: giftWrap)
+        let publication = Task {
+            try await publisher.publish(giftWrap, binding: binding)
+        }
 
         for connection in connections {
             await connection.waitUntilSentTextCount(1)
@@ -345,7 +426,10 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         await connections[0].suspendNextSend()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
-        let publication = Task { try await publisher.publish(giftWrap) }
+        let binding = try publicationBinding(for: giftWrap)
+        let publication = Task {
+            try await publisher.publish(giftWrap, binding: binding)
+        }
 
         for connection in connections {
             await connection.waitUntilSentTextCount(1)
@@ -379,7 +463,10 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         let connections = makeConnections()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
-        let publication = Task { try await publisher.publish(giftWrap) }
+        let binding = try publicationBinding(for: giftWrap)
+        let publication = Task {
+            try await publisher.publish(giftWrap, binding: binding)
+        }
 
         for connection in connections {
             await connection.waitUntilSentTextCount(1)
@@ -407,10 +494,11 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         await connections[0].suspendNextClose()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
+        let binding = try publicationBinding(for: giftWrap)
         let completion = CompletionProbe()
         let publication = Task {
             do {
-                try await publisher.publish(giftWrap)
+                try await publisher.publish(giftWrap, binding: binding)
                 await completion.markCompleted()
             } catch {
                 await completion.markCompleted()
@@ -445,10 +533,11 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         await connections[0].suspendNextClose()
         let publisher = try makePublisher(routes: makeRoutes(connections))
         let giftWrap = try makeGiftWrap()
+        let binding = try publicationBinding(for: giftWrap)
         let completion = CompletionProbe()
         let publication = Task {
             do {
-                try await publisher.publish(giftWrap)
+                try await publisher.publish(giftWrap, binding: binding)
                 await completion.markCompleted()
             } catch {
                 await completion.markCompleted()
@@ -476,19 +565,34 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     }
 
     @Test(
-        "Direct stop joins response cleanup already blocked in close",
-        .timeLimit(.minutes(1))
+        "Direct stop preserves terminal ACK state during response cleanup",
+        .timeLimit(.minutes(1)),
+        arguments: [
+            Journal.Completion.transportAccepted,
+            .transportRejected,
+        ]
     )
-    func stopDuringResponseCleanup() async throws {
+    func preserveAcknowledgementOutcomeDuringResponseCleanup(
+        completion: Journal.Completion
+    ) async throws {
         let connections = makeConnections()
         await connections[0].suspendNextClose()
-        let publisher = try makePublisher(routes: makeRoutes(connections))
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let publicationJournal = try makePublicationJournal(
+            persistence: persistence.persistence
+        )
+        let publisher = try makePublisher(
+            routes: makeRoutes(connections),
+            publicationJournal: publicationJournal
+        )
         let giftWrap = try makeGiftWrap()
+        let binding = try publicationBinding(for: giftWrap)
         let publicationCompletion = CompletionProbe()
         let stopCompletion = CompletionProbe()
         let publication = Task {
             do {
-                try await publisher.publish(giftWrap)
+                try await publisher.publish(giftWrap, binding: binding)
                 await publicationCompletion.markCompleted()
             } catch {
                 await publicationCompletion.markCompleted()
@@ -499,12 +603,13 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         for connection in connections {
             await connection.waitUntilSentTextCount(1)
         }
-        await connections[0].receive(
-            acknowledgement(for: giftWrap, accepted: true)
-        )
-        await connections[1].receive(
-            acknowledgement(for: giftWrap, accepted: true)
-        )
+        let acceptedResults = completion == .transportAccepted
+            ? [true, true] : [true, false, false]
+        for (connection, accepted) in zip(connections, acceptedResults) {
+            await connection.receive(
+                acknowledgement(for: giftWrap, accepted: accepted)
+            )
+        }
         await connections[0].waitUntilCloseSuspends()
 
         let observeStop = Task {
@@ -528,6 +633,24 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         for connection in connections {
             #expect(await connection.closeCount == 1)
         }
+        let snapshot = try #require(persistence.snapshot)
+        #expect(snapshot.records.contains { record in
+            guard case let .completed(eventIdentifier, durableCompletion) =
+                    record else {
+                return false
+            }
+            return eventIdentifier
+                    == giftWrap.event.identifier.rawRepresentation
+                && durableCompletion == completion
+        })
+        #expect(!snapshot.records.contains { record in
+            guard case let .completed(eventIdentifier, .cancelled) =
+                    record else {
+                return false
+            }
+            return eventIdentifier
+                == giftWrap.event.identifier.rawRepresentation
+        })
     }
 
     private var relayLimits: Nostr.RelayMessageCodingLimits {
@@ -543,13 +666,66 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     }
 
     private func makePublisher(
-        routes: [Alpha.PostManifestRelayRoute]
+        routes: [Alpha.PostManifestRelayRoute],
+        publicationJournal: Journal? = nil
     ) throws -> Publisher {
         try .init(
             routes: routes,
             relaySelection: makeRelaySelectionValidation(),
+            publicationJournal:
+                publicationJournal ?? makePublicationJournal(),
             codingLimits: relayLimits,
             maximumPendingRelayOutputCount: 4
+        )
+    }
+
+    private func makePublicationJournal(
+        persistence: Journal.Persistence = .init(
+            loadSnapshot: { _ in nil },
+            appendRecord: { _, _, _ in }
+        )
+    ) throws -> Journal {
+        let harness = try Fixture.makeHarness(localRole: .conductor)
+        let bootstrap = Alpha.PostManifestRuntimeDriver.Bootstrap(
+            validatedAttempt: Fixture.makeValidatedAttempt(
+                election: harness.election
+            ),
+            attemptIdentifier: .init(
+                validatedBytes: [UInt8](repeating: 0x91, count: 32)
+            ),
+            generationIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0x92, count: 32)
+            ),
+            materialIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0x93, count: 32)
+            ),
+            localControlIdentity: harness.localControlIdentity,
+            proposalValidation: harness.proposalValidation
+        )
+        let context = try Bridge.Context(
+            validating: harness.manifest,
+            against: bootstrap
+        )
+        return try .init(
+            context: .init(
+                publicationContext: context,
+                relaySelection: makeRelaySelectionValidation()
+            ),
+            persistence: persistence
+        )
+    }
+
+    private func publicationBinding(
+        for giftWrap: Publisher.GiftWrap
+    ) throws -> Journal.PublicationBinding {
+        let recipient = try Nostr.EventCodec.decodeHexadecimal(
+            giftWrap.event.template.tags[0][1],
+            field: "p"
+        )
+        return try .init(
+            channelPurpose: .control,
+            recipientEventIdentity: recipient,
+            expiryUnixSeconds: 1_700_000_200
         )
     }
 

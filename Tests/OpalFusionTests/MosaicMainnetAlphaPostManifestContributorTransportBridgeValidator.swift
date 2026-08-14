@@ -19,6 +19,7 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
     typealias ExecutionFixture = MosaicMainnetAlphaExecutionFixtures
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias LocalAttempt = OpalFusion.Mosaic.LocalAttempt
+    typealias Journal = Alpha.PostManifestRelayPublicationJournal
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
     typealias Owner = Alpha.PostManifestAttemptTransportOwner
     typealias RuntimeSession = Alpha.RuntimeSession
@@ -879,10 +880,30 @@ struct MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator {
                     )
                 },
                 attemptTransportOwner: attemptTransportOwner,
+                publicationJournal: try makePublicationJournal(
+                    context: fixture.context,
+                    relaySelection: fixture.relaySelection
+                ),
                 awaitAnonymousPublicationPermit:
                     awaitAnonymousPublicationPermit ?? { request in
                         await permitProbe.permit(request)
                     }
+            )
+        )
+    }
+
+    private func makePublicationJournal(
+        context: ControlBridge.Context,
+        relaySelection: Alpha.PostManifestRelaySelectionValidation
+    ) throws -> Journal {
+        try .init(
+            context: .init(
+                publicationContext: context,
+                relaySelection: relaySelection
+            ),
+            persistence: .init(
+                loadSnapshot: { _ in nil },
+                appendRecord: { _, _, _ in }
             )
         )
     }

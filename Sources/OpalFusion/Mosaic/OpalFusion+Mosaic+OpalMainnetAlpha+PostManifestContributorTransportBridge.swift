@@ -9,8 +9,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// The actor eagerly binds the control sender and its exact inbound control mailbox, then
     /// installs the anonymous publication path only after the caller's lease-backed local
     /// material has been constructed and revalidated. It owns neither wallet disposition,
-    /// semantic loopback, relay ingress lifecycle, timing policy, persistence, retry, nor
-    /// broadcast permission.
+    /// semantic loopback, relay ingress lifecycle, timing policy, durable-storage
+    /// implementation, retry policy, nor broadcast permission.
     actor PostManifestContributorTransportBridge {
         private let context: ControlBridge.Context
         private let controlBridge: ControlBridge
@@ -78,6 +78,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     context: context,
                     recipients: controlRecipients,
                     relaySelection: relaySelection,
+                    publicationJournal: dependencies.publicationJournal,
                     codingLimits: codingLimits,
                     maximumPendingRelayOutputCount:
                         maximumPendingRelayOutputCount,
@@ -253,6 +254,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     context: context,
                     material: material,
                     relaySelection: relaySelection,
+                    publicationJournal: dependencies.publicationJournal,
                     codingLimits: codingLimits,
                     maximumPendingRelayOutputCount:
                         maximumPendingRelayOutputCount,

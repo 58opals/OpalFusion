@@ -10,6 +10,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Attempt = OpalFusion.Mosaic.Attempt
     typealias Bridge = Alpha.PostManifestControlPublicationBridge
+    typealias Journal = Alpha.PostManifestRelayPublicationJournal
     typealias ControlIdentity = Attempt.ControlIdentity
     typealias Fixture = MosaicMainnetAlphaAdmissionLedgerFixtures
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
@@ -193,6 +194,10 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
     func rejectInvalidConfiguration() throws {
         let harness = try Self.makeHarness()
         let relaySelection = try makeRelaySelection(context: harness.context)
+        let publicationJournal = try makePublicationJournal(
+            context: harness.context,
+            relaySelection: relaySelection
+        )
         let provider: Publisher.RouteProvider = { _ in [] }
 
         #expect(
@@ -206,6 +211,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                     context: harness.context,
                     digest: [UInt8](repeating: 0xFE, count: 32)
                 ),
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider
@@ -220,6 +226,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 context: harness.context,
                 recipients: Array(harness.recipients.dropLast()),
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider
@@ -240,6 +247,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 context: harness.context,
                 recipients: duplicateRecipient,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider
@@ -258,6 +266,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 context: harness.context,
                 recipients: foreignRecipient,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider
@@ -278,6 +287,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 context: harness.context,
                 recipients: duplicateEventIdentity,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider
@@ -302,6 +312,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 context: harness.context,
                 recipients: reusedControlIdentity,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider
@@ -313,6 +324,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 context: harness.context,
                 recipients: harness.recipients,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: relayLimits,
                 maximumPendingRelayOutputCount: 0,
                 provideRoutes: provider
@@ -336,6 +348,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 context: harness.context,
                 recipients: harness.recipients,
                 relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
                 codingLimits: incompatibleLimits,
                 maximumPendingRelayOutputCount: 4,
                 provideRoutes: provider
@@ -357,7 +370,21 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             expectedRequests: requests,
             groups: allocation.groups.reversed()
         )
-        let publisher = try makePublisher(harness: harness, probe: probe)
+        let relaySelection = try makeRelaySelection(context: harness.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let publicationJournal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let publisher = try makePublisher(
+            harness: harness,
+            probe: probe,
+            publicationJournal: publicationJournal
+        )
         let completion = CompletionProbe()
         let finalConnection = try #require(
             allocation.connections[batch.recipients.last!.controlIdentity]?.last
@@ -375,6 +402,18 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 await connection.waitUntilSentTextCount(1)
             }
         }
+
+        let durableBatch = try #require(persistence.preparedBatches.first)
+        #expect(persistence.preparedBatches.count == 1)
+        #expect(durableBatch.channelPurpose == .control)
+        #expect(durableBatch.publications.count == batch.recipients.count)
+        #expect(
+            Set(durableBatch.publications.map {
+                $0.binding.recipientEventIdentity
+            }) == Set(harness.recipients.map {
+                $0.eventVerificationKey.rawRepresentation
+            })
+        )
 
         for recipient in batch.recipients {
             let connections = try #require(
@@ -410,6 +449,334 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             firstFrames.insert(try #require(frames.first))
         }
         #expect(firstFrames.count == batch.recipients.count)
+    }
+
+    @Test("Reject an atomic batch append before any route opens")
+    func rejectBatchAppendFailureBeforeRouteOpening() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let harness = fixture.harness
+        let allocation = makeRouteAllocation(recipients: harness.recipients)
+        let probe = RouteProviderProbe(
+            expectedRequests: routeRequests(harness.recipients),
+            groups: allocation.groups
+        )
+        let relaySelection = try makeRelaySelection(context: harness.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        persistence.failNextAppend(
+            of: .prepared,
+            leaving: .priorSnapshot
+        )
+        let journal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let publisher = try makePublisher(
+            harness: harness,
+            probe: probe,
+            publicationJournal: journal
+        )
+
+        await #expect(throws: Publisher.Failure.publicationJournalFailed) {
+            try await publisher.publish(fixture.batch)
+        }
+
+        #expect(persistence.snapshot == nil)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+                #expect(await connection.closeCount == 1)
+            }
+        }
+    }
+
+    @Test("Resume one durable control publication through fresh routes")
+    func resumeDurableControlPublication() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let harness = fixture.harness
+        let batch = fixture.batch
+        let recipient = try #require(batch.recipients.first)
+        let recipientEventIdentity = try #require(
+            harness.recipients.first {
+                $0.controlIdentity == recipient.controlIdentity
+            }
+        ).eventVerificationKey.rawRepresentation
+        let relaySelection = try makeRelaySelection(context: harness.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let firstJournal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let durableBatch = try firstJournal.prepareBatch(
+            try batch.recipients.map { batchRecipient in
+                let eventIdentity = try #require(
+                    harness.recipients.first {
+                        $0.controlIdentity
+                            == batchRecipient.controlIdentity
+                    }
+                ).eventVerificationKey.rawRepresentation
+                return try .init(
+                    giftWrap: batchRecipient.giftWrap,
+                    binding: .init(
+                        channelPurpose: .control,
+                        recipientEventIdentity: eventIdentity,
+                        expiryUnixSeconds:
+                            batch.envelope.expiryUnixSeconds
+                    )
+                )
+            }
+        )
+        for continuation in durableBatch.continuations
+            where continuation.publication.binding.recipientEventIdentity
+                != recipientEventIdentity {
+            try firstJournal.recordCompletion(
+                .cancelled,
+                eventIdentifier: continuation.publication.eventIdentifier
+            )
+        }
+        #expect(persistence.preparedBatches.count == 1)
+
+        let restoredJournal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let allocation = makeRouteAllocation(recipients: harness.recipients)
+        let probe = RouteProviderProbe(
+            expectedRequests: routeRequests(harness.recipients),
+            groups: allocation.groups
+        )
+        let publisher = try makePublisher(
+            harness: harness,
+            probe: probe,
+            publicationJournal: restoredJournal
+        )
+        let restoration = Task {
+            try await publisher.resumePendingPublications()
+        }
+        let recipientConnections = try #require(
+            allocation.connections[recipient.controlIdentity]
+        )
+        for connection in recipientConnections {
+            await connection.waitUntilSentTextCount(1)
+        }
+        await recipientConnections[0].receive(
+            acknowledgement(for: recipient.giftWrap, accepted: true)
+        )
+        await recipientConnections[1].receive(
+            acknowledgement(for: recipient.giftWrap, accepted: true)
+        )
+        try await restoration.value
+
+        #expect(await probe.callCount == 1)
+        for other in harness.recipients
+            where other.controlIdentity != recipient.controlIdentity {
+            for connection in try #require(
+                allocation.connections[other.controlIdentity]
+            ) {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 1)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
+        #expect(
+            restoredJournal.pendingContinuations(for: .control).isEmpty
+        )
+    }
+
+    @Test(
+        "Complete acknowledgement-derived recovery before routing",
+        arguments: [
+            Journal.Completion.transportAccepted,
+            .transportRejected,
+        ]
+    )
+    func completeAcknowledgementDerivedRecoveryBeforeRouting(
+        completion: Journal.Completion
+    ) async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let harness = fixture.harness
+        let relaySelection = try makeRelaySelection(context: harness.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let firstJournal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let durableBatch = try firstJournal.prepareBatch(
+            try fixture.batch.recipients.map { recipient in
+                let eventIdentity = try #require(
+                    harness.recipients.first {
+                        $0.controlIdentity == recipient.controlIdentity
+                    }
+                ).eventVerificationKey.rawRepresentation
+                return try .init(
+                    giftWrap: recipient.giftWrap,
+                    binding: .init(
+                        channelPurpose: .control,
+                        recipientEventIdentity: eventIdentity,
+                        expiryUnixSeconds:
+                            fixture.batch.envelope.expiryUnixSeconds
+                    )
+                )
+            }
+        )
+        let target = try #require(durableBatch.continuations.first)
+        for continuation in durableBatch.continuations.dropFirst() {
+            try firstJournal.recordCompletion(
+                .cancelled,
+                eventIdentifier: continuation.publication.eventIdentifier
+            )
+        }
+        let acknowledgement: Journal.RelayAcknowledgement =
+            completion == .transportAccepted ? .accepted : .rejected
+        for endpoint in target.publication.endpoints.prefix(2) {
+            try firstJournal.recordAttempt(
+                eventIdentifier: target.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+            try firstJournal.recordAcknowledgement(
+                acknowledgement,
+                eventIdentifier: target.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+        }
+
+        let restoredJournal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let allocation = makeRouteAllocation(recipients: harness.recipients)
+        let probe = RouteProviderProbe(
+            expectedRequests: routeRequests(harness.recipients),
+            groups: allocation.groups
+        )
+        let publisher = try makePublisher(
+            harness: harness,
+            probe: probe,
+            publicationJournal: restoredJournal
+        )
+
+        if completion == .transportAccepted {
+            try await publisher.resumePendingPublications()
+        } else {
+            await #expect(
+                throws: Publisher.Failure.recipientPublicationFailed
+            ) {
+                try await publisher.resumePendingPublications()
+            }
+        }
+
+        #expect(await probe.callCount == 0)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
+        #expect(
+            restoredJournal.pendingContinuations(for: .control).isEmpty
+        )
+        let snapshot = try #require(persistence.snapshot)
+        #expect(snapshot.records.contains { record in
+            guard case let .completed(eventIdentifier, durableCompletion) =
+                    record else {
+                return false
+            }
+            return eventIdentifier == target.publication.eventIdentifier
+                && durableCompletion == completion
+        })
+    }
+
+    @Test("Reject a restored control record with partial batch membership")
+    func rejectPartialRestoredBatchBeforeRouting() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let harness = fixture.harness
+        let batch = fixture.batch
+        let relaySelection = try makeRelaySelection(context: harness.context)
+        let journalContext = try Journal.Context(
+            publicationContext: harness.context,
+            relaySelection: relaySelection
+        )
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let journal = try Journal(
+            context: journalContext,
+            persistence: persistence.persistence
+        )
+        _ = try journal.prepareBatch(
+            try batch.recipients.map { recipient in
+                let eventIdentity = try #require(
+                    harness.recipients.first {
+                        $0.controlIdentity == recipient.controlIdentity
+                    }
+                ).eventVerificationKey.rawRepresentation
+                return try .init(
+                    giftWrap: recipient.giftWrap,
+                    binding: .init(
+                        channelPurpose: .control,
+                        recipientEventIdentity: eventIdentity,
+                        expiryUnixSeconds:
+                            batch.envelope.expiryUnixSeconds
+                    )
+                )
+            }
+        )
+        let durableBatch = try #require(persistence.preparedBatches.first)
+        persistence.replaceSnapshot(.init(
+            context: journalContext,
+            records: [
+                .prepared(.init(
+                    channelPurpose: .control,
+                    publications: Array(
+                        durableBatch.publications.dropLast()
+                    )
+                )),
+            ]
+        ))
+
+        let restoredJournal = try Journal(
+            context: journalContext,
+            persistence: persistence.persistence
+        )
+        let allocation = makeRouteAllocation(recipients: harness.recipients)
+        let probe = RouteProviderProbe(
+            expectedRequests: routeRequests(harness.recipients),
+            groups: allocation.groups
+        )
+        let publisher = try makePublisher(
+            harness: harness,
+            probe: probe,
+            publicationJournal: restoredJournal
+        )
+
+        await #expect(throws: Publisher.Failure.invalidContinuationSet) {
+            try await publisher.resumePendingPublications()
+        }
+        #expect(await probe.callCount == 0)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 0)
+            }
+        }
     }
 
     @Test("Reject foreign bridge batches before routing")
@@ -748,17 +1115,40 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
 
     private func makePublisher(
         harness: BridgeHarness,
-        probe: RouteProviderProbe
+        probe: RouteProviderProbe,
+        publicationJournal: Journal? = nil
     ) throws -> Publisher {
-        try .init(
+        let relaySelection = try makeRelaySelection(context: harness.context)
+        return try .init(
             context: harness.context,
             recipients: harness.recipients,
-            relaySelection: makeRelaySelection(context: harness.context),
+            relaySelection: relaySelection,
+            publicationJournal: publicationJournal
+                ?? makePublicationJournal(
+                    context: harness.context,
+                    relaySelection: relaySelection
+                ),
             codingLimits: relayLimits,
             maximumPendingRelayOutputCount: 4,
             provideRoutes: { requests in
                 try await probe.provide(requests)
             }
+        )
+    }
+
+    private func makePublicationJournal(
+        context: Bridge.Context,
+        relaySelection: Alpha.PostManifestRelaySelectionValidation
+    ) throws -> Journal {
+        try .init(
+            context: .init(
+                publicationContext: context,
+                relaySelection: relaySelection
+            ),
+            persistence: .init(
+                loadSnapshot: { _ in nil },
+                appendRecord: { _, _, _ in }
+            )
         )
     }
 
