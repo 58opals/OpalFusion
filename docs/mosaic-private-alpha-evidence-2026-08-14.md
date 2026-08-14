@@ -1,6 +1,6 @@
 # Mosaic Private-Alpha Evidence — 2026-08-14
 
-Status: G0 in-progress evidence. This record does not close G0 or any later gate.
+Status: Historical G0 in-progress evidence captured on 2026-08-14. This record does not close G0 or any later gate. The Wallet task composition recorded below was explicitly reverted on 2026-08-15 and is not current evidence; see the [package-layer checkpoint](mosaic-package-layer-checkpoint-2026-08-15.md).
 
 ## Scope And Environment
 
@@ -174,11 +174,11 @@ The proposed separately versioned [Mosaic Mainnet-Alpha Private-Deployment Profi
 
 The fixed fee remains one satoshi per final signed byte with the existing one-to-two-satoshi roster-derived contributor share and ten-satoshi transaction overhead. The accepted off-commitment accountability limitation remains unchanged. The 20-bit work and three registry-label digests are respectively an admission throttle and configured-diversity assertion, not Sybil resistance or operator independence. The private supplement requires no clearnet fallback and grants no broadcast permission.
 
-Recovery decisions are now explicit for later implementation: a signing intent without durable signed bytes aborts and releases rather than re-signing; a locally signed state resumes only from its exact stored bytes; an ambiguous broadcast intent performs no dispatch until exact transaction presence is reconciled; corrupt, rolled-back, deleted, stale, or uncertain state remains quarantined; and material erasure waits for terminal wallet and chain disposition. These decisions do not constitute G1 or G5 implementation evidence.
+On 2026-08-14, recovery decisions were explicit for later implementation: a signing intent without durable signed bytes aborts and releases rather than re-signing; a locally signed state resumes only from its exact stored bytes; an ambiguous broadcast intent performs no dispatch until exact transaction presence is reconciled; corrupt, rolled-back, deleted, stale, or uncertain state remains quarantined; and material erasure waits for terminal wallet and chain disposition. The later package-only checkpoint implements abandoned-journal cleanup authorization and outbound publication continuation components, but complete G1 and G5 execution remains absent.
 
 ## Gate Findings
 
-| Gate | Baseline result |
+| Gate | Baseline result on 2026-08-14 |
 | --- | --- |
 | G0 | In progress: revision `b5f60b07ccc1437acc5ec74cede26e49b8319ad7` implements the proposed supplement with freeze-grade vectors and no unresolved internal audit finding; Wallet `24721909fe901ffe3018cb368690c9536e8128e6` proves exact local dependency parity and application compilation; explicit approval of the exact semantic decisions remains incomplete. |
 | G1 | Open: OpalBase has an authenticated synthetic journal and recovery planner, and Wallet now has production app-owned wallet-secret wipe behavior, but the app has no Mosaic attempt fsync/Keychain/catalog/rollback backend, complete recovery executor, cross-process attempt owner, attempt-material erasure, or genuine fresh-process proof. |
@@ -194,7 +194,7 @@ No relay, Tor, Fulcrum, value-movement, mainnet-canary, merge, push, tag, promot
 
 Known baseline risks include the accepted alpha.4 off-commitment accountability limitation; low-cost discovery work that must not be described as Sybil resistance; traffic and relay-operator correlation; absent durable Mosaic recovery and attempt-material erasure evidence; missing cross-process broadcast exclusion; incomplete chain reorganization identity; no affirmative hardware Secure Enclave proof in this environment; and lack of independent external assurance. The only permitted wording remains “deterministic mainnet-alpha contract foundation.”
 
-Rollback at this baseline is to revert or discard Wallet task commit `24721909fe901ffe3018cb368690c9536e8128e6` and the isolated OpalFusion task commits; none has been merged or published. Runtime disable remains structural: `.opalMainnetAlpha` is not a package default, `Profile.supportsRuntimeSessionDriver` remains false, and the generic `RuntimeSessionDriver` rejects it. No public application surface was added.
+Rollback at this baseline was to revert or discard Wallet task commit `24721909fe901ffe3018cb368690c9536e8128e6` and the isolated package task commits. The Wallet rollback was completed on 2026-08-15, while the OpalFusion and OpalBase package commits were fast-forwarded only to their local private `draft` lanes and were not pushed or publicly promoted. Runtime disable remains structural: `.opalMainnetAlpha` is not a package default, `Profile.supportsRuntimeSessionDriver` remains false, and the generic `RuntimeSessionDriver` rejects it. No public application surface was added.
 
 ## Non-Proofs
 
