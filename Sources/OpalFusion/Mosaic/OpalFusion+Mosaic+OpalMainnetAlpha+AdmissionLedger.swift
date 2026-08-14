@@ -1188,7 +1188,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 }
             }
             acknowledgementSet = set
-            return [.preSignAcknowledgementSetAdmitted(set)]
+            return [
+                .preSignAcknowledgementSetAdmitted(
+                    set.submissions.map(\.validation)
+                ),
+            ]
         }
 
         private mutating func receiveBCHSignatureSet(

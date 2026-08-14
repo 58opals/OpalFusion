@@ -5,7 +5,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     ///
     /// This boundary neither authorizes signing nor resolves previous outputs. The caller must
     /// supply the accepted reservation-publication proof, exact local transcript-inclusion proof,
-    /// roster-complete acknowledgement set, and transcript-bound output of
+    /// roster-complete acknowledgement validations, and transcript-bound output of
     /// `PreviousOutputResolver`; the wallet host remains responsible for its independent checks.
     enum SigningRequestBuilder {
         enum Failure: Error, Sendable, Equatable {
@@ -43,7 +43,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 .ReservationPublicationValidation,
             transcriptInclusion: OpalFusion.Mosaic.LocalAttempt
                 .TranscriptInclusionValidation,
-            acknowledgementSet: PreSignAcknowledgementSet,
+            acknowledgements: [OpalFusion.Mosaic.Attempt
+                .TranscriptAcknowledgementValidation],
             previousOutputs: PreviousOutputResolver.Validation
         ) throws(Failure) -> OpalFusion.Host.MosaicTransactionSigningRequest {
             let publication = reservationPublication.request
@@ -87,14 +88,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                   transcript.contributors == context.roster.contributors else {
                 throw .manifestMismatch
             }
-            let acknowledgedContributors = acknowledgementSet.submissions.map {
-                $0.acknowledgement.contributor
-            }
-            guard acknowledgementSet.roundIdentifier
-                    == manifest.core.roundIdentifier,
-                  acknowledgementSet.transcriptRoot
-                    == transcript.transcriptRoot.validatedBytes,
-                  acknowledgedContributors
+            guard acknowledgements.allSatisfy({ acknowledgement in
+                      acknowledgement.profile == .opalMainnetAlpha
+                          && acknowledgement.roundIdentifier
+                              == manifest.core.roundIdentifier
+                          && acknowledgement.transcriptRoot
+                              == transcript.transcriptRoot
+                  }),
+                  acknowledgements.map(\.contributor)
                     == manifest.core.orderedContributors else {
                 throw .acknowledgementSetMismatch
             }

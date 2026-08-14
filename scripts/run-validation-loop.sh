@@ -75,7 +75,7 @@ run_serial_filter() {
   run_test --no-parallel --filter "$filter_name"
 }
 
-MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator|MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator|MosaicMainnetAlphaContractValidator|MosaicOpalV0AuthorizationValidator'
+MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator|MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator|MosaicMainnetAlphaReservationCoordinatorValidator|MosaicMainnetAlphaContractValidator|MosaicOpalV0AuthorizationValidator'
 MOSAIC_FAST_FILTER='MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator'
 MOSAIC_MAINNET_REHEARSAL_FILTER='executeSixContributorConductor|executeThroughExactCommit'
 MOSAIC_MATERIAL_FILTER='MosaicMainnetAlpha4MaterialValidator'
@@ -91,6 +91,16 @@ assert_mosaic_fast_lane_is_rsa_free() {
     || fail "The Mosaic fast lane requires rg for its RSA-fixture guard."
   if rg -n "$banned_pattern" "${fast_files[@]}"; then
     fail "The Mosaic fast lane reached an RSA evaluator or real-material fixture."
+  fi
+}
+
+assert_mosaic_reservation_dependency_lane_is_material_free() {
+  local banned_pattern='requireAuthorizationEvaluators\(|authorizationEvaluator\(|bchSignatureAuthorizationEvaluator\(|AuthorizationEvaluator\.generate\(|ExecutionFixtures?\.prepare\(|LocalContributionMaterial\.build\(|makeLocalContributionMaterial\(|makeMaterializedPreparation\('
+  local dependency_file=Tests/OpalFusionTests/MosaicMainnetAlphaReservationCoordinatorDependencyValidator.swift
+  command -v rg >/dev/null 2>&1 \
+    || fail "The Mosaic reservation dependency lane requires rg for its material guard."
+  if rg -n "$banned_pattern" "$dependency_file"; then
+    fail "The Mosaic reservation dependency lane reached evaluator or material construction."
   fi
 }
 
@@ -115,6 +125,7 @@ case "$mode" in
     ;;
   all)
     assert_mosaic_fast_lane_is_rsa_free
+    assert_mosaic_reservation_dependency_lane_is_material_free
     run_mosaic_rsa_dependent_tests
     run_serial_filter "$MOSAIC_MATERIAL_FILTER"
     run_serial_filter ClientSessionValidator
@@ -142,6 +153,7 @@ case "$mode" in
     ;;
   mosaic)
     assert_mosaic_fast_lane_is_rsa_free
+    assert_mosaic_reservation_dependency_lane_is_material_free
     run_mosaic_rsa_dependent_tests
     run_serial_filter "$MOSAIC_MATERIAL_FILTER"
     run_bounded_test --filter Mosaic \

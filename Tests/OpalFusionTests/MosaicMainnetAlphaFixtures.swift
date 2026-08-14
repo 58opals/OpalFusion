@@ -328,7 +328,7 @@ enum MosaicMainnetAlphaFixtures {
         )
     }
 
-    private static func makeLocalContributionMaterial(
+    static func makeLocalContributionMaterial(
         manifest: Alpha.RoundManifest,
         contributor: Attempt.ControlIdentity,
         contributorIndex: Int,

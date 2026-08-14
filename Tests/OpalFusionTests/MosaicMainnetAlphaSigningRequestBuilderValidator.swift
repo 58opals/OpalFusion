@@ -64,7 +64,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
         let publication: Session.ReservationPublicationValidation
         let transcriptInclusion: OpalFusion.Mosaic.LocalAttempt
             .TranscriptInclusionValidation
-        let acknowledgementSet: Alpha.PreSignAcknowledgementSet
+        let acknowledgements: [Attempt.TranscriptAcknowledgementValidation]
         let lease: Host.MosaicReservationLease
         let previousOutputs: Alpha.PreviousOutputResolver.Validation
         let publicKey: [UInt8]
@@ -175,6 +175,18 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
         #expect(throws: Builder.Failure.localPeerIsNotContributor) {
             _ = try build(harness, context: conductorContext)
         }
+
+        let foreignProfileAcknowledgements = try makeAcknowledgements(
+            admission: harness.admission,
+            transcript: harness.transcript,
+            profile: .opalV0
+        )
+        #expect(throws: Builder.Failure.acknowledgementSetMismatch) {
+            _ = try build(
+                harness,
+                acknowledgements: foreignProfileAcknowledgements
+            )
+        }
     }
 
     @Test("Reject context, reservation-publication, and manifest substitution")
@@ -243,14 +255,14 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             )
         }
 
-        let foreignAcknowledgementSet = try makeAcknowledgementSet(
+        let foreignAcknowledgements = try makeAcknowledgements(
             admission: harness.admission,
             transcript: foreignTranscript
         )
         #expect(throws: Builder.Failure.acknowledgementSetMismatch) {
             _ = try build(
                 harness,
-                acknowledgementSet: foreignAcknowledgementSet
+                acknowledgements: foreignAcknowledgements
             )
         }
 
@@ -259,7 +271,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             validatedManifestDigest:
                 harness.admission.manifest.binding.manifestDigest
         )
-        let foreignRoundAcknowledgementSet = try makeAcknowledgementSet(
+        let foreignRoundAcknowledgements = try makeAcknowledgements(
             admission: harness.admission,
             transcript: harness.transcript,
             binding: foreignRoundBinding
@@ -267,7 +279,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
         #expect(throws: Builder.Failure.acknowledgementSetMismatch) {
             _ = try build(
                 harness,
-                acknowledgementSet: foreignRoundAcknowledgementSet
+                acknowledgements: foreignRoundAcknowledgements
             )
         }
 
@@ -284,7 +296,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
                 .init(controlIdentity: $0, role: .contributor)
             }
         )
-        let substitutedRosterAcknowledgementSet = try makeAcknowledgementSet(
+        let substitutedRosterAcknowledgements = try makeAcknowledgements(
             admission: harness.admission,
             transcript: harness.transcript,
             roster: substitutedRoster
@@ -292,7 +304,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
         #expect(throws: Builder.Failure.acknowledgementSetMismatch) {
             _ = try build(
                 harness,
-                acknowledgementSet: substitutedRosterAcknowledgementSet
+                acknowledgements: substitutedRosterAcknowledgements
             )
         }
     }
@@ -527,7 +539,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             context: context,
             transcript: transcript
         )
-        let acknowledgementSet = try makeAcknowledgementSet(
+        let acknowledgements = try makeAcknowledgements(
             admission: admission,
             transcript: transcript
         )
@@ -541,7 +553,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             transcript: transcript,
             publication: publication,
             transcriptInclusion: transcriptInclusion,
-            acknowledgementSet: acknowledgementSet,
+            acknowledgements: acknowledgements,
             lease: lease,
             previousOutputs: previousOutputs,
             publicKey: publicKey
@@ -713,7 +725,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             context: context,
             transcript: transcript
         )
-        let acknowledgementSet = try makeAcknowledgementSet(
+        let acknowledgements = try makeAcknowledgements(
             admission: admission,
             transcript: transcript
         )
@@ -728,7 +740,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
                 transcript: transcript,
                 publication: publication,
                 transcriptInclusion: inclusion,
-                acknowledgementSet: acknowledgementSet,
+                acknowledgements: acknowledgements,
                 lease: lease,
                 previousOutputs: previousOutputs,
                 publicKey: try #require(localPublicKeys[0])
@@ -743,7 +755,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
         publication: Session.ReservationPublicationValidation? = nil,
         transcriptInclusion: OpalFusion.Mosaic.LocalAttempt
             .TranscriptInclusionValidation? = nil,
-        acknowledgementSet: Alpha.PreSignAcknowledgementSet? = nil,
+        acknowledgements: [Attempt.TranscriptAcknowledgementValidation]? = nil,
         previousOutputs: Alpha.PreviousOutputResolver.Validation? = nil
     ) throws -> Host.MosaicTransactionSigningRequest {
         try Builder.build(
@@ -751,8 +763,7 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             reservationPublication: publication ?? harness.publication,
             transcriptInclusion:
                 transcriptInclusion ?? harness.transcriptInclusion,
-            acknowledgementSet:
-                acknowledgementSet ?? harness.acknowledgementSet,
+            acknowledgements: acknowledgements ?? harness.acknowledgements,
             previousOutputs: previousOutputs ?? harness.previousOutputs
         )
     }
@@ -806,13 +817,14 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
             )
     }
 
-    private func makeAcknowledgementSet(
+    private func makeAcknowledgements(
         admission: Fixture.Harness,
         transcript: OpalFusion.Mosaic.OpalV0
             .UnsignedTransactionTranscript,
         binding: Attempt.ManifestBinding? = nil,
-        roster: Attempt.Roster? = nil
-    ) throws -> Alpha.PreSignAcknowledgementSet {
+        roster: Attempt.Roster? = nil,
+        profile: OpalFusion.Mosaic.Profile = .opalMainnetAlpha
+    ) throws -> [Attempt.TranscriptAcknowledgementValidation] {
         let binding = binding ?? admission.manifest.binding
         let roster = roster ?? admission.election.result.roster
         let acknowledgements = MosaicManifestSignatureFixtures
@@ -820,26 +832,18 @@ struct MosaicMainnetAlphaSigningRequestBuilderValidator {
                 for: roster.contributors,
                 binding: binding,
                 transcriptRoot: transcript.transcriptRoot,
-                profile: .opalMainnetAlpha
+                profile: profile
             )
-        let submissions = try acknowledgements.sorted {
+        return try acknowledgements.sorted {
             $0.contributor.validatedBytes.lexicographicallyPrecedes(
                 $1.contributor.validatedBytes
             )
         }.map {
-            try Alpha.PreSignAcknowledgementSubmission(
-                contributor: $0.contributor,
-                roundIdentifier: $0.roundIdentifier,
-                transcriptRoot: $0.transcriptRoot,
-                signature: $0.rawRepresentation
+            try Attempt.TranscriptAcknowledgementValidation(
+                validating: $0,
+                profile: profile
             )
         }
-        return try .init(
-            roundIdentifier: binding.roundIdentifier,
-            transcriptRoot: transcript.transcriptRoot.validatedBytes,
-            roster: roster,
-            submissions: submissions
-        )
     }
 
     private func resolvePreviousOutputs(

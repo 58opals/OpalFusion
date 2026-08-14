@@ -465,12 +465,20 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.LocalContributionMaterial:
         _ request: OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession
             .ReservationPublicationRequest
     ) throws {
+        do {
+            try OpalFusion.Mosaic.OpalMainnetAlpha
+                .ReservationMaterialLeaseValidator.validate(
+                    actualLease: request.reservationLease,
+                    materialLease: reservationLease
+                )
+        } catch {
+            throw ValidationError.bindingMismatch
+        }
         guard request.attemptIdentifier == attemptIdentifier,
               request.generationIdentifier == generationIdentifier,
               request.materialIdentifier == materialIdentifier,
               request.contributor == contributor,
               request.manifest == manifest,
-              request.reservationLease == reservationLease,
               request.playerCommit == playerCommit else {
             throw ValidationError.bindingMismatch
         }

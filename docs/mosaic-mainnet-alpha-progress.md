@@ -1,6 +1,6 @@
 # Mosaic Mainnet-Alpha Progress
 
-Status date: 2026-08-13. This is a non-normative implementation record; the protocol profile and security model remain authoritative.
+Status date: 2026-08-14. This is a non-normative implementation record; the protocol profile and security model remain authoritative.
 
 ## Current Claim
 
@@ -43,9 +43,9 @@ The boundary shape is sound for a private alpha. The exact cross-repository prof
 
 ## Validation Lanes
 
-The focused OpalFusion contributor lane is `./scripts/run-validation-loop.sh mosaic-fast`. It statically rejects evaluator generation, evaluator access, and real-material fixture preparation in the selected route-plan and contributor-lifecycle test sources before running them. Both suites passed inside one warm aggregate in 14.412 seconds on 2026-08-13, within the 15-second post-build budget. The minimum-roster, mailbox-provisioning, and owner-authorized execution-gate suites use only embedded public verification keys and remain separate extended RSA-free structural checks. The fast OpalBase wallet lane is `swift test --skip-build --filter AccountMosaicAttemptRecoveryValidator`; at `62af542` it passed 22 tests in 5.116 seconds after the build and its focused files contain no authorization-evaluator or RSABSSA key-generation call.
+The focused OpalFusion contributor lane is `./scripts/run-validation-loop.sh mosaic-fast`. It statically rejects evaluator generation, evaluator access, and real-material fixture preparation in the selected route-plan and contributor-lifecycle test sources before running them. Both suites passed inside one warm aggregate in 14.412 seconds on 2026-08-13, within the 15-second post-build budget. The minimum-roster, mailbox-provisioning, and owner-authorized execution-gate suites use only embedded public verification keys and remain separate extended RSA-free structural checks. OpalBase recovery validation is now split across `AccountMosaicAttemptRecoveryPlannerValidator`, `AccountMosaicAttemptJournalValidator`, `AccountMosaicAttemptRecoveryGateValidator`, and `AccountMosaicTransactionBroadcastCoordinatorValidator`; build, discovery, and all four focused filters passed in the bounded no-network lane, with each filter under ten seconds.
 
-The serialized `./scripts/run-validation-loop.sh mosaic-rehearsal` lane remains the intentionally slow milestone proof because it generates two real purpose-separated RSABSSA signing keys. On 2026-08-13 it passed both rehearsals in one process: conductor completion in 191.516 seconds and contributor exact commit in 135.741 seconds, 2/2 in 327.258 seconds. A restricted sandbox invocation failed before either test body with `authorizationEvaluatorUnavailable`; the same commit passed when Security.framework could create nonpersistent keys outside that sandbox. Treat that fixture error as an environment precondition failure, not a reason to loop individual RSA-heavy filters.
+The serialized `./scripts/run-validation-loop.sh mosaic-rehearsal` lane remains the intentionally slow milestone proof because it generates two real purpose-separated RSABSSA signing keys. On 2026-08-13 it passed both rehearsals in one process: conductor completion in 191.516 seconds and contributor exact commit in 135.741 seconds, 2/2 in 327.258 seconds. After the bounded ownership roadmap changes, the required one-shot 2026-08-14 rehearsal again passed in one process: conductor completion in 188.344 seconds and contributor exact commit in 132.693 seconds, 2/2 in 321.038 seconds, within the ten-minute cap. A restricted sandbox invocation failed before either test body with `authorizationEvaluatorUnavailable`; the same code passes when Security.framework can create nonpersistent keys outside that sandbox. Treat that fixture error as an environment precondition failure, not a reason to loop individual RSA-heavy filters.
 
 ## Hardening Goal Closure
 

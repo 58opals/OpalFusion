@@ -226,7 +226,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard case let .success(material) = result else {
                 throw terminate(.materialConstructionFailed)
             }
-            guard material.reservationLease == lease else {
+            do {
+                try ReservationMaterialLeaseValidator.validate(
+                    actualLease: lease,
+                    materialLease: material.reservationLease
+                )
+            } catch {
                 throw terminate(.materialBindingFailed)
             }
 

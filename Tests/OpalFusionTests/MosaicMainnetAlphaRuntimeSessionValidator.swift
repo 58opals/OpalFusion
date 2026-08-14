@@ -164,7 +164,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
 
     @Test(
         "Bridge reaches the exact transcript only after reservation-publication binding",
-        .timeLimit(.minutes(2))
+        .timeLimit(.minutes(3))
     )
     func bridgeThroughTranscriptAgreement() throws {
         let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
@@ -191,7 +191,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
 
     @Test(
         "Contributor requires every local commitment in the published set",
-        .timeLimit(.minutes(2))
+        .timeLimit(.minutes(3))
     )
     func rejectLocalCommitmentSubstitution() throws {
         let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
@@ -238,7 +238,7 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
 
     @Test(
         "Portable acknowledgements open BCH signing and exact validation completes",
-        .timeLimit(.minutes(2))
+        .timeLimit(.minutes(3))
     )
     func completeAfterExactTransactionValidation() async throws {
         let evaluator = try MosaicMainnetAlphaFixtures.authorizationEvaluator()
@@ -311,7 +311,9 @@ struct MosaicMainnetAlphaRuntimeSessionValidator {
         #expect(
             effects.contains(
                 .admission(
-                    .preSignAcknowledgementSetAdmitted(acknowledgementSet)
+                    .preSignAcknowledgementSetAdmitted(
+                        submissions.map(\.validation)
+                    )
                 )
             )
         )

@@ -4,9 +4,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Coordinates one contributor's mainnet-alpha reservation boundary.
     ///
     /// Control and anonymous transport remain injected. The coordinator owns ordered local authority:
-    /// Reservation-only mode stops after sealed publication. Contributor-execution mode additionally
-    /// owns attempt-fresh material, transcript inclusion, BCH signing, and exact commit ordering.
-    /// Durable recovery and broadcast remain external.
+    /// attempt-fresh material, sealed publication, transcript inclusion, BCH signing, and exact
+    /// commit ordering. Durable recovery and broadcast remain external.
     actor ReservationCoordinator {
         private enum QueuedInput: Sendable {
             case runtime(RuntimeSession.Input)
@@ -57,7 +56,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             [LocalAnonymousComponentPublication]?
         private var transcriptInclusionValidation: OpalFusion.Mosaic.LocalAttempt
             .TranscriptInclusionValidation?
-        private var admittedAcknowledgementSet: PreSignAcknowledgementSet?
+        private var admittedAcknowledgements: [OpalFusion.Mosaic.Attempt
+            .TranscriptAcknowledgementValidation]?
         private var previousOutputValidation: PreviousOutputResolver.Validation?
         private var completeTransactionValidation: CompleteTransactionValidation?
         private var queuedInputSourceTermination: InputSourceTermination?
@@ -153,7 +153,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             return true
         }
 
-        /// Requests cancellation without cancelling an in-flight selected-mode dependency call.
+        /// Requests cancellation without cancelling an in-flight dependency call.
         func stop() {
             guard state == .running,
                   queuedInputSourceTermination == nil else {
@@ -309,8 +309,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
 
             case let .authorizationResponsesValidated(validation):
-                if dependencies.execution != nil,
-                   authorizationResponseValidation != validation {
+                if authorizationResponseValidation != validation {
                     failAndStop(.authorizationResponseValidationFailed)
                 }
 
@@ -319,8 +318,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     commitmentSet
                 )
 
-            case let .preSignAcknowledgementSetAdmitted(set):
-                admittedAcknowledgementSet = set
+            case let .preSignAcknowledgementSetAdmitted(acknowledgements):
+                admittedAcknowledgements = acknowledgements
 
             case let .completeTransactionValidationRequired(candidate):
                 validateCompleteTransaction(candidate)
@@ -496,71 +495,65 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return
             }
 
+            let execution = dependencies.execution
+            let material: LocalContributionMaterial
+            do {
+                material = try await execution.makeLocalContributionMaterial(
+                    eligibility,
+                    lease
+                )
+            } catch {
+                dispositionGate.finishReservationPublication()
+                failAndStop(.localMaterialInvalid)
+                return
+            }
+            do {
+                try ReservationMaterialLeaseValidator.validate(
+                    actualLease: lease,
+                    materialLease: material.reservationLease
+                )
+            } catch {
+                dispositionGate.finishReservationPublication()
+                failAndStop(.reservationPublicationLeaseMismatch)
+                return
+            }
             let validation: RuntimeSession.ReservationPublicationValidation
-            if let execution = dependencies.execution {
-                let material: LocalContributionMaterial
-                do {
-                    material = try await execution.makeLocalContributionMaterial(
-                        eligibility,
-                        lease
-                    )
-                    let request = RuntimeSession.ReservationPublicationRequest(
-                        attemptIdentifier: context.attemptIdentifier,
-                        generationIdentifier: context.generationIdentifier,
-                        materialIdentifier: context.materialIdentifier,
-                        contributor: context.localControlIdentity,
-                        manifest: eligibility.manifest,
-                        reservationLease: lease,
-                        playerCommit: material.playerCommit
-                    )
-                    validation = try .init(
-                        validating: request,
-                        using: material
-                    )
-                } catch {
-                    dispositionGate.finishReservationPublication()
-                    failAndStop(.localMaterialInvalid)
-                    return
-                }
-                guard !shouldStopBeforeSigning else {
-                    dispositionGate.finishReservationPublication()
-                    await releaseIfNeeded()
-                    return
-                }
-                localContributionMaterial = material
-                do {
-                    try await execution.publishPlayerCommit(validation)
-                } catch {
-                    dispositionGate.finishReservationPublication()
-                    failAndStop(.reservationPublicationFailed)
-                    return
-                }
-            } else {
-                guard let reservationOnly = dependencies.reservationOnly else {
-                    preconditionFailure(
-                        "Reservation-only mode must provide its publication authority."
-                    )
-                }
-                do {
-                    validation = try await reservationOnly
-                        .validateAndPublishReservedContribution(
-                            eligibility,
-                            lease
-                        )
-                } catch {
-                    dispositionGate.finishReservationPublication()
-                    failAndStop(.reservationPublicationFailed)
-                    return
-                }
+            do {
+                let request = RuntimeSession.ReservationPublicationRequest(
+                    attemptIdentifier: context.attemptIdentifier,
+                    generationIdentifier: context.generationIdentifier,
+                    materialIdentifier: context.materialIdentifier,
+                    contributor: context.localControlIdentity,
+                    manifest: eligibility.manifest,
+                    reservationLease: lease,
+                    playerCommit: material.playerCommit
+                )
+                validation = try .init(
+                    validating: request,
+                    using: material
+                )
+            } catch {
+                dispositionGate.finishReservationPublication()
+                failAndStop(.localMaterialInvalid)
+                return
+            }
+            guard !shouldStopBeforeSigning else {
+                dispositionGate.finishReservationPublication()
+                await releaseIfNeeded()
+                return
+            }
+            localContributionMaterial = material
+            do {
+                try await execution.publishPlayerCommit(validation)
+            } catch {
+                dispositionGate.finishReservationPublication()
+                failAndStop(.reservationPublicationFailed)
+                return
             }
             dispositionGate.finishReservationPublication()
 
             guard !dispositionGate.isReleaseRequested else {
                 await releaseIfNeeded()
-                return
-            }
-            guard validation.request.reservationLease == lease else {
-                failAndStop(.reservationPublicationLeaseMismatch)
                 return
             }
             applyAndEnqueue(.reservationPublicationValidated(validation))
@@ -570,8 +563,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             responseSet: AuthorizationResponseSet,
             playerCommit: PlayerCommit
         ) {
-            guard dependencies.execution != nil,
-                  let material = localContributionMaterial,
+            guard let material = localContributionMaterial,
                   material.playerCommit == playerCommit else {
                 failAndStop(.authorizationResponseValidationFailed)
                 return
@@ -630,9 +622,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private func validateCommitmentAndPublishAnonymousComponents(
             _ commitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet
         ) async {
-            guard let execution = dependencies.execution else {
-                return
-            }
+            let execution = dependencies.execution
             guard let material = localContributionMaterial,
                   authorizationResponseValidation != nil,
                   let publications = pendingAnonymousComponentPublications else {
@@ -677,8 +667,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             _ transcript: OpalFusion.Mosaic.OpalV0
                 .UnsignedTransactionTranscript
         ) {
-            guard dependencies.execution != nil,
-                  let material = localContributionMaterial else {
+            guard let material = localContributionMaterial else {
                 return
             }
             let validation: OpalFusion.Mosaic.LocalAttempt
@@ -708,8 +697,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             roundIdentifier: [UInt8],
             transcriptRoot: OpalFusion.Mosaic.Attempt.TranscriptRoot
         ) async {
-            guard let execution = dependencies.execution,
-                  let transcriptInclusionValidation,
+            let execution = dependencies.execution
+            guard let transcriptInclusionValidation,
                   transcriptInclusionValidation.contributor == contributor,
                   transcriptInclusionValidation.transcript.manifest
                     .roundIdentifier == roundIdentifier,
@@ -731,13 +720,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             transcript: OpalFusion.Mosaic.OpalV0
                 .UnsignedTransactionTranscript
         ) async {
-            guard let execution = dependencies.execution,
-                  case let .reserved(lease) = reservationLifecycle,
+            let execution = dependencies.execution
+            guard case let .reserved(lease) = reservationLifecycle,
                   let material = localContributionMaterial,
                   let authorizationResponseValidation,
                   let transcriptInclusionValidation,
                   transcriptInclusionValidation.transcript == transcript,
-                  let admittedAcknowledgementSet else {
+                  let admittedAcknowledgements else {
                 failAndStop(.signingPrerequisiteMissing)
                 return
             }
@@ -770,7 +759,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         material: material
                     ),
                     transcriptInclusion: transcriptInclusionValidation,
-                    acknowledgementSet: admittedAcknowledgementSet,
+                    acknowledgements: admittedAcknowledgements,
                     previousOutputs: resolved
                 )
             } catch {
@@ -854,9 +843,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private func validateCompleteTransaction(
             _ candidate: CompleteTransactionCandidate
         ) {
-            guard dependencies.execution != nil else {
-                return
-            }
             guard let previousOutputValidation else {
                 rejectCompleteTransaction(
                     candidate,
@@ -900,8 +886,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func commitCompleteTransaction() async {
-            guard let execution = dependencies.execution,
-                  case let .locallySigned(lease, _) = reservationLifecycle,
+            let execution = dependencies.execution
+            guard case let .locallySigned(lease, _) = reservationLifecycle,
                   let completeTransactionValidation else {
                 if let reference = reservationReference {
                     requireRecovery(

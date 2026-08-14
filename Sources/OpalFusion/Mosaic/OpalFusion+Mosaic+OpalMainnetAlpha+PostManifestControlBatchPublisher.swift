@@ -16,23 +16,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         typealias Context = PostManifestControlPublicationBridge.Context
         typealias ControlIdentity = OpalFusion.Mosaic.Attempt.ControlIdentity
         typealias Nostr = OpalFusion.Mosaic.NostrNamespace
-
-        struct RecipientRouteRequest: Sendable, Equatable {
-            let recipientEventIdentity: Data
-        }
-
-        struct RecipientRouteGroup: Sendable {
-            let recipientEventIdentity: Data
-            let routes: [PostManifestRelayRoute]
-
-            init(
-                recipientEventIdentity: Data,
-                routes: [PostManifestRelayRoute]
-            ) {
-                self.recipientEventIdentity = recipientEventIdentity
-                self.routes = routes
-            }
-        }
+        typealias RecipientRouteRequest =
+            PostManifestPublicationRouteAllocation.RecipientRouteRequest
+        typealias RecipientRouteGroup =
+            PostManifestPublicationRouteAllocation.RecipientRouteGroup
 
         enum InitializationError: Error, Sendable, Equatable {
             case manifestRelaySelectionMismatch
@@ -137,13 +124,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
             self.context = context
             self.relaySelection = relaySelection
-            self.routeRequests = recipientsByIdentity.values
-                .map(RecipientRouteRequest.init(recipientEventIdentity:))
-                .sorted {
-                    $0.recipientEventIdentity.lexicographicallyPrecedes(
-                        $1.recipientEventIdentity
-                    )
-                }
+            self.routeRequests = PostManifestPublicationRouteAllocation
+                .requests(for: Array(recipientsByIdentity.values))
             self.recipientEventIdentities = recipientsByIdentity
             self.codingLimits = codingLimits
             self.maximumPendingRelayOutputCount =
@@ -166,7 +148,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             let allRoutes = routeGroups.flatMap(\.routes)
             guard !Task.isCancelled else {
-                await Self.close(allRoutes)
+                await PostManifestPublicationRouteCloser.close(allRoutes)
                 throw .cancelled
             }
 
@@ -174,7 +156,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             do {
                 prepared = try prepare(batch, routeGroups: routeGroups)
             } catch {
-                await Self.close(allRoutes)
+                await PostManifestPublicationRouteCloser.close(allRoutes)
                 throw error
             }
             let publishers = prepared.map(\.publisher)
@@ -247,29 +229,21 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             _ batch: Batch,
             routeGroups: [RecipientRouteGroup]
         ) throws(Failure) -> [PreparedPublication] {
-            guard routeGroups.count == routeRequests.count else {
-                throw .routeAllocationMismatch
-            }
-            var routesByEventIdentity: [Data: [PostManifestRelayRoute]] = [:]
-            var connectionIdentities: Set<ObjectIdentifier> = []
-            for group in routeGroups {
-                guard routesByEventIdentity.updateValue(
-                    group.routes,
-                    forKey: group.recipientEventIdentity
-                ) == nil else {
+            let allocation: PostManifestPublicationRouteAllocation
+            do {
+                allocation = try .init(
+                    expectedRecipientEventIdentities: routeRequests.map(
+                        \.recipientEventIdentity
+                    ),
+                    routeGroups: routeGroups
+                )
+            } catch let error {
+                switch error {
+                case .routeAllocationMismatch:
                     throw .routeAllocationMismatch
+                case .duplicateConnection:
+                    throw .duplicateConnection
                 }
-                for route in group.routes {
-                    guard connectionIdentities.insert(
-                        ObjectIdentifier(route.connection as AnyObject)
-                    ).inserted else {
-                        throw .duplicateConnection
-                    }
-                }
-            }
-            guard Set(routesByEventIdentity.keys)
-                    == Set(routeRequests.map(\.recipientEventIdentity)) else {
-                throw .routeAllocationMismatch
             }
 
             do {
@@ -277,7 +251,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     guard let eventIdentity = recipientEventIdentities[
                         recipient.controlIdentity
                     ],
-                    let routes = routesByEventIdentity[eventIdentity] else {
+                    let routes = allocation.routes(for: eventIdentity) else {
                         throw Failure.routeAllocationMismatch
                     }
                     return try .init(
@@ -305,24 +279,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 for publisher in publishers {
                     group.addTask {
                         await publisher.stop()
-                    }
-                }
-            }
-        }
-
-        private static func close(
-            _ routes: [PostManifestRelayRoute]
-        ) async {
-            await withTaskGroup(of: Void.self) { group in
-                var connectionIdentities: Set<ObjectIdentifier> = []
-                for route in routes {
-                    guard connectionIdentities.insert(
-                        ObjectIdentifier(route.connection as AnyObject)
-                    ).inserted else {
-                        continue
-                    }
-                    group.addTask {
-                        await route.connection.close()
                     }
                 }
             }

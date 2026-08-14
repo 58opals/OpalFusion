@@ -1083,7 +1083,11 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         #expect(
             Fixture.admit(acknowledgementSetRun, to: &harness.ledger)
-                .contains(.preSignAcknowledgementSetAdmitted(acknowledgementSet))
+                .contains(
+                    .preSignAcknowledgementSetAdmitted(
+                        submissions.map(\.validation)
+                    )
+                )
         )
         #expect(
             try synchronize(
@@ -1819,7 +1823,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
             Fixture.admit(portableRun, to: &harness.ledger)
                 .contains(
                     .preSignAcknowledgementSetAdmitted(
-                        portableAcknowledgementSet
+                        portableSubmissions.map(\.validation)
                     )
                 )
         )

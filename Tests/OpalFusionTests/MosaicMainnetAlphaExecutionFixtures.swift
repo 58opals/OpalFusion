@@ -160,7 +160,7 @@ enum MosaicMainnetAlphaExecutionFixtures {
             context: session.context,
             reservationPublication: publication,
             transcriptInclusion: transcriptInclusion,
-            acknowledgementSet: acknowledgementSet,
+            acknowledgements: acknowledgementSet.submissions.map(\.validation),
             previousOutputs: completion.previousOutputs
         )
         var locallySignedTransaction = transcript.transaction

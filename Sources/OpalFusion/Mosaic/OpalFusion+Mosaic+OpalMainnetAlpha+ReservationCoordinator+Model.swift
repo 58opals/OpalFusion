@@ -11,22 +11,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
     }
 
     struct Dependencies: Sendable {
-        struct ReservationOnly: Sendable {
-            let transactionHost: any OpalFusion.Host.MosaicTransactionHost
-            /// Must return after publication acknowledgement without awaiting semantic loopback or
-            /// synchronously calling back into the coordinator.
-            let validateAndPublishReservedContribution: @Sendable (
-                ReservationEligibility,
-                OpalFusion.Host.MosaicReservationLease
-            ) async throws -> Session.ReservationPublicationValidation
-        }
-
-        enum Mode: Sendable {
-            case reservationOnly(ReservationOnly)
-            case contributorExecution(ExecutionDependencies)
-        }
-
-        let mode: Mode
+        let execution: ExecutionDependencies
         let maximumPendingInputCount: Int
         /// Caller-owned exact expiry until the profile freezes its manifest-deadline mapping.
         let expectedReservationExpiration: Date
@@ -39,32 +24,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
         /// callers must use `waitForTermination()` and inspect `state` for that boundary.
         let runtimeEffectObserver: @Sendable (Session.Effect) -> Void
         init(
-            transactionHost: any OpalFusion.Host.MosaicTransactionHost,
-            maximumPendingInputCount: Int = 256,
-            expectedReservationExpiration: Date,
-            makeReservationRequest: @escaping @Sendable (
-                ReservationEligibility
-            ) async throws -> OpalFusion.Host.MosaicReservationRequest,
-            validateAndPublishReservedContribution: @escaping @Sendable (
-                ReservationEligibility,
-                OpalFusion.Host.MosaicReservationLease
-            ) async throws -> Session.ReservationPublicationValidation,
-            runtimeEffectObserver: @escaping @Sendable (Session.Effect) -> Void = { _ in }
-        ) {
-            mode = .reservationOnly(
-                .init(
-                    transactionHost: transactionHost,
-                    validateAndPublishReservedContribution:
-                        validateAndPublishReservedContribution
-                )
-            )
-            self.maximumPendingInputCount = maximumPendingInputCount
-            self.expectedReservationExpiration = expectedReservationExpiration
-            self.makeReservationRequest = makeReservationRequest
-            self.runtimeEffectObserver = runtimeEffectObserver
-        }
-
-        init(
             execution: ExecutionDependencies,
             maximumPendingInputCount: Int = 256,
             expectedReservationExpiration: Date,
@@ -75,34 +34,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
                 Session.Effect
             ) -> Void = { _ in }
         ) {
-            mode = .contributorExecution(execution)
+            self.execution = execution
             self.maximumPendingInputCount = maximumPendingInputCount
             self.expectedReservationExpiration = expectedReservationExpiration
             self.makeReservationRequest = makeReservationRequest
             self.runtimeEffectObserver = runtimeEffectObserver
         }
 
-        var execution: ExecutionDependencies? {
-            guard case let .contributorExecution(execution) = mode else {
-                return nil
-            }
-            return execution
-        }
-
         var transactionHost: any OpalFusion.Host.MosaicTransactionHost {
-            switch mode {
-            case let .reservationOnly(dependencies):
-                dependencies.transactionHost
-            case let .contributorExecution(dependencies):
-                dependencies.transactionHost
-            }
-        }
-
-        var reservationOnly: ReservationOnly? {
-            guard case let .reservationOnly(dependencies) = mode else {
-                return nil
-            }
-            return dependencies
+            execution.transactionHost
         }
     }
 

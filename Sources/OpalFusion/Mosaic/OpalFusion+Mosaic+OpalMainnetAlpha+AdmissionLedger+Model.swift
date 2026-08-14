@@ -267,7 +267,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
                 .PreSignAcknowledgementSubmission]
         )
         case preSignAcknowledgementSetAdmitted(
-            OpalFusion.Mosaic.OpalMainnetAlpha.PreSignAcknowledgementSet
+            [OpalFusion.Mosaic.Attempt.TranscriptAcknowledgementValidation]
         )
         case phaseAdvanced(PhaseContext)
         case attemptTerminated(Outcome)

@@ -57,19 +57,13 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         }
     }
 
-    private struct ReferenceValidator:
-        Session.ReservationPublicationValidating
+    private struct RejectingPreviousOutputSource:
+        OpalFusion.Host.MosaicPreviousOutputSource
     {
-        struct Rejection: Error {}
-
-        let expectedReference: OpalFusion.Host.MosaicReservationReference
-
-        func validateReservationPublication(
-            _ request: Session.ReservationPublicationRequest
-        ) throws {
-            guard request.reservationReference == expectedReference else {
-                throw Rejection()
-            }
+        func resolvePreviousOutputs(
+            for _: [OpalFusion.Host.MosaicPreviousOutputRequest]
+        ) async throws -> [OpalFusion.Host.MosaicPreviousOutput] {
+            throw ProbeFailure.unexpectedInvocation
         }
     }
 
@@ -80,7 +74,6 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         let lease: OpalFusion.Host.MosaicReservationLease
         let host: MosaicRuntimeCoordinatorHostProbe
         let signals: SignalProbe
-        let externalValidation: Session.ReservationPublicationValidation
         let coordinator: Coordinator
     }
 
@@ -97,9 +90,26 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         case transactionProfile
     }
 
-    private enum PublicationLeaseSubstitution {
+    private enum HostLeaseSubstitution {
         case foreignReference
         case sameReferenceDifferentContents
+    }
+
+    private static let sharedMaterialTask = Task {
+        let admission = try Fixture.makeHarness(localRole: .contributor)
+        let contributorIndex = try #require(
+            admission.manifest.core.orderedContributors.firstIndex(
+                of: admission.localControlIdentity
+            )
+        )
+        return try MosaicMainnetAlphaFixtures.makeLocalContributionMaterial(
+            manifest: admission.manifest,
+            contributor: admission.localControlIdentity,
+            contributorIndex: contributorIndex,
+            attemptIdentifier: admission.attemptIdentifier,
+            generationIdentifier: admission.generationIdentifier,
+            materialIdentifier: admission.materialIdentifier
+        )
     }
 
     @Test(
@@ -107,7 +117,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         .timeLimit(.minutes(1))
     )
     func bindActualLeaseToPublication() async throws {
-        let harness = try makeHarness()
+        let harness = try await makeHarness()
         await harness.coordinator.start()
 
         try await submitManifest(harness)
@@ -148,8 +158,8 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         .timeLimit(.minutes(1))
     )
     func rejectForeignLeaseValidation() async throws {
-        let harness = try makeHarness(
-            publicationLeaseSubstitution: .foreignReference
+        let harness = try await makeHarness(
+            hostLeaseSubstitution: .foreignReference
         )
         await harness.coordinator.start()
         try await submitManifest(harness)
@@ -163,7 +173,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.host.releasedReferences
                 == [harness.lease.reference]
         )
-        #expect(harness.signals.count(.publicationStarted) == 1)
+        #expect(harness.signals.count(.publicationStarted) == 0)
         #expect(harness.signals.count(.validationAccepted) == 0)
     }
 
@@ -172,8 +182,8 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         .timeLimit(.minutes(1))
     )
     func rejectSameReferenceLeaseSubstitution() async throws {
-        let harness = try makeHarness(
-            publicationLeaseSubstitution: .sameReferenceDifferentContents
+        let harness = try await makeHarness(
+            hostLeaseSubstitution: .sameReferenceDifferentContents
         )
         await harness.coordinator.start()
         try await submitManifest(harness)
@@ -197,7 +207,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     func rejectHostLeaseExpirationMismatch(
         _ expirationOffset: TimeInterval
     ) async throws {
-        let harness = try makeHarness(
+        let harness = try await makeHarness(
             hostLeaseExpirationOffset: expirationOffset
         )
         await harness.coordinator.start()
@@ -223,7 +233,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     func releaseLateLeaseAfterCancellation() async throws {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
-        let harness = try makeHarness(reserveSuspension: suspension)
+        let harness = try await makeHarness(reserveSuspension: suspension)
         await harness.coordinator.start()
         try await submitManifest(harness)
         await suspension.waitUntilSuspended()
@@ -257,7 +267,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     func finishClaimedPublicationBeforeCancellation() async throws {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
-        let harness = try makeHarness(publicationSuspension: suspension)
+        let harness = try await makeHarness(publicationSuspension: suspension)
         await harness.coordinator.start()
         try await submitManifest(harness)
         await suspension.waitUntilSuspended()
@@ -291,7 +301,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     func preserveSourceLossDuringPublication() async throws {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
-        let harness = try makeHarness(publicationSuspension: suspension)
+        let harness = try await makeHarness(publicationSuspension: suspension)
         await harness.coordinator.start()
         try await submitManifest(harness)
         await suspension.waitUntilSuspended()
@@ -334,7 +344,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     func failOnInputBufferOverflow() async throws {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
-        let harness = try makeHarness(
+        let harness = try await makeHarness(
             publicationSuspension: suspension,
             maximumPendingInputCount: 64
         )
@@ -366,7 +376,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     func rejectInvalidReservationRequest(
         _ substitution: ReservationRequestSubstitution
     ) async throws {
-        let harness = try makeHarness(
+        let harness = try await makeHarness(
             reservationRequestSubstitution: substitution
         )
         await harness.coordinator.start()
@@ -387,7 +397,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         .timeLimit(.minutes(1))
     )
     func failClosedWhenHostReservationFails() async throws {
-        let harness = try makeHarness()
+        let harness = try await makeHarness()
         await harness.host.failReservation()
         await harness.coordinator.start()
         try await submitManifest(harness)
@@ -409,7 +419,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     func releaseAfterPublicationFailure() async throws {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
-        let harness = try makeHarness(
+        let harness = try await makeHarness(
             publicationSuspension: suspension,
             failPublication: true
         )
@@ -438,7 +448,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         .timeLimit(.minutes(1))
     )
     func releaseBeforeRuntimeFailure() async throws {
-        let harness = try makeHarness()
+        let harness = try await makeHarness()
         await harness.coordinator.start()
         try await submitManifest(harness)
         await harness.signals.wait(for: .validationAccepted)
@@ -461,7 +471,7 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         .timeLimit(.minutes(1))
     )
     func requireRecoveryAfterReleaseFailure() async throws {
-        let harness = try makeHarness()
+        let harness = try await makeHarness()
         await harness.host.failRelease()
         await harness.coordinator.start()
         try await submitManifest(harness)
@@ -515,12 +525,9 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             _ = try Coordinator(
                 runtimeSession: session,
                 dependencies: .init(
-                    transactionHost: host,
+                    execution: rejectingExecutionDependencies(host: host),
                     expectedReservationExpiration: lease.expiresAt,
                     makeReservationRequest: { _ in
-                        throw ProbeFailure.unexpectedInvocation
-                    },
-                    validateAndPublishReservedContribution: { _, _ in
                         throw ProbeFailure.unexpectedInvocation
                     }
                 )
@@ -598,64 +605,31 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     private func makeHarness(
         reserveSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
         publicationSuspension: MosaicRuntimeCoordinatorSuspensionProbe? = nil,
-        publicationLeaseSubstitution: PublicationLeaseSubstitution? = nil,
+        hostLeaseSubstitution: HostLeaseSubstitution? = nil,
         reservationRequestSubstitution: ReservationRequestSubstitution? = nil,
         hostLeaseExpirationOffset: TimeInterval = 0,
         failPublication: Bool = false,
         maximumPendingInputCount: Int = 256
-    ) throws -> Harness {
+    ) async throws -> Harness {
         let admission = try Fixture.makeHarness(localRole: .contributor)
-        let materialIdentifier = Session.MaterialIdentifier(
-            opaqueBytes: [UInt8](repeating: 0xA3, count: 32)
-        )
+        let material = try await Self.sharedMaterialTask.value
+        let materialIdentifier = admission.materialIdentifier
         let session = try makeRuntimeSession(
             admission: admission,
             materialIdentifier: materialIdentifier
         )
-        let preparation = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
-            roster: admission.election.result.roster,
-            manifest: admission.manifest.binding,
-            profile: .opalMainnetAlpha
-        )
-        let playerCommit = try #require(
-            Fixture.makePlayerCommits(
-                harness: admission,
-                commitmentSet: preparation.commitmentSet
-            ).first {
-                $0.contributor == admission.localControlIdentity
-            }
-        )
-        let expectedExpiration = Date(timeIntervalSince1970: 1_900_000_000)
-        let lease = try makeLease(
-            expiresAt: expectedExpiration.addingTimeInterval(
-                hostLeaseExpirationOffset
-            )
-        )
-        let foreignReference = reservationReference(finalByte: 0xC2)
-        let publicationLease: OpalFusion.Host.MosaicReservationLease
-        switch publicationLeaseSubstitution {
-        case .foreignReference:
-            publicationLease = try makeLease(reference: foreignReference)
-        case .sameReferenceDifferentContents:
-            publicationLease = try makeLease(
-                reference: lease.reference,
-                inputLockingScript: [0x52]
-            )
-        case nil:
-            publicationLease = lease
+        guard material.attemptIdentifier == admission.attemptIdentifier,
+              material.generationIdentifier == admission.generationIdentifier,
+              material.materialIdentifier == materialIdentifier,
+              material.contributor == admission.localControlIdentity,
+              material.manifest == admission.manifest else {
+            throw ProbeFailure.unexpectedInvocation
         }
-        let externalRequest = Session.ReservationPublicationRequest(
-            attemptIdentifier: admission.attemptIdentifier,
-            generationIdentifier: admission.generationIdentifier,
-            materialIdentifier: materialIdentifier,
-            contributor: admission.localControlIdentity,
-            manifest: admission.manifest,
-            reservationLease: lease,
-            playerCommit: playerCommit
-        )
-        let externalValidation = try Session.ReservationPublicationValidation(
-            validating: externalRequest,
-            using: ReferenceValidator(expectedReference: lease.reference)
+        let expectedExpiration = material.reservationLease.expiresAt
+        let lease = try makeHostLease(
+            from: material.reservationLease,
+            substituting: hostLeaseSubstitution,
+            expirationOffset: hostLeaseExpirationOffset
         )
         let host = MosaicRuntimeCoordinatorHostProbe(
             lease: lease,
@@ -666,7 +640,43 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         let coordinator = try Coordinator(
             runtimeSession: session,
             dependencies: .init(
-                transactionHost: host,
+                execution: .init(
+                    transactionHost: host,
+                    previousOutputSource: RejectingPreviousOutputSource(),
+                    makeLocalContributionMaterial: {
+                        receivedEligibility,
+                        receivedLease in
+                        guard receivedEligibility == Coordinator
+                            .ReservationEligibility(
+                                context: session.context,
+                                manifest: admission.manifest
+                            ), receivedLease == lease else {
+                            throw ProbeFailure.unexpectedInvocation
+                        }
+                        return material
+                    },
+                    publishPlayerCommit: { validation in
+                        guard validation.request.reservationLease == lease,
+                              validation.request.playerCommit
+                                == material.playerCommit else {
+                            throw ProbeFailure.unexpectedInvocation
+                        }
+                        signals.record(.publicationStarted)
+                        await publicationSuspension?.suspendIfArmed()
+                        guard !failPublication else {
+                            throw ProbeFailure.publication
+                        }
+                    },
+                    publishAnonymousComponents: { _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    },
+                    publishPreSignAcknowledgement: { _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    },
+                    publishLocalBCHSignatures: { _ in
+                        throw ProbeFailure.unexpectedInvocation
+                    }
+                ),
                 maximumPendingInputCount: maximumPendingInputCount,
                 expectedReservationExpiration: expectedExpiration,
                 makeReservationRequest: { eligibility in
@@ -674,34 +684,6 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
                         eligibility: eligibility,
                         expiresAt: expectedExpiration,
                         substituting: reservationRequestSubstitution
-                    )
-                },
-                validateAndPublishReservedContribution: {
-                    eligibility,
-                    receivedLease in
-                    guard receivedLease == lease else {
-                        throw ProbeFailure.unexpectedInvocation
-                    }
-                    signals.record(.publicationStarted)
-                    await publicationSuspension?.suspendIfArmed()
-                    guard !failPublication else {
-                        throw ProbeFailure.publication
-                    }
-                    let request = Session.ReservationPublicationRequest(
-                        attemptIdentifier: eligibility.context.attemptIdentifier,
-                        generationIdentifier: eligibility.context
-                            .generationIdentifier,
-                        materialIdentifier: eligibility.context.materialIdentifier,
-                        contributor: eligibility.context.localControlIdentity,
-                        manifest: eligibility.manifest,
-                        reservationLease: publicationLease,
-                        playerCommit: playerCommit
-                    )
-                    return try Session.ReservationPublicationValidation(
-                        validating: request,
-                        using: ReferenceValidator(
-                            expectedReference: publicationLease.reference
-                        )
                     )
                 },
                 runtimeEffectObserver: { effect in
@@ -719,11 +701,10 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         return .init(
             admission: admission,
             materialIdentifier: materialIdentifier,
-            playerCommit: playerCommit,
+            playerCommit: material.playerCommit,
             lease: lease,
             host: host,
             signals: signals,
-            externalValidation: externalValidation,
             coordinator: coordinator
         )
     }
@@ -758,15 +739,36 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         maximumPendingInputCount: Int = 256
     ) -> Coordinator.Dependencies {
         .init(
-            transactionHost: host,
+            execution: rejectingExecutionDependencies(host: host),
             maximumPendingInputCount: maximumPendingInputCount,
             expectedReservationExpiration: Date(
                 timeIntervalSince1970: 1_900_000_000
             ),
             makeReservationRequest: { _ in
                 throw ProbeFailure.unexpectedInvocation
+            }
+        )
+    }
+
+    private func rejectingExecutionDependencies(
+        host: MosaicRuntimeCoordinatorHostProbe
+    ) -> Coordinator.ExecutionDependencies {
+        .init(
+            transactionHost: host,
+            previousOutputSource: RejectingPreviousOutputSource(),
+            makeLocalContributionMaterial: { _, _ in
+                throw ProbeFailure.unexpectedInvocation
             },
-            validateAndPublishReservedContribution: { _, _ in
+            publishPlayerCommit: { _ in
+                throw ProbeFailure.unexpectedInvocation
+            },
+            publishAnonymousComponents: { _ in
+                throw ProbeFailure.unexpectedInvocation
+            },
+            publishPreSignAcknowledgement: { _ in
+                throw ProbeFailure.unexpectedInvocation
+            },
+            publishLocalBCHSignatures: { _ in
                 throw ProbeFailure.unexpectedInvocation
             }
         )
@@ -881,6 +883,44 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
                     )
                 ]
             )
+        )
+    }
+
+    private func makeHostLease(
+        from materialLease: OpalFusion.Host.MosaicReservationLease,
+        substituting substitution: HostLeaseSubstitution?,
+        expirationOffset: TimeInterval
+    ) throws -> OpalFusion.Host.MosaicReservationLease {
+        var reference = materialLease.reference
+        var reservation = materialLease.participantReservation
+        switch substitution {
+        case .foreignReference:
+            reference = reservationReference(finalByte: 0xC2)
+        case .sameReferenceDifferentContents:
+            let firstInput = try #require(reservation.inputs.first)
+            var changedHash = firstInput.outpointTransactionHashBytes
+            changedHash[0] ^= 0x01
+            reservation = .init(
+                inputs: [
+                    .init(
+                        outpointTransactionHashBytes: changedHash,
+                        outpointIndex: firstInput.outpointIndex,
+                        amountSatoshis: firstInput.amountSatoshis,
+                        lockingScriptBytes: firstInput.lockingScriptBytes,
+                        publicKey: firstInput.publicKey
+                    )
+                ] + Array(reservation.inputs.dropFirst()),
+                outputs: reservation.outputs
+            )
+        case nil:
+            break
+        }
+        return try .init(
+            reference: reference,
+            expiresAt: materialLease.expiresAt.addingTimeInterval(
+                expirationOffset
+            ),
+            participantReservation: reservation
         )
     }
 

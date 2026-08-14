@@ -59,7 +59,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var admittedLocalPlayerCommit: PlayerCommit?
         private var admittedCommitmentSet: OpalFusion.Mosaic.OpalV0.CommitmentSet?
         private var admittedTranscript: AdmissionLedger.Transcript?
-        private var admittedAcknowledgementSet: PreSignAcknowledgementSet?
+        private var admittedAcknowledgements: [OpalFusion.Mosaic.Attempt
+            .TranscriptAcknowledgementValidation]?
         private var completeTransactionCandidate: CompleteTransactionCandidate?
         private var reservationPublication: ReservationPublicationValidation?
         private var hasTranscriptInclusionValidation = false
@@ -435,8 +436,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     admittedCommitmentSet = commitmentSet
                 case let .componentSetAdmitted(_, transcript):
                     admittedTranscript = transcript
-                case let .preSignAcknowledgementSetAdmitted(set):
-                    admittedAcknowledgementSet = set
+                case let .preSignAcknowledgementSetAdmitted(acknowledgements):
+                    admittedAcknowledgements = acknowledgements
                 case let .completeTransactionValidationRequired(candidate):
                     completeTransactionCandidate = candidate
                 case .aggregateReservationAccepted,
@@ -539,11 +540,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
             case .transcriptAgreement:
                 guard let transcript = admittedTranscript,
-                      let admittedAcknowledgementSet,
-                      admittedAcknowledgementSet.roundIdentifier
-                        == transcript.manifest.roundIdentifier,
-                      admittedAcknowledgementSet.transcriptRoot
-                        == transcript.transcriptRoot.validatedBytes,
+                      let admittedAcknowledgements,
+                      admittedAcknowledgements.allSatisfy({ acknowledgement in
+                          acknowledgement.profile == .opalMainnetAlpha
+                              && acknowledgement.roundIdentifier
+                                  == transcript.manifest.roundIdentifier
+                              && acknowledgement.transcriptRoot
+                                  == transcript.transcriptRoot
+                      }),
                       localRole == .conductor
                         || hasTranscriptInclusionValidation else {
                     return []
@@ -551,7 +555,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return advance(
                     to: .bchSigning(transcript),
                     using: .transcriptAgreementValidated(
-                        admittedAcknowledgementSet.submissions.map(\.validation)
+                        admittedAcknowledgements
                     )
                 )
 
