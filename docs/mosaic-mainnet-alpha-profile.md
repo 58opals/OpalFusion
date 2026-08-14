@@ -211,6 +211,8 @@ The following are intentionally unresolved or external and MUST remain fail clos
 - independent cryptographic, side-channel, privacy, wallet-policy, and deployment review of the frozen primitives, capacity behavior, protocol composition, and operational boundaries;
 - app-owned mainnet transaction-reader selection, explicit broadcast permission, and recovery-aware broadcast execution; no test may call a live reader or broadcaster.
 
+The non-normative [Mosaic Mainnet-Alpha Progress](mosaic-mainnet-alpha-progress.md) record sequences these gates and owns their status and closure evidence. It cannot weaken this profile or the [Mosaic Security Model](mosaic-security-model.md). Independent assurance and operational-readiness gates MUST close before any bounded-value mainnet canary, exact cross-package dependency alignment MUST precede integrated app evidence, and a private-alpha decision does not authorize a public Mosaic session or public release.
+
 Until every relevant gate is complete, safe wording is limited to “deterministic mainnet-alpha contract foundation.” It is not a live Mosaic engine, a mainnet-ready wallet feature, an anonymity claim, or permission to use real funds.
 
 The [Alpha.4 Design Record](mosaic-mainnet-alpha4-design-proposal.md) retains the rationale and rejected alternatives for the salt, local material, component-bound purpose-separated authorization, mailbox, and honest-wallet safety-boundary decisions accepted by this normative profile. This document and the implemented golden vectors are authoritative; the design record is not a second source of protocol truth.

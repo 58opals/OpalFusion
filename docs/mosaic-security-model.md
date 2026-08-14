@@ -223,6 +223,8 @@ Production consideration requires:
 - documented incident response and protocol-disable mechanism;
 - conservative wallet UX reviewed against the safe-claim boundary.
 
+These are pre-canary requirements, not release-closeout suggestions. Independent review, parser fuzzing, multi-device reliability, incident response, the protocol-disable mechanism, and integrated recovery evidence MUST be complete before any bounded-value mainnet canary. A canary cannot substitute for a missing review or be used to broaden the safe claims above. The non-normative [Mosaic Mainnet-Alpha Progress](mosaic-mainnet-alpha-progress.md) record owns sequencing, status, and closure evidence without weakening these gates.
+
 ## 14. References
 
 - [CashFusion protocol specification](https://github.com/cashshuffle/spec/blob/master/CASHFUSION.md)
