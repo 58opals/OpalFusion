@@ -65,7 +65,7 @@ After narrow approval, `xcodebuild -downloadComponent MetalToolchain` installed 
 
 ## G0 Contract Implementation Validation
 
-The proposed OpalFusion contract implementation is still an uncommitted working tree based on `51ebd6b0ffc3ea38b6948bfddf8b64270afc94f9`; an immutable implementation revision and the wider OpalBase/Wallet composition remain pending. The final package-local validation used one isolated SwiftPM lane with the Metal toolchain selector above, SwiftPM sandbox disabled under the repository's documented exception, and no network or value-moving service. The lane's workspace state recorded OpalCrypto as an editable checkout whose Git HEAD was exactly `e4886e2fdf2c4c25fa3ae7eead576dfd87cb4fb2`; its resolved OpalDiagnostics checkout was exactly `8c42eeb40d64776789e70694e4e5006d2afa400c`. The editable path was local validation state only. The tracked `Package.resolved` was restored byte-for-byte afterward and contains no path or private-remote substitution.
+OpalFusion revision `b5f60b07ccc1437acc5ec74cede26e49b8319ad7`, based on `51ebd6b0ffc3ea38b6948bfddf8b64270afc94f9`, is the immutable proposed G0 implementation. The wider OpalBase/Wallet composition remains pending. The final package-local validation used one isolated SwiftPM lane with the Metal toolchain selector above, SwiftPM sandbox disabled under the repository's documented exception, and no network or value-moving service. The lane's workspace state recorded OpalCrypto as an editable checkout whose Git HEAD was exactly `e4886e2fdf2c4c25fa3ae7eead576dfd87cb4fb2`; its resolved OpalDiagnostics checkout was exactly `8c42eeb40d64776789e70694e4e5006d2afa400c`. The editable path was local validation state only. The tracked `Package.resolved` was restored byte-for-byte afterward and contains no path or private-remote substitution.
 
 The exact-leaf candidate lane produced these results:
 
@@ -77,7 +77,7 @@ The exact-leaf candidate lane produced these results:
 
 The private suite includes fixed canonical and domain goldens, strict parser positives and negatives, deterministic mutation bounds, exact protocol/genesis drift, discovery/control identity separation, decoded-event-only manifest assembly, proof-derived signer authority, nonce-allocation publication, and signed-manifest plus previous-output-backed completion validation. `git diff --check`, exact filename-header inspection, the strict API/naming audit, validation-script syntax and absolute module-cache override checks, and changed-document relative-link validation passed. The five files above the naming skill's 199-line target are recorded as advisory split debt; the skill defines no blocking line-count finding, and there is no unresolved `BlockingRename` or `BlockingNonRename` finding.
 
-These results prove package-local contract behavior against the exact newer OpalCrypto and OpalDiagnostics leaves. They do not yet prove an exact committed OpalFusion revision, OpalBase, SwiftFulcrum, Wallet composition, semantic approval of the new private-deployment profile, durable recovery, concrete transport, application integration, external review, or any later gate.
+These results prove package-local contract behavior for exact committed OpalFusion `b5f60b07ccc1437acc5ec74cede26e49b8319ad7` against the exact newer OpalCrypto and OpalDiagnostics leaves. They do not yet prove the required OpalBase, SwiftFulcrum, and Wallet composition, semantic approval of the new private-deployment profile, durable recovery, concrete transport, application integration, external review, or any later gate.
 
 ## Discovery Work Benchmark
 
@@ -108,7 +108,7 @@ Recovery decisions are now explicit for later implementation: a signing intent w
 
 | Gate | Baseline result |
 | --- | --- |
-| G0 | In progress: the private-deployment supplement freezes the previously missing decisions, while source remediation, freeze-grade canonical vectors, exact cross-repository dependency parity, and final audit remain incomplete. |
+| G0 | In progress: revision `b5f60b07ccc1437acc5ec74cede26e49b8319ad7` implements the proposed supplement with freeze-grade vectors and no unresolved internal audit finding; explicit approval of the exact decisions and exact cross-repository dependency parity remain incomplete. |
 | G1 | Open: OpalBase has an authenticated synthetic journal and recovery planner, but the app has no durable fsync/Keychain/catalog/rollback backend, complete executor, cross-process owner, material erasure, or genuine fresh-process proof. |
 | G2 | Open: OpalFusion has injected relay/NIP-59 contracts, but no concrete authenticated key lifecycle, authoritative relay policy, persistent acknowledgements, reconnect, or Tor-only production adapter. |
 | G3 | Open: Wallet is the composition owner, contains no Mosaic composition, and cannot reach OpalBase's internal Mosaic types without a deliberate private boundary. |
@@ -118,7 +118,7 @@ Recovery decisions are now explicit for later implementation: a signing intent w
 
 ## Approvals, Risks, And Disable Procedure
 
-No relay, Tor, Fulcrum, value-movement, mainnet-canary, merge, push, tag, promotion, or publication approval was used. One narrow toolchain-installation approval allowed Xcode to download the matching Metal Toolchain component after the required local build reported that environment precondition; the download did not contact any Mosaic, wallet, relay, Tor, or chain service. Other external access was limited to ordinary Git and SwiftPM reads required for local freshness and resolution.
+No relay, Tor, Fulcrum, value-movement, mainnet-canary, merge, push, tag, promotion, or publication approval was used. Explicit approval of the exact private-deployment.1 semantic decision set has not yet been granted. One narrow toolchain-installation approval allowed Xcode to download the matching Metal Toolchain component after the required local build reported that environment precondition; the download did not contact any Mosaic, wallet, relay, Tor, or chain service. Other external access was limited to ordinary Git and SwiftPM reads required for local freshness and resolution.
 
 Known baseline risks include the accepted alpha.4 off-commitment accountability limitation; low-cost discovery work that must not be described as Sybil resistance; traffic and relay-operator correlation; absent durable recovery and secret-erasure evidence; missing cross-process broadcast exclusion; incomplete chain reorganization identity; and lack of independent assurance. The only permitted wording remains “deterministic mainnet-alpha contract foundation.”
 
