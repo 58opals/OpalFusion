@@ -1,6 +1,6 @@
 # Mosaic Package-Layer Checkpoint — 2026-08-15
 
-Status: Package-only implementation is paused at a clean local `draft` landing and is ready for the next package work session. No roadmap gate is complete.
+Status: Package-only implementation is paused at clean local/private `draft` parity and is ready for the next package work session. No roadmap gate is complete.
 
 ## Goal
 
@@ -8,13 +8,13 @@ Continue Mosaic private-alpha work only through OpalBase, OpalFusion, and OpalCr
 
 ## Current State
 
-OpalFusion and OpalBase package commits were fast-forwarded onto their local Class D `draft` branches after a fresh `private/draft` fetch and ahead-only landing check. OpalCrypto was already at exact local and private draft parity. No branch was pushed or promoted, no public lane moved, no application repository was landed, and no external network or value-moving operation ran.
+OpalFusion and OpalBase package commits were fast-forwarded onto their local Class D `draft` branches after a fresh `private/draft` fetch and ahead-only landing check, then pushed by explicit approval to their `private/draft` branches. OpalCrypto was already at exact local and private draft parity and its explicit push was a no-op. The prescribed post-push checks verified clean `0/0` local/private parity in all three repositories. No public lane moved, no application repository was landed, and no external Mosaic network or value-moving operation ran.
 
-| Repository | Local `draft` revision | Cached `private/draft` after landing fetch | State |
-| --- | --- | --- | --- |
-| OpalFusion | `37266a4f6da86289c5042e8b4c081125a2310953` before this documentation commit | `51ebd6b0ffc3ea38b6948bfddf8b64270afc94f9` | Local draft ahead by four implementation/evidence commits; clean before documentation. |
-| OpalBase | `af1007dbe5d35a5f65d6ed90f56801519b7e70b0` | `f6219cad06517924cddb45e9bb9b95c0a6e2e47d` | Local draft ahead by two commits; canonical draft worktree clean. |
-| OpalCrypto | `e4886e2fdf2c4c25fa3ae7eead576dfd87cb4fb2` | `e4886e2fdf2c4c25fa3ae7eead576dfd87cb4fb2` | Clean and at exact parity. |
+| Repository | Published package revision | State after publication |
+| --- | --- | --- |
+| OpalFusion | Implementation `37266a4f6da86289c5042e8b4c081125a2310953`; package checkpoint `be503b4320863cace0208d872b00c15ea8211994`; this document's containing revision adds only the publication-status follow-up | Local `draft` and `private/draft` exact; clean. |
+| OpalBase | `af1007dbe5d35a5f65d6ed90f56801519b7e70b0` | Local `draft` and `private/draft` exact; clean. |
+| OpalCrypto | `e4886e2fdf2c4c25fa3ae7eead576dfd87cb4fb2` | Local `draft` and `private/draft` exact; clean. |
 
 The earlier Wallet task commit `24721909fe901ffe3018cb368690c9536e8128e6` was reversed by local task-branch commit `1be8018dc5db9575c2005d56815920bb45b0fc92`. The resulting Wallet tree exactly matches its original `543927b36fa4dae839719e7ab356f01ad863220e` baseline. Untracked Wallet Mosaic drafts were removed and are not recoverable from Git. Wallet is not current evidence and must not be touched in the next package-only session.
 
@@ -93,11 +93,11 @@ The OpalFusion test build emitted pre-existing deprecation warnings from legacy 
 
 ## Next Steps
 
-1. Start the next package-only session by rerouting OpalBase, OpalFusion, and OpalCrypto and fetching `private/draft`; inspect whether the local draft landings were privately published or remain ahead-only.
+1. Start the next package-only session by rerouting OpalBase, OpalFusion, and OpalCrypto, fetching `private/draft`, and requiring exact local/private draft parity before new mutations.
 2. Decide whether the next bounded slice is the OpalBase private recovery executor and chain-reconciliation boundary or the OpalFusion complete runtime-recovery envelope; keep ownership disjoint.
 3. Apply the required Swift API, naming, concurrency, testing, and security reviews before changing interfaces.
 4. Rebuild the exact temporary three-package lane and update this checkpoint or a dated successor with exact commands and non-proofs.
-5. Request separate approval before pushing private draft, public promotion, external network use, value movement, or any application-repository mutation.
+5. Request separate approval before any later private-draft push, public promotion, external network use, value movement, or application-repository mutation.
 
 ## Resume Prompt
 
