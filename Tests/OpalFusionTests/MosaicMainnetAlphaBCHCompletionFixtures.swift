@@ -12,12 +12,14 @@ enum MosaicMainnetAlphaBCHCompletionFixtures {
     }
 
     struct Prepared {
+        let manifest: Alpha.RoundManifest
         let transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
         let acceptedInput: OpalFusion.Mosaic.OpalV0.Component
         let previousOutputs: Alpha.PreviousOutputResolver.Validation
         let submission: Alpha.BCHSignatureSubmission
         let signatureSet: Alpha.BCHSignatureSet
         let payload: Alpha.CompleteTransactionPayload
+        let validation: Alpha.CompleteTransactionValidation
     }
 
     struct PreviousOutputSource: OpalFusion.Host.MosaicPreviousOutputSource {
@@ -39,16 +41,22 @@ enum MosaicMainnetAlphaBCHCompletionFixtures {
     }
 
     static func prepare(
+        manifest suppliedManifest: Alpha.RoundManifest? = nil,
         componentSaltOffset: Int = 0
     ) async throws -> Prepared {
-        let election = try MosaicMainnetAlphaFixtures.makeElection()
-        let manifest = try MosaicMainnetAlphaFixtures.makeManifest(
-            election: election,
-            verificationKey: MosaicMainnetAlphaFixtures.rsaVerificationKey()
-        )
+        let manifest: Alpha.RoundManifest
+        if let suppliedManifest {
+            manifest = suppliedManifest
+        } else {
+            let election = try MosaicMainnetAlphaFixtures.makeElection()
+            manifest = try MosaicMainnetAlphaFixtures.makeManifest(
+                election: election,
+                verificationKey: MosaicMainnetAlphaFixtures.rsaVerificationKey()
+            )
+        }
         let preparation = try MosaicUnsignedTransactionTranscriptFixtures
             .prepare(
-                roster: election.result.roster,
+                roster: manifest.core.roster,
                 manifest: manifest.binding,
                 profile: .opalMainnetAlpha,
                 componentSaltOffset: componentSaltOffset
@@ -111,13 +119,33 @@ enum MosaicMainnetAlphaBCHCompletionFixtures {
             transcriptRoot: preparation.transcript.transcriptRoot.validatedBytes,
             completeTransaction: completeTransaction
         )
+        let candidate = try Alpha.CompleteTransactionCandidate(
+            attemptIdentifier: .init(
+                validatedBytes: [UInt8](repeating: 0xA1, count: 32)
+            ),
+            generationIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0xA2, count: 32)
+            ),
+            materialIdentifier: .init(
+                opaqueBytes: [UInt8](repeating: 0xA3, count: 32)
+            ),
+            transcript: preparation.transcript,
+            signatureSet: signatureSet,
+            payload: payload
+        )
+        let validation = try Alpha.CompleteTransactionValidation(
+            validating: candidate,
+            previousOutputs: previousOutputs
+        )
         return .init(
+            manifest: manifest,
             transcript: preparation.transcript,
             acceptedInput: acceptedInput,
             previousOutputs: previousOutputs,
             submission: submission,
             signatureSet: signatureSet,
-            payload: payload
+            payload: payload,
+            validation: validation
         )
     }
 

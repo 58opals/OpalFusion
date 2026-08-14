@@ -93,19 +93,19 @@ No gate may close by moving an unresolved responsibility into a lower-level pack
 
 Each completed gate must record its status date, exact repository commits and resolved dependency revisions, validation commands and execution environment, produced artifacts and results, required external approvals, residual risks, and rollback or disable procedure. The record must also state what the evidence does not prove.
 
-Dependency evidence must cover one exact OpalFusion, OpalBase, OpalCrypto, SwiftFulcrum, and application composition. Branch-name compatibility or profile-identifier compatibility without exact resolved-revision parity is insufficient for integrated or canary evidence.
+Dependency evidence must cover one exact OpalFusion, OpalBase, OpalCrypto, SwiftFulcrum, OpalDiagnostics, and application composition. Branch-name compatibility or profile-identifier compatibility without exact resolved-revision parity is insufficient for integrated or canary evidence.
 
-## Ranked Private-Alpha Roadmap — Not Started
+## Ranked Private-Alpha Roadmap — In Progress
 
 ### G0 — Contract Decisions And Dependency Alignment
 
-Status: `not started`.
+Status: `in progress` as of 2026-08-14. The separately versioned [Mosaic Mainnet-Alpha Private-Deployment Profile](mosaic-mainnet-alpha-private-deployment.md) freezes the previously unresolved contract decisions without changing alpha.4 or alpha.5. The exact starting state, dependency drift, validation environment, decision evidence, non-proofs, and disable procedure are recorded in [Mosaic Private-Alpha Evidence — 2026-08-14](mosaic-private-alpha-evidence-2026-08-14.md). Source remediation, freeze-grade vectors, exact dependency composition, and final G0 audit remain open; no G0 closure is claimed.
 
 Close G0 only after the accepted off-commitment accountability tradeoff or its replacement proof, the Sybil/admission posture and permitted privacy claims, the mainnet fee and deadline policy, and every discovery and pre-manifest document or mapping needed by the private deployment are recorded without implementation-defined gaps. Any decision that changes frozen alpha.4 protocol or alpha.5 transport semantics requires a new profile identifier.
 
-The exact OpalFusion, OpalBase, OpalCrypto, SwiftFulcrum, and application dependency revisions must then build and pass their focused cross-package contract checks together. Profile drift must fail before wallet, recovery, transport, or broadcast mutation. Validation remains local and no external network or value movement is permitted.
+The exact OpalFusion, OpalBase, OpalCrypto, SwiftFulcrum, OpalDiagnostics, and application dependency revisions must then build and pass their focused cross-package contract checks together. Profile drift must fail before wallet, recovery, transport, or broadcast mutation. Validation remains local and no external network or value movement is permitted.
 
-Starting evidence on 2026-08-14: inspected OpalBase commit `f6219cad06517924cddb45e9bb9b95c0a6e2e47d` resolves its OpalFusion branch dependency to `2e657d6e1ef8b879cfa2f12d5b9f7c08b892d505`, while this roadmap's OpalFusion baseline is `a89a8c1a70d01ac76e80286cc4715a9308d1d208`. Existing cross-package evidence therefore does not prove exact-baseline integration and cannot close G0.
+Starting evidence on 2026-08-14 is recorded in [Mosaic Private-Alpha Evidence — 2026-08-14](mosaic-private-alpha-evidence-2026-08-14.md). Inspected OpalBase commit `f6219cad06517924cddb45e9bb9b95c0a6e2e47d` resolves OpalFusion to `2e657d6e1ef8b879cfa2f12d5b9f7c08b892d505`, while the authoritative OpalFusion baseline is `51ebd6b0ffc3ea38b6948bfddf8b64270afc94f9`; Wallet commit `543927b36fa4dae839719e7ab356f01ad863220e` resolves an older graph and contains no Mosaic composition. Existing cross-package evidence therefore does not prove exact-baseline integration and cannot close G0.
 
 ### G1 — Durable State And Complete Recovery
 

@@ -43,9 +43,9 @@ mode="$1"
 
 SPM_SCRATCH_PATH="${OPALFUSION_SPM_SCRATCH_PATH:-.build}"
 SPM_CACHE_PATH="${OPALFUSION_SPM_CACHE_PATH:-$SPM_SCRATCH_PATH}"
-SPM_CONFIG_PATH=".swiftpm-cache/validation/config"
-SPM_SECURITY_PATH=".swiftpm-cache/validation/security"
-SPM_MODULE_CACHE_PATH=".swiftpm-cache/validation/module-cache"
+SPM_CONFIG_PATH="${OPALFUSION_SPM_CONFIG_PATH:-.swiftpm-cache/validation/config}"
+SPM_SECURITY_PATH="${OPALFUSION_SPM_SECURITY_PATH:-.swiftpm-cache/validation/security}"
+SPM_MODULE_CACHE_PATH="${OPALFUSION_SPM_MODULE_CACHE_PATH:-.swiftpm-cache/validation/module-cache}"
 SPM_LANE_FLAGS=(
   --disable-sandbox
   --scratch-path "$SPM_SCRATCH_PATH"
@@ -54,7 +54,11 @@ SPM_LANE_FLAGS=(
   --security-path "$SPM_SECURITY_PATH"
   --manifest-cache local
 )
-export CLANG_MODULE_CACHE_PATH="$repo_root/$SPM_MODULE_CACHE_PATH"
+if [[ "$SPM_MODULE_CACHE_PATH" == /* ]]; then
+  export CLANG_MODULE_CACHE_PATH="$SPM_MODULE_CACHE_PATH"
+else
+  export CLANG_MODULE_CACHE_PATH="$repo_root/$SPM_MODULE_CACHE_PATH"
+fi
 mkdir -p "$CLANG_MODULE_CACHE_PATH"
 
 run_build() {

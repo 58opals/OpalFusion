@@ -35,6 +35,8 @@ Use the validation wrapper when you want stable named loops:
 ./scripts/run-validation-loop.sh interop-parser
 ```
 
+For exact cross-repository work, set `OPALFUSION_SPM_SCRATCH_PATH`, `OPALFUSION_SPM_CACHE_PATH`, `OPALFUSION_SPM_CONFIG_PATH`, `OPALFUSION_SPM_SECURITY_PATH`, and `OPALFUSION_SPM_MODULE_CACHE_PATH` to the same lane used by the preceding SwiftPM resolve and dependency audit. These overrides are local validation inputs; local paths and private remotes must not be committed to the product manifest or lockfile.
+
 The wrapper keeps the live Electron Cash coordinator proof disabled for deterministic modes, even when the caller has an interop flag in their shell environment.
 
 The local suite covers the protocol-neutral facade invariants, native protobuf primitives, official/manual CashFusion bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, and diagnostics.
@@ -168,6 +170,6 @@ Use capture only after a configured live smoke actually executes and passes the 
 - Run `./scripts/run-validation-loop.sh all` after changes that touch examples, public API references, protocol behavior, or validation docs.
 - Run the most relevant focused filter first when changing a narrow layer.
 - Run live smoke only when the goal is coordinator-backed proof and the environment is configured.
-- Update [Opal Fusion Specification](opal-fusion-specification.md), [Mosaic Protocol Specification](mosaic-protocol-specification.md), and [Mosaic Security Model](mosaic-security-model.md) together when shared boundaries or Mosaic invariants change.
+- Update [Opal Fusion Specification](opal-fusion-specification.md), [Mosaic Protocol Specification](mosaic-protocol-specification.md), [Mosaic Security Model](mosaic-security-model.md), and any applicable frozen profile such as the [private-deployment supplement](mosaic-mainnet-alpha-private-deployment.md) together when shared boundaries or Mosaic invariants change.
 - Update [CashFusion Official Protocol Matrix](cashfusion-official-protocol-matrix.md) when row-level support status or test evidence changes.
 - Update [CashFusion Native Swift Support Statement](cashfusion-native-support-statement.md) when the public support claim or remaining proof gates change.

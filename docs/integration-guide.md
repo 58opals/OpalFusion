@@ -110,5 +110,5 @@ Use `OpalFusion.Mosaic.Configuration(profile: .opalV0)` only for deterministic c
 - Use [Validation Guide](validation.md) to pick a fast local loop before trying live rounds.
 - Use [Architecture Guide](architecture.md) to understand the package layers behind the public session.
 - Use [Opal Fusion Specification](opal-fusion-specification.md) for engine selection and shared facade rules.
-- Use [Mosaic Protocol Specification](mosaic-protocol-specification.md) and [Mosaic Security Model](mosaic-security-model.md) before implementing or describing Mosaic.
+- Use [Mosaic Protocol Specification](mosaic-protocol-specification.md), [Mosaic Security Model](mosaic-security-model.md), and the applicable frozen profile, including the [private-deployment supplement](mosaic-mainnet-alpha-private-deployment.md), before implementing or describing Mosaic.
 - Use [CashFusion Native Swift Support Statement](cashfusion-native-support-statement.md) before making public support claims.

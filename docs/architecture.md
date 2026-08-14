@@ -1,6 +1,6 @@
 # OpalFusion Architecture Guide
 
-This guide maps the current package and its intended two-engine architecture. The normative hierarchy is [Opal Fusion Specification](opal-fusion-specification.md); protocol behavior is owned separately by [CashFusion Implementation Spec](cashfusion-implementation-spec.md) and [Mosaic Protocol Specification](mosaic-protocol-specification.md). The bounded private-alpha implementation status and remaining gates are recorded in [Mosaic Mainnet-Alpha Progress](mosaic-mainnet-alpha-progress.md).
+This guide maps the current package and its intended two-engine architecture. The normative hierarchy is [Opal Fusion Specification](opal-fusion-specification.md); protocol behavior is owned separately by [CashFusion Implementation Spec](cashfusion-implementation-spec.md) and [Mosaic Protocol Specification](mosaic-protocol-specification.md). The frozen non-live mainnet contract and separately versioned deployment decisions are owned by the [Mosaic Mainnet-Alpha Profile](mosaic-mainnet-alpha-profile.md) and [Mosaic Mainnet-Alpha Private-Deployment Profile](mosaic-mainnet-alpha-private-deployment.md). The bounded private-alpha implementation status and remaining gates are recorded in [Mosaic Mainnet-Alpha Progress](mosaic-mainnet-alpha-progress.md).
 
 ## Product Hierarchy
 
