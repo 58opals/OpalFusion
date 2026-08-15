@@ -114,7 +114,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         func submit(
             _ giftWrap: OpalFusion.Mosaic.NostrNamespace.Event,
             to recipient: Transport.RecipientCapability,
-            currentUnixSeconds: UInt64
+            currentUnixSeconds: UInt64,
+            source: OpalFusion.Mosaic.OpalMainnetAlpha
+                .PostManifestTransportIngress.RecoveredAdmission
         ) async throws(Transport.Failure) -> Bool {
             let delivery: Transport.AuthenticatedDelivery
             switch recipient.channel {
@@ -133,21 +135,89 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     currentUnixSeconds: currentUnixSeconds
                 )
             }
-            return await route(delivery)
+            return await route(delivery, source: source)
         }
 
         private func route(
-            _ delivery: Transport.AuthenticatedDelivery
+            _ delivery: Transport.AuthenticatedDelivery,
+            source: OpalFusion.Mosaic.OpalMainnetAlpha
+                .PostManifestTransportIngress.RecoveredAdmission
         ) async -> Bool {
             switch (coordinator, delivery.storage) {
             case let (.contributor(coordinator), .control(delivery)):
-                await coordinator.submitAuthenticatedControl(delivery)
+                await coordinator.submitAuthenticatedControl(
+                    delivery,
+                    source: source
+                )
             case (.contributor, .anonymous):
                 false
             case let (.conductor(coordinator), .control(delivery)):
-                await coordinator.submitAuthenticatedControl(delivery)
+                await coordinator.submitAuthenticatedControl(
+                    delivery,
+                    source: source
+                )
             case let (.conductor(coordinator), .anonymous(delivery)):
-                await coordinator.submitAuthenticatedAnonymous(delivery)
+                await coordinator.submitAuthenticatedAnonymous(
+                    delivery,
+                    source: source
+                )
+            }
+        }
+
+        /// Waits until every previously submitted recovered delivery and its role-owned effects
+        /// have either installed exact runtime state or failed the coordinator.
+        func awaitRuntimeRecoveryReplay() async -> Bool {
+            switch coordinator {
+            case let .contributor(coordinator):
+                return await coordinator.awaitRuntimeRecoveryReplay()
+            case let .conductor(coordinator):
+                return await coordinator.awaitRuntimeRecoveryReplay()
+            }
+        }
+
+        var currentPhase: OpalFusion.Mosaic.Attempt.Phase? {
+            get async {
+                switch coordinator {
+                case let .contributor(coordinator):
+                    return await coordinator.runtimeSessionState.phase
+                case let .conductor(coordinator):
+                    return await coordinator.runtimeSessionState.phase
+                }
+            }
+        }
+
+        var terminalProtocolAbort: (
+            phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        )? {
+            get async {
+                switch coordinator {
+                case let .contributor(coordinator):
+                    return await coordinator
+                        .runtimeSessionTerminalProtocolAbort
+                case let .conductor(coordinator):
+                    return await coordinator
+                        .runtimeSessionTerminalProtocolAbort
+                }
+            }
+        }
+
+        /// Orders one package-validated public abort behind prior admitted inputs.
+        func submitAuthenticatedAbort(
+            during phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        ) async -> Bool {
+            switch coordinator {
+            case let .contributor(coordinator):
+                return await coordinator.submitAuthenticatedAbort(
+                    during: phase,
+                    reason: reason
+                )
+            case let .conductor(coordinator):
+                return await coordinator.submitAuthenticatedAbort(
+                    during: phase,
+                    reason: reason
+                )
             }
         }
 
@@ -183,6 +253,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case let .conductor(coordinator):
                 await coordinator.waitForTermination()
                 return .conductor(await coordinator.state)
+            }
+        }
+
+        /// Returns the exact completed-transaction validation retained by the selected role.
+        func terminalCompletionValidation() async -> CompleteTransactionValidation? {
+            switch coordinator {
+            case let .contributor(coordinator):
+                return await coordinator.terminalCompletionValidation
+            case let .conductor(coordinator):
+                return await coordinator.terminalCompletionValidation
             }
         }
 

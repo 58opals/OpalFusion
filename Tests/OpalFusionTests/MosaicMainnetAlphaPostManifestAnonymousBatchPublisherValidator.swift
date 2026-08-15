@@ -385,6 +385,28 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
                 #expect(await connection.closeCount == 1)
             }
         }
+
+        let replayAllocation = makeRouteAllocation(batch: batch)
+        let replayProbe = RouteProviderProbe(
+            expectedRequests: routeRequests(batch),
+            groups: replayAllocation.groups
+        )
+        let replayPublisher = try makePublisher(
+            fixture: fixture,
+            routeProbe: replayProbe,
+            permitProbe: permitProbe,
+            publicationJournal: publicationJournal
+        )
+        try await replayPublisher.publish(batch)
+        #expect(await replayProbe.callCount == 0)
+        #expect(await permitProbe.requests.count == permitRequests.count)
+        for connections in replayAllocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
     }
 
     @Test("Reject an atomic anonymous batch append before any route opens")
@@ -423,12 +445,13 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
         }
 
         #expect(persistence.snapshot == nil)
+        #expect(await routeProbe.callCount == 0)
         #expect(await permitProbe.requests.isEmpty)
         for connections in allocation.connections.values {
             for connection in connections {
                 #expect(await connection.openCount == 0)
                 #expect(await connection.sentTexts.isEmpty)
-                #expect(await connection.closeCount == 1)
+                #expect(await connection.closeCount == 0)
             }
         }
     }
@@ -588,6 +611,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
         arguments: [
             Journal.Completion.transportAccepted,
             .transportRejected,
+            .cancelled,
         ]
     )
     func completeAcknowledgementDerivedAnonymousRecoveryBeforeRouting(
@@ -619,27 +643,35 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             }
         )
         let target = try #require(durableBatch.continuations.first)
-        for continuation in durableBatch.continuations.dropFirst() {
-            try firstJournal.recordCompletion(
-                .cancelled,
-                eventIdentifier: continuation.publication.eventIdentifier
-            )
-        }
-        try firstJournal.recordPublicationPermit(
-            eventIdentifier: target.publication.eventIdentifier
-        )
-        let acknowledgement: Journal.RelayAcknowledgement =
-            completion == .transportAccepted ? .accepted : .rejected
-        for endpoint in target.publication.endpoints.prefix(2) {
-            try firstJournal.recordAttempt(
-                eventIdentifier: target.publication.eventIdentifier,
-                endpoint: endpoint
-            )
-            try firstJournal.recordAcknowledgement(
-                acknowledgement,
-                eventIdentifier: target.publication.eventIdentifier,
-                endpoint: endpoint
-            )
+        if completion == .cancelled {
+            for continuation in durableBatch.continuations {
+                try firstJournal.recordCompletion(
+                    .cancelled,
+                    eventIdentifier:
+                        continuation.publication.eventIdentifier
+                )
+            }
+        } else {
+            let acknowledgement: Journal.RelayAcknowledgement =
+                completion == .transportAccepted ? .accepted : .rejected
+            for continuation in durableBatch.continuations {
+                try firstJournal.recordPublicationPermit(
+                    eventIdentifier: continuation.publication.eventIdentifier
+                )
+                for endpoint in continuation.publication.endpoints.prefix(2) {
+                    try firstJournal.recordAttempt(
+                        eventIdentifier:
+                            continuation.publication.eventIdentifier,
+                        endpoint: endpoint
+                    )
+                    try firstJournal.recordAcknowledgement(
+                        acknowledgement,
+                        eventIdentifier:
+                            continuation.publication.eventIdentifier,
+                        endpoint: endpoint
+                    )
+                }
+            }
         }
 
         let restoredJournal = try Journal(
@@ -663,14 +695,12 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
         )
 
         if completion == .transportAccepted {
-            try await publisher.resumePendingPublications(for: .components)
+            try await publisher.publish(batch)
         } else {
             await #expect(
                 throws: Publisher.Failure.recipientPublicationFailed
             ) {
-                try await publisher.resumePendingPublications(
-                    for: .components
-                )
+                try await publisher.publish(batch)
             }
         }
 

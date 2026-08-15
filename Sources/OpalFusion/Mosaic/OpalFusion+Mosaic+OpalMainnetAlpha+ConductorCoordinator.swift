@@ -1,5 +1,7 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+ConductorCoordinator.swift
 
+import Foundation
+
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Executes one post-manifest conductor without wallet or broadcast authority.
     ///
@@ -32,13 +34,27 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private enum QueuedInput: Sendable {
             case control(Ledger.ControlDelivery)
-            case authenticatedControl(Ledger.ControlDelivery)
+            case authenticatedControl(
+                Ledger.ControlDelivery,
+                PostManifestTransportIngress.RecoveredAdmission
+            )
             case anonymousComponent(Ledger.AnonymousDelivery)
             case anonymousBCHSignature(Ledger.AnonymousDelivery)
-            case authenticatedAnonymousComponent(Ledger.AnonymousDelivery)
-            case authenticatedAnonymousBCHSignature(Ledger.AnonymousDelivery)
+            case authenticatedAnonymousComponent(
+                Ledger.AnonymousDelivery,
+                PostManifestTransportIngress.RecoveredAdmission
+            )
+            case authenticatedAnonymousBCHSignature(
+                Ledger.AnonymousDelivery,
+                PostManifestTransportIngress.RecoveredAdmission
+            )
+            case authenticatedAbort(
+                OpalFusion.Mosaic.Attempt.Phase,
+                OpalFusion.Mosaic.Attempt.AbortReason
+            )
             case inputSourceTerminated(InputSourceTermination)
             case retryRequested
+            case runtimeRecoveryBarrier(UUID)
         }
 
         private enum OperationError: Error {
@@ -90,13 +106,24 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var transcript: OpalFusion.Mosaic.OpalV0
             .UnsignedTransactionTranscript?
         private var previousOutputValidation: PreviousOutputResolver.Validation?
+        private var completeTransactionValidation: CompleteTransactionValidation?
         private var queuedInputSourceTermination: InputSourceTermination?
         private var pendingFailure: Failure?
+        private var recoveryBarrierWaiters: [
+            UUID: CheckedContinuation<Bool, Never>
+        ] = [:]
 
         private(set) var state: State = .idle
 
         var runtimeSessionState: Session.State {
             runtimeSession.state
+        }
+
+        var runtimeSessionTerminalProtocolAbort: (
+            phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        )? {
+            runtimeSession.terminalProtocolAbort
         }
 
         init(
@@ -148,9 +175,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         /// Queues one transport-authenticated control delivery behind write-ahead admission.
         @discardableResult
         func submitAuthenticatedControl(
-            _ delivery: Ledger.ControlDelivery
+            _ delivery: Ledger.ControlDelivery,
+            source: PostManifestTransportIngress.RecoveredAdmission
         ) -> Bool {
-            enqueue(.authenticatedControl(delivery))
+            enqueue(.authenticatedControl(delivery, source))
         }
 
         /// Queues one already-authenticated anonymous delivery by its envelope payload type.
@@ -169,13 +197,37 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         /// Queues one transport-authenticated anonymous delivery behind write-ahead admission.
         @discardableResult
         func submitAuthenticatedAnonymous(
-            _ delivery: Ledger.AnonymousDelivery
+            _ delivery: Ledger.AnonymousDelivery,
+            source: PostManifestTransportIngress.RecoveredAdmission
         ) -> Bool {
             switch delivery.envelope.payloadType {
             case .anonymousComponent:
-                enqueue(.authenticatedAnonymousComponent(delivery))
+                enqueue(.authenticatedAnonymousComponent(delivery, source))
             case .bchSignatureSubmission:
-                enqueue(.authenticatedAnonymousBCHSignature(delivery))
+                enqueue(.authenticatedAnonymousBCHSignature(delivery, source))
+            }
+        }
+
+        /// Queues one already signature/context-validated public abort.
+        @discardableResult
+        func submitAuthenticatedAbort(
+            during phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        ) -> Bool {
+            guard runtimeSession.state.phase == phase else { return false }
+            return enqueue(.authenticatedAbort(phase, reason))
+        }
+
+        /// Waits behind every queued recovered delivery and all coordinator-owned effects.
+        func awaitRuntimeRecoveryReplay() async -> Bool {
+            guard state == .running else { return false }
+            return await withCheckedContinuation { continuation in
+                let identifier = UUID()
+                recoveryBarrierWaiters[identifier] = continuation
+                guard enqueue(.runtimeRecoveryBarrier(identifier)) else {
+                    completeRecoveryBarrier(identifier, result: false)
+                    return
+                }
             }
         }
 
@@ -254,7 +306,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func consumeInputs() async {
+            defer { failPendingRecoveryBarriers() }
             for await input in inputStream {
+                if case let .runtimeRecoveryBarrier(identifier) = input {
+                    completeRecoveryBarrier(
+                        identifier,
+                        result: state == .running
+                    )
+                    continue
+                }
                 guard state == .running else {
                     break
                 }
@@ -269,13 +329,32 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        private func completeRecoveryBarrier(
+            _ identifier: UUID,
+            result: Bool
+        ) {
+            recoveryBarrierWaiters.removeValue(forKey: identifier)?
+                .resume(returning: result)
+        }
+
+        private func failPendingRecoveryBarriers() {
+            let waiters = recoveryBarrierWaiters.values
+            recoveryBarrierWaiters.removeAll(keepingCapacity: true)
+            for waiter in waiters {
+                waiter.resume(returning: false)
+            }
+        }
+
         private func process(_ input: QueuedInput) async {
             let effects: [Session.Effect]
             switch input {
             case let .control(delivery):
                 effects = runtimeSession.apply(input: .control(delivery))
-            case let .authenticatedControl(delivery):
-                guard let stagedEffects = applyAuthenticatedControl(delivery)
+            case let .authenticatedControl(delivery, source):
+                guard let stagedEffects = applyAuthenticatedControl(
+                    delivery,
+                    source: source
+                )
                 else { return }
                 effects = stagedEffects
             case let .anonymousComponent(delivery):
@@ -292,21 +371,29 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         previousOutputs: previousOutputValidation
                     )
                 )
-            case let .authenticatedAnonymousComponent(delivery):
+            case let .authenticatedAnonymousComponent(delivery, source):
                 guard let stagedEffects = applyAuthenticatedAnonymousComponent(
-                    delivery
+                    delivery,
+                    source: source
                 ) else { return }
                 effects = stagedEffects
-            case let .authenticatedAnonymousBCHSignature(delivery):
+            case let .authenticatedAnonymousBCHSignature(delivery, source):
                 if case .active(.bchSigning) = runtimeSession.state,
                    previousOutputValidation == nil {
                     fail(.bchSignatureAdmissionUnavailable)
                     return
                 }
                 guard let stagedEffects = applyAuthenticatedAnonymousBCHSignature(
-                    delivery
+                    delivery,
+                    source: source
                 ) else { return }
                 effects = stagedEffects
+            case let .authenticatedAbort(phase, reason):
+                guard runtimeSession.state.phase == phase else {
+                    fail(.runtime(.authenticatedAbortPhaseMismatch))
+                    return
+                }
+                effects = runtimeSession.apply(input: .authenticatedAbort(reason))
             case let .inputSourceTerminated(termination):
                 queuedInputSourceTermination = nil
                 pendingFailure = pendingFailure
@@ -315,12 +402,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return
             case .retryRequested:
                 effects = runtimeSession.apply(input: .retryRequested)
+            case .runtimeRecoveryBarrier:
+                fail(.recoveryBarrierMisordered)
+                return
             }
             await handle(effects)
         }
 
         private func applyAuthenticatedControl(
-            _ delivery: Ledger.ControlDelivery
+            _ delivery: Ledger.ControlDelivery,
+            source: PostManifestTransportIngress.RecoveredAdmission
         ) -> [Session.Effect]? {
             var stagedRuntime = runtimeSession
             let application = stagedRuntime.applyAuthenticatedControl(delivery)
@@ -328,13 +419,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 stagedRuntime,
                 effects: application.effects,
                 record: application.didConsumeReplayState
-                    ? .init(control: delivery)
+                    ? .init(control: delivery, source: source)
                     : nil
             )
         }
 
         private func applyAuthenticatedAnonymousComponent(
-            _ delivery: Ledger.AnonymousDelivery
+            _ delivery: Ledger.AnonymousDelivery,
+            source: PostManifestTransportIngress.RecoveredAdmission
         ) -> [Session.Effect]? {
             var stagedRuntime = runtimeSession
             let application = stagedRuntime
@@ -343,13 +435,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 stagedRuntime,
                 effects: application.effects,
                 record: application.didConsumeReplayState
-                    ? .init(anonymous: delivery)
+                    ? .init(anonymous: delivery, source: source)
                     : nil
             )
         }
 
         private func applyAuthenticatedAnonymousBCHSignature(
-            _ delivery: Ledger.AnonymousDelivery
+            _ delivery: Ledger.AnonymousDelivery,
+            source: PostManifestTransportIngress.RecoveredAdmission
         ) -> [Session.Effect]? {
             var stagedRuntime = runtimeSession
             let application = stagedRuntime
@@ -363,7 +456,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 stagedRuntime,
                 effects: application.effects,
                 record: application.didConsumeReplayState
-                    ? .init(anonymous: delivery)
+                    ? .init(anonymous: delivery, source: source)
                     : nil
             )
         }
@@ -769,6 +862,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let effects = runtimeSession.apply(
                 input: .completeTransactionValidated(validation)
             )
+            completeTransactionValidation = validation
             await handle(effects)
         }
 
@@ -838,6 +932,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private var expectedComponentCount: Int {
             context.roster.contributors.count * componentCountPerContributor
+        }
+
+        /// Returns the exact previous-output-validated completion only after terminal completion.
+        var terminalCompletionValidation: CompleteTransactionValidation? {
+            guard state == .terminal(.completed) else { return nil }
+            return completeTransactionValidation
         }
     }
 }

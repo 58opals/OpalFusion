@@ -135,6 +135,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ReservationCoordinator {
     enum Failure: Error, Sendable, Equatable {
         case inputBufferOverflow
         case inputSourceTerminated(InputSourceTermination)
+        case recoveryBarrierMisordered
         case admissionJournalFailed
         case missingManifest
         case effectContextMismatch

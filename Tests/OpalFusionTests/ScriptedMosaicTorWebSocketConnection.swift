@@ -1,6 +1,6 @@
 // ScriptedMosaicTorWebSocketConnection.swift
 
-@testable import OpalFusion
+@_spi(MosaicPrivateAlpha) @testable import OpalFusion
 
 actor ScriptedMosaicTorWebSocketConnection:
     OpalFusion.Mosaic.TorWebSocketConnectioning

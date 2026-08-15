@@ -1039,6 +1039,47 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         }
     }
 
+    @Test(
+        "Finish recovered completion without starting a route",
+        .timeLimit(.minutes(1))
+    )
+    func finishRecoveredCompletionWithoutRoutes() async throws {
+        let harness = try makeHarness()
+        let completed = Alpha.PostManifestRuntimeDriver.State.conductor(
+            .terminal(.completed)
+        )
+        await harness.runtimeProbe.terminate(completed)
+
+        try await harness.fanIn.start(expectRecoveredCompletion: true)
+
+        #expect(
+            await harness.fanIn.waitForTermination()
+                == .runtime(completed)
+        )
+        for connection in harness.connections {
+            #expect(await connection.openCount == 0)
+            #expect(await connection.sentTexts.isEmpty)
+        }
+    }
+
+    @Test(
+        "Reject stale known-terminal recovery without waiting for input",
+        .timeLimit(.minutes(1))
+    )
+    func rejectStaleKnownTerminalRecoveryWithoutWaiting() async throws {
+        let harness = try makeHarness()
+
+        await #expect(throws: FanIn.Failure.runtimeTerminated) {
+            try await harness.fanIn.start(expectRecoveredCompletion: true)
+        }
+
+        #expect(await harness.fanIn.waitForTermination() == .stopped)
+        for connection in harness.connections {
+            #expect(await connection.openCount == 0)
+            #expect(await connection.sentTexts.isEmpty)
+        }
+    }
+
     private func makeHarness(
         connections: [ScriptedMosaicTorWebSocketConnection]? = nil,
         submissionProbe: SubmissionProbe = .init(),

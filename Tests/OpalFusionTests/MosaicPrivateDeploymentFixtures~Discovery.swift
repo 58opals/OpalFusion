@@ -1,6 +1,7 @@
 // MosaicPrivateDeploymentFixtures~Discovery.swift
 
-@testable import OpalFusion
+import Foundation
+@_spi(MosaicPrivateAlpha) @testable import OpalFusion
 
 extension MosaicPrivateDeploymentFixtures {
     private static let beaconProofOfWorkNonces: [UInt64] = [
@@ -308,6 +309,241 @@ extension MosaicPrivateDeploymentFixtures {
                 )
             }
         return try .init(core: validation.core, signatures: signatures)
+    }
+
+    private static let cachedPrivateAlphaRuntimeProof = Result {
+        try buildPrivateAlphaRuntimeProof()
+    }
+
+    static func makePrivateAlphaRuntimeProof()
+        throws -> (
+            proof: OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentProof,
+            formation: Formation,
+            epoch: UInt64,
+            localControlIdentity: Data,
+            opaquePoolDocument: Data,
+            relaySetDocument: Data,
+            beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent,
+            proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent,
+            signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            completeManifestDocument: Data
+        ) {
+        try cachedPrivateAlphaRuntimeProof.get()
+    }
+
+    private static func buildPrivateAlphaRuntimeProof()
+        throws -> (
+            proof: OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentProof,
+            formation: Formation,
+            epoch: UInt64,
+            localControlIdentity: Data,
+            opaquePoolDocument: Data,
+            relaySetDocument: Data,
+            beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent,
+            proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent,
+            signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+                .PrivateDeploymentEvent],
+            completeManifestDocument: Data
+        ) {
+        let formation = try makeFormation()
+        let proposal = try makeManifestProposalValidation(
+            formation: formation
+        )
+        let manifest = try makeRoundManifest(
+            formation: formation,
+            validation: proposal.manifest
+        )
+        let limits = try OpalFusion.Mosaic.NostrNamespace.EventCodingLimits(
+            maximumEventJSONByteCount: 200_000,
+            maximumTagCount: 1,
+            maximumTagElementCount: 2,
+            maximumStringByteCount: 150_000
+        )
+        func storedEvent(
+            payload: Alpha.PreManifestNostrPayloadDocument,
+            candidate: CandidateKeyMaterial,
+            createdAt: UInt64,
+            auxiliaryByte: UInt8
+        ) throws -> OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent {
+            let event = try Alpha.PreManifestNostrCodec.makeEvent(
+                for: payload,
+                createdAtUnixSeconds: createdAt,
+                using: candidate.signingKey,
+                auxiliaryRandomness: .init(
+                    rawRepresentation: Data(
+                        repeating: auxiliaryByte,
+                        count: 32
+                    )
+                ),
+                limits: limits
+            )
+            return try .init(
+                canonicalEventBytes: try OpalFusion.Mosaic.NostrNamespace
+                    .EventCodec.encode(event, limits: limits),
+                acceptedAtUnixSeconds: createdAt
+            )
+        }
+        let epoch = formation.discovery.epochStart
+        let beaconEvents = try formation.selection.selectedBeacons
+            .enumerated().map { index, beacon in
+                try storedEvent(
+                    payload: Alpha.PreManifestNostrPayloadDocument
+                        .makeAvailabilityBeacon(beacon),
+                    candidate: formation.discovery.candidate(
+                        for: beacon.core.discoveryIdentity
+                    ),
+                    createdAt: epoch + 1,
+                    auxiliaryByte: UInt8(0x20 + index)
+                )
+            }
+        let acknowledgementEvents = try formation.acknowledgementSet
+            .acknowledgements.enumerated().map { index, acknowledgement in
+                try storedEvent(
+                    payload: Alpha.PreManifestNostrPayloadDocument
+                        .makeCandidateSetAcknowledgement(acknowledgement),
+                    candidate: formation.discovery.candidate(
+                        for: acknowledgement.signerDiscoveryIdentity
+                    ),
+                    createdAt: epoch + 61,
+                    auxiliaryByte: UInt8(0x30 + index)
+                )
+            }
+        let admissionEvents = try formation.controlRoster.admissions
+            .enumerated().map { index, admission in
+                try storedEvent(
+                    payload: Alpha.PreManifestNostrPayloadDocument
+                        .makeCandidateAdmission(admission),
+                    candidate: formation.discovery.candidate(
+                        for: admission.discoveryIdentity
+                    ),
+                    createdAt: epoch + 91,
+                    auxiliaryByte: UInt8(0x40 + index)
+                )
+            }
+        let commitmentEvents = try formation.commitments.enumerated().map {
+            index, commitment in
+            try storedEvent(
+                payload: Alpha.PreManifestNostrPayloadDocument
+                    .makeRoleCommitment(
+                        commitment,
+                        controlRoster: formation.controlRoster
+                    ),
+                candidate: formation.controlCandidate(
+                    for: commitment.candidate
+                ),
+                createdAt: epoch + 121,
+                auxiliaryByte: UInt8(0x50 + index)
+            )
+        }
+        let revealEvents = try formation.reveals.enumerated().map {
+            index, reveal in
+            try storedEvent(
+                payload: Alpha.PreManifestNostrPayloadDocument.makeRoleReveal(
+                    reveal,
+                    controlRoster: formation.controlRoster
+                ),
+                candidate: formation.controlCandidate(for: reveal.candidate),
+                createdAt: epoch + 151,
+                auxiliaryByte: UInt8(0x60 + index)
+            )
+        }
+        let nonceEvent = try storedEvent(
+            payload: Alpha.PreManifestNostrPayloadDocument
+                .makeContributorNonceAllocation(
+                    formation.nonceAllocation,
+                    controlRoster: formation.controlRoster,
+                    roleElection: formation.roleElection
+                ),
+            candidate: formation.controlCandidate(
+                for: formation.roleElection.roster.conductor
+            ),
+            createdAt: epoch + 181,
+            auxiliaryByte: 0x70
+        )
+        let proposalEvent = try storedEvent(
+            payload: Alpha.PreManifestNostrPayloadDocument
+                .makeManifestProposal(proposal),
+            candidate: formation.controlCandidate(
+                for: proposal.manifest.core.roster.conductor
+            ),
+            createdAt: epoch + 182,
+            auxiliaryByte: 0x71
+        )
+        let signatureEvents = try manifest.signatures.enumerated().map {
+            index, signature in
+            try storedEvent(
+                payload: Alpha.PreManifestNostrPayloadDocument
+                    .makeManifestSignature(signature, proposal: proposal),
+                candidate: formation.controlCandidate(for: signature.signer),
+                createdAt: epoch + 183,
+                auxiliaryByte: UInt8(0x80 + index)
+            )
+        }
+        let proof = try OpalFusion.MosaicPrivateAlphaRuntime
+            .validatePrivateDeployment(
+                discoveryEpochStartUnixSeconds:
+                    formation.discovery.epochStart,
+                opaquePoolDocument: Data(
+                    formation.discovery.pool.canonicalBytes
+                ),
+                relaySetDocument: Data(
+                    formation.discovery.relaySet.canonicalBytes
+                ),
+                availabilityBeaconEvents: beaconEvents,
+                candidateSetAcknowledgementEvents: acknowledgementEvents,
+                candidateAdmissionEvents: admissionEvents,
+                roleCommitmentEvents: commitmentEvents,
+                roleRevealEvents: revealEvents,
+                contributorNonceAllocationEvent: nonceEvent,
+                manifestProposalEvent: proposalEvent,
+                manifestSignatureEvents: signatureEvents,
+                completeManifestDocument: Data(manifest.canonicalBytes)
+            )
+        return (
+            proof,
+            formation,
+            formation.discovery.epochStart,
+            Data(formation.roleElection.roster.conductor.validatedBytes),
+            Data(formation.discovery.pool.canonicalBytes),
+            Data(formation.discovery.relaySet.canonicalBytes),
+            beaconEvents,
+            acknowledgementEvents,
+            admissionEvents,
+            commitmentEvents,
+            revealEvents,
+            nonceEvent,
+            proposalEvent,
+            signatureEvents,
+            Data(manifest.canonicalBytes)
+        )
     }
 
     private static func makeRelaySet() throws -> Alpha.RelaySetDocument {

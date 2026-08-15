@@ -67,8 +67,34 @@ extension OpalFusion.Mosaic {
             return try readRawBytes(byteCount: byteCount)
         }
 
+        mutating func readBytes(
+            maximumByteCount: Int
+        ) throws -> [UInt8] {
+            let byteCount = Int(try readUInt32())
+            guard byteCount <= maximumByteCount else {
+                throw CanonicalCodingError.lengthLimitExceeded(
+                    maximum: maximumByteCount,
+                    actual: byteCount
+                )
+            }
+            return try readRawBytes(byteCount: byteCount)
+        }
+
         mutating func readText() throws -> String {
             let encodedText = try readBytes()
+            return try decodeText(encodedText)
+        }
+
+        mutating func readText(
+            maximumByteCount: Int
+        ) throws -> String {
+            let encodedText = try readBytes(
+                maximumByteCount: maximumByteCount
+            )
+            return try decodeText(encodedText)
+        }
+
+        private func decodeText(_ encodedText: [UInt8]) throws -> String {
             let text = String(decoding: encodedText, as: UTF8.self)
             guard text.utf8.elementsEqual(encodedText) else {
                 throw CanonicalCodingError.invalidUTF8Text
@@ -92,6 +118,27 @@ extension OpalFusion.Mosaic {
             readingValueWith readValue: (inout Self) throws -> Value
         ) throws -> [Value] {
             let count = try readCollectionCount()
+            return try readVector(count: count, readingValueWith: readValue)
+        }
+
+        mutating func readVector<Value>(
+            maximumCount: Int,
+            readingValueWith readValue: (inout Self) throws -> Value
+        ) throws -> [Value] {
+            let count = try readCollectionCount()
+            guard count <= maximumCount else {
+                throw CanonicalCodingError.lengthLimitExceeded(
+                    maximum: maximumCount,
+                    actual: count
+                )
+            }
+            return try readVector(count: count, readingValueWith: readValue)
+        }
+
+        private mutating func readVector<Value>(
+            count: Int,
+            readingValueWith readValue: (inout Self) throws -> Value
+        ) throws -> [Value] {
             var values: [Value] = []
             for _ in 0 ..< count {
                 values.append(try readValue(&self))

@@ -1,5 +1,7 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+ReservationCoordinator.swift
 
+import Foundation
+
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// Coordinates one contributor's mainnet-alpha reservation boundary.
     ///
@@ -9,8 +11,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     actor ReservationCoordinator {
         private enum QueuedInput: Sendable {
             case runtime(RuntimeSession.Input)
-            case authenticatedControl(AdmissionLedger.ControlDelivery)
+            case authenticatedControl(
+                AdmissionLedger.ControlDelivery,
+                PostManifestTransportIngress.RecoveredAdmission
+            )
+            case authenticatedAbort(
+                OpalFusion.Mosaic.Attempt.Phase,
+                OpalFusion.Mosaic.Attempt.AbortReason
+            )
             case inputSourceTerminated(InputSourceTermination)
+            case runtimeRecoveryBarrier(UUID)
         }
 
         private enum PendingDisposition: Sendable {
@@ -48,6 +58,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var effectConsumerTask: Task<Void, Never>?
         private var pendingEffectCount = 0
         private var effectDrainWaiters: [CheckedContinuation<Void, Never>] = []
+        private var recoveryBarrierWaiters: [
+            UUID: CheckedContinuation<Bool, Never>
+        ] = [:]
         private var admittedManifest: RoundManifest?
         private var localContributionMaterial: LocalContributionMaterial?
         private var authorizationResponseValidation:
@@ -68,6 +81,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         var runtimeSessionState: RuntimeSession.State {
             runtimeSession.state
+        }
+
+        var runtimeSessionTerminalProtocolAbort: (
+            phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        )? {
+            runtimeSession.terminalProtocolAbort
         }
 
         init(
@@ -129,9 +149,33 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         /// Queues one transport-authenticated delivery behind the write-ahead journal boundary.
         @discardableResult
         func submitAuthenticatedControl(
-            _ delivery: AdmissionLedger.ControlDelivery
+            _ delivery: AdmissionLedger.ControlDelivery,
+            source: PostManifestTransportIngress.RecoveredAdmission
         ) -> Bool {
-            enqueue(.authenticatedControl(delivery))
+            enqueue(.authenticatedControl(delivery, source))
+        }
+
+        /// Queues one already signature/context-validated public abort.
+        @discardableResult
+        func submitAuthenticatedAbort(
+            during phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        ) -> Bool {
+            guard runtimeSession.state.phase == phase else { return false }
+            return enqueue(.authenticatedAbort(phase, reason))
+        }
+
+        /// Waits behind every queued recovered delivery and its ordered local effects.
+        func awaitRuntimeRecoveryReplay() async -> Bool {
+            guard state == .running else { return false }
+            return await withCheckedContinuation { continuation in
+                let identifier = UUID()
+                recoveryBarrierWaiters[identifier] = continuation
+                guard enqueue(.runtimeRecoveryBarrier(identifier)) else {
+                    completeRecoveryBarrier(identifier, result: false)
+                    return
+                }
+            }
         }
 
         /// Rejects an in-place retry through the paired runtime.
@@ -191,33 +235,69 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func consumeInputs() async {
+            defer { failPendingRecoveryBarriers() }
             for await input in inputStream {
+                if case let .runtimeRecoveryBarrier(identifier) = input {
+                    completeRecoveryBarrier(
+                        identifier,
+                        result: state == .running
+                    )
+                    continue
+                }
                 guard state == .running else {
                     break
                 }
                 switch input {
                 case let .runtime(runtimeInput):
                     applyAndEnqueue(runtimeInput)
-                case let .authenticatedControl(delivery):
-                    applyAuthenticatedControl(delivery)
+                case let .authenticatedControl(delivery, source):
+                    applyAuthenticatedControl(delivery, source: source)
+                case let .authenticatedAbort(phase, reason):
+                    guard runtimeSession.state.phase == phase else {
+                        failAndStop(.runtime(.authenticatedAbortPhaseMismatch))
+                        continue
+                    }
+                    applyAndEnqueue(.authenticatedAbort(reason))
                 case let .inputSourceTerminated(termination):
                     queuedInputSourceTermination = nil
                     recordFailure(.inputSourceTerminated(termination))
                     state = .stopping
                     applyAndEnqueue(.cancel)
+                case .runtimeRecoveryBarrier:
+                    failAndStop(.recoveryBarrierMisordered)
                 }
                 await waitForEffectDrain()
             }
         }
 
+        private func completeRecoveryBarrier(
+            _ identifier: UUID,
+            result: Bool
+        ) {
+            recoveryBarrierWaiters.removeValue(forKey: identifier)?
+                .resume(returning: result)
+        }
+
+        private func failPendingRecoveryBarriers() {
+            let waiters = recoveryBarrierWaiters.values
+            recoveryBarrierWaiters.removeAll(keepingCapacity: true)
+            for waiter in waiters {
+                waiter.resume(returning: false)
+            }
+        }
+
         private func applyAuthenticatedControl(
-            _ delivery: AdmissionLedger.ControlDelivery
+            _ delivery: AdmissionLedger.ControlDelivery,
+            source: PostManifestTransportIngress.RecoveredAdmission
         ) {
             var stagedRuntime = runtimeSession
             let application = stagedRuntime.applyAuthenticatedControl(delivery)
             if application.didConsumeReplayState {
                 do {
-                    try admissionJournal?.record(.init(control: delivery))
+                    try admissionJournal?.record(.init(
+                        control: delivery,
+                        source: source
+                    ))
                 } catch {
                     failAndStop(.admissionJournalFailed)
                     return
@@ -1145,6 +1225,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             state != .running
                 || dispositionGate.isReleaseRequested
                 || pendingDisposition != nil
+        }
+
+        /// Returns the exact host-committed completion proof only after terminal completion.
+        var terminalCompletionValidation: CompleteTransactionValidation? {
+            guard state == .terminal(.completed) else { return nil }
+            return completeTransactionValidation
         }
 
         private enum AnonymousPublicationError: Error {

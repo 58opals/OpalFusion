@@ -292,6 +292,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         nonisolated let localControlRecipientCapability:
             Transport.RecipientCapability
 
+        nonisolated var inboundRecipientCapabilities: [
+            Transport.RecipientCapability
+        ] {
+            [localControlRecipientCapability]
+                + conductorAnonymousRecipientCapabilities
+        }
+
         private let bootstrap: Driver.Bootstrap
         private let relaySelection: PostManifestRelaySelectionValidation
         private let contributorAnonymousRecipientIdentities: [Data]?
@@ -442,15 +449,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         /// Provisions and authorizes the complete inbound runtime once without opening a route.
         func provisionInboundRuntime() async throws(Failure)
             -> InboundRuntimeProvisioning {
-            var recipients: [(RoutePurpose, Transport.RecipientCapability)] = [
-                (.inboundControl, localControlRecipientCapability),
-            ]
-            if localRole == .conductor {
-                recipients.append(
-                    contentsOf: conductorAnonymousRecipientCapabilities.map {
-                        (.inboundAnonymous, $0)
-                    }
-                )
+            let recipients = inboundRecipientCapabilities.map {
+                ($0.channel == .control
+                    ? RoutePurpose.inboundControl
+                    : RoutePurpose.inboundAnonymous, $0)
             }
             let requests = recipients.map {
                 routeRequest(
@@ -486,6 +488,30 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 role: localRole,
                 bootstrap: bootstrap,
                 recipientRouteGroups: recipientRouteGroups,
+                relaySelection: relaySelection
+            )
+        }
+
+        /// Claims the validated recipient projection without requesting any live route.
+        /// Only terminal replay construction may consume this capability.
+        func prepareTerminalRecoveryInboundRuntime() async throws(Failure)
+            -> InboundRuntimeProvisioning {
+            let recipients = inboundRecipientCapabilities
+            _ = try await provision(
+                [],
+                needsSubscriptions: false,
+                claimsInboundRoutes: true
+            )
+            return .init(
+                role: localRole,
+                bootstrap: bootstrap,
+                recipientRouteGroups: recipients.map {
+                    FanIn.RecipientRouteGroup(
+                        recipient: $0,
+                        routes: [],
+                        subscriptionIdentifiers: [:]
+                    )
+                },
                 relaySelection: relaySelection
             )
         }

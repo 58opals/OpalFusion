@@ -168,7 +168,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             )
         }
 
-        private static func makePreManifestContext(
+        static func makePreManifestContext(
             epochStart: UInt64,
             signerRole: PrivateDeploymentNostrSelector.SignerRole,
             signerIdentity: OpalCrypto.Signature.BIP340.VerificationKey,

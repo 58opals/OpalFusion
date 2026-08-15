@@ -12,8 +12,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// order while serializing every signed EVENT copy; and treats loss of any selected source as
     /// terminal. The injected journal store is the append boundary for semantically admitted
     /// replay facts and is durable only when its implementation is durable. Recipient allocation,
-    /// endpoint provisioning, full runtime recovery, reconnect, and concrete Tor circuit isolation
-    /// remain external.
+    /// endpoint provisioning, reconnect policy, and concrete Tor circuit isolation remain
+    /// external. Exact authenticated admissions can be replayed before routes reopen.
     actor PostManifestRelayFanIn {
         private typealias Session = OpalFusion.Mosaic.NIP01RelaySession
 
@@ -145,7 +145,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let ingress: Ingress
             do {
                 ingress = try .init(
-                    claimedRuntimeConstruction: claimedRuntimeConstruction,
+                    claimedRuntimeConstruction:
+                        claimedRuntimeConstruction,
                     bootstrap: bootstrap,
                     roleDependencies: roleDependencies,
                     recipientSet: plan.recipientSet,
@@ -157,6 +158,82 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             return .init(
                 routes: routes,
+                runtime: .init(ingress: ingress),
+                maximumPendingEventCount: maximumPendingEventCount,
+                dependencies: dependencies
+            )
+        }
+
+        /// Constructs terminal replay with validated recipient keys and no live route capability.
+        static func makeTerminalRecovery(
+            bootstrap: Driver.Bootstrap,
+            roleDependencies: Driver.RoleDependencies,
+            inboundRuntimeProvisioning:
+                AttemptTransportOwner.InboundRuntimeProvisioning,
+            ingressDependencies: Ingress.Dependencies,
+            maximumPendingEventCount: Int,
+            dependencies: Dependencies = .init()
+        ) throws(InitializationError) -> Self {
+            guard inboundRuntimeProvisioning.matches(
+                bootstrap,
+                role: roleDependencies.role
+            ), maximumPendingEventCount > 0 else {
+                throw .runtimeAuthorizationMismatch
+            }
+            let groups = inboundRuntimeProvisioning.recipientRouteGroups
+            guard !groups.isEmpty,
+                  groups.allSatisfy({
+                      $0.routes.isEmpty
+                        && $0.subscriptionIdentifiers.isEmpty
+                  }) else {
+                throw .invalidRecipientSet
+            }
+            let recipients = groups.map(\.recipient)
+            let controlRecipientCount = recipients.reduce(into: 0) {
+                count,
+                recipient in
+                if recipient.channel == .control { count += 1 }
+            }
+            switch roleDependencies.role {
+            case .contributor:
+                guard recipients.count == 1,
+                      controlRecipientCount == 1 else {
+                    throw .invalidRecipientSet
+                }
+            case .conductor:
+                guard controlRecipientCount == 1 else {
+                    throw .invalidRecipientSet
+                }
+            }
+            let recipientSet: Ingress.RecipientSet
+            do {
+                recipientSet = try .init(recipients)
+            } catch {
+                throw .invalidRecipientSet
+            }
+            guard let claimedRuntimeConstruction =
+                inboundRuntimeProvisioning.claim(
+                    .init(),
+                    bootstrap,
+                    role: roleDependencies.role
+                ) else {
+                throw .runtimeAuthorizationAlreadyUsed
+            }
+            let ingress: Ingress
+            do {
+                ingress = try .init(
+                    claimedRuntimeConstruction:
+                        claimedRuntimeConstruction,
+                    bootstrap: bootstrap,
+                    roleDependencies: roleDependencies,
+                    recipientSet: recipientSet,
+                    dependencies: ingressDependencies
+                )
+            } catch let error {
+                throw .ingress(error)
+            }
+            return .init(
+                routes: [],
                 runtime: .init(ingress: ingress),
                 maximumPendingEventCount: maximumPendingEventCount,
                 dependencies: dependencies
@@ -412,7 +489,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         /// Starts the private ingress and every recipient subscription exactly once.
-        func start() async throws {
+        func start(
+            recoveredAbort: (
+                phase: OpalFusion.Mosaic.Attempt.Phase,
+                reason: OpalFusion.Mosaic.Attempt.AbortReason
+            )? = nil,
+            expectRecoveredCompletion: Bool = false
+        ) async throws {
             guard state == .idle else { throw Failure.alreadyUsed }
             state = .starting
 
@@ -435,9 +518,48 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         await finishWithoutStartedRoutes(
                             .runtime(runtimeState)
                         )
+                        let replayedProtocolAbort = await runtime
+                            .terminalProtocolAbort()
+                        if expectRecoveredCompletion,
+                           Self.isCompleted(runtimeState) {
+                            return
+                        }
+                        if let recoveredAbort,
+                           let actualAbort = replayedProtocolAbort,
+                           actualAbort.phase == recoveredAbort.phase,
+                           actualAbort.reason == recoveredAbort.reason {
+                            return
+                        }
+                        if recoveredAbort == nil,
+                           !expectRecoveredCompletion,
+                           (Self.isCompleted(runtimeState)
+                            || replayedProtocolAbort != nil) {
+                            return
+                        }
                     } else {
                         await finishWithoutStartedRoutes(.sourceFailed)
                     }
+                    throw Failure.runtimeTerminated
+                }
+
+                if let recoveredAbort {
+                    guard await runtime.submitAuthenticatedAbort(
+                        during: recoveredAbort.phase,
+                        reason: recoveredAbort.reason
+                    ), let runtimeState = await runtime.waitForTermination()
+                    else {
+                        await finishWithoutStartedRoutes(.sourceFailed)
+                        throw Failure.runtimeTerminated
+                    }
+                    await finishWithoutStartedRoutes(.runtime(runtimeState))
+                    return
+                }
+
+                if expectRecoveredCompletion {
+                    // Terminal recovery has no live routes or future inputs.
+                    // If exact admission replay did not already complete the
+                    // runtime above, waiting here could never make progress.
+                    await finishWithoutStartedRoutes(.stopped)
                     throw Failure.runtimeTerminated
                 }
 
@@ -518,6 +640,63 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     terminationWaiters.append(continuation)
                 }
             }
+        }
+
+        func terminalCompletionValidation() async
+            -> OpalFusion.Mosaic.OpalMainnetAlpha
+                .CompleteTransactionValidation? {
+            guard case .terminal(.runtime) = state else { return nil }
+            return await runtime.terminalCompletionValidation()
+        }
+
+        func currentPhase() async -> OpalFusion.Mosaic.Attempt.Phase? {
+            await runtime.currentPhase()
+        }
+
+        func terminalProtocolAbort() async -> (
+            phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        )? {
+            await runtime.terminalProtocolAbort()
+        }
+
+        func submitAuthenticatedAbort(
+            during phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        ) async -> Bool {
+            guard case .running = state else { return false }
+            return await runtime.submitAuthenticatedAbort(
+                during: phase,
+                reason: reason
+            )
+        }
+
+        /// Stops relay intake, drains every already-queued event, then lets ingress persist and
+        /// apply one public abort as a single ordered terminal boundary.
+        func submitOrderedAuthenticatedAbort(
+            deriving operation: @escaping @Sendable (
+                OpalFusion.Mosaic.Attempt.Phase
+            ) throws -> OpalFusion.Mosaic.Attempt.AbortReason
+        ) async -> Bool {
+            guard case .running = state else { return false }
+            state = .stopping
+            await stopAllSessions()
+            let readers = readerTasks
+            for reader in readers { await reader.value }
+            eventContinuation.finish()
+            await consumerTask?.value
+
+            let didSubmit = await runtime.submitOrderedAuthenticatedAbort(
+                deriving: operation
+            )
+            guard let runtimeState = await runtime.waitForTermination() else {
+                await runtimeTask?.value
+                completeShutdown(.failed(.runtimeTerminated))
+                return false
+            }
+            await runtimeTask?.value
+            completeShutdown(.runtime(runtimeState))
+            return didSubmit
         }
 
         private func startRoutes() async -> [StartResult] {
@@ -732,6 +911,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             ), .contributor(
                 .terminal(.failed(.inputSourceTerminated(.failed)))
             ):
+                true
+            default:
+                false
+            }
+        }
+
+        private static func isCompleted(_ runtimeState: Driver.State) -> Bool {
+            switch runtimeState {
+            case .contributor(.terminal(.completed)),
+                 .conductor(.terminal(.completed)):
                 true
             default:
                 false

@@ -261,6 +261,34 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     }
 
     @Test(
+        "A recovery barrier completes false when an earlier effect terminates",
+        .timeLimit(.minutes(1))
+    )
+    func completeRecoveryBarrierAfterEarlierEffectFailure() async throws {
+        let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        await suspension.arm()
+        let harness = try await makeHarness(reserveSuspension: suspension)
+        await harness.coordinator.start()
+        try await submitManifest(harness)
+        await suspension.waitUntilSuspended()
+        await harness.host.failReservation()
+
+        let replay = Task {
+            await harness.coordinator.awaitRuntimeRecoveryReplay()
+        }
+        await Task.yield()
+        _ = await harness.coordinator.state
+        await suspension.resume()
+
+        #expect(await replay.value == false)
+        await harness.coordinator.waitForTermination()
+        #expect(
+            await harness.coordinator.state
+                == .terminal(.failed(.reservationFailed))
+        )
+    }
+
+    @Test(
         "A claimed publication finishes once before cancellation releases",
         .timeLimit(.minutes(1))
     )

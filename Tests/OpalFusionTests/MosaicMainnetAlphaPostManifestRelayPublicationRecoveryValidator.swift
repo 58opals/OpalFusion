@@ -3,7 +3,7 @@
 import Foundation
 import OpalCrypto
 import Testing
-@testable import OpalFusion
+@_spi(MosaicPrivateAlpha) @testable import OpalFusion
 
 @Suite("Mosaic mainnet-alpha durable post-manifest relay continuation", .serialized)
 struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
@@ -15,6 +15,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
     typealias Publisher = Alpha.PostManifestRelayPublisher
     typealias PublicationJournalFixture =
         MosaicMainnetAlphaRelayPublicationJournalFixture
+    typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
     typealias Tracker = OpalFusion.Mosaic.RelayPublicationTracker
     typealias Transport = Alpha.PostManifestNIP59Transport
 
@@ -73,6 +74,42 @@ struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
 
     private static let sharedFixtureTask = Task {
         try makeSharedFixture()
+    }
+
+    @Test("Reject an oversized publication recovery snapshot before replay")
+    func rejectOversizedRecoverySnapshot() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let context = fixture.journalContext
+        let binding = try Runtime.Binding(
+            attemptIdentifier: Data(
+                context.attemptIdentifier.validatedBytes
+            ),
+            generationIdentifier: Data(
+                context.generationIdentifier.opaqueBytes
+            ),
+            materialIdentifier: Data(
+                context.materialIdentifier.opaqueBytes
+            )
+        )
+        let store = MosaicPrivateAlphaRuntimePersistenceStore()
+        let oversized = Data(
+            count: Journal.maximumRecoverySnapshotByteCount + 1
+        )
+        _ = try store.compareAndSwap(binding, nil, oversized)
+        let persistence = Runtime.PostManifestPublicationPersistence(
+            load: store.load,
+            compareAndSwap: store.compareAndSwap
+        )
+
+        #expect(throws: (any Error).self) {
+            try Journal.initializeRecoverySnapshot(
+                binding: binding,
+                persistence: persistence,
+                context: context,
+                requireExisting: true
+            )
+        }
+        #expect(store.recordedCompareAndSwapCallCount == 1)
     }
 
     @Test("Fail closed at every durable publication boundary")

@@ -274,3 +274,57 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger {
         case inputRejected(Failure)
     }
 }
+
+extension OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger.Failure {
+    /// Exact protocol abort reason for failures proven by an authenticated delivery.
+    var privateDeploymentAbortReason: OpalFusion.Mosaic.Attempt.AbortReason? {
+        switch self {
+        case .sequenceConflict, .aggregateInterleaving,
+             .conflictingDocument, .anonymousMessageConflict,
+             .anonymousAuthorizationConflict,
+             .anonymousCommunicationKeyReuse,
+             .anonymousRecipientIdentityReuse,
+             .anonymousBCHSignatureInputConflict:
+            return .equivocation
+
+        case .activeAggregateRunPreventsPhaseAdvance,
+             .invalidPhaseTransition, .phaseTransitionValidationMismatch,
+             .phaseAdvancePrerequisiteMissing, .runtimeSessionBridgeMismatch,
+             .inPlaceRetryNotPermitted, .inputAfterTermination:
+            return nil
+
+        case .attemptIdentifierMismatch, .generationIdentifierMismatch,
+             .materialIdentifierMismatch, .foreignRound,
+             .senderNotInRoster, .outerEventIdentityMismatch,
+             .expiredEnvelope, .sequenceGap, .sequenceExhausted,
+             .invalidControlEnvelope, .aggregateReassemblyFailed,
+             .completeManifestCoreMismatch, .playerCommitSetIncomplete,
+             .playerCommitSemanticValidationFailed,
+             .commitmentSetInvalid, .playerCommitAdmissionUnavailable,
+             .authorizationResponseSetPlayerCommitMismatch,
+             .authorizationResponseSetValidationMismatch,
+             .commitmentSetDoesNotMatchPlayerCommits,
+             .anonymousComponentAdmissionUnavailable,
+             .anonymousComponentAdmissionRejected,
+             .anonymousComponentLimitExceeded,
+             .anonymousMailboxSequenceInvalid,
+             .anonymousBCHSignatureAdmissionUnavailable,
+             .anonymousBCHSignatureAdmissionRejected,
+             .anonymousBCHSignatureLimitExceeded,
+             .bchSignatureSetConstructionFailed,
+             .bchSignatureSetDoesNotMatchAnonymousAdmissions,
+             .completeTransactionPrerequisiteMissing,
+             .completeTransactionSignatureSetMismatch,
+             .completeTransactionValidationMismatch,
+             .completeTransactionValidationFailed,
+             .anonymousComponentSetIncomplete,
+             .componentSetDoesNotMatchAnonymousAdmissions,
+             .unsignedTransactionInvalid,
+             .preSignAcknowledgementAdmissionUnavailable,
+             .transcriptAcknowledgementMismatch,
+             .preSignAcknowledgementSetDoesNotMatchCollection,
+             .unsupportedAnonymousBCHSignature:
+            return .invalidAuthenticatedMessage
+        }
+    }
+}

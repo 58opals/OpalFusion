@@ -58,6 +58,22 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         ) async -> Bool
         private let stopOperation: @Sendable () async -> Void
         private let waitOperation: @Sendable () async -> Driver.State?
+        private let completionValidationOperation: @Sendable () async
+            -> OpalFusion.Mosaic.OpalMainnetAlpha.CompleteTransactionValidation?
+        private let phaseOperation: @Sendable () async
+            -> OpalFusion.Mosaic.Attempt.Phase?
+        private let terminalProtocolAbortOperation: @Sendable () async -> (
+            phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        )?
+        private let abortOperation: @Sendable (
+            OpalFusion.Mosaic.Attempt.Phase,
+            OpalFusion.Mosaic.Attempt.AbortReason
+        ) async -> Bool
+        private let orderedAbortOperation: @Sendable (
+            @escaping @Sendable (OpalFusion.Mosaic.Attempt.Phase) throws
+                -> OpalFusion.Mosaic.Attempt.AbortReason
+        ) async -> Bool
 
         init(
             start: @escaping @Sendable () async -> Bool,
@@ -67,7 +83,24 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
                 OpalFusion.Mosaic.OpalMainnetAlpha.InputSourceTermination
             ) async -> Bool,
             stop: @escaping @Sendable () async -> Void,
-            waitForTermination: @escaping @Sendable () async -> Driver.State?
+            waitForTermination: @escaping @Sendable () async -> Driver.State?,
+            terminalCompletionValidation: @escaping @Sendable () async
+                -> OpalFusion.Mosaic.OpalMainnetAlpha
+                    .CompleteTransactionValidation? = { nil },
+            currentPhase: @escaping @Sendable () async
+                -> OpalFusion.Mosaic.Attempt.Phase? = { nil },
+            terminalProtocolAbort: @escaping @Sendable () async -> (
+                phase: OpalFusion.Mosaic.Attempt.Phase,
+                reason: OpalFusion.Mosaic.Attempt.AbortReason
+            )? = { nil },
+            submitAuthenticatedAbort: @escaping @Sendable (
+                OpalFusion.Mosaic.Attempt.Phase,
+                OpalFusion.Mosaic.Attempt.AbortReason
+            ) async -> Bool = { _, _ in false },
+            submitOrderedAuthenticatedAbort: @escaping @Sendable (
+                @escaping @Sendable (OpalFusion.Mosaic.Attempt.Phase) throws
+                    -> OpalFusion.Mosaic.Attempt.AbortReason
+            ) async -> Bool = { _ in false }
         ) {
             startOperation = start
             stateOperation = state
@@ -75,6 +108,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
             sourceTerminationOperation = inputSourceDidTerminate
             stopOperation = stop
             waitOperation = waitForTermination
+            completionValidationOperation = terminalCompletionValidation
+            phaseOperation = currentPhase
+            terminalProtocolAbortOperation = terminalProtocolAbort
+            abortOperation = submitAuthenticatedAbort
+            orderedAbortOperation = submitOrderedAuthenticatedAbort
         }
 
         init(ingress: Ingress) {
@@ -86,7 +124,27 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
                     await ingress.inputSourceDidTerminate($0)
                 },
                 stop: { await ingress.stop() },
-                waitForTermination: { await ingress.waitForTermination() }
+                waitForTermination: { await ingress.waitForTermination() },
+                terminalCompletionValidation: {
+                    await ingress.terminalCompletionValidation()
+                },
+                currentPhase: {
+                    await ingress.currentPhase
+                },
+                terminalProtocolAbort: {
+                    await ingress.terminalProtocolAbort
+                },
+                submitAuthenticatedAbort: { phase, reason in
+                    await ingress.submitAuthenticatedAbort(
+                        during: phase,
+                        reason: reason
+                    )
+                },
+                submitOrderedAuthenticatedAbort: { operation in
+                    await ingress.submitOrderedAuthenticatedAbort(
+                        deriving: operation
+                    )
+                }
             )
         }
 
@@ -104,6 +162,33 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         func stop() async { await stopOperation() }
         func waitForTermination() async -> Driver.State? {
             await waitOperation()
+        }
+        func terminalCompletionValidation() async
+            -> OpalFusion.Mosaic.OpalMainnetAlpha
+                .CompleteTransactionValidation? {
+            await completionValidationOperation()
+        }
+        func currentPhase() async -> OpalFusion.Mosaic.Attempt.Phase? {
+            await phaseOperation()
+        }
+        func terminalProtocolAbort() async -> (
+            phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        )? {
+            await terminalProtocolAbortOperation()
+        }
+        func submitAuthenticatedAbort(
+            during phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        ) async -> Bool {
+            await abortOperation(phase, reason)
+        }
+        func submitOrderedAuthenticatedAbort(
+            deriving operation: @escaping @Sendable (
+                OpalFusion.Mosaic.Attempt.Phase
+            ) throws -> OpalFusion.Mosaic.Attempt.AbortReason
+        ) async -> Bool {
+            await orderedAbortOperation(operation)
         }
     }
 

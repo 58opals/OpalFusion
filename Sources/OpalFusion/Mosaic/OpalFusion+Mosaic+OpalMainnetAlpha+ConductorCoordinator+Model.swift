@@ -108,6 +108,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.ConductorCoordinator {
     enum Failure: Error, Sendable, Equatable {
         case inputBufferOverflow
         case inputSourceTerminated(InputSourceTermination)
+        case recoveryBarrierMisordered
         case admissionJournalFailed
         case authorizationKeyMismatch
         case authorizationResponseSetMismatch

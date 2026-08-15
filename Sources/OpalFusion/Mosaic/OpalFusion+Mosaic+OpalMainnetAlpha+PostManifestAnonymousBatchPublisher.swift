@@ -79,13 +79,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             PublicationPermitRequest
         ) async throws -> Void
 
-        private struct PublicationPreparation: Sendable {
-            let permitRequest: PublicationPermitRequest
-            let giftWrap: PostManifestRelayPublisher.GiftWrap
-            let binding: PublicationJournal.PublicationBinding
-            let publisher: PostManifestRelayPublisher
-        }
-
         private struct PreparedPublication: Sendable {
             let permitRequest: PublicationPermitRequest
             let continuation: PublicationJournal.Continuation
@@ -208,6 +201,29 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         func publish(_ batch: Batch) async throws(Failure) {
             let expectedRecipients = try validate(batch)
             guard !Task.isCancelled else { throw .cancelled }
+            let preparedBatch: PublicationJournal.BatchContinuation
+            do {
+                preparedBatch = try prepareDurableBatch(batch)
+            } catch {
+                throw .publicationJournalFailed
+            }
+            let durableBatch: PublicationJournal.BatchContinuation
+            do {
+                durableBatch = try publicationJournal
+                    .reconcileAcknowledgementDerivedCompletions(
+                        matching: preparedBatch
+                    )
+            } catch {
+                throw .publicationJournalFailed
+            }
+            guard !durableBatch.continuations.contains(where: {
+                $0.completion == .transportRejected
+                    || $0.completion == .cancelled
+            }) else {
+                throw .recipientPublicationFailed
+            }
+            let pendingContinuations = durableBatch.pendingContinuations
+            guard !pendingContinuations.isEmpty else { return }
             let routeRequests = PostManifestPublicationRouteAllocation
                 .requests(for: expectedRecipients)
 
@@ -224,10 +240,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw .cancelled
             }
 
-            let preparations: [PublicationPreparation]
+            let prepared: [PreparedPublication]
             do {
-                preparations = try prepare(
-                    batch,
+                prepared = try prepare(
+                    pendingContinuations,
+                    kind: batch.kind,
                     expectedRecipients: expectedRecipients,
                     routeGroups: routeGroups
                 )
@@ -235,14 +252,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
                 throw error
             }
-
-            let prepared: [PreparedPublication]
-            do {
-                prepared = try recordCompleteBatch(preparations)
-            } catch {
-                await PostManifestPublicationRouteCloser.close(allRoutes)
-                throw error
-            }
+            let usedIdentities = Set(pendingContinuations.map {
+                $0.publication.binding.recipientEventIdentity
+            })
+            await PostManifestPublicationRouteCloser.close(
+                routeGroups.filter {
+                    !usedIdentities.contains($0.recipientEventIdentity)
+                }.flatMap(\.routes)
+            )
             let publishers = prepared.map(\.publisher)
 
             let result: PublicationTaskResult = await withTaskCancellationHandler {
@@ -495,11 +512,33 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             return expectedRecipients
         }
 
+        private func prepareDurableBatch(
+            _ batch: Batch
+        ) throws -> PublicationJournal.BatchContinuation {
+            let purpose: PublicationJournal.ChannelPurpose =
+                batch.kind == .components
+                    ? .anonymousComponents : .anonymousBCHSignatures
+            return try publicationJournal.prepareBatch(
+                batch.recipients.map { recipient in
+                    PublicationJournal.PublicationPreparation(
+                        giftWrap: recipient.giftWrap,
+                        binding: try .init(
+                            channelPurpose: purpose,
+                            recipientEventIdentity:
+                                recipient.recipientEventIdentity,
+                            expiryUnixSeconds: batch.expiryUnixSeconds
+                        )
+                    )
+                }
+            )
+        }
+
         private func prepare(
-            _ batch: Batch,
+            _ pendingContinuations: [PublicationJournal.Continuation],
+            kind: PublicationKind,
             expectedRecipients: [Data],
             routeGroups: [RecipientRouteGroup]
-        ) throws(Failure) -> [PublicationPreparation] {
+        ) throws(Failure) -> [PreparedPublication] {
             let allocation: PostManifestPublicationRouteAllocation
             do {
                 allocation = try .init(
@@ -516,27 +555,20 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
 
             do {
-                return try batch.recipients.map { recipient in
+                return try pendingContinuations.map { continuation in
+                    let recipient = continuation.publication.binding
+                        .recipientEventIdentity
                     guard let routes = allocation.routes(
-                        for: recipient.recipientEventIdentity
+                        for: recipient
                     ) else {
                         throw Failure.routeAllocationMismatch
                     }
                     return try .init(
                         permitRequest: .init(
-                            kind: batch.kind,
-                            recipientEventIdentity:
-                                recipient.recipientEventIdentity
+                            kind: kind,
+                            recipientEventIdentity: recipient
                         ),
-                        giftWrap: recipient.giftWrap,
-                        binding: .init(
-                            channelPurpose: batch.kind == .components
-                                ? .anonymousComponents
-                                : .anonymousBCHSignatures,
-                            recipientEventIdentity:
-                                recipient.recipientEventIdentity,
-                            expiryUnixSeconds: batch.expiryUnixSeconds
-                        ),
+                        continuation: continuation,
                         publisher: PostManifestRelayPublisher(
                             routes: routes,
                             relaySelection: relaySelection,
@@ -585,54 +617,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             } catch {
                 return Task.isCancelled ? .cancelled : .recipientFailed
             }
-        }
-
-        private func recordCompleteBatch(
-            _ preparations: [PublicationPreparation]
-        ) throws(Failure) -> [PreparedPublication] {
-            let durableBatch: PublicationJournal.BatchContinuation
-            do {
-                durableBatch = try publicationJournal.prepareBatch(
-                    preparations.map { preparation in
-                        .init(
-                            giftWrap: preparation.giftWrap,
-                            binding: preparation.binding
-                        )
-                    }
-                )
-            } catch {
-                throw .publicationJournalFailed
-            }
-
-            var continuationsByEventIdentifier: [
-                Data: PublicationJournal.Continuation
-            ] = [:]
-            for continuation in durableBatch.continuations {
-                guard continuationsByEventIdentifier.updateValue(
-                    continuation,
-                    forKey: continuation.publication.eventIdentifier
-                ) == nil else {
-                    throw .publicationJournalFailed
-                }
-            }
-            guard continuationsByEventIdentifier.count
-                    == preparations.count else {
-                throw .publicationJournalFailed
-            }
-            var preparedPublications: [PreparedPublication] = []
-            for preparation in preparations {
-                guard let continuation = continuationsByEventIdentifier[
-                    preparation.giftWrap.event.identifier.rawRepresentation
-                ] else {
-                    throw .publicationJournalFailed
-                }
-                preparedPublications.append(.init(
-                    permitRequest: preparation.permitRequest,
-                    continuation: continuation,
-                    publisher: preparation.publisher
-                ))
-            }
-            return preparedPublications
         }
 
         private static func stop(

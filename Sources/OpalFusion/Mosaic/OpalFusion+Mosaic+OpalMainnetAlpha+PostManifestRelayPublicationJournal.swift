@@ -84,7 +84,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let canonicalEventBytes: Data
             let endpoints: [Endpoint]
 
-            fileprivate init(
+            init(
                 binding: PublicationBinding,
                 eventIdentifier: Data,
                 canonicalEventBytes: Data,
@@ -287,6 +287,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private let context: Context
         private let persistence: Persistence
         private let state: Mutex<State>
+
+        var recoveryContext: Context { context }
 
         init(
             context: Context,
@@ -535,6 +537,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         ) -> [Continuation] {
             pendingBatchContinuation(for: channelPurpose)?
                 .pendingContinuations ?? []
+        }
+
+        /// True only when every write-ahead publication has a durable terminal completion.
+        var isDrained: Bool {
+            state.withLock { state in
+                state.entriesByEventIdentifier.values.allSatisfy {
+                    $0.completion != nil
+                }
+            }
         }
 
         /// Restores the complete durable membership of the active batch for one purpose.

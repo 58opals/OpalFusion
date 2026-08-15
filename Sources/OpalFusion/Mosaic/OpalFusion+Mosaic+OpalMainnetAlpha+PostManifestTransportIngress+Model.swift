@@ -77,6 +77,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestTransportIngress {
         case runtimeDriver(Driver.InitializationError)
         case admissionJournal(AdmissionJournal.InitializationError)
         case runtimeRecoveryRequired
+        case invalidRecoveryAdmission
     }
 
     enum State: Sendable, Equatable {

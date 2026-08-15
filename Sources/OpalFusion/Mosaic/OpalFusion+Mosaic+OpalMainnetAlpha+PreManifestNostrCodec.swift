@@ -74,25 +74,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             _ event: OpalFusion.Mosaic.NostrNamespace.Event,
             validating context: PreManifestNostrValidationContext
         ) throws -> PreManifestNostrPayloadDocument {
-            guard event.template.tags
-                    == [["d", PrivateDeploymentNostrSelector.identifier]] else {
-                throw ValidationError.invalidTags
-            }
-            let payloadBytes = try decodeHexadecimal(event.template.content)
-            guard encodeHexadecimal(payloadBytes) == event.template.content else {
-                throw ValidationError.nonCanonicalHexadecimalContent
-            }
-            let payload = try PreManifestNostrPayloadDocument.decode(
-                from: payloadBytes
-            )
-            guard event.template.kind
-                    == PrivateDeploymentNostrSelector.privateDeployment.eventKind(
-                        for: payload.payloadKind
-                    ) else {
-                throw ValidationError.eventKindMismatch
-            }
-            guard event.publicKey == payload.signerIdentity,
-                  payload.signerIdentity == context.expectedSignerIdentity else {
+            let payload = try decodeCanonicalEnvelope(event)
+            guard payload.signerIdentity == context.expectedSignerIdentity else {
                 throw ValidationError.signerIdentityMismatch
             }
             guard payload.signerRole == context.expectedSignerRole else {
@@ -106,8 +89,43 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     == context.expectedExpiryUnixSeconds else {
                 throw ValidationError.expiryMismatch
             }
+            guard event.template.createdAt <= context.currentUnixSeconds else {
+                throw ValidationError.eventCreatedInFuture
+            }
+            guard context.currentUnixSeconds <= payload.expiryUnixSeconds else {
+                throw ValidationError.expired
+            }
+            return payload
+        }
+
+        static func decodeCanonicalEnvelope(
+            _ event: OpalFusion.Mosaic.NostrNamespace.Event
+        ) throws -> PreManifestNostrPayloadDocument {
+            guard event.template.tags
+                    == [["d", PrivateDeploymentNostrSelector.identifier]] else {
+                throw ValidationError.invalidTags
+            }
+            let payloadBytes = try decodeHexadecimal(event.template.content)
+            guard encodeHexadecimal(payloadBytes) == event.template.content else {
+                throw ValidationError.nonCanonicalHexadecimalContent
+            }
+            let payload = try PreManifestNostrPayloadDocument.decode(
+                from: payloadBytes
+            )
+            guard payload.canonicalBytes == payloadBytes else {
+                throw ValidationError.nonCanonicalHexadecimalContent
+            }
+            guard event.template.kind
+                    == PrivateDeploymentNostrSelector.privateDeployment.eventKind(
+                        for: payload.payloadKind
+                    ) else {
+                throw ValidationError.eventKindMismatch
+            }
+            guard event.publicKey == payload.signerIdentity else {
+                throw ValidationError.signerIdentityMismatch
+            }
             guard event.template.createdAt
-                    >= context.discoveryEpochStartUnixSeconds,
+                    >= payload.discoveryEpochStartUnixSeconds,
                   event.template.createdAt <= payload.expiryUnixSeconds else {
                 throw ValidationError.eventCreatedOutsideEpoch
             }
@@ -120,12 +138,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 guard event.template.createdAt >= deadlines.roleReveal else {
                     throw ValidationError.eventCreatedBeforePayloadWindow
                 }
-            }
-            guard event.template.createdAt <= context.currentUnixSeconds else {
-                throw ValidationError.eventCreatedInFuture
-            }
-            guard context.currentUnixSeconds <= payload.expiryUnixSeconds else {
-                throw ValidationError.expired
             }
             return payload
         }

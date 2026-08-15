@@ -3,6 +3,7 @@
 extension OpalFusion.Mosaic {
     enum CanonicalCodingError: Swift.Error, Equatable, Sendable {
         case lengthExceedsUInt32(Int)
+        case lengthLimitExceeded(maximum: Int, actual: Int)
         case invalidFixedByteCount(expected: Int, actual: Int)
         case truncatedInput(
             expectedByteCount: Int,

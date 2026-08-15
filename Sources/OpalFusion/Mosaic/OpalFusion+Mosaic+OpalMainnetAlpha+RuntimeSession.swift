@@ -66,6 +66,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var hasTranscriptInclusionValidation = false
 
         private(set) var state: State = .active(.manifestAgreement)
+        private(set) var terminalProtocolAbort: (
+            phase: OpalFusion.Mosaic.Attempt.Phase,
+            reason: OpalFusion.Mosaic.Attempt.AbortReason
+        )?
 
         var localAttemptState: OpalFusion.Mosaic.Attempt.State {
             localAttempt.state
@@ -166,6 +170,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 return receiveCompleteTransactionValidation(validation)
             case let .completeTransactionValidationFailed(rejection):
                 return receiveCompleteTransactionValidationFailure(rejection)
+            case let .authenticatedAbort(reason):
+                return receiveAuthenticatedAbort(reason)
             case .cancel:
                 return cancel()
             case .retryRequested:
@@ -676,6 +682,30 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 + [.sessionTerminated(outcome)]
         }
 
+        private mutating func receiveAuthenticatedAbort(
+            _ reason: OpalFusion.Mosaic.Attempt.AbortReason
+        ) -> [Effect] {
+            guard case let .active(phase) = state else {
+                return [.inputRejected(.inputAfterTermination)]
+            }
+            let localEffects = localAttempt.apply(
+                input: .init(
+                    attemptIdentifier: attemptIdentifier,
+                    generationIdentifier: generationIdentifier,
+                    attemptInput: .abort(reason)
+                )
+            )
+            _ = admissionLedger.apply(input: .cancel)
+            guard let failure = localAttemptTerminalFailure else {
+                return terminate(with: .phaseSynchronizationFailed)
+            }
+            terminalProtocolAbort = (phase, reason)
+            let outcome = Outcome.failed(.localAttempt(failure))
+            state = .terminal(outcome)
+            return localEffects.map(Effect.localAttempt)
+                + [.sessionTerminated(outcome)]
+        }
+
         private mutating func rejectInPlaceRetry() -> [Effect] {
             let localEffects = localAttempt.apply(
                 input: .init(
@@ -700,7 +730,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 state = .terminal(outcome)
                 return [.sessionTerminated(outcome)]
             case let .failed(failure):
-                return terminate(with: .admission(failure))
+                return terminate(
+                    with: .admission(failure),
+                    protocolAbortReason:
+                        failure.privateDeploymentAbortReason
+                )
             case let .cancelled(during: phase):
                 let localEffects = localAttempt.apply(
                     input: .init(
@@ -716,8 +750,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
-        private mutating func terminate(with failure: Failure) -> [Effect] {
-            guard case .active = state else {
+        private mutating func terminate(
+            with failure: Failure,
+            protocolAbortReason: OpalFusion.Mosaic.Attempt.AbortReason? = nil
+        ) -> [Effect] {
+            guard case let .active(phase) = state else {
                 return [.inputRejected(.inputAfterTermination)]
             }
             let admissionWasActive: Bool
@@ -738,11 +775,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     input: .init(
                         attemptIdentifier: attemptIdentifier,
                         generationIdentifier: generationIdentifier,
-                        attemptInput: .abort(.invalidAuthenticatedMessage)
+                        attemptInput: .abort(
+                            protocolAbortReason
+                                ?? .invalidAuthenticatedMessage
+                        )
                     )
                 ).map(Effect.localAttempt)
             }
             let outcome = Outcome.failed(failure)
+            if let protocolAbortReason {
+                terminalProtocolAbort = (phase, protocolAbortReason)
+            }
             state = .terminal(outcome)
             effects.append(.sessionTerminated(outcome))
             return effects

@@ -8,14 +8,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     /// The admission ledger remains the semantic validator. Coordinators stage a candidate
     /// runtime value, record only inputs that consumed admission state, and publish the staged
     /// effects only after this journal's synchronous append boundary succeeds. A restored
-    /// nonempty journal is evidence that the complete runtime also needs recovery; the current
-    /// alpha fails closed instead of constructing a fresh runtime around partial state.
+    /// nonempty journal is evidence that the complete runtime also needs recovery. Recovery must
+    /// replay the exact authenticated deliveries in journal order before live ingress can resume.
     final class PostManifestAdmissionJournal: Sendable {
         typealias Driver = OpalFusion.Mosaic.OpalMainnetAlpha
             .PostManifestRuntimeDriver
         typealias Ledger = OpalFusion.Mosaic.OpalMainnetAlpha.AdmissionLedger
         typealias Transport = OpalFusion.Mosaic.OpalMainnetAlpha
             .PostManifestNIP59Transport
+        typealias RecoveryAdmission = OpalFusion.Mosaic.OpalMainnetAlpha
+            .PostManifestTransportIngress.RecoveredAdmission
 
         struct RecipientBinding: Sendable, Equatable {
             let channel: Transport.Channel
@@ -61,7 +63,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case control(
                 sender: Ledger.ControlIdentity,
                 sequence: UInt64,
-                messageDigest: [UInt8]
+                messageDigest: [UInt8],
+                source: RecoveryAdmission
             )
             case anonymous(
                 messageIdentifier: OpalFusion.Mosaic.RuntimeSession
@@ -70,18 +73,26 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 recipientEventIdentity: [UInt8],
                 sequence: UInt64,
                 payloadType: UInt16,
-                payloadDigest: [UInt8]
+                payloadDigest: [UInt8],
+                source: RecoveryAdmission
             )
 
-            init(control delivery: Ledger.ControlDelivery) {
+            init(
+                control delivery: Ledger.ControlDelivery,
+                source: RecoveryAdmission
+            ) {
                 self = .control(
                     sender: delivery.envelope.senderControlIdentity,
                     sequence: delivery.envelope.sequence,
-                    messageDigest: delivery.envelope.messageDigest
+                    messageDigest: delivery.envelope.messageDigest,
+                    source: source
                 )
             }
 
-            init(anonymous delivery: Ledger.AnonymousDelivery) {
+            init(
+                anonymous delivery: Ledger.AnonymousDelivery,
+                source: RecoveryAdmission
+            ) {
                 self = .anonymous(
                     messageIdentifier:
                         delivery.authenticatedMessageIdentifier,
@@ -91,15 +102,24 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         delivery.authenticatedRecipientEventIdentity,
                     sequence: delivery.envelope.sequence,
                     payloadType: delivery.envelope.payloadType.rawValue,
-                    payloadDigest: delivery.envelope.payloadDigest
+                    payloadDigest: delivery.envelope.payloadDigest,
+                    source: source
                 )
+            }
+
+            var recoveryAdmission: RecoveryAdmission {
+                switch self {
+                case let .control(_, _, _, source),
+                     let .anonymous(_, _, _, _, _, _, source):
+                    source
+                }
             }
 
             fileprivate func conflicts(with other: Self) -> Bool {
                 switch (self, other) {
                 case let (
-                    .control(sender, sequence, _),
-                    .control(otherSender, otherSequence, _)
+                    .control(sender, sequence, _, _),
+                    .control(otherSender, otherSequence, _, _)
                 ):
                     sender == otherSender && sequence == otherSequence
 
@@ -110,6 +130,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         recipient,
                         sequence,
                         _,
+                        _,
                         _
                     ),
                     .anonymous(
@@ -117,6 +138,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         _,
                         otherRecipient,
                         otherSequence,
+                        _,
                         _,
                         _
                     )
@@ -185,6 +207,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         enum RecordingError: Error, Sendable, Equatable {
             case appendFailed
             case conflictingRecord
+            case recoveryRecordMismatch
         }
 
         enum Classification: Sendable, Equatable {
@@ -195,14 +218,31 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private struct State: Sendable {
             var acceptedRecords: [AcceptedRecord]
+            var recoveryCursor: Int?
         }
 
         private let context: Context
         private let store: Store
         private let state: Mutex<State>
 
+        var recoveryContext: Context { context }
+
         var requiresRuntimeRecovery: Bool {
-            state.withLock { !$0.acceptedRecords.isEmpty }
+            state.withLock { $0.recoveryCursor != nil }
+        }
+
+        var recoveredAdmissions: [RecoveryAdmission] {
+            state.withLock { state in
+                guard state.recoveryCursor != nil else { return [] }
+                return state.acceptedRecords.map(\.recoveryAdmission)
+            }
+        }
+
+        var recoveredRecords: [AcceptedRecord] {
+            state.withLock { state in
+                guard state.recoveryCursor != nil else { return [] }
+                return state.acceptedRecords
+            }
         }
 
         init(
@@ -232,7 +272,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             self.context = context
             self.store = store
-            state = Mutex(.init(acceptedRecords: accepted))
+            state = Mutex(
+                .init(
+                    acceptedRecords: accepted,
+                    recoveryCursor: accepted.isEmpty ? nil : 0
+                )
+            )
         }
 
         func classify(_ record: AcceptedRecord) -> Classification {
@@ -247,6 +292,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         /// and installation of the staged runtime value.
         func record(_ record: AcceptedRecord) throws(RecordingError) {
             let recordingError: RecordingError? = state.withLock { state in
+                if let recoveryCursor = state.recoveryCursor {
+                    guard recoveryCursor < state.acceptedRecords.count,
+                          state.acceptedRecords[recoveryCursor] == record else {
+                        return .recoveryRecordMismatch
+                    }
+                    state.recoveryCursor = recoveryCursor + 1
+                    return nil
+                }
                 switch Self.classify(
                     record,
                     against: state.acceptedRecords
@@ -271,6 +324,19 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             if let recordingError {
                 throw recordingError
+            }
+        }
+
+        /// Ends replay only after every durable admission record was reproduced exactly once and
+        /// in its original order. A partial or contradictory replay leaves recovery required.
+        func completeRuntimeRecovery() -> Bool {
+            state.withLock { state in
+                guard let recoveryCursor = state.recoveryCursor,
+                      recoveryCursor == state.acceptedRecords.count else {
+                    return false
+                }
+                state.recoveryCursor = nil
+                return true
             }
         }
 

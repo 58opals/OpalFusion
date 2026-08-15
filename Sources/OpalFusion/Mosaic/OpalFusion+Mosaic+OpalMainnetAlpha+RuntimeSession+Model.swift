@@ -88,6 +88,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
             OpalFusion.Mosaic.OpalMainnetAlpha
                 .CompleteTransactionValidationRejection
         )
+        case authenticatedAbort(OpalFusion.Mosaic.Attempt.AbortReason)
         case cancel
         case retryRequested
     }
@@ -95,6 +96,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
     enum State: Sendable, Equatable {
         case active(OpalFusion.Mosaic.Attempt.Phase)
         case terminal(Outcome)
+
+        var phase: OpalFusion.Mosaic.Attempt.Phase? {
+            guard case let .active(phase) = self else { return nil }
+            return phase
+        }
     }
 
     enum Outcome: Sendable, Equatable {
@@ -110,6 +116,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.RuntimeSession {
         case reservationPublicationMismatch
         case localCommitmentSetMismatch
         case phaseSynchronizationFailed
+        case authenticatedAbortPhaseMismatch
         case transcriptMismatch
         case completeTransactionValidationUnavailable
         case completeTransactionValidationMismatch

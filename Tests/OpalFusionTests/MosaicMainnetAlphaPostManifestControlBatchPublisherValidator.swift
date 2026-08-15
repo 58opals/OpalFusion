@@ -449,6 +449,28 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             firstFrames.insert(try #require(frames.first))
         }
         #expect(firstFrames.count == batch.recipients.count)
+
+        let replayAllocation = makeRouteAllocation(
+            recipients: harness.recipients
+        )
+        let replayProbe = RouteProviderProbe(
+            expectedRequests: requests,
+            groups: replayAllocation.groups
+        )
+        let replayPublisher = try makePublisher(
+            harness: harness,
+            probe: replayProbe,
+            publicationJournal: publicationJournal
+        )
+        try await replayPublisher.publish(batch)
+        #expect(await replayProbe.callCount == 0)
+        for connections in replayAllocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
     }
 
     @Test("Reject an atomic batch append before any route opens")
@@ -485,11 +507,12 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
         }
 
         #expect(persistence.snapshot == nil)
+        #expect(await probe.callCount == 0)
         for connections in allocation.connections.values {
             for connection in connections {
                 #expect(await connection.openCount == 0)
                 #expect(await connection.sentTexts.isEmpty)
-                #expect(await connection.closeCount == 1)
+                #expect(await connection.closeCount == 0)
             }
         }
     }
@@ -599,6 +622,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
         arguments: [
             Journal.Completion.transportAccepted,
             .transportRejected,
+            .cancelled,
         ]
     )
     func completeAcknowledgementDerivedRecoveryBeforeRouting(
@@ -635,24 +659,32 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             }
         )
         let target = try #require(durableBatch.continuations.first)
-        for continuation in durableBatch.continuations.dropFirst() {
-            try firstJournal.recordCompletion(
-                .cancelled,
-                eventIdentifier: continuation.publication.eventIdentifier
-            )
-        }
-        let acknowledgement: Journal.RelayAcknowledgement =
-            completion == .transportAccepted ? .accepted : .rejected
-        for endpoint in target.publication.endpoints.prefix(2) {
-            try firstJournal.recordAttempt(
-                eventIdentifier: target.publication.eventIdentifier,
-                endpoint: endpoint
-            )
-            try firstJournal.recordAcknowledgement(
-                acknowledgement,
-                eventIdentifier: target.publication.eventIdentifier,
-                endpoint: endpoint
-            )
+        if completion == .cancelled {
+            for continuation in durableBatch.continuations {
+                try firstJournal.recordCompletion(
+                    .cancelled,
+                    eventIdentifier:
+                        continuation.publication.eventIdentifier
+                )
+            }
+        } else {
+            let acknowledgement: Journal.RelayAcknowledgement =
+                completion == .transportAccepted ? .accepted : .rejected
+            for continuation in durableBatch.continuations {
+                for endpoint in continuation.publication.endpoints.prefix(2) {
+                    try firstJournal.recordAttempt(
+                        eventIdentifier:
+                            continuation.publication.eventIdentifier,
+                        endpoint: endpoint
+                    )
+                    try firstJournal.recordAcknowledgement(
+                        acknowledgement,
+                        eventIdentifier:
+                            continuation.publication.eventIdentifier,
+                        endpoint: endpoint
+                    )
+                }
+            }
         }
 
         let restoredJournal = try Journal(
@@ -674,12 +706,12 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
         )
 
         if completion == .transportAccepted {
-            try await publisher.resumePendingPublications()
+            try await publisher.publish(fixture.batch)
         } else {
             await #expect(
                 throws: Publisher.Failure.recipientPublicationFailed
             ) {
-                try await publisher.resumePendingPublications()
+                try await publisher.publish(fixture.batch)
             }
         }
 
@@ -993,6 +1025,54 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             for connection in connections {
                 #expect(await connection.openCount == 0)
                 #expect(await connection.closeCount == 1)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
+    }
+
+    @Test("Cancellation before control publication writes no durable batch")
+    func cancelBeforeDurableControlBatch() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let harness = fixture.harness
+        let allocation = makeRouteAllocation(recipients: harness.recipients)
+        let probe = RouteProviderProbe(
+            expectedRequests: routeRequests(harness.recipients),
+            groups: allocation.groups
+        )
+        let relaySelection = try makeRelaySelection(context: harness.context)
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let journal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: relaySelection
+            ),
+            persistence: persistence.persistence
+        )
+        let publisher = try makePublisher(
+            harness: harness,
+            probe: probe,
+            publicationJournal: journal
+        )
+        let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        await suspension.arm()
+        let publication = Task {
+            await suspension.suspendIfArmed()
+            try await publisher.publish(fixture.batch)
+        }
+        await suspension.waitUntilSuspended()
+        publication.cancel()
+        await suspension.resume()
+
+        await #expect(throws: Publisher.Failure.cancelled) {
+            try await publication.value
+        }
+        #expect(persistence.snapshot == nil)
+        #expect(await probe.callCount == 0)
+        for connections in allocation.connections.values {
+            for connection in connections {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.closeCount == 0)
                 #expect(await connection.sentTexts.isEmpty)
             }
         }
