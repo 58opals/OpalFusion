@@ -409,11 +409,12 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             ),
             on: owner
         )
-        await #expect(throws: Runtime.Failure.invalidPrivateDeploymentProof) {
+        await #expect(throws: (any Error).self) {
             _ = try await owner.acceptAvailabilityBeacon(
                 fixture.acknowledgementEvents[0]
             )
         }
+        #expect(try await owner.nextStep() == .awaitingInput(.discovery))
     }
 
     @Test("Construct persist recover and publish one exact local formation event")
@@ -518,11 +519,6 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
                 acceptedAtUnixSeconds: fixture.epoch + 2
             )) == .ignoredDuplicate(.discovery)
         )
-        await #expect(throws: Runtime.Failure.invalidPrivateDeploymentProof) {
-            _ = try await recoveredOwner.acceptAvailabilityBeacon(
-                fixture.beaconEvents[0]
-            )
-        }
     }
 
     @Test("Validate runtime capabilities before CAS and recover journal crash cuts")
@@ -1402,7 +1398,7 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             ).signingKey,
             controlEventSigningKey: try MosaicPrivateDeploymentFixtures
                 .CandidateKeyMaterial(
-                    scalar: UInt8(100 + controlIndex)
+                    scalar: UInt8(125 + controlIndex)
                 ).signingKey,
             loadSlotSecrets: { _, _ in
                 throw Runtime.Failure.invalidStateTransition

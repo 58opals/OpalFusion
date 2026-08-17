@@ -279,7 +279,7 @@ extension MosaicPrivateDeploymentFixtures {
         }
         let senderControlKey = formation.controlCandidate(for: sender)
             .signingKey
-        let senderEventKey = try makeSigningKey(seed: 100 + senderIndex)
+        let senderEventKey = try makeSigningKey(seed: 125 + senderIndex)
         let payload: [UInt8] = [0x01]
         let expiry = bootstrap.proposalValidation.core.deadlines
             .walletReservation

@@ -400,7 +400,14 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             snapshot: state.canonicalBytes(),
             binding: binding
         ).owner
-        let wrongPhase = fixture.acknowledgementEvents[0]
+        let acknowledgementEvents = try fixture.acknowledgementEvents.map { event in
+            (event, try event.decodeCanonicalNostrEvent().publicKey)
+        }
+        let wrongPhase = try #require(
+            acknowledgementEvents.first(where: {
+                $0.1 == signerIdentity
+            })?.0
+        )
         for rejected in [
             try Runtime.PrivateDeploymentEvent(
                 canonicalEventBytes: wrongPhase.canonicalEventBytes,
@@ -411,7 +418,9 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                 acceptedAtUnixSeconds: fixture.epoch + 91
             ),
         ] {
-            await #expect(throws: Runtime.Failure.invalidStateTransition) {
+            await #expect(
+                throws: Runtime.Failure.invalidPrivateDeploymentProof
+            ) {
                 _ = try await owner.acceptCandidateSetAcknowledgement(rejected)
             }
             #expect(

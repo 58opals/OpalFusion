@@ -33,15 +33,42 @@ actor ScriptedMosaicPrivateAlphaTorConnection:
         sentTexts.append(text)
         let value = try JSONSerialization.jsonObject(with: Data(text.utf8))
         guard let message = value as? [Any],
-              message.count == 2,
-              message[0] as? String == "EVENT",
-              let object = message[1] as? [String: Any],
-              let identifier = object["id"] as? String else {
+              let messageType = message.first as? String else {
             throw Runtime.Failure.invalidStateTransition
         }
-        let acknowledgement: [Any] = ["OK", identifier, true, ""]
-        let bytes = try JSONSerialization.data(withJSONObject: acknowledgement)
-        continuation.yield(.text(bytes))
+        switch messageType {
+        case "EVENT":
+            guard message.count == 2,
+                  let object = message[1] as? [String: Any],
+                  let identifier = object["id"] as? String else {
+                throw Runtime.Failure.invalidStateTransition
+            }
+            let acknowledgement: [Any] = ["OK", identifier, true, ""]
+            let bytes = try JSONSerialization.data(
+                withJSONObject: acknowledgement
+            )
+            continuation.yield(.text(bytes))
+
+        case "REQ":
+            guard message.count >= 3,
+                  let identifier = message[1] as? String else {
+                throw Runtime.Failure.invalidStateTransition
+            }
+            let endOfStoredEvents: [Any] = ["EOSE", identifier]
+            let bytes = try JSONSerialization.data(
+                withJSONObject: endOfStoredEvents
+            )
+            continuation.yield(.text(bytes))
+
+        case "CLOSE":
+            guard message.count == 2,
+                  message[1] is String else {
+                throw Runtime.Failure.invalidStateTransition
+            }
+
+        default:
+            throw Runtime.Failure.invalidStateTransition
+        }
     }
 
     func close() async {

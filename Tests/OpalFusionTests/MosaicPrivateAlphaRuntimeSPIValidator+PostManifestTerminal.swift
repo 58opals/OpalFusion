@@ -183,17 +183,15 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             documentByte: 0xD6,
             eventByte: 0xD7
         )
-        let falseConductorEvent = try Runtime.PrivateDeploymentEvent.makeLocal(
-            payload: payload,
-            createdAtUnixSeconds:
-                fixture.proof.completeManifest.core.deadlines.bchSigning,
-            signing: contributorSigning
-        )
-        #expect(throws: (any Error).self) {
-            _ = try Runtime.PostManifestTerminalRecord.completion(
-                binding: binding,
-                event: falseConductorEvent,
-                validation: validation
+        #expect(
+            throws: Alpha.PreManifestNostrCodec.ValidationError
+                .signingIdentityMismatch
+        ) {
+            _ = try Runtime.PrivateDeploymentEvent.makeLocal(
+                payload: payload,
+                createdAtUnixSeconds:
+                    fixture.proof.completeManifest.core.deadlines.bchSigning,
+                signing: contributorSigning
             )
         }
         let lateEvent = try Runtime.PrivateDeploymentEvent(
@@ -610,7 +608,7 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                 ).signingKey,
                 controlEventSigningKey: try MosaicPrivateDeploymentFixtures
                     .CandidateKeyMaterial(
-                        scalar: UInt8(100 + controlIndex)
+                        scalar: UInt8(125 + controlIndex)
                     ).signingKey,
                 loadSlotSecrets: { _, _ in
                     throw Runtime.Failure.invalidStateTransition
@@ -747,7 +745,7 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                 ).signingKey,
                 controlEventSigningKey: try MosaicPrivateDeploymentFixtures
                     .CandidateKeyMaterial(
-                        scalar: UInt8(100 + controlIndex)
+                        scalar: UInt8(125 + controlIndex)
                     ).signingKey,
                 loadSlotSecrets: { _, _ in
                     throw Runtime.Failure.invalidStateTransition
@@ -812,16 +810,21 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             .makePostManifestConstruction(
                 localControlIdentity: localIdentity
             )
-        let firstExecution = try await firstConstruction
-            .makeContributorExecution(
-                host: try makeContributorHost(
-                    formation: fixture.formation,
-                    contributor: contributorIdentity
-                ),
-                capabilities: capabilities
-            )
+        let firstRuntime = MosaicPrivateAlphaTerminalRuntimeProbe(
+            phase: .walletReservation
+        )
+        let firstComponent = try makeTerminalProbeExecution(
+            construction: firstConstruction,
+            capabilities: capabilities,
+            admissionStore: admission,
+            publicationStore: publication,
+            endpoint: await firstRuntime.endpoint()
+        )
+        let firstExecution = firstComponent.execution
         try await firstExecution.start()
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        for connection in firstComponent.connections {
+            #expect(await connection.openCount == 1)
+        }
         terminal.failNextCompareAndSwapAfterWriting()
         let signing = try makeSigningCapability(
             fixture.formation.controlCandidate(
@@ -865,15 +868,18 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             .makePostManifestConstruction(
                 localControlIdentity: localIdentity
             )
-        let recoveredExecution = try await recoveredConstruction
-            .makeContributorExecution(
-                host: try makeContributorHost(
-                    formation: fixture.formation,
-                    contributor: contributorIdentity
-                ),
-                capabilities: capabilities
-            )
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        let recoveredRuntime = MosaicPrivateAlphaTerminalRuntimeProbe(
+            phase: .walletReservation
+        )
+        let recoveredComponent = try makeTerminalProbeExecution(
+            construction: recoveredConstruction,
+            capabilities: capabilities,
+            admissionStore: admission,
+            publicationStore: publication,
+            endpoint: await recoveredRuntime.endpoint()
+        )
+        let recoveredExecution = recoveredComponent.execution
+        #expect(routeProbe.recordedProvisionCallCount == 0)
         try await recoveredExecution.start()
         guard let termination = try await recoveredExecution
             .waitForTermination() else {
@@ -881,7 +887,10 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         }
         #expect(termination.kind == .aborted)
         #expect(termination.binding == binding)
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        #expect(routeProbe.recordedProvisionCallCount == 0)
+        for connection in recoveredComponent.connections {
+            #expect(await connection.openCount == 0)
+        }
         #expect(terminal.recordedCompareAndSwapCallCount == 1)
     }
 
@@ -933,15 +942,21 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         let construction = try await owner.makePostManifestConstruction(
             localControlIdentity: localIdentity
         )
-        let execution = try await construction.makeContributorExecution(
-            host: try makeContributorHost(
-                formation: fixture.formation,
-                contributor: contributorIdentity
-            ),
-            capabilities: capabilities
+        let liveRuntime = MosaicPrivateAlphaTerminalRuntimeProbe(
+            phase: .walletReservation
         )
+        let liveComponent = try makeTerminalProbeExecution(
+            construction: construction,
+            capabilities: capabilities,
+            admissionStore: admission,
+            publicationStore: publication,
+            endpoint: await liveRuntime.endpoint()
+        )
+        let execution = liveComponent.execution
         try await execution.start()
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        for connection in liveComponent.connections {
+            #expect(await connection.openCount == 1)
+        }
 
         let conductor = fixture.formation.roleElection.roster.conductor
         let authority = try Alpha.PrivateDeploymentAbortAuthority
@@ -985,7 +1000,7 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         )
         let freshEvidence = try await owner.claimTerminalEvidence()
         #expect(freshEvidence.binding == binding)
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        #expect(routeProbe.recordedProvisionCallCount == 0)
 
         let authorizedState = try Runtime.RecoveryState.decode(
             from: authorizedSnapshot,
@@ -1177,7 +1192,7 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             didRejectMissingCompanion = true
         }
         #expect(didRejectMissingCompanion)
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        #expect(routeProbe.recordedProvisionCallCount == 0)
         #expect(
             try publication.compareAndSwap(
                 binding,
@@ -1220,7 +1235,7 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             didRejectMissingAdmission = true
         }
         #expect(didRejectMissingAdmission)
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        #expect(routeProbe.recordedProvisionCallCount == 0)
         #expect(
             try admission.compareAndSwap(
                 binding,
@@ -1310,14 +1325,18 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             publication.load(binding)
         )
         #expect(differentPublicationReadback != publicationReadback)
-        let differentCompanionExecution = try await
-            differentCompanionConstruction.makeContributorExecution(
-                host: try makeContributorHost(
-                    formation: fixture.formation,
-                    contributor: contributorIdentity
-                ),
-                capabilities: capabilities
-            )
+        let differentCompanionRuntime = MosaicPrivateAlphaTerminalRuntimeProbe(
+            phase: .walletReservation
+        )
+        let differentCompanionComponent = try makeTerminalProbeExecution(
+            construction: differentCompanionConstruction,
+            capabilities: capabilities,
+            admissionStore: admission,
+            publicationStore: publication,
+            endpoint: await differentCompanionRuntime.endpoint()
+        )
+        let differentCompanionExecution =
+            differentCompanionComponent.execution
         try await differentCompanionExecution.start()
         guard let differentCompanionTermination = try await
             differentCompanionExecution.waitForTermination() else {
@@ -1333,7 +1352,10 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             didRejectDifferentCompanion = true
         }
         #expect(didRejectDifferentCompanion)
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        #expect(routeProbe.recordedProvisionCallCount == 0)
+        for connection in differentCompanionComponent.connections {
+            #expect(await connection.openCount == 0)
+        }
         #expect(
             try publication.compareAndSwap(
                 binding,
@@ -1361,15 +1383,18 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             .makePostManifestConstruction(
                 localControlIdentity: localIdentity
             )
-        let recoveredExecution = try await recoveredConstruction
-            .makeContributorExecution(
-                host: try makeContributorHost(
-                    formation: fixture.formation,
-                    contributor: contributorIdentity
-                ),
-                capabilities: capabilities
-            )
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        let recoveredRuntime = MosaicPrivateAlphaTerminalRuntimeProbe(
+            phase: .walletReservation
+        )
+        let recoveredComponent = try makeTerminalProbeExecution(
+            construction: recoveredConstruction,
+            capabilities: capabilities,
+            admissionStore: admission,
+            publicationStore: publication,
+            endpoint: await recoveredRuntime.endpoint()
+        )
+        let recoveredExecution = recoveredComponent.execution
+        #expect(routeProbe.recordedProvisionCallCount == 0)
         try await recoveredExecution.start()
         guard let recoveredTermination = try await recoveredExecution
             .waitForTermination() else {
@@ -1384,6 +1409,104 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         let recoveredEvidence = try await recoveredOwner
             .claimTerminalEvidence()
         #expect(recoveredEvidence.binding == binding)
-        #expect(routeProbe.recordedProvisionCallCount == 1)
+        #expect(routeProbe.recordedProvisionCallCount == 0)
+        for connection in recoveredComponent.connections {
+            #expect(await connection.openCount == 0)
+        }
+    }
+
+    func makeTerminalProbeExecution(
+        construction: borrowing Runtime.PostManifestConstruction,
+        capabilities: Runtime.PostManifestRuntimeCapabilities,
+        admissionStore: MosaicPrivateAlphaRuntimePersistenceStore,
+        publicationStore: MosaicPrivateAlphaRuntimePersistenceStore,
+        endpoint: Alpha.PostManifestRelayFanIn.RuntimeEndpoint
+    ) throws -> (
+        execution: Runtime.PostManifestExecution,
+        connections: [ScriptedMosaicTorWebSocketConnection]
+    ) {
+        typealias FanIn = Alpha.PostManifestRelayFanIn
+        typealias Nostr = OpalFusion.Mosaic.NostrNamespace
+
+        let relaySelection = try construction.makeRelaySelection(
+            capabilities.relays
+        )
+        let publicationJournal = try construction.makePublicationJournal(
+            relaySelection: relaySelection,
+            persistence: capabilities.publicationPersistence
+        )
+        let codingLimits = try construction.makeCodingLimits(
+            capabilities.relays
+        )
+        let recipient = Alpha.PostManifestNIP59Transport
+            .RecipientCapability(
+                channel: .control,
+                signingKey: capabilities.mailboxes
+                    .localControlRecipientSigningKey
+            )
+        let connections = relaySelection.endpoints.map { _ in
+            ScriptedMosaicTorWebSocketConnection()
+        }
+        let subscriptions = try Dictionary(uniqueKeysWithValues:
+            relaySelection.endpoints.enumerated().map { index, endpoint in
+                (
+                    endpoint,
+                    try Nostr.SubscriptionIdentifier(
+                        "terminal-probe-\(index)"
+                    )
+                )
+            }
+        )
+        let recipientGroup = FanIn.RecipientRouteGroup(
+            recipient: recipient,
+            routes: zip(relaySelection.endpoints, connections).map {
+                .init(endpoint: $0.0, connection: $0.1)
+            },
+            subscriptionIdentifiers: subscriptions
+        )
+        let fanIn = try FanIn.makeComponent(
+            role: .contributor,
+            maximumAnonymousRecipientCount:
+                construction.completeManifest.core.roster.contributors.count
+                    * Alpha.componentCountPerContributor,
+            manifestRelaySetDigest:
+                construction.completeManifest.core.relaySetDigest,
+            recipientRouteGroups: [recipientGroup],
+            relaySelection: relaySelection,
+            runtime: endpoint,
+            codingLimits: codingLimits,
+            maximumPendingEventCount: 8
+        )
+        let binding = construction.binding
+        return (
+            Runtime.PostManifestExecution(
+                binding: binding,
+                fanIn: fanIn,
+                publicationJournal: publicationJournal,
+                privateManifest: construction.privateManifest,
+                completeManifest: construction.completeManifest,
+                localControlIdentity: .init(
+                    validatedBytes: Array(construction.localControlIdentity)
+                ),
+                recoveredTerminalEvidence:
+                    construction.recoveredTerminalEvidence,
+                loadAdmissionReadback: {
+                    guard let readback = admissionStore.load(binding) else {
+                        throw Runtime.Failure.terminalEvidenceUnavailable
+                    }
+                    return readback
+                },
+                loadPublicationReadback: {
+                    guard let readback = publicationStore.load(binding) else {
+                        throw Runtime.Failure.terminalEvidenceUnavailable
+                    }
+                    return readback
+                },
+                terminalPersistence: capabilities.terminalPersistence,
+                stopOutbound: {},
+                waitForOutboundDrain: { true }
+            ),
+            connections
+        )
     }
 }
