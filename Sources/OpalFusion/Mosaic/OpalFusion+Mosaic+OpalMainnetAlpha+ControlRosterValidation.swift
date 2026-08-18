@@ -47,11 +47,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     == candidateSelection.candidateSetDigest,
                   Set(acknowledgementSet.acknowledgements.map {
                       Data($0.signerDiscoveryIdentity.rawRepresentation)
-                  }) == Set(candidateSelection.selectedDiscoveryIdentities.map(Data.init)) else {
+                  }) == Set(candidateSelection.selectedDiscoveryIdentities.map {
+                      Data($0)
+                  }) else {
                 throw .acknowledgementSetMismatch
             }
             let expectedDiscoveryIdentities = Set(
-                candidateSelection.selectedDiscoveryIdentities.map(Data.init)
+                candidateSelection.selectedDiscoveryIdentities.map {
+                    Data($0)
+                }
             )
             var admissionsByDiscoveryIdentity: [
                 Data: CandidateAdmissionDocument

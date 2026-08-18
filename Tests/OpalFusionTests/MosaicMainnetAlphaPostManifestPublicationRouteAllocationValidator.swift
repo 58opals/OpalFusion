@@ -218,9 +218,9 @@ struct MosaicMainnetAlphaPostManifestPublicationRouteAllocationValidator {
         #expect(await sibling.closeCount == 1)
     }
 
-    private func makeRoute(
+    private func makeRoute<Connection: OpalFusion.Mosaic.TorWebSocketConnectioning>(
         index: Int,
-        connection: any OpalFusion.Mosaic.TorWebSocketConnectioning
+        connection: Connection
     ) -> Route {
         Route(
             endpoint: .init(
@@ -231,6 +231,6 @@ struct MosaicMainnetAlphaPostManifestPublicationRouteAllocationValidator {
     }
 
     private func connectionIdentity(of route: Route) -> ObjectIdentifier {
-        ObjectIdentifier(route.connection as AnyObject)
+        route.connectionIdentity
     }
 }

@@ -186,15 +186,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         struct ProvisionedRoute: Sendable {
             let endpoint: PostManifestRelayEndpoint
             let connection: any OpalFusion.Mosaic.TorWebSocketConnectioning
+            let connectionIdentity: ObjectIdentifier
             let isolationLease: IsolationLease
 
-            init(
+            init<Connection: OpalFusion.Mosaic.TorWebSocketConnectioning>(
                 endpoint: PostManifestRelayEndpoint,
-                connection: any OpalFusion.Mosaic.TorWebSocketConnectioning,
+                connection: Connection,
                 isolationLease: IsolationLease
             ) {
                 self.endpoint = endpoint
                 self.connection = connection
+                connectionIdentity = ObjectIdentifier(connection)
                 self.isolationLease = isolationLease
             }
         }
@@ -268,6 +270,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private struct Claims {
             var inboundRoutesWereIssued = false
             var connectionIdentities: Set<ObjectIdentifier> = []
+            // Keep closed connections alive for the attempt so their object identifiers cannot
+            // be recycled into false duplicate claims by a later route allocation.
+            var retainedConnections: [
+                any OpalFusion.Mosaic.TorWebSocketConnectioning
+            ] = []
             var isolationLeases: Set<IsolationLease> = []
             var subscriptionIdentifiers: Set<Nostr.SubscriptionIdentifier> = []
         }
@@ -737,11 +744,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     guard endpoints.insert(provisionedRoute.endpoint).inserted else {
                         throw Failure.routeAllocationMismatch
                     }
-                    let connectionIdentity = ObjectIdentifier(
-                        provisionedRoute.connection as AnyObject
-                    )
                     guard claims.connectionIdentities.insert(
-                        connectionIdentity
+                        provisionedRoute.connectionIdentity
                     ).inserted else {
                         throw Failure.duplicateConnection
                     }
@@ -750,10 +754,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     ).inserted else {
                         throw Failure.duplicateIsolationLease
                     }
+                    claims.retainedConnections.append(
+                        provisionedRoute.connection
+                    )
                     routes.append(
                         .init(
                             endpoint: provisionedRoute.endpoint,
-                            connection: provisionedRoute.connection
+                            connection: provisionedRoute.connection,
+                            connectionIdentity:
+                                provisionedRoute.connectionIdentity
                         )
                     )
                     if needsSubscriptions {
@@ -800,7 +809,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 var connectionIdentities: Set<ObjectIdentifier> = []
                 for route in groups.flatMap(\.routes) {
                     guard connectionIdentities.insert(
-                        ObjectIdentifier(route.connection as AnyObject)
+                        route.connectionIdentity
                     ).inserted else {
                         continue
                     }

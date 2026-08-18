@@ -380,7 +380,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                             throw InitializationError.duplicateRelay(route.endpoint)
                         }
                         guard connections.insert(
-                            ObjectIdentifier(route.connection as AnyObject)
+                            route.connectionIdentity
                         ).inserted else {
                             throw InitializationError.duplicateConnection
                         }

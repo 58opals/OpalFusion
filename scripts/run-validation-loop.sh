@@ -18,6 +18,7 @@ Modes:
   client          Run public client session tests.
   mosaic          Run the bounded Mosaic conformance and facade tests.
   mosaic-fast     Run the RSA-free Mosaic lifecycle and wiring lane.
+  mosaic-private-alpha-spi Run the complete serialized private-alpha SPI validator.
   mosaic-rehearsal Run the explicitly slow, no-network mainnet-alpha rehearsal.
   interop-parser  Run Electron Cash interop parser/environment tests only.
   --help          Show this usage.
@@ -81,6 +82,7 @@ run_serial_filter() {
 
 MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator|MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator|MosaicMainnetAlphaReservationCoordinatorValidator|MosaicMainnetAlphaContractValidator|MosaicOpalV0AuthorizationValidator'
 MOSAIC_FAST_FILTER='MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator'
+MOSAIC_PRIVATE_ALPHA_SPI_FILTER='MosaicPrivateAlphaRuntimeSPIValidator'
 MOSAIC_MAINNET_REHEARSAL_FILTER='executeSixContributorConductor|executeThroughExactCommit'
 MOSAIC_MATERIAL_FILTER='MosaicMainnetAlpha4MaterialValidator'
 MAXIMUM_PARALLEL_TEST_WIDTH=4
@@ -167,6 +169,11 @@ case "$mode" in
   mosaic-fast)
     assert_mosaic_fast_lane_is_rsa_free
     run_bounded_test --filter "$MOSAIC_FAST_FILTER"
+    ;;
+  mosaic-private-alpha-spi)
+    # Keep all recovery prefixes in one process so the exact private-alpha
+    # proof fixture is constructed once and the suite remains serialized.
+    run_serial_filter "$MOSAIC_PRIVATE_ALPHA_SPI_FILTER"
     ;;
   mosaic-rehearsal)
     # These two tests share the real purpose-separated RSA fixtures in one process.

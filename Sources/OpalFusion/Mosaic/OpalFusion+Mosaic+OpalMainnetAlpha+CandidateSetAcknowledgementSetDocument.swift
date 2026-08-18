@@ -37,7 +37,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             candidateSelection: CandidateSelectionValidation
         ) throws(ValidationError) {
             let expectedSigners = Set(
-                candidateSelection.selectedDiscoveryIdentities.map(Data.init)
+                candidateSelection.selectedDiscoveryIdentities.map {
+                    Data($0)
+                }
             )
             var acknowledgementsBySigner: [
                 Data: CandidateSetAcknowledgementDocument

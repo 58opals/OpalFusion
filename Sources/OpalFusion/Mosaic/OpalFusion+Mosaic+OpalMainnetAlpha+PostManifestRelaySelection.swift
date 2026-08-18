@@ -8,13 +8,25 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
     struct PostManifestRelayRoute: Sendable {
         let endpoint: PostManifestRelayEndpoint
         let connection: any OpalFusion.Mosaic.TorWebSocketConnectioning
+        let connectionIdentity: ObjectIdentifier
 
-        init(
+        init<Connection: OpalFusion.Mosaic.TorWebSocketConnectioning>(
             endpoint: PostManifestRelayEndpoint,
-            connection: any OpalFusion.Mosaic.TorWebSocketConnectioning
+            connection: Connection
         ) {
             self.endpoint = endpoint
             self.connection = connection
+            connectionIdentity = ObjectIdentifier(connection)
+        }
+
+        init(
+            endpoint: PostManifestRelayEndpoint,
+            connection: any OpalFusion.Mosaic.TorWebSocketConnectioning,
+            connectionIdentity: ObjectIdentifier
+        ) {
+            self.endpoint = endpoint
+            self.connection = connection
+            self.connectionIdentity = connectionIdentity
         }
     }
 

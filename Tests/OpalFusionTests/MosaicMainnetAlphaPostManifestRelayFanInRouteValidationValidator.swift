@@ -196,10 +196,10 @@ struct MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator {
         )
     }
 
-    private func routeGroup(
+    private func routeGroup<Connection: OpalFusion.Mosaic.TorWebSocketConnectioning>(
         recipientScalar: UInt8,
         channel: Transport.Channel,
-        connections: [any OpalFusion.Mosaic.TorWebSocketConnectioning],
+        connections: [Connection],
         subscriptions: [Tracker.Endpoint: Nostr.SubscriptionIdentifier]
     ) throws -> FanIn.RecipientRouteGroup {
         .init(

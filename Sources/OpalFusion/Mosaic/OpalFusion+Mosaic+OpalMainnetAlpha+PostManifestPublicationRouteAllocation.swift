@@ -64,7 +64,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 }
                 for route in group.routes {
                     guard connectionIdentities.insert(
-                        ObjectIdentifier(route.connection as AnyObject)
+                        route.connectionIdentity
                     ).inserted else {
                         throw .duplicateConnection
                     }
@@ -90,7 +90,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 var connectionIdentities: Set<ObjectIdentifier> = []
                 for route in routes {
                     guard connectionIdentities.insert(
-                        ObjectIdentifier(route.connection as AnyObject)
+                        route.connectionIdentity
                     ).inserted else {
                         continue
                     }

@@ -291,7 +291,7 @@ struct MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator {
             }
         )
         let inboundConnections = inboundGroups.flatMap(\.routes).map {
-            ObjectIdentifier($0.connection as AnyObject)
+            $0.connectionIdentity
         }
         #expect(Set(inboundConnections).count == inboundConnections.count)
         let inboundSubscriptions = inboundGroups.flatMap {

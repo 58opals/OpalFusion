@@ -65,7 +65,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     throw .duplicateRelay(route.endpoint)
                 }
                 guard connections.insert(
-                    ObjectIdentifier(route.connection as AnyObject)
+                    route.connectionIdentity
                 ).inserted else {
                     throw .duplicateConnection
                 }

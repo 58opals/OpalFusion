@@ -620,7 +620,7 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         try await execution.start()
 
         let claimCounts = Mutex((claimed: 0, unavailable: 0))
-        let first = Task {
+        let first = Task { @Sendable in
             if let termination = try await execution.waitForTermination() {
                 #expect(termination.binding == binding)
                 claimCounts.withLock { $0.claimed += 1 }
@@ -628,7 +628,7 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                 claimCounts.withLock { $0.unavailable += 1 }
             }
         }
-        let second = Task {
+        let second = Task { @Sendable in
             if let termination = try await execution.waitForTermination() {
                 #expect(termination.binding == binding)
                 claimCounts.withLock { $0.claimed += 1 }

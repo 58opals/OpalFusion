@@ -669,10 +669,20 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         let subscriptions = try makeSubscriptions()
         let responsive = CancellationResponsiveConnection()
         let peers = makeConnections()
+        let recipient = try signingKey(21)
+        let selectedEndpoints = (1 ... Alpha.relayCount).map(endpoint)
+        let routeGroup = FanIn.RecipientRouteGroup(
+            recipient: .init(channel: .control, signingKey: recipient),
+            routes: [
+                .init(endpoint: selectedEndpoints[0], connection: responsive),
+                .init(endpoint: selectedEndpoints[1], connection: peers[0]),
+                .init(endpoint: selectedEndpoints[2], connection: peers[1]),
+            ],
+            subscriptionIdentifiers: subscriptions
+        )
         let fanIn = try makeFanIn(
             ledger: ledger,
-            connections: [responsive, peers[0], peers[1]],
-            subscriptions: subscriptions
+            recipientRouteGroups: [routeGroup]
         )
 
         let starting = Task { try await fanIn.start() }
@@ -709,7 +719,9 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         .timeLimit(.minutes(1))
     )
     func cancelSuspendedIngressStartup() async throws {
-        let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
+        let suspension = MosaicRuntimeCoordinatorSuspensionProbe(
+            waitsForExplicitResumeAfterCancellation: true
+        )
         await suspension.arm()
         let harness = try makeHarness(beforeDriverStart: {
             await suspension.suspendIfArmed()
@@ -1172,9 +1184,9 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         )
     }
 
-    private func makeFanIn(
+    private func makeFanIn<Connection: OpalFusion.Mosaic.TorWebSocketConnectioning>(
         ledger: Fixture.Harness,
-        connections: [any OpalFusion.Mosaic.TorWebSocketConnectioning],
+        connections: [Connection],
         subscriptions: [
             Tracker.Endpoint: Nostr.SubscriptionIdentifier
         ],
@@ -1249,10 +1261,10 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         )
     }
 
-    private func recipientRouteGroup(
+    private func recipientRouteGroup<Connection: OpalFusion.Mosaic.TorWebSocketConnectioning>(
         recipient: OpalCrypto.Secp256k1.SigningKey,
         channel: Transport.Channel,
-        connections: [any OpalFusion.Mosaic.TorWebSocketConnectioning],
+        connections: [Connection],
         subscriptions: [
             Tracker.Endpoint: Nostr.SubscriptionIdentifier
         ]
