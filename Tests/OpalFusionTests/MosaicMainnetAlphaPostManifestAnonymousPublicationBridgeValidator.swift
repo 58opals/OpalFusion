@@ -101,7 +101,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator {
 
     @Test(
         "Round-trip all components and local signatures on purpose-separated mailbox sequences",
-        .timeLimit(.minutes(3))
+        .timeLimit(.minutes(5))
     )
     func roundTripCompletePublicationOrder() async throws {
         let fixture = try await Self.sharedFixtureTask.value

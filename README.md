@@ -41,7 +41,7 @@ Opal Fusion is the collaborative-transaction protocol package for the Opal Bitco
 
 ## Requirements
 
-- Swift tools version: `6.2`
+- Swift tools version: `6.4`
 - Platforms: `macOS 26`
 - Xcode's Metal Toolchain component, required by the current OpalCrypto build plugin.
 - Current live CashFusion transport support, including the Tor SOCKS5 covert path, is macOS-only in this package. Mosaic has strict relay framing, a frozen internal post-manifest NIP-59 event mapping, attempt-scoped recipient routing, authenticated runtime ingress, a one-shot exact-three-relay/two-acknowledgement publisher, and a bounded multi-recipient fan-in whose externally provisioned mailbox groups each use three injected Tor-only WebSocket capabilities; it has no concrete Tor connection, complete production mailbox allocation, reconnect, durable duplicate merge, or public live transport implementation.
