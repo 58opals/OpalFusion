@@ -1,6 +1,6 @@
 # Mosaic Private-Deployment.1 Semantic Decision — 2026-08-21
 
-Status: Accepted as the frozen private-deployment contract for Mosaic private-alpha G0. This decision closes the semantic-approval blocker only; G0 remains open until one exact application dependency graph passes its required local cross-package validation.
+Status: Accepted as the frozen private-deployment contract for Mosaic private-alpha G0. This decision closed the semantic-approval blocker only; the separately recorded [Mosaic G0 Closure Evidence — 2026-08-21](mosaic-g0-closure-evidence-2026-08-21.md) subsequently closed G0 after one exact application dependency graph passed its required local cross-package validation.
 
 ## Scope
 
