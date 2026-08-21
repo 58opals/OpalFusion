@@ -46,17 +46,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         guard exactReadback == transition.replacementSnapshot else {
             throw Runtime.Failure.exactReadbackMismatch
         }
-        let decoded = try Runtime.RecoveryState.decode(
-            from: exactReadback,
-            expectedBinding: state.binding
-        )
-        guard decoded == stagedState else {
-            throw Runtime.Failure.exactReadbackMismatch
-        }
-        state = decoded
+        state = stagedState
         durableSnapshot = exactReadback
         self.stagedState = nil
         stagedTransition = nil
+        cachedFormationState = stagedFormationState
+        stagedFormationState = nil
+        cachedAttempt = stagedAttempt
+        stagedAttempt = nil
         if case .validated = state.manifestState,
            case .authorized = state.terminalState,
            !postManifestTerminalReadbackValidated {
@@ -95,6 +92,61 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         )
         stagedState = replacement
         stagedTransition = transition
+        stagedFormationState = cachedFormationState
+        stagedAttempt = cachedAttempt
+        return .persist(transition)
+    }
+
+    /// Stages a private-deployment mutation whose exact typed protocol state
+    /// was already validated from the owner's current cached formation.
+    func stageValidatedPrivateDeployment(
+        formation nextFormationState: OpalFusion
+            .MosaicPrivateAlphaRuntime.PrivateDeploymentFormationState?,
+        _ update: (inout OpalFusion.MosaicPrivateAlphaRuntime.RecoveryState)
+            throws -> Void
+    ) throws -> OpalFusion.MosaicPrivateAlphaRuntime.Step {
+        try stageValidatedPrivateDeployment(
+            formation: nextFormationState,
+            attempt: cachedAttempt,
+            update
+        )
+    }
+
+    func stageValidatedPrivateDeployment(
+        formation nextFormationState: OpalFusion
+            .MosaicPrivateAlphaRuntime.PrivateDeploymentFormationState?,
+        attempt nextAttempt: OpalFusion.Mosaic.Attempt?,
+        _ update: (inout OpalFusion.MosaicPrivateAlphaRuntime.RecoveryState)
+            throws -> Void
+    ) throws -> OpalFusion.MosaicPrivateAlphaRuntime.Step {
+        typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
+        guard stagedTransition == nil,
+              state.publicationState == .none,
+              state.terminalState == .active,
+              state.preManifestAbortCause == .none,
+              cachedFormationState != nil,
+              let durableSnapshot else {
+            throw Runtime.Failure.invalidStateTransition
+        }
+        var replacement = try state.replacingRevision()
+        try update(&replacement)
+        guard replacement.preManifestDocuments.count
+                <= Runtime.RecoveryState.maximumRecordCount,
+              replacement.preManifestDocuments.allSatisfy({
+                  !$0.isEmpty
+                    && $0.count
+                        <= Runtime.RecoveryState.maximumRecordByteCount
+              }) else {
+            throw Runtime.Failure.opaqueByteCountLimitExceeded
+        }
+        let transition = try Self.makeTransition(
+            expectedSnapshot: durableSnapshot,
+            replacementState: replacement
+        )
+        stagedState = replacement
+        stagedTransition = transition
+        stagedFormationState = nextFormationState
+        stagedAttempt = nextAttempt
         return .persist(transition)
     }
 
@@ -111,13 +163,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         }
         var replacement = try state.replacingRevision()
         try update(&replacement)
-        try replacement.validate()
         let transition = try Self.makeTransition(
             expectedSnapshot: durableSnapshot,
             replacementState: replacement
         )
         stagedState = replacement
         stagedTransition = transition
+        stagedFormationState = cachedFormationState
+        stagedAttempt = cachedAttempt
         return .persist(transition)
     }
 

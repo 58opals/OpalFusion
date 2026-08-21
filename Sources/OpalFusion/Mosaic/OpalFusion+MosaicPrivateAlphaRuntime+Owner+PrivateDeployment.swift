@@ -58,7 +58,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
               Data(relaySet.canonicalBytes) == relaySetDocument else {
             throw Runtime.Failure.invalidPrivateDeploymentProof
         }
-        return try stage { candidate in
+        return try stageValidatedPrivateDeployment(
+            formation: .discovery(
+                pool: pool,
+                relaySet: relaySet,
+                events: [],
+                beacons: []
+            )
+        ) { candidate in
             candidate.preManifestDocuments = [
                 opaquePoolDocument,
                 relaySetDocument,
@@ -77,7 +84,8 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case let .discovery(_, _, events, beacons) = try formationState()
+              case let .discovery(pool, relaySet, events, beacons) =
+                try formationState()
         else {
             throw Runtime.Failure.invalidStateTransition
         }
@@ -106,23 +114,51 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             guard replacesExisting else {
                 return .ignoredDuplicate(.discovery)
             }
-            var normalized = events
-            normalized[index] = event
-            let keyed = try normalized.map {
-                ($0, try $0.decodeCanonicalNostrEvent().publicKey
-                    .rawRepresentation)
+            var normalizedEvents = events
+            var normalizedBeacons = beacons
+            normalizedEvents[index] = event
+            normalizedBeacons[index] = beacon
+            let normalized = try signerOrdered(
+                events: normalizedEvents,
+                documents: normalizedBeacons
+            ) {
+                [UInt8]($0.core.discoveryIdentity.rawRepresentation)
             }
-            normalized = keyed.sorted {
-                $0.1.lexicographicallyPrecedes($1.1)
-            }.map(\.0)
-            return try stage { candidate in
+            return try stageValidatedPrivateDeployment(
+                formation: .discovery(
+                    pool: pool,
+                    relaySet: relaySet,
+                    events: normalized.events,
+                    beacons: normalized.documents
+                )
+            ) { candidate in
                 candidate.preManifestDocuments.removeLast(events.count)
-                candidate.preManifestDocuments += try normalized.map {
+                candidate.preManifestDocuments += try normalized.events.map {
                     try $0.canonicalRecoveryBytes()
                 }
             }
         }
-        return try stageSortedEvent(event, replacing: events.count)
+        let normalized = try signerOrdered(
+            appending: event,
+            document: beacon,
+            to: events,
+            documents: beacons
+        ) {
+            [UInt8]($0.core.discoveryIdentity.rawRepresentation)
+        }
+        return try stageValidatedPrivateDeployment(
+            formation: .discovery(
+                pool: pool,
+                relaySet: relaySet,
+                events: normalized.events,
+                beacons: normalized.documents
+            )
+        ) { candidate in
+            candidate.preManifestDocuments.removeLast(events.count)
+            candidate.preManifestDocuments += try normalized.events.map {
+                try $0.canonicalRecoveryBytes()
+            }
+        }
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -158,7 +194,18 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             }
             return event
         }
-        return try stage { candidate in
+        return try stageValidatedPrivateDeployment(
+            formation: .candidateSetAgreement(
+                selection: selection,
+                events: [],
+                acknowledgements: []
+            ),
+            attempt: try advancingAttempt(
+                with: .discoveryCompleted(
+                    candidateCount: selection.selectedBeacons.count
+                )
+            )
+        ) { candidate in
             candidate.preManifestDocuments = Array(
                 candidate.preManifestDocuments.prefix(2)
             ) + (try selectedEvents.map { try $0.canonicalRecoveryBytes() })
@@ -179,11 +226,40 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case let .candidateSetAgreement(_, events, _) =
+              case let .candidateSetAgreement(
+                  selection,
+                  events,
+                  acknowledgements
+              ) =
                 try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stageSortedEvent(event, replacing: events.count)
+        let acknowledgement = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec.decodeCandidateSetAcknowledgement(
+                event.decodeCanonicalNostrEvent(),
+                candidateSelection: selection,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: acknowledgement,
+            to: events,
+            documents: acknowledgements
+        ) {
+            [UInt8]($0.signerDiscoveryIdentity.rawRepresentation)
+        }
+        return try stageValidatedPrivateDeployment(
+            formation: .candidateSetAgreement(
+                selection: selection,
+                events: normalized.events,
+                acknowledgements: normalized.documents
+            )
+        ) { candidate in
+            candidate.preManifestDocuments.removeLast(events.count)
+            candidate.preManifestDocuments += try normalized.events.map {
+                try $0.canonicalRecoveryBytes()
+            }
+        }
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -214,7 +290,16 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         return try stageReplacingCurrentGroup(
             events.count,
             with: normalized,
-            advancingTo: .admission
+            advancingTo: .admission,
+            formation: .admission(
+                selection: selection,
+                acknowledgementSet: set,
+                events: [],
+                admissions: []
+            ),
+            attempt: try advancingAttempt(
+                with: .candidateSetAgreementValidated
+            )
         )
     }
 
@@ -231,11 +316,43 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case let .admission(_, _, events, _) = try formationState()
+              case let .admission(
+                  selection,
+                  acknowledgementSet,
+                  events,
+                  admissions
+              ) = try formationState()
         else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stageSortedEvent(event, replacing: events.count)
+        let admission = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec.decodeCandidateAdmission(
+                event.decodeCanonicalNostrEvent(),
+                candidateSelection: selection,
+                acknowledgementSet: acknowledgementSet,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: admission,
+            to: events,
+            documents: admissions
+        ) {
+            [UInt8]($0.discoveryIdentity.rawRepresentation)
+        }
+        return try stageValidatedPrivateDeployment(
+            formation: .admission(
+                selection: selection,
+                acknowledgementSet: acknowledgementSet,
+                events: normalized.events,
+                admissions: normalized.documents
+            )
+        ) { candidate in
+            candidate.preManifestDocuments.removeLast(events.count)
+            candidate.preManifestDocuments += try normalized.events.map {
+                try $0.canonicalRecoveryBytes()
+            }
+        }
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -268,7 +385,17 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         return try stageReplacingCurrentGroup(
             events.count,
             with: normalized,
-            advancingTo: .controlRosterAgreement
+            advancingTo: .controlRosterAgreement,
+            formation: .controlRosterAgreement(
+                controlRoster: roster,
+                events: [],
+                commitments: []
+            ),
+            attempt: try advancingAttempt(
+                with: .controlRosterValidated(
+                    roster.controlRosterBinding
+                )
+            )
         )
     }
 
@@ -285,11 +412,38 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case let .controlRosterAgreement(_, events, _) =
+              case let .controlRosterAgreement(
+                  controlRoster,
+                  events,
+                  commitments
+              ) =
                 try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stageSortedEvent(event, replacing: events.count)
+        let commitment = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec.decodeRoleCommitment(
+                event.decodeCanonicalNostrEvent(),
+                controlRoster: controlRoster,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: commitment,
+            to: events,
+            documents: commitments
+        ) { $0.candidate.validatedBytes }
+        return try stageValidatedPrivateDeployment(
+            formation: .controlRosterAgreement(
+                controlRoster: controlRoster,
+                events: normalized.events,
+                commitments: normalized.documents
+            )
+        ) { candidate in
+            candidate.preManifestDocuments.removeLast(events.count)
+            candidate.preManifestDocuments += try normalized.events.map {
+                try $0.canonicalRecoveryBytes()
+            }
+        }
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -319,7 +473,16 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         return try stageReplacingCurrentGroup(
             events.count,
             with: normalized,
-            advancingTo: .roleElection
+            advancingTo: .roleElection,
+            formation: .roleElection(
+                controlRoster: controlRoster,
+                commitmentSet: set,
+                events: [],
+                reveals: []
+            ),
+            attempt: try advancingAttempt(
+                with: .roleCommitmentsReceived(set.commitments)
+            )
         )
     }
 
@@ -336,11 +499,40 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case let .roleElection(_, _, events, _) = try formationState()
+              case let .roleElection(
+                  controlRoster,
+                  commitmentSet,
+                  events,
+                  reveals
+              ) = try formationState()
         else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stageSortedEvent(event, replacing: events.count)
+        let reveal = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec.decodeRoleReveal(
+                event.decodeCanonicalNostrEvent(),
+                controlRoster: controlRoster,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: reveal,
+            to: events,
+            documents: reveals
+        ) { $0.candidate.validatedBytes }
+        return try stageValidatedPrivateDeployment(
+            formation: .roleElection(
+                controlRoster: controlRoster,
+                commitmentSet: commitmentSet,
+                events: normalized.events,
+                reveals: normalized.documents
+            )
+        ) { candidate in
+            candidate.preManifestDocuments.removeLast(events.count)
+            candidate.preManifestDocuments += try normalized.events.map {
+                try $0.canonicalRecoveryBytes()
+            }
+        }
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -349,7 +541,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
               case let .roleElection(
-                  _,
+                  controlRoster,
                   commitmentSet,
                   events,
                   reveals
@@ -373,7 +565,19 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         return try stageReplacingCurrentGroup(
             events.count,
             with: normalized,
-            advancingTo: .nonceAllocation
+            advancingTo: .nonceAllocation,
+            formation: .nonceAllocationPending(
+                controlRoster: controlRoster,
+                roleElection: try OpalFusion.Mosaic.Attempt
+                    .RoleElectionResult(
+                        profile: .opalMainnetAlpha,
+                        commitmentSet: commitmentSet,
+                        validation: seed
+                    )
+            ),
+            attempt: try advancingAttempt(
+                with: .roleElectionValidated(seed)
+            )
         )
     }
 
@@ -390,10 +594,23 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case .nonceAllocationPending = try formationState() else {
+              case let .nonceAllocationPending(controlRoster, roleElection) =
+                try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stage { candidate in
+        _ = try OpalFusion.Mosaic.OpalMainnetAlpha.PreManifestNostrCodec
+            .decodeContributorNonceAllocation(
+                event.decodeCanonicalNostrEvent(),
+                controlRoster: controlRoster,
+                roleElection: roleElection,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        return try stageValidatedPrivateDeployment(
+            formation: .nonceAllocationAccepted(
+                controlRoster: controlRoster,
+                roleElection: roleElection
+            )
+        ) { candidate in
             candidate.preManifestDocuments.append(
                 try event.canonicalRecoveryBytes()
             )
@@ -408,7 +625,15 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
               case .nonceAllocationAccepted = try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stage { candidate in
+        let nextFormation = try Runtime.restorePrivateDeploymentFormation(
+            discoveryEpochStartUnixSeconds:
+                state.discoveryEpochStartUnixSeconds,
+            phase: .manifestAgreement,
+            canonicalDocuments: state.preManifestDocuments
+        )
+        return try stageValidatedPrivateDeployment(
+            formation: nextFormation
+        ) { candidate in
             candidate.phase = .manifestAgreement
         }
     }
@@ -426,10 +651,62 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case .manifestProposalPending = try formationState() else {
+              case let .manifestProposalPending(
+                  pool,
+                  relaySet,
+                  candidateSelection,
+                  controlRoster,
+                  roleElection,
+                  nonceAllocation
+              ) = try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stage { candidate in
+        let proposalContext = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .ManifestProposalContext(
+                roleElection: roleElection,
+                candidateSetDigest: candidateSelection.candidateSetDigest,
+                opaquePoolIdentifier: pool.opaqueIdentifier
+            )
+        let decodedEvent = try event.decodeCanonicalNostrEvent()
+        let manifestCore = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec.decodeManifestProposalCandidate(
+                decodedEvent,
+                discoveryEpochStartUnixSeconds:
+                    state.discoveryEpochStartUnixSeconds,
+                proposalContext: proposalContext,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        let manifestValidation = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PrivateDeploymentManifestValidation(
+                discoveryEpochStartUnixSeconds:
+                    state.discoveryEpochStartUnixSeconds,
+                core: manifestCore,
+                candidateSelection: candidateSelection,
+                controlRoster: controlRoster,
+                roleElection: roleElection,
+                opaquePool: pool,
+                relaySet: relaySet,
+                nonceAllocation: nonceAllocation
+            )
+        let proposal = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PrivateDeploymentManifestProposalValidation(
+                manifest: manifestValidation
+            )
+        guard try OpalFusion.Mosaic.OpalMainnetAlpha.PreManifestNostrCodec
+                .decodeManifestProposal(
+                    decodedEvent,
+                    proposal: proposal,
+                    currentUnixSeconds: event.acceptedAtUnixSeconds
+                ) == manifestCore else {
+            throw Runtime.Failure.invalidPrivateDeploymentProof
+        }
+        return try stageValidatedPrivateDeployment(
+            formation: .manifestSignatures(
+                proposal: proposal,
+                events: [],
+                signatures: []
+            )
+        ) { candidate in
             candidate.preManifestDocuments.append(
                 try event.canonicalRecoveryBytes()
             )
@@ -449,11 +726,38 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case let .manifestSignatures(_, events, _) =
+              case let .manifestSignatures(
+                  proposal,
+                  events,
+                  signatures
+              ) =
                 try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
-        return try stageSortedEvent(event, replacing: events.count)
+        let signature = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec.decodeManifestSignature(
+                event.decodeCanonicalNostrEvent(),
+                proposal: proposal,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: signature,
+            to: events,
+            documents: signatures
+        ) { $0.signature.signer.validatedBytes }
+        return try stageValidatedPrivateDeployment(
+            formation: .manifestSignatures(
+                proposal: proposal,
+                events: normalized.events,
+                signatures: normalized.documents
+            )
+        ) { candidate in
+            candidate.preManifestDocuments.removeLast(events.count)
+            candidate.preManifestDocuments += try normalized.events.map {
+                try $0.canonicalRecoveryBytes()
+            }
+        }
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -470,13 +774,28 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
                 core: proposal.manifest.core,
                 signatures: signatures.map(\.signature)
             )
-        let proof = try Runtime.restorePrivateDeploymentProof(
-            discoveryEpochStartUnixSeconds:
-                state.discoveryEpochStartUnixSeconds,
-            canonicalDocuments: state.preManifestDocuments
-                + [Data(completeManifest.canonicalBytes)]
-        )
-        return try stage { candidate in
+        let canonicalDocuments = state.preManifestDocuments
+            + [Data(completeManifest.canonicalBytes)]
+        let proof: Runtime.PrivateDeploymentProof
+        if let cachedAttempt {
+            guard case .manifestAgreement = cachedAttempt.state else {
+                throw Runtime.Failure.invalidPrivateDeploymentProof
+            }
+            proof = .init(
+                validatedAttempt: cachedAttempt,
+                proposalValidation: proposal,
+                completeManifest: completeManifest,
+                canonicalDocuments: canonicalDocuments
+            )
+        } else {
+            proof = try Runtime.restorePrivateDeploymentProof(
+                discoveryEpochStartUnixSeconds:
+                    state.discoveryEpochStartUnixSeconds,
+                canonicalDocuments: canonicalDocuments
+            )
+        }
+        return try stageValidatedPrivateDeployment(formation: nil) {
+            candidate in
             candidate.preManifestDocuments = proof.canonicalDocuments
             candidate.manifestState = .validated(
                 privateManifestProposalBytes: Data(
@@ -497,40 +816,65 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             throw OpalFusion.MosaicPrivateAlphaRuntime.Failure
                 .invalidStateTransition
         }
-        return try OpalFusion.MosaicPrivateAlphaRuntime
+        if let cachedFormationState {
+            return cachedFormationState
+        }
+        let restored = try OpalFusion.MosaicPrivateAlphaRuntime
             .restorePrivateDeploymentFormation(
                 discoveryEpochStartUnixSeconds:
                     state.discoveryEpochStartUnixSeconds,
                 phase: state.phase,
                 canonicalDocuments: state.preManifestDocuments
             )
+        cachedFormationState = restored
+        return restored
     }
 
-    private func stageSortedEvent(
-        _ event: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent,
-        replacing existingEventCount: Int
-    ) throws -> OpalFusion.MosaicPrivateAlphaRuntime.Step {
+    func signerOrdered<Document>(
+        appending event: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent,
+        document: Document,
+        to events: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        documents: [Document],
+        signerIdentity: (Document) -> [UInt8]
+    ) throws -> (
+        events: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        documents: [Document]
+    ) {
+        try signerOrdered(
+            events: events + [event],
+            documents: documents + [document],
+            signerIdentity: signerIdentity
+        )
+    }
+
+    func signerOrdered<Document>(
+        events: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        documents: [Document],
+        signerIdentity: (Document) -> [UInt8]
+    ) throws -> (
+        events: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        documents: [Document]
+    ) {
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
-        let records = try Array(
-            state.preManifestDocuments.suffix(existingEventCount)
-        ).map(Runtime.PrivateDeploymentEvent.decodeRecoveryBytes) + [event]
-        let keyed = try records.map {
-            ($0, try $0.decodeCanonicalNostrEvent().publicKey.rawRepresentation)
+        guard events.count == documents.count else {
+            throw Runtime.Failure.invalidPrivateDeploymentProof
         }
-        let sorted = keyed.sorted {
-            $0.1.lexicographicallyPrecedes($1.1)
+        let sorted = zip(events, documents).map {
+            (event: $0.0, document: $0.1, signer: signerIdentity($0.1))
+        }.sorted {
+            $0.signer.lexicographicallyPrecedes($1.signer)
         }
         for index in sorted.indices.dropFirst() {
-            guard sorted[index - 1].1 != sorted[index].1 else {
+            guard sorted[index - 1].signer != sorted[index].signer else {
                 throw Runtime.Failure.invalidPrivateDeploymentProof
             }
         }
-        return try stage { candidate in
-            candidate.preManifestDocuments.removeLast(existingEventCount)
-            candidate.preManifestDocuments += try sorted.map {
-                try $0.0.canonicalRecoveryBytes()
-            }
-        }
+        return (sorted.map(\.event), sorted.map(\.document))
     }
 
     func receivedPreManifestConflictStep(
@@ -540,11 +884,30 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         guard !loadedRecoveryNeedsDirective,
               state.manifestState == .forming,
               state.preManifestAbortCause == .none,
-              state.terminalState == .active,
-              let conflict = try state.preManifestConflict(for: event) else {
+              state.terminalState == .active else {
             return nil
         }
-        guard conflict.isSemanticConflict else {
+        let formation = try formationState()
+        let envelope = try decodeTimelyPreManifestEnvelope(event)
+        guard envelope.payload.payloadKind
+                == expectedPayloadKind(for: formation) else {
+            guard let conflict = try state.preManifestConflict(for: event)
+            else {
+                return nil
+            }
+            guard conflict.isSemanticConflict else {
+                return .ignoredDuplicate(state.phase)
+            }
+            return try stageAuthenticatedEquivocation(event)
+        }
+        guard let isSemanticConflict = try currentGroupSemanticConflict(
+            for: event,
+            envelope: envelope,
+            formation: formation
+        ) else {
+            return nil
+        }
+        guard isSemanticConflict else {
             return .ignoredDuplicate(state.phase)
         }
         return try stageAuthenticatedEquivocation(event)
@@ -557,13 +920,226 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         guard !loadedRecoveryNeedsDirective,
               state.manifestState == .forming,
               state.preManifestAbortCause == .none,
-              state.terminalState == .active,
-              state.provesPreManifestInvalidTransition(event) else {
+              state.terminalState == .active else {
+            return nil
+        }
+        let formation = try formationState()
+        let payload = try decodeTimelyPreManifestEnvelope(event).payload
+        guard payload.payloadKind != expectedPayloadKind(for: formation),
+              payload.payloadKind != .abort,
+              payload.payloadKind != .completion,
+              signerIsRecognized(
+                  [UInt8](payload.signerIdentity.rawRepresentation),
+                  in: formation
+              ) else {
             return nil
         }
         return try stage { candidate in
             candidate.preManifestAbortCause =
                 .invalidAuthenticatedMessage(event)
+        }
+    }
+
+    private func decodeTimelyPreManifestEnvelope(
+        _ event: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent
+    ) throws -> (
+        event: OpalFusion.Mosaic.NostrNamespace.Event,
+        payload: OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrPayloadDocument
+    ) {
+        typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
+        let nostrEvent = try event.decodeCanonicalNostrEvent()
+        let payload = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec.decodeCanonicalEnvelope(nostrEvent)
+        guard payload.discoveryEpochStartUnixSeconds
+                == state.discoveryEpochStartUnixSeconds,
+              nostrEvent.template.createdAt <= event.acceptedAtUnixSeconds,
+              event.acceptedAtUnixSeconds <= payload.expiryUnixSeconds else {
+            throw Runtime.Failure.invalidPrivateDeploymentProof
+        }
+        return (nostrEvent, payload)
+    }
+
+    private func expectedPayloadKind(
+        for formation: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentFormationState
+    ) -> OpalFusion.Mosaic.OpalMainnetAlpha
+        .PrivateDeploymentNostrSelector.PayloadKind? {
+        switch formation {
+        case .uninitialized, .discovery:
+            .availabilityBeacon
+        case .candidateSetAgreement:
+            .candidateSetAcknowledgement
+        case .admission:
+            .candidateAdmission
+        case .controlRosterAgreement:
+            .roleCommitment
+        case .roleElection:
+            .roleReveal
+        case .nonceAllocationPending:
+            .contributorNonceAllocation
+        case .nonceAllocationAccepted:
+            nil
+        case .manifestProposalPending:
+            .manifestProposal
+        case .manifestSignatures:
+            .manifestSignature
+        }
+    }
+
+    private func signerIsRecognized(
+        _ signer: [UInt8],
+        in formation: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentFormationState
+    ) -> Bool {
+        switch formation {
+        case .uninitialized:
+            false
+        case let .discovery(_, _, _, beacons):
+            beacons.contains {
+                [UInt8]($0.core.discoveryIdentity.rawRepresentation) == signer
+            }
+        case let .candidateSetAgreement(selection, _, _),
+             let .admission(selection, _, _, _):
+            selection.selectedDiscoveryIdentities.contains(signer)
+        case let .controlRosterAgreement(roster, _, _),
+             let .roleElection(roster, _, _, _),
+             let .nonceAllocationPending(roster, _),
+             let .nonceAllocationAccepted(roster, _),
+             let .manifestProposalPending(_, _, _, roster, _, _):
+            roster.controlRosterBinding.controlIdentities.contains {
+                $0.validatedBytes == signer
+            }
+        case let .manifestSignatures(proposal, _, _):
+            proposal.manifest.core.roster.controlIdentities.contains {
+                $0.validatedBytes == signer
+            }
+        }
+    }
+
+    private func currentGroupSemanticConflict(
+        for event: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent,
+        envelope: (
+            event: OpalFusion.Mosaic.NostrNamespace.Event,
+            payload: OpalFusion.Mosaic.OpalMainnetAlpha
+                .PreManifestNostrPayloadDocument
+        ),
+        formation: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentFormationState
+    ) throws -> Bool? {
+        typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
+        typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
+        let signer = [UInt8](
+            envelope.payload.signerIdentity.rawRepresentation
+        )
+        func compare<Document>(
+            events: [Runtime.PrivateDeploymentEvent],
+            documents: [Document],
+            signerIdentity: (Document) -> [UInt8],
+            canonicalPayload: (Document) throws -> [UInt8]
+        ) throws -> Bool? {
+            guard events.count == documents.count else {
+                throw Runtime.Failure.invalidPrivateDeploymentProof
+            }
+            guard let index = documents.firstIndex(where: {
+                signerIdentity($0) == signer
+            }) else {
+                return nil
+            }
+            guard events[index].canonicalEventBytes
+                    != event.canonicalEventBytes else {
+                return false
+            }
+            return try canonicalPayload(documents[index])
+                != envelope.payload.canonicalBytes
+        }
+        switch formation {
+        case let .discovery(_, _, events, beacons):
+            guard let index = beacons.firstIndex(where: {
+                [UInt8]($0.core.discoveryIdentity.rawRepresentation) == signer
+            }) else {
+                return nil
+            }
+            guard events.indices.contains(index),
+                  events[index].canonicalEventBytes
+                    != event.canonicalEventBytes else {
+                return false
+            }
+            let incoming = try Alpha.PreManifestNostrCodec
+                .decodeAvailabilityBeacon(
+                    envelope.event,
+                    discoveryEpochStartUnixSeconds:
+                        state.discoveryEpochStartUnixSeconds,
+                    currentUnixSeconds: event.acceptedAtUnixSeconds
+                )
+            return beacons[index].core.canonicalBytes
+                != incoming.core.canonicalBytes
+        case let .candidateSetAgreement(_, events, documents):
+            return try compare(
+                events: events,
+                documents: documents,
+                signerIdentity: {
+                    [UInt8]($0.signerDiscoveryIdentity.rawRepresentation)
+                },
+                canonicalPayload: {
+                    try Alpha.PreManifestNostrPayloadDocument
+                        .makeCandidateSetAcknowledgement($0).canonicalBytes
+                }
+            )
+        case let .admission(_, _, events, documents):
+            return try compare(
+                events: events,
+                documents: documents,
+                signerIdentity: {
+                    [UInt8]($0.discoveryIdentity.rawRepresentation)
+                },
+                canonicalPayload: {
+                    try Alpha.PreManifestNostrPayloadDocument
+                        .makeCandidateAdmission($0).canonicalBytes
+                }
+            )
+        case let .controlRosterAgreement(roster, events, documents):
+            return try compare(
+                events: events,
+                documents: documents,
+                signerIdentity: { $0.candidate.validatedBytes },
+                canonicalPayload: {
+                    try Alpha.PreManifestNostrPayloadDocument
+                        .makeRoleCommitment($0, controlRoster: roster)
+                        .canonicalBytes
+                }
+            )
+        case let .roleElection(roster, _, events, documents):
+            return try compare(
+                events: events,
+                documents: documents,
+                signerIdentity: { $0.candidate.validatedBytes },
+                canonicalPayload: {
+                    try Alpha.PreManifestNostrPayloadDocument
+                        .makeRoleReveal($0, controlRoster: roster)
+                        .canonicalBytes
+                }
+            )
+        case let .manifestSignatures(proposal, events, documents):
+            return try compare(
+                events: events,
+                documents: documents,
+                signerIdentity: { $0.signature.signer.validatedBytes },
+                canonicalPayload: {
+                    try Alpha.PreManifestNostrPayloadDocument
+                        .makeManifestSignature(
+                            $0.signature,
+                            proposal: proposal
+                        ).canonicalBytes
+                }
+            )
+        case .uninitialized,
+             .nonceAllocationPending,
+             .nonceAllocationAccepted,
+             .manifestProposalPending:
+            return nil
         }
     }
 
@@ -592,12 +1168,11 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
               state.manifestState == .forming,
               state.terminalState == .active,
               state.preManifestDocuments.dropFirst(2).contains(where: {
-                  guard let accepted = try? OpalFusion
-                    .MosaicPrivateAlphaRuntime.PrivateDeploymentEvent
-                    .decodeRecoveryBytes($0) else {
-                      return false
-                  }
-                  return accepted.canonicalEventBytes
+                  let accepted = try? OpalFusion.MosaicPrivateAlphaRuntime
+                    .PrivateDeploymentEvent.canonicalEventBytes(
+                        fromValidatedRecoveryBytes: $0
+                    )
+                  return accepted
                     == event.canonicalEventBytes
               }) else {
             return nil
@@ -608,13 +1183,30 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
     private func stageReplacingCurrentGroup(
         _ eventCount: Int,
         with normalizedRecords: [Data],
-        advancingTo phase: OpalFusion.MosaicPrivateAlphaRuntime.Phase
+        advancingTo phase: OpalFusion.MosaicPrivateAlphaRuntime.Phase,
+        formation: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentFormationState,
+        attempt: OpalFusion.Mosaic.Attempt?
     ) throws -> OpalFusion.MosaicPrivateAlphaRuntime.Step {
-        try stage { candidate in
+        try stageValidatedPrivateDeployment(
+            formation: formation,
+            attempt: attempt
+        ) { candidate in
             candidate.preManifestDocuments.removeLast(eventCount)
             candidate.preManifestDocuments += normalizedRecords
             candidate.phase = phase
         }
+    }
+
+    private func advancingAttempt(
+        with input: OpalFusion.Mosaic.Attempt.Input
+    ) throws -> OpalFusion.Mosaic.Attempt? {
+        guard var attempt = cachedAttempt else { return nil }
+        guard attempt.apply(input: input).isEmpty else {
+            throw OpalFusion.MosaicPrivateAlphaRuntime.Failure
+                .invalidPrivateDeploymentProof
+        }
+        return attempt
     }
 }
 #endif

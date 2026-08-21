@@ -15,7 +15,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
-              case let .discovery(pool, relaySet, events, _) =
+              case let .discovery(pool, relaySet, events, beacons) =
                 try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
@@ -47,9 +47,24 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: signing
         )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: document,
+            to: events,
+            documents: beacons
+        ) {
+            [UInt8]($0.core.discoveryIdentity.rawRepresentation)
+        }
         return try stageLocalSortedEvent(
             event,
             replacing: events.count,
+            with: normalized.events,
+            formation: .discovery(
+                pool: pool,
+                relaySet: relaySet,
+                events: normalized.events,
+                beacons: normalized.documents
+            ),
             relaySet: relaySet
         )
     }
@@ -63,7 +78,11 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
-              case let .candidateSetAgreement(selection, events, _) =
+              case let .candidateSetAgreement(
+                  selection,
+                  events,
+                  acknowledgements
+              ) =
                 try formationState(),
               selection.selectedBeacons.contains(where: {
                   $0.core.discoveryIdentity == signing.verificationKey
@@ -96,9 +115,23 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: signing
         )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: document,
+            to: events,
+            documents: acknowledgements
+        ) {
+            [UInt8]($0.signerDiscoveryIdentity.rawRepresentation)
+        }
         return try stageLocalSortedEvent(
             event,
             replacing: events.count,
+            with: normalized.events,
+            formation: .candidateSetAgreement(
+                selection: selection,
+                events: normalized.events,
+                acknowledgements: normalized.documents
+            ),
             relaySet: try privateDeploymentRelaySet()
         )
     }
@@ -115,7 +148,12 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Attempt = OpalFusion.Mosaic.Attempt
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
-              case let .admission(selection, _, events, _) =
+              case let .admission(
+                  selection,
+                  acknowledgementSet,
+                  events,
+                  admissions
+              ) =
                 try formationState(),
               selection.selectedBeacons.contains(where: {
                   $0.core.discoveryIdentity
@@ -158,9 +196,24 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: discoverySigning
         )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: document,
+            to: events,
+            documents: admissions
+        ) {
+            [UInt8]($0.discoveryIdentity.rawRepresentation)
+        }
         return try stageLocalSortedEvent(
             event,
             replacing: events.count,
+            with: normalized.events,
+            formation: .admission(
+                selection: selection,
+                acknowledgementSet: acknowledgementSet,
+                events: normalized.events,
+                admissions: normalized.documents
+            ),
             relaySet: try privateDeploymentRelaySet()
         )
     }
@@ -179,7 +232,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
               case let .controlRosterAgreement(
                   controlRoster,
                   events,
-                  _
+                  commitments
               ) = try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
@@ -208,9 +261,21 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: signing
         )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: document,
+            to: events,
+            documents: commitments
+        ) { $0.candidate.validatedBytes }
         return try stageLocalSortedEvent(
             event,
             replacing: events.count,
+            with: normalized.events,
+            formation: .controlRosterAgreement(
+                controlRoster: controlRoster,
+                events: normalized.events,
+                commitments: normalized.documents
+            ),
             relaySet: try privateDeploymentRelaySet()
         )
     }
@@ -230,7 +295,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
                   controlRoster,
                   commitmentSet,
                   events,
-                  _
+                  reveals
               ) = try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
@@ -261,9 +326,22 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: signing
         )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: document,
+            to: events,
+            documents: reveals
+        ) { $0.candidate.validatedBytes }
         return try stageLocalSortedEvent(
             event,
             replacing: events.count,
+            with: normalized.events,
+            formation: .roleElection(
+                controlRoster: controlRoster,
+                commitmentSet: commitmentSet,
+                events: normalized.events,
+                reveals: normalized.documents
+            ),
             relaySet: try privateDeploymentRelaySet()
         )
     }
@@ -310,7 +388,13 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: signing
         )
-        return try stageLocalSingletonEvent(event)
+        return try stageLocalSingletonEvent(
+            event,
+            formation: .nonceAllocationAccepted(
+                controlRoster: controlRoster,
+                roleElection: roleElection
+            )
+        )
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -374,7 +458,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: signing
         )
-        return try stageLocalSingletonEvent(event)
+        return try stageLocalSingletonEvent(
+            event,
+            formation: .manifestSignatures(
+                proposal: proposal,
+                events: [],
+                signatures: []
+            )
+        )
     }
 
     @_spi(MosaicPrivateAlpha)
@@ -387,7 +478,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Attempt = OpalFusion.Mosaic.Attempt
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
-              case let .manifestSignatures(proposal, events, _) =
+              case let .manifestSignatures(proposal, events, signatures) =
                 try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
@@ -410,9 +501,27 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             createdAtUnixSeconds: createdAtUnixSeconds,
             signing: signing
         )
+        let validatedSignature = try Alpha.PreManifestNostrCodec
+            .decodeManifestSignature(
+                event.decodeCanonicalNostrEvent(),
+                proposal: proposal,
+                currentUnixSeconds: event.acceptedAtUnixSeconds
+            )
+        let normalized = try signerOrdered(
+            appending: event,
+            document: validatedSignature,
+            to: events,
+            documents: signatures
+        ) { $0.signature.signer.validatedBytes }
         return try stageLocalSortedEvent(
             event,
             replacing: events.count,
+            with: normalized.events,
+            formation: .manifestSignatures(
+                proposal: proposal,
+                events: normalized.events,
+                signatures: normalized.documents
+            ),
             relaySet: try privateDeploymentRelaySet()
         )
     }
@@ -435,27 +544,18 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
     private func stageLocalSortedEvent(
         _ event: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent,
         replacing existingEventCount: Int,
+        with normalizedEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        formation: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentFormationState,
         relaySet: OpalFusion.Mosaic.OpalMainnetAlpha.RelaySetDocument
     ) throws -> OpalFusion.MosaicPrivateAlphaRuntime.Step {
-        typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
-        let records = try Array(
-            state.preManifestDocuments.suffix(existingEventCount)
-        ).map(Runtime.PrivateDeploymentEvent.decodeRecoveryBytes) + [event]
-        let keyed = try records.map {
-            ($0, try $0.decodeCanonicalNostrEvent().publicKey.rawRepresentation)
-        }
-        let sorted = keyed.sorted {
-            $0.1.lexicographicallyPrecedes($1.1)
-        }
-        for index in sorted.indices.dropFirst() {
-            guard sorted[index - 1].1 != sorted[index].1 else {
-                throw Runtime.Failure.invalidPrivateDeploymentProof
-            }
-        }
-        return try stage { candidate in
+        return try stageValidatedPrivateDeployment(
+            formation: formation
+        ) { candidate in
             candidate.preManifestDocuments.removeLast(existingEventCount)
-            candidate.preManifestDocuments += try sorted.map {
-                try $0.0.canonicalRecoveryBytes()
+            candidate.preManifestDocuments += try normalizedEvents.map {
+                try $0.canonicalRecoveryBytes()
             }
             candidate.publicationState = .formation(
                 event: event,
@@ -467,10 +567,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
     }
 
     private func stageLocalSingletonEvent(
-        _ event: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent
+        _ event: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent,
+        formation: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentFormationState
     ) throws -> OpalFusion.MosaicPrivateAlphaRuntime.Step {
         let relaySet = try privateDeploymentRelaySet()
-        return try stage { candidate in
+        return try stageValidatedPrivateDeployment(
+            formation: formation
+        ) { candidate in
             candidate.preManifestDocuments.append(
                 try event.canonicalRecoveryBytes()
             )

@@ -10,6 +10,115 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
 
+    @Test("Complete ten-party live formation within 15 seconds and recover it")
+    func completeTenPartyLiveFormationWithinTimingBudget() async throws {
+        let fixture = try MosaicPrivateDeploymentFixtures
+            .makePrivateAlphaRuntimeProof()
+        let binding = try makeBinding(seed: 0xCF)
+        let fresh = try Runtime.createFreshAttempt(
+            boundTo: binding,
+            discoveryEpochStartUnixSeconds: fixture.epoch
+        )
+        let owner = try Runtime.Owner(claiming: fresh)
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        var snapshot = try await persist(await owner.nextStep(), on: owner)
+        snapshot = try await persist(
+            owner.installPrivateDeploymentContext(
+                opaquePoolDocument: fixture.opaquePoolDocument,
+                relaySetDocument: fixture.relaySetDocument
+            ),
+            on: owner
+        )
+        for event in fixture.beaconEvents {
+            snapshot = try await persist(
+                owner.acceptAvailabilityBeacon(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeDiscovery(currentUnixSeconds: fixture.epoch + 60),
+            on: owner
+        )
+        for event in fixture.acknowledgementEvents {
+            snapshot = try await persist(
+                owner.acceptCandidateSetAcknowledgement(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeCandidateSetAgreement(),
+            on: owner
+        )
+        for event in fixture.admissionEvents {
+            snapshot = try await persist(
+                owner.acceptCandidateAdmission(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeCandidateAdmission(),
+            on: owner
+        )
+        for event in fixture.commitmentEvents {
+            snapshot = try await persist(
+                owner.acceptRoleCommitment(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeRoleCommitments(),
+            on: owner
+        )
+        for event in fixture.revealEvents {
+            snapshot = try await persist(
+                owner.acceptRoleReveal(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeRoleElection(),
+            on: owner
+        )
+        snapshot = try await persist(
+            owner.acceptContributorNonceAllocation(fixture.nonceEvent),
+            on: owner
+        )
+        snapshot = try await persist(
+            owner.completeNonceAllocation(),
+            on: owner
+        )
+        snapshot = try await persist(
+            owner.acceptManifestProposal(fixture.proposalEvent),
+            on: owner
+        )
+        for event in fixture.signatureEvents {
+            snapshot = try await persist(
+                owner.acceptManifestSignature(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeManifestAgreement(),
+            on: owner
+        )
+        let constructionElapsed = started.duration(to: clock.now)
+        #expect(constructionElapsed < .seconds(15))
+
+        let loaded = try Runtime.loadRecovery(
+            from: snapshot,
+            expectedBinding: binding
+        )
+        let recoveredOwner = try Runtime.Owner(claiming: loaded)
+        let recovered = try continuation(from: await recoveredOwner.nextStep())
+        _ = try await recoveredOwner.resumePrivateDeployment(recovered)
+        let proof = try await recoveredOwner
+            .makeTransportBootstrapPrivateDeploymentProof()
+
+        #expect(proof.roundIdentifier == fixture.proof.roundIdentifier)
+    }
+
     @Test("Expose the signed post-manifest phase start to timing capabilities")
     func exposeSignedPostManifestPhaseStart() throws {
         let deadlines = try Alpha.DeadlineSchedule(

@@ -11,6 +11,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         var durableSnapshot: Data?
         var stagedState: RecoveryState?
         var stagedTransition: RecoveryTransition?
+        var cachedFormationState: PrivateDeploymentFormationState?
+        var stagedFormationState: PrivateDeploymentFormationState?
+        var cachedAttempt: OpalFusion.Mosaic.Attempt?
+        var stagedAttempt: OpalFusion.Mosaic.Attempt?
         var loadedRecoveryNeedsDirective: Bool
         var terminalEvidenceClaimed = false
         var issuedPublicationIdentifier: Data?
@@ -28,6 +32,13 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             durableSnapshot = nil
             stagedState = initialState
             stagedTransition = transition
+            cachedFormationState = .uninitialized
+            stagedFormationState = .uninitialized
+            let initialAttempt = OpalFusion.Mosaic.Attempt(
+                configuration: .init(profile: .opalMainnetAlpha)
+            )
+            cachedAttempt = initialAttempt
+            stagedAttempt = initialAttempt
             loadedRecoveryNeedsDirective = false
             issuedPublicationIdentifier = nil
             postManifestConstructionIssued = false
@@ -36,11 +47,28 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
 
         @_spi(MosaicPrivateAlpha)
         public init(claiming loadedRecovery: consuming LoadedRecovery) throws {
+            typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
             let recoveredState = loadedRecovery.state
             state = recoveredState
             durableSnapshot = try recoveredState.canonicalBytes()
             stagedState = nil
             stagedTransition = nil
+            switch recoveredState.manifestState {
+            case .forming:
+                cachedFormationState = try Runtime
+                    .restorePrivateDeploymentFormation(
+                        discoveryEpochStartUnixSeconds:
+                            recoveredState.discoveryEpochStartUnixSeconds,
+                        phase: recoveredState.phase,
+                        canonicalDocuments:
+                            recoveredState.preManifestDocuments
+                    )
+            case .validated:
+                cachedFormationState = nil
+            }
+            stagedFormationState = nil
+            cachedAttempt = nil
+            stagedAttempt = nil
             loadedRecoveryNeedsDirective = true
             issuedPublicationIdentifier = nil
             postManifestConstructionIssued = false

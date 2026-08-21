@@ -31,7 +31,8 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent {
                 event,
                 limits: limits
             ),
-            acceptedAtUnixSeconds: createdAtUnixSeconds
+            acceptedAtUnixSeconds: createdAtUnixSeconds,
+            validatedEvent: event
         )
     }
 }
