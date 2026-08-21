@@ -387,6 +387,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             with: normalized,
             advancingTo: .controlRosterAgreement,
             formation: .controlRosterAgreement(
+                candidateSelection: selection,
                 controlRoster: roster,
                 events: [],
                 commitments: []
@@ -413,6 +414,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
               case let .controlRosterAgreement(
+                  candidateSelection,
                   controlRoster,
                   events,
                   commitments
@@ -434,6 +436,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         ) { $0.candidate.validatedBytes }
         return try stageValidatedPrivateDeployment(
             formation: .controlRosterAgreement(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
                 events: normalized.events,
                 commitments: normalized.documents
@@ -452,6 +455,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
               case let .controlRosterAgreement(
+                  candidateSelection,
                   controlRoster,
                   events,
                   commitments
@@ -475,6 +479,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             with: normalized,
             advancingTo: .roleElection,
             formation: .roleElection(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
                 commitmentSet: set,
                 events: [],
@@ -500,6 +505,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
               case let .roleElection(
+                  candidateSelection,
                   controlRoster,
                   commitmentSet,
                   events,
@@ -522,6 +528,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         ) { $0.candidate.validatedBytes }
         return try stageValidatedPrivateDeployment(
             formation: .roleElection(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
                 commitmentSet: commitmentSet,
                 events: normalized.events,
@@ -541,6 +548,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
               case let .roleElection(
+                  candidateSelection,
                   controlRoster,
                   commitmentSet,
                   events,
@@ -567,6 +575,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             with: normalized,
             advancingTo: .nonceAllocation,
             formation: .nonceAllocationPending(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
                 roleElection: try OpalFusion.Mosaic.Attempt
                     .RoleElectionResult(
@@ -594,11 +603,15 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             for: event
         ) { return invalid }
         guard !loadedRecoveryNeedsDirective,
-              case let .nonceAllocationPending(controlRoster, roleElection) =
-                try formationState() else {
+              case let .nonceAllocationPending(
+                  candidateSelection,
+                  controlRoster,
+                  roleElection
+              ) = try formationState() else {
             throw Runtime.Failure.invalidStateTransition
         }
-        _ = try OpalFusion.Mosaic.OpalMainnetAlpha.PreManifestNostrCodec
+        let nonceAllocation = try OpalFusion.Mosaic.OpalMainnetAlpha
+            .PreManifestNostrCodec
             .decodeContributorNonceAllocation(
                 event.decodeCanonicalNostrEvent(),
                 controlRoster: controlRoster,
@@ -607,8 +620,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             )
         return try stageValidatedPrivateDeployment(
             formation: .nonceAllocationAccepted(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
-                roleElection: roleElection
+                roleElection: roleElection,
+                nonceAllocation: nonceAllocation
             )
         ) { candidate in
             candidate.preManifestDocuments.append(
@@ -622,14 +637,34 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         throws -> OpalFusion.MosaicPrivateAlphaRuntime.Step {
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
-              case .nonceAllocationAccepted = try formationState() else {
+              case let .nonceAllocationAccepted(
+                  candidateSelection,
+                  controlRoster,
+                  roleElection,
+                  nonceAllocation
+              ) = try formationState(),
+              state.preManifestDocuments.count >= 2 else {
             throw Runtime.Failure.invalidStateTransition
         }
-        let nextFormation = try Runtime.restorePrivateDeploymentFormation(
-            discoveryEpochStartUnixSeconds:
-                state.discoveryEpochStartUnixSeconds,
-            phase: .manifestAgreement,
-            canonicalDocuments: state.preManifestDocuments
+        let pool = try OpalFusion.Mosaic.OpalMainnetAlpha.OpaquePoolDocument
+            .decode(from: Array(state.preManifestDocuments[0]))
+        let relaySet = try OpalFusion.Mosaic.OpalMainnetAlpha.RelaySetDocument
+            .decode(from: Array(state.preManifestDocuments[1]))
+        guard Data(pool.canonicalBytes) == state.preManifestDocuments[0],
+              Data(relaySet.canonicalBytes) == state.preManifestDocuments[1],
+              pool.opaqueIdentifier
+                == candidateSelection.opaquePoolIdentifier,
+              relaySet.digest == candidateSelection.relaySetDigest else {
+            throw Runtime.Failure.invalidPrivateDeploymentProof
+        }
+        let nextFormation = Runtime.PrivateDeploymentFormationState
+            .manifestProposalPending(
+                pool: pool,
+                relaySet: relaySet,
+                candidateSelection: candidateSelection,
+                controlRoster: controlRoster,
+                roleElection: roleElection,
+                nonceAllocation: nonceAllocation
         )
         return try stageValidatedPrivateDeployment(
             formation: nextFormation
@@ -1003,10 +1038,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         case let .candidateSetAgreement(selection, _, _),
              let .admission(selection, _, _, _):
             selection.selectedDiscoveryIdentities.contains(signer)
-        case let .controlRosterAgreement(roster, _, _),
-             let .roleElection(roster, _, _, _),
-             let .nonceAllocationPending(roster, _),
-             let .nonceAllocationAccepted(roster, _),
+        case let .controlRosterAgreement(_, roster, _, _),
+             let .roleElection(_, roster, _, _, _),
+             let .nonceAllocationPending(_, roster, _),
+             let .nonceAllocationAccepted(_, roster, _, _),
              let .manifestProposalPending(_, _, _, roster, _, _):
             roster.controlRosterBinding.controlIdentities.contains {
                 $0.validatedBytes == signer
@@ -1100,7 +1135,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
                         .makeCandidateAdmission($0).canonicalBytes
                 }
             )
-        case let .controlRosterAgreement(roster, events, documents):
+        case let .controlRosterAgreement(_, roster, events, documents):
             return try compare(
                 events: events,
                 documents: documents,
@@ -1111,7 +1146,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
                         .canonicalBytes
                 }
             )
-        case let .roleElection(roster, _, events, documents):
+        case let .roleElection(_, roster, _, events, documents):
             return try compare(
                 events: events,
                 documents: documents,

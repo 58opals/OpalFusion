@@ -70,19 +70,19 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.RecoveryState {
             expectedKind = .candidateAdmission
             signerIsRecognized = selection.selectedDiscoveryIdentities
                 .contains(signerBytes)
-        case let .controlRosterAgreement(roster, _, _):
+        case let .controlRosterAgreement(_, roster, _, _):
             expectedKind = .roleCommitment
             signerIsRecognized = roster.controlRosterBinding
                 .controlIdentities.contains { $0.validatedBytes == signerBytes }
-        case let .roleElection(roster, _, _, _):
+        case let .roleElection(_, roster, _, _, _):
             expectedKind = .roleReveal
             signerIsRecognized = roster.controlRosterBinding
                 .controlIdentities.contains { $0.validatedBytes == signerBytes }
-        case let .nonceAllocationPending(roster, _):
+        case let .nonceAllocationPending(_, roster, _):
             expectedKind = .contributorNonceAllocation
             signerIsRecognized = roster.controlRosterBinding
                 .controlIdentities.contains { $0.validatedBytes == signerBytes }
-        case let .nonceAllocationAccepted(roster, _):
+        case let .nonceAllocationAccepted(_, roster, _, _):
             expectedKind = nil
             signerIsRecognized = roster.controlRosterBinding
                 .controlIdentities.contains { $0.validatedBytes == signerBytes }
@@ -235,10 +235,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.RecoveryState {
                 < selection.selectedBeacons.count
         case let .admission(selection, _, _, admissions):
             isMissing = admissions.count < selection.selectedBeacons.count
-        case let .controlRosterAgreement(roster, _, commitments):
+        case let .controlRosterAgreement(_, roster, _, commitments):
             isMissing = commitments.count
                 < roster.controlRosterBinding.controlIdentities.count
-        case let .roleElection(roster, _, _, reveals):
+        case let .roleElection(_, roster, _, _, reveals):
             isMissing = reveals.count
                 < roster.controlRosterBinding.controlIdentities.count
         case .nonceAllocationPending, .manifestProposalPending:

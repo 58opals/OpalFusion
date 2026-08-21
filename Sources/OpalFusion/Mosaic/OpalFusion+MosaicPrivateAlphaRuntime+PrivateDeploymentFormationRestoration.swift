@@ -205,6 +205,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                     throw Failure.invalidPrivateDeploymentProof
                 }
                 return .controlRosterAgreement(
+                    candidateSelection: candidateSelection,
                     controlRoster: controlRoster,
                     events: commitmentGroup.records,
                     commitments: commitments
@@ -238,6 +239,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                     throw Failure.invalidPrivateDeploymentProof
                 }
                 return .roleElection(
+                    candidateSelection: candidateSelection,
                     controlRoster: controlRoster,
                     commitmentSet: commitmentSet,
                     events: revealGroup.records,
@@ -270,11 +272,12 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                 guard let stored = nonceGroup.records.first,
                       let event = nonceGroup.events.first else {
                     return .nonceAllocationPending(
+                        candidateSelection: candidateSelection,
                         controlRoster: controlRoster,
                         roleElection: roleElection
                     )
                 }
-                _ = try Alpha.PreManifestNostrCodec
+                let nonceAllocation = try Alpha.PreManifestNostrCodec
                     .decodeContributorNonceAllocation(
                         event,
                         controlRoster: controlRoster,
@@ -282,8 +285,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                         currentUnixSeconds: stored.acceptedAtUnixSeconds
                     )
                 return .nonceAllocationAccepted(
+                    candidateSelection: candidateSelection,
                     controlRoster: controlRoster,
-                    roleElection: roleElection
+                    roleElection: roleElection,
+                    nonceAllocation: nonceAllocation
                 )
             }
             guard let nonceStored = nonceGroup.records.first,

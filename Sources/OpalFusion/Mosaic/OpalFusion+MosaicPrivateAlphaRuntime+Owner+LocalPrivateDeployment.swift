@@ -230,6 +230,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
               case let .controlRosterAgreement(
+                  candidateSelection,
                   controlRoster,
                   events,
                   commitments
@@ -272,6 +273,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             replacing: events.count,
             with: normalized.events,
             formation: .controlRosterAgreement(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
                 events: normalized.events,
                 commitments: normalized.documents
@@ -292,6 +294,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
               case let .roleElection(
+                  candidateSelection,
                   controlRoster,
                   commitmentSet,
                   events,
@@ -337,6 +340,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
             replacing: events.count,
             with: normalized.events,
             formation: .roleElection(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
                 commitmentSet: commitmentSet,
                 events: normalized.events,
@@ -356,8 +360,11 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
         typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
         guard !loadedRecoveryNeedsDirective,
-              case let .nonceAllocationPending(controlRoster, roleElection) =
-                try formationState(),
+              case let .nonceAllocationPending(
+                  candidateSelection,
+                  controlRoster,
+                  roleElection
+              ) = try formationState(),
               roleElection.roster.conductor.validatedBytes
                 == [UInt8](signing.verificationKey.rawRepresentation),
               publicSources.count == roleElection.roster.contributors.count
@@ -391,8 +398,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         return try stageLocalSingletonEvent(
             event,
             formation: .nonceAllocationAccepted(
+                candidateSelection: candidateSelection,
                 controlRoster: controlRoster,
-                roleElection: roleElection
+                roleElection: roleElection,
+                nonceAllocation: document
             )
         )
     }

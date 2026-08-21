@@ -26,23 +26,28 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             admissions: [Alpha.CandidateAdmissionDocument]
         )
         case controlRosterAgreement(
+            candidateSelection: Alpha.CandidateSelectionValidation,
             controlRoster: Alpha.ControlRosterValidation,
             events: [PrivateDeploymentEvent],
             commitments: [Attempt.RoleCommitment]
         )
         case roleElection(
+            candidateSelection: Alpha.CandidateSelectionValidation,
             controlRoster: Alpha.ControlRosterValidation,
             commitmentSet: Attempt.RoleCommitmentSet,
             events: [PrivateDeploymentEvent],
             reveals: [Attempt.RoleReveal]
         )
         case nonceAllocationPending(
+            candidateSelection: Alpha.CandidateSelectionValidation,
             controlRoster: Alpha.ControlRosterValidation,
             roleElection: Attempt.RoleElectionResult
         )
         case nonceAllocationAccepted(
+            candidateSelection: Alpha.CandidateSelectionValidation,
             controlRoster: Alpha.ControlRosterValidation,
-            roleElection: Attempt.RoleElectionResult
+            roleElection: Attempt.RoleElectionResult,
+            nonceAllocation: Alpha.ContributorNonceAllocationDocument
         )
         case manifestProposalPending(
             pool: Alpha.OpaquePoolDocument,

@@ -66,10 +66,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                 participant: signerIdentity,
                 candidateSelection: selection
             )
-        case let .controlRosterAgreement(controlRoster, _, _),
-             let .roleElection(controlRoster, _, _, _),
-             let .nonceAllocationPending(controlRoster, _),
-             let .nonceAllocationAccepted(controlRoster, _),
+        case let .controlRosterAgreement(_, controlRoster, _, _),
+             let .roleElection(_, controlRoster, _, _, _),
+             let .nonceAllocationPending(_, controlRoster, _),
+             let .nonceAllocationAccepted(_, controlRoster, _, _),
              let .manifestProposalPending(
                 _, _, _, controlRoster, _, _
              ):
