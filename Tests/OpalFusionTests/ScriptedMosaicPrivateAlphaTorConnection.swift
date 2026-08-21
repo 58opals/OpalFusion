@@ -10,12 +10,14 @@ actor ScriptedMosaicPrivateAlphaTorConnection:
 
     private let stream: MessageStream
     private let continuation: MessageStream.Continuation
+    private let eventAcceptance: Bool?
     private(set) var openCount = 0
     private(set) var closeCount = 0
     private(set) var sentTexts: [String] = []
     private var closeWaiter: CheckedContinuation<Void, Never>?
 
-    init() {
+    init(eventAcceptance: Bool? = true) {
+        self.eventAcceptance = eventAcceptance
         (stream, continuation) = MessageStream.makeStream()
     }
 
@@ -43,7 +45,13 @@ actor ScriptedMosaicPrivateAlphaTorConnection:
                   let identifier = object["id"] as? String else {
                 throw Runtime.Failure.invalidStateTransition
             }
-            let acknowledgement: [Any] = ["OK", identifier, true, ""]
+            guard let eventAcceptance else { return }
+            let acknowledgement: [Any] = [
+                "OK",
+                identifier,
+                eventAcceptance,
+                "",
+            ]
             let bytes = try JSONSerialization.data(
                 withJSONObject: acknowledgement
             )

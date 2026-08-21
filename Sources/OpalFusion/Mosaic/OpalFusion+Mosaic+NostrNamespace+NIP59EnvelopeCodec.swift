@@ -6,9 +6,11 @@ import OpalCrypto
 extension OpalFusion.Mosaic.NostrNamespace {
     /// Strict structural support for the NIP-59 rumor, seal, and gift-wrap layers.
     ///
-    /// Outbound encryption uses fresh NIP-44 nonces, and each gift wrap uses a
-    /// newly generated wrapper key. Inbound validation can prove signed identity
-    /// separation but cannot prove that a remote wrapper key was never reused.
+    /// Outbound encryption uses fresh NIP-44 nonces. The default wrapper path
+    /// generates a new key; the caller-owned overload lets a higher-level durable
+    /// inventory reject reuse before construction. Inbound validation can prove
+    /// signed identity separation but cannot prove that a remote wrapper key was
+    /// never reused.
     ///
     /// This codec deliberately does not assign an application rumor kind, timestamp
     /// policy, fixed outer size, proof of work, relay policy, or Mosaic runtime fact.
@@ -68,11 +70,29 @@ extension OpalFusion.Mosaic.NostrNamespace {
             additionalTags: [[String]] = [],
             limits: CodingLimits
         ) throws -> Event {
+            try wrap(
+                sealedRumor,
+                deliveryKind: deliveryKind,
+                createdAt: createdAt,
+                additionalTags: additionalTags,
+                wrapperSigningKey: try OpalCrypto.Secp256k1.PrivateKey
+                    .generate()
+                    .makeSigningKey(),
+                limits: limits
+            )
+        }
+
+        /// Wraps with caller-owned fresh key material after preserving the same NIP-59 checks.
+        static func wrap(
+            _ sealedRumor: SealedRumor,
+            deliveryKind: DeliveryKind,
+            createdAt: UInt64,
+            additionalTags: [[String]] = [],
+            wrapperSigningKey: OpalCrypto.Secp256k1.SigningKey,
+            limits: CodingLimits
+        ) throws -> Event {
             let seal = sealedRumor.event
             let recipientPublicKey = sealedRumor.recipientPublicKey
-            let wrapperSigningKey = try OpalCrypto.Secp256k1.PrivateKey
-                .generate()
-                .makeSigningKey()
             let wrapperPublicKey = wrapperSigningKey.bip340VerificationKey
             guard wrapperPublicKey != seal.publicKey,
                   wrapperPublicKey != recipientPublicKey else {

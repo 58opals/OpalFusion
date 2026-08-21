@@ -14,8 +14,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         @_spi(MosaicPrivateAlpha) public let anonymous:
             PostManifestAnonymousMailboxes
 
-        @_spi(MosaicPrivateAlpha)
-        public init(
+        init(
             controlMailboxes: [PostManifestControlMailbox],
             localControlRecipientSigningKey:
                 OpalCrypto.Secp256k1.SigningKey,
