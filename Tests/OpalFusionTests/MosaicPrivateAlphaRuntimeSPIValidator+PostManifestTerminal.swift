@@ -206,6 +206,117 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                 validation: validation
             )
         }
+
+        let admission = MosaicPrivateAlphaRuntimePersistenceStore()
+        let publication = MosaicPrivateAlphaRuntimePersistenceStore()
+        let terminal = MosaicPrivateAlphaRuntimePersistenceStore()
+        let routes = MosaicPrivateAlphaRuntimePersistenceStore()
+        let capabilities = try MosaicPrivateDeploymentFixtures
+            .makeRuntimeCapabilities(
+                formation: fixture.formation,
+                localControlIdentity: Data(conductor.validatedBytes),
+                admissionStore: admission,
+                publicationStore: publication,
+                terminalStore: terminal,
+                routeStore: routes
+            )
+        let sealedSnapshot = try makeSealedSnapshot(
+            proof: fixture.proof,
+            binding: binding,
+            epoch: fixture.epoch
+        )
+        let owner = try await resumedOwner(
+            snapshot: sealedSnapshot,
+            binding: binding
+        )
+        _ = try await persist(
+            owner.preparePostManifestRuntime(
+                localControlIdentity: Data(conductor.validatedBytes),
+                capabilities: capabilities
+            ),
+            on: owner
+        )
+
+        let transportFailure = Runtime.PostManifestTermination(
+            binding: binding,
+            kind: .transportFailed,
+            reservationReference: nil,
+            terminalIdentity: Data(repeating: 0xE0, count: 32),
+            localControlIdentity: Data(conductor.validatedBytes),
+            admissionSnapshotDigest: Data(repeating: 0xE1, count: 32),
+            publicationSnapshotDigest: Data(repeating: 0xE2, count: 32),
+            authority: .unavailable,
+            outboundIsDrained: true,
+            isLocalConductor: true,
+            receivedTerminalEvent: nil,
+            localTerminalEvent: nil
+        )
+        do {
+            _ = try await owner.preparePostManifestTermination(
+                consuming: transportFailure,
+                createdAtUnixSeconds:
+                    fixture.proof.completeManifest.core.deadlines.bchSigning,
+                signing: nil
+            )
+            Issue.record("Transport failure manufactured terminal evidence")
+        } catch Runtime.Failure.terminalEvidenceUnavailable {
+            // Expected: transport loss remains recovery-required.
+        }
+
+        let admissionSnapshot = try #require(admission.load(binding))
+        let publicationSnapshot = try #require(publication.load(binding))
+        let admissionSnapshotDigest = Runtime.RecoveryState.sha256(
+            admissionSnapshot
+        )
+        let publicationSnapshotDigest = Runtime.RecoveryState.sha256(
+            publicationSnapshot
+        )
+        let localCompletionAuthority:
+            Runtime.PostManifestTerminalAuthority = .completion(validation)
+        let localCompletion = Runtime.PostManifestTermination(
+            binding: binding,
+            kind: .completed,
+            reservationReference: nil,
+            terminalIdentity: try Runtime.PostManifestExecution
+                .makeTerminalIdentity(
+                    binding: binding,
+                    kind: .completed,
+                    authority: localCompletionAuthority,
+                    admissionSnapshotDigest: admissionSnapshotDigest,
+                    publicationSnapshotDigest: publicationSnapshotDigest,
+                    receivedTerminalEvent: nil
+                ),
+            localControlIdentity: Data(conductor.validatedBytes),
+            admissionSnapshotDigest: admissionSnapshotDigest,
+            publicationSnapshotDigest: publicationSnapshotDigest,
+            authority: localCompletionAuthority,
+            outboundIsDrained: true,
+            isLocalConductor: true,
+            receivedTerminalEvent: nil,
+            localTerminalEvent: nil
+        )
+        let terminalSnapshot = try await persist(
+            owner.preparePostManifestTermination(
+                consuming: localCompletion,
+                createdAtUnixSeconds:
+                    fixture.proof.completeManifest.core.deadlines.bchSigning,
+                signing: makeSigningCapability(
+                    fixture.formation.controlCandidate(for: conductor)
+                        .signingKey,
+                    documentByte: 0xE6,
+                    eventByte: 0xE7
+                )
+            ),
+            on: owner
+        )
+        guard case .recover(.publishPrivateDeployment) = try await Runtime.Owner(
+            claiming: Runtime.loadRecovery(
+                from: terminalSnapshot,
+                expectedBinding: binding
+            )
+        ).nextStep() else {
+            throw Runtime.Failure.invalidStateTransition
+        }
     }
 
     @Test("Persist a received completion through execution and terminal owner")
@@ -375,8 +486,11 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         }
         #expect(termination.kind == .completed)
         let authorizedSnapshot = try await persist(
-            owner.acceptReceivedConductorCompletion(
-                consuming: termination
+            owner.preparePostManifestTermination(
+                consuming: termination,
+                createdAtUnixSeconds:
+                    fixture.proof.completeManifest.core.deadlines.bchSigning,
+                signing: nil
             ),
             on: owner
         )
@@ -892,6 +1006,25 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
             #expect(await connection.openCount == 0)
         }
         #expect(terminal.recordedCompareAndSwapCallCount == 1)
+
+        let terminalSnapshot = try await persist(
+            recoveredOwner.preparePostManifestTermination(
+                consuming: termination,
+                createdAtUnixSeconds:
+                    fixture.proof.completeManifest.core.deadlines
+                        .walletReservation,
+                signing: nil
+            ),
+            on: recoveredOwner
+        )
+        guard case .recover(.publishPrivateDeployment) = try await Runtime.Owner(
+            claiming: Runtime.loadRecovery(
+                from: terminalSnapshot,
+                expectedBinding: binding
+            )
+        ).nextStep() else {
+            throw Runtime.Failure.invalidStateTransition
+        }
     }
 
     @Test("Revalidate a received abort and drained companions after reload")
@@ -993,8 +1126,11 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         }
         #expect(termination.kind == .aborted)
         let authorizedSnapshot = try await persist(
-            owner.acceptReceivedAbortTermination(
-                consuming: termination
+            owner.preparePostManifestTermination(
+                consuming: termination,
+                createdAtUnixSeconds:
+                    fixture.proof.completeManifest.core.deadlines.phaseStart,
+                signing: nil
             ),
             on: owner
         )
