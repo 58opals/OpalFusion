@@ -1328,8 +1328,8 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
         )
         let conductorKey = runtimeFixture.formation
             .controlCandidate(for: conductorIdentity).signingKey
-        let authorizationSigningKey = try OpalCrypto.RSABSSA.SigningKey
-            .generate()
+        let authorizationSigningKey = try RFC9500RSATestKeyFixture
+            .makeSigningKey()
         let authorizationKey = try Runtime
             .makeTransportBootstrapAuthorizationKeyDocument(
                 proof: proof,

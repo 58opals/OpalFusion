@@ -19,7 +19,7 @@ Modes:
   mosaic          Run the bounded Mosaic conformance and facade tests.
   mosaic-fast     Run the RSA-free Mosaic lifecycle and wiring lane.
   mosaic-private-alpha-consumer-surface Run the app-visible private-alpha SPI recovery surface.
-  mosaic-private-alpha-spi Run the complete serialized private-alpha SPI validator.
+  mosaic-private-alpha-spi Run the complete serialized private-alpha SPI and transport validators in isolated processes.
   mosaic-private-alpha-transport Run the private-alpha transport-bootstrap contract.
   mosaic-rehearsal Run the explicitly slow, no-network mainnet-alpha rehearsal.
   interop-parser  Run Electron Cash interop parser/environment tests only.
@@ -86,7 +86,7 @@ MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMai
 MOSAIC_FAST_FILTER='MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator'
 MOSAIC_PRIVATE_ALPHA_CONSUMER_SURFACE_FILTER='MosaicPrivateAlphaRuntimeRecoveryValidator'
 MOSAIC_PRIVATE_ALPHA_TRANSPORT_FILTER='MosaicPrivateAlphaTransportBootstrapValidator'
-MOSAIC_PRIVATE_ALPHA_SPI_FILTER="MosaicPrivateAlphaRuntimeSPIValidator|$MOSAIC_PRIVATE_ALPHA_TRANSPORT_FILTER"
+MOSAIC_PRIVATE_ALPHA_RUNTIME_SPI_FILTER='MosaicPrivateAlphaRuntimeSPIValidator'
 MOSAIC_MAINNET_REHEARSAL_FILTER='executeSixContributorConductor|executeThroughExactCommit'
 MOSAIC_MATERIAL_FILTER='MosaicMainnetAlpha4MaterialValidator'
 MAXIMUM_PARALLEL_TEST_WIDTH=4
@@ -120,6 +120,18 @@ assert_mosaic_private_alpha_consumer_surface_is_not_testable() {
     || fail "The private-alpha consumer-surface lane requires rg for its import guard."
   if rg -n '@testable import OpalFusion' "$consumer_file"; then
     fail "The private-alpha consumer-surface lane must not use @testable import."
+  fi
+}
+
+assert_mosaic_private_alpha_transport_is_generation_free() {
+  local transport_files=(
+    Tests/OpalFusionTests/MosaicPrivateAlphaTransportBootstrapValidator.swift
+    Tests/OpalFusionTests/RFC9500RSATestKeyFixture.swift
+  )
+  command -v rg >/dev/null 2>&1 \
+    || fail "The private-alpha transport lane requires rg for its RSA-generation guard."
+  if rg -n -U 'RSABSSA\.SigningKey[[:space:]]*\.generate\(' "${transport_files[@]}"; then
+    fail "The private-alpha transport lane must use its standard public test key fixture."
   fi
 }
 
@@ -190,9 +202,14 @@ case "$mode" in
   mosaic-private-alpha-spi)
     # Keep all recovery prefixes in one process so the exact private-alpha
     # proof fixture is constructed once and the suite remains serialized.
-    run_serial_filter "$MOSAIC_PRIVATE_ALPHA_SPI_FILTER"
+    # Start the generation-free transport fixture in a fresh process so it
+    # cannot inherit process-global test state from the hour-long runtime suite.
+    assert_mosaic_private_alpha_transport_is_generation_free
+    run_serial_filter "$MOSAIC_PRIVATE_ALPHA_RUNTIME_SPI_FILTER"
+    run_serial_filter "$MOSAIC_PRIVATE_ALPHA_TRANSPORT_FILTER"
     ;;
   mosaic-private-alpha-transport)
+    assert_mosaic_private_alpha_transport_is_generation_free
     run_serial_filter "$MOSAIC_PRIVATE_ALPHA_TRANSPORT_FILTER"
     ;;
   mosaic-rehearsal)

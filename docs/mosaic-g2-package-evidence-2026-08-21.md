@@ -1,6 +1,6 @@
 # Mosaic G2 Package Producer Evidence — 2026-08-21
 
-Status: the OpalFusion package-owned G2 transport-bootstrap producer is complete at `e07151af7a4f5208153ed37b9533b3de7d8e0628`. G2 remains in progress until Wallet supplies authenticated encrypted persistence, application-owned secret custody, authoritative relay configuration, a concrete Tor-only WebSocket adapter, and the required production-adapter loopback. This record authorizes no external Mosaic network, application session, broadcast, value movement, release, or public claim.
+Status: the OpalFusion package-owned G2 transport-bootstrap producer and its recovery-safe application consumer surface are complete at `85635672603832ce9f1e8e62d69e6d4600571440`, extending the original producer at `e07151af7a4f5208153ed37b9533b3de7d8e0628`. G2 remains in progress until Wallet supplies authenticated encrypted persistence, application-owned secret custody, authoritative relay configuration, a concrete Tor-only WebSocket adapter, and the required production-adapter loopback. This record authorizes no external Mosaic network, application session, broadcast, value movement, release, or public claim.
 
 ## Decision And Scope
 
@@ -12,7 +12,7 @@ The package authenticates blind-authorized mailbox distribution, complete-roster
 
 | Repository | Exact revision | Promoted integration lane |
 | --- | --- | --- |
-| OpalFusion implementation | `e07151af7a4f5208153ed37b9533b3de7d8e0628` | Runtime producer promoted on `private/draft` and `public/develop`; this evidence is a documentation-only successor |
+| OpalFusion implementation | `85635672603832ce9f1e8e62d69e6d4600571440` | Recovery-safe consumer accessor extending producer `e07151af7a4f5208153ed37b9533b3de7d8e0628`; promoted on `private/draft` and `public/develop`, with this evidence as a documentation-only successor |
 | OpalCrypto | `23425db04075a48405d65cf6a3e2254911e626eb` | `private/draft` and `public/develop` |
 | OpalDiagnostics | `7cd2e383309821e01903077c1e534174f9c8a964` | `private/draft` and `public/develop` |
 
@@ -30,6 +30,7 @@ The broader G1 application graph remains Wallet `4eb09a88742d3aeb9efa4a56d031ad1
 - Outbound publication persists the sealed event before route provisioning, requires durable acceptance from at least two of three relays, restores the byte-identical wrapper after restart, opens only unaccepted routes, and closes every route on rejection, source loss, cancellation, or failure.
 - Inbound fan-in opens exactly three sources, persists bijective wrapper/message replay facts before semantic admission, deduplicates identical relay copies, restores the exact replay set, and fails closed on source loss, bounded-buffer loss, connection completion, conflicting replay, or cancellation.
 - Public Tor connection capabilities require idempotent close behavior that unblocks and joins connection work. The package remains transport-injected; Wallet must still prove that the concrete production adapter cannot fall back to clearnet or local DNS.
+- The sole recovered runtime owner exposes the opaque private-deployment proof only after recovery resumes at wallet reservation with a validated manifest and no terminal disposition. Early or incomplete recovery requests fail closed; Wallet no longer needs an internal constructor or `@testable` access to consume the bootstrap producer.
 
 ## Environment
 
@@ -46,16 +47,24 @@ The exact pinned dependency lane passed resolved revision, checkout HEAD, and re
 sh ~/.codex/skills/ops-swiftpm-lane-consistency/scripts/deps-doctor.sh --repo-root "$PWD" --resolved-path Package.resolved --checkouts-root .build/checkouts --lock-mode pinned --remote-check
 ```
 
-The repository-owned build and focused RSA-free feedback lanes passed:
+The repository-owned build and focused RSA-free feedback lanes passed on the consumer-surface follow-up:
 
 ```text
 ./scripts/run-validation-loop.sh build
 ./scripts/run-validation-loop.sh mosaic-fast
 ```
 
-Result: the exact package build passed. `mosaic-fast` passed six tests in two suites in 12.477 seconds.
+Result: the exact package build passed. The final-tree `mosaic-fast` rerun passed six tests in two suites in 12.663 seconds after a 0.53-second incremental build.
 
-The transport-bootstrap aggregate ran serially against the final source tree:
+The new public-consumer gate rejects `@testable import OpalFusion` statically and compiles the exact loaded-owner continuation, resume, and proof-call path:
+
+```text
+./scripts/run-validation-loop.sh mosaic-private-alpha-consumer-surface
+```
+
+Result: the final-tree rerun passed four tests in one suite in 0.001 seconds after a 0.53-second incremental build. An early-phase proof request failed closed as required; the authoritative SPI aggregate retains successful post-manifest proof restoration.
+
+The original producer's transport-bootstrap aggregate ran serially:
 
 ```text
 ./scripts/run-validation-loop.sh mosaic-private-alpha-transport
@@ -63,13 +72,25 @@ The transport-bootstrap aggregate ran serially against the final source tree:
 
 Result: five tests in one suite passed in 994.479 seconds. The suite canonicalized the relay policy, completed blind registration and role-specific mailbox minting, sealed and opened all seven bootstrap document roles, persisted and recovered one byte-identical publication, and proved exact-three-source fan-in, replay deduplication, source-loss failure, and cleanup.
 
-The authoritative complete SPI gate then ran the existing runtime suite and the new transport suite in one unchanged process:
+The original producer's authoritative complete SPI gate ran the existing runtime suite and the new transport suite in one unchanged process:
 
 ```text
 ./scripts/run-validation-loop.sh mosaic-private-alpha-spi
 ```
 
 Result: 23 tests in two suites passed in 4,976.404 seconds. The existing 18-test SPI composition suite passed in 4,005.622 seconds, including exhaustive signed-formation restoration in 1,697.468 seconds. The five-test transport-bootstrap suite passed in 970.781 seconds, including authenticated blind registration in 824.527 seconds and all-document seal/open coverage in 138.020 seconds.
+
+The recovery-safe consumer follow-up then exercised the same aggregate selection with the runtime/SPI and transport suites isolated in serial SwiftPM processes. All 18 runtime/SPI tests passed in 4,048.211 seconds, including exhaustive signed formation in 1,719.558 seconds. The transport process passed its RSA-free relay-policy case but this macOS 27/Xcode 27 host rejected all four RSA-using cases with `OpalCrypto.RSABSSA.Error.keyGenerationFailed`. A fresh targeted process reproduced the failure after 49.085 seconds, and a direct Security.framework probe rejected an otherwise valid ephemeral RSA-2048 request with `NSOSStatusErrorDomain` code `-50`. Repeating an unchanged hour-long path was therefore stopped.
+
+The smallest remediation was test-only: `RFC9500RSATestKeyFixture` imports RFC 9500's publicly known `testRSA2048` key through Security, then hands the `SecKey` to OpalCrypto for validation and every blind-sign calculation. The fixture is visibly licensed, confined to the test target, and explicitly has no security properties. No production source, API, dependency, algorithm, application key-generation policy, or first-party ownership boundary changed. The validation wrapper now statically rejects direct signing-key generation in this transport lane before starting the expensive aggregate and runs the transport suite in its own process.
+
+The affected final-tree gate then passed:
+
+```text
+./scripts/run-validation-loop.sh mosaic-private-alpha-transport
+```
+
+Result: five tests in one suite passed in 1,006.535 seconds after a 13.75-second build. Authenticated blind registration passed in 860.148 seconds, all-document seal/open coverage passed in 138.144 seconds, byte-identical publication passed in 7.297 seconds, and exact-three-source fan-in passed in 0.942 seconds. The already successful 18-test runtime/SPI process was not repeated because the remediation changed only test fixture setup, the validation wrapper, and documentation; the original producer's complete 23-test aggregate remains the all-in-one production-path baseline.
 
 Supporting regression runs passed 26 NIP-59 codec and private-envelope tests across three suites in 40.842 seconds; two publication/inbox lifecycle tests in 169.760 seconds; and the all-document bootstrap envelope case in 299.493 seconds. These focused runs covered cancellation while provisioning and awaiting acknowledgement, restoration under the wrong sender, wrapper-identity reuse, invalid timestamps, complete assignment inventory, and route cleanup without false durable acceptance.
 
