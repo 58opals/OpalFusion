@@ -77,11 +77,12 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
             dependencies: .init(
                 makeLayerTimestamps: { request in
                     try Self.makeLayerTimestamps(
-                        timing.makeLayerTimestamps(.init(
+                        timing.makeLayerTimestamps(Self.makeTimestampRequest(
                             recipientEventIdentity: nil,
-                            phase: try Self.publicPhase(request.phase),
+                            phase: request.phase,
                             sequence: request.sequence,
-                            expiryUnixSeconds: request.expiryUnixSeconds
+                            expiryUnixSeconds: request.expiryUnixSeconds,
+                            deadlines: deadlines
                         ))
                     )
                 },

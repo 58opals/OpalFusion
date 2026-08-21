@@ -229,6 +229,10 @@ extension MosaicPrivateDeploymentFixtures {
             load: terminalStore.load,
             compareAndSwap: terminalStore.compareAndSwap
         )
+        let phaseStart = try Alpha.PrivateDeploymentPolicy.frozen
+            .preManifestDeadlines(
+                forEpochStartingAt: formation.discovery.epochStart
+            ).manifestAgreement
         return .init(
             mailboxes: .init(
                 controlMailboxes: controlMailboxes,
@@ -248,15 +252,16 @@ extension MosaicPrivateDeploymentFixtures {
                 maximumSubscriptionIdentifierByteCount: 80
             ),
             timing: .init(
-                currentUnixSeconds: { formation.discovery.epochStart + 240 },
+                currentUnixSeconds: { phaseStart },
                 makeLayerTimestamps: { request in
-                    .init(
-                        phaseStartUnixSeconds:
-                            formation.discovery.epochStart,
-                        currentUnixSeconds:
-                            formation.discovery.epochStart + 240,
-                        sealCreatedAt: request.expiryUnixSeconds,
-                        giftWrapCreatedAt: request.expiryUnixSeconds
+                    guard request.phaseStartUnixSeconds == phaseStart else {
+                        throw Runtime.Failure.invalidStateTransition
+                    }
+                    return .init(
+                        phaseStartUnixSeconds: request.phaseStartUnixSeconds,
+                        currentUnixSeconds: request.expiryUnixSeconds,
+                        sealCreatedAt: request.expiryUnixSeconds - 2,
+                        giftWrapCreatedAt: request.expiryUnixSeconds - 1
                     )
                 }
             ),

@@ -10,6 +10,34 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
 
+    @Test("Expose the signed post-manifest phase start to timing capabilities")
+    func exposeSignedPostManifestPhaseStart() throws {
+        let deadlines = try Alpha.DeadlineSchedule(
+            phaseStart: 1_800_000_000,
+            walletReservation: 1_800_000_060,
+            groupedCommitment: 1_800_000_120,
+            anonymousComponentSubmission: 1_800_000_240,
+            transcriptAgreement: 1_800_000_300,
+            bchSigning: 1_800_000_360
+        )
+        let request = try Runtime.PostManifestConstruction
+            .makeTimestampRequest(
+                recipientEventIdentity: Data(repeating: 0x51, count: 32),
+                phase: .anonymousComponentSubmission,
+                sequence: 7,
+                expiryUnixSeconds: deadlines.anonymousComponentSubmission,
+                deadlines: deadlines
+            )
+
+        #expect(request.phaseStartUnixSeconds == deadlines.phaseStart)
+        #expect(request.phase == .anonymousComponentSubmission)
+        #expect(request.sequence == 7)
+        #expect(
+            request.expiryUnixSeconds
+                == deadlines.anonymousComponentSubmission
+        )
+    }
+
     @Test("Restore signed formation prefixes and construct the existing runtime")
     func restoreSignedFormationPrefixesAndConstructRuntime() async throws {
         let fixture = try MosaicPrivateDeploymentFixtures

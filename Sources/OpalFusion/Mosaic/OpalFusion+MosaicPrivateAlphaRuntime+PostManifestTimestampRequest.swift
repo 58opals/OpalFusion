@@ -10,17 +10,20 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         @_spi(MosaicPrivateAlpha) public let recipientEventIdentity: Data?
         @_spi(MosaicPrivateAlpha) public let phase: Phase
         @_spi(MosaicPrivateAlpha) public let sequence: UInt64
+        @_spi(MosaicPrivateAlpha) public let phaseStartUnixSeconds: UInt64
         @_spi(MosaicPrivateAlpha) public let expiryUnixSeconds: UInt64
 
         init(
             recipientEventIdentity: Data?,
             phase: Phase,
             sequence: UInt64,
+            phaseStartUnixSeconds: UInt64,
             expiryUnixSeconds: UInt64
         ) {
             self.recipientEventIdentity = recipientEventIdentity
             self.phase = phase
             self.sequence = sequence
+            self.phaseStartUnixSeconds = phaseStartUnixSeconds
             self.expiryUnixSeconds = expiryUnixSeconds
         }
     }

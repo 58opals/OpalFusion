@@ -55,22 +55,24 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                 },
                 makeControlLayerTimestamps: { request in
                     try Self.makeLayerTimestamps(
-                        timing.makeLayerTimestamps(.init(
+                        timing.makeLayerTimestamps(Self.makeTimestampRequest(
                             recipientEventIdentity: nil,
-                            phase: try Self.publicPhase(request.phase),
+                            phase: request.phase,
                             sequence: request.sequence,
-                            expiryUnixSeconds: request.expiryUnixSeconds
+                            expiryUnixSeconds: request.expiryUnixSeconds,
+                            deadlines: deadlines
                         ))
                     )
                 },
                 makeAnonymousLayerTimestamps: { request in
                     try Self.makeLayerTimestamps(
-                        timing.makeLayerTimestamps(.init(
+                        timing.makeLayerTimestamps(Self.makeTimestampRequest(
                             recipientEventIdentity:
                                 request.recipientEventIdentity,
-                            phase: try Self.publicPhase(request.phase),
+                            phase: request.phase,
                             sequence: request.sequence,
-                            expiryUnixSeconds: request.expiryUnixSeconds
+                            expiryUnixSeconds: request.expiryUnixSeconds,
+                            deadlines: deadlines
                         ))
                     )
                 },

@@ -303,6 +303,22 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
         )
     }
 
+    static func makeTimestampRequest(
+        recipientEventIdentity: Data?,
+        phase: OpalFusion.Mosaic.Attempt.Phase,
+        sequence: UInt64,
+        expiryUnixSeconds: UInt64,
+        deadlines: Alpha.DeadlineSchedule
+    ) throws -> Runtime.PostManifestTimestampRequest {
+        .init(
+            recipientEventIdentity: recipientEventIdentity,
+            phase: try publicPhase(phase),
+            sequence: sequence,
+            phaseStartUnixSeconds: deadlines.phaseStart,
+            expiryUnixSeconds: expiryUnixSeconds
+        )
+    }
+
     static func publicPhase(
         _ phase: OpalFusion.Mosaic.Attempt.Phase
     ) throws -> Runtime.Phase {
