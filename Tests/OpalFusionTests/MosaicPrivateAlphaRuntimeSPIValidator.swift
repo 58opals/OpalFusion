@@ -81,6 +81,25 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             owner.completeRoleElection(),
             on: owner
         )
+        #expect(
+            try await owner.privateDeploymentRole(
+                controlIdentity: fixture.proof.conductorControlIdentity
+            ) == .conductor
+        )
+        #expect(
+            try await owner.privateDeploymentRole(
+                controlIdentity:
+                    fixture.proof.contributorControlIdentities[0]
+            ) == .contributor
+        )
+        await #expect(
+            throws: Runtime.Failure
+                .localControlIdentityNotInPrivateDeployment
+        ) {
+            _ = try await owner.privateDeploymentRole(
+                controlIdentity: Data(repeating: 0xFF, count: 32)
+            )
+        }
         snapshot = try await persist(
             owner.acceptContributorNonceAllocation(fixture.nonceEvent),
             on: owner

@@ -4,6 +4,64 @@
 import Foundation
 
 extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
+    /// Projects the authenticated role election result for one roster control identity.
+    ///
+    /// This is available after role election has durably advanced and before or after
+    /// manifest agreement. It does not infer a role from caller state.
+    @_spi(MosaicPrivateAlpha)
+    public func privateDeploymentRole(
+        controlIdentity: Data
+    ) throws -> OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentRole {
+        typealias Attempt = OpalFusion.Mosaic.Attempt
+        typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
+        guard !loadedRecoveryNeedsDirective,
+              controlIdentity.count == 32,
+              state.terminalDisposition() == nil else {
+            throw Runtime.Failure.invalidStateTransition
+        }
+
+        let roster: Attempt.Roster
+        switch state.manifestState {
+        case .validated:
+            roster = try Runtime.restorePrivateDeploymentProof(
+                discoveryEpochStartUnixSeconds:
+                    state.discoveryEpochStartUnixSeconds,
+                canonicalDocuments: state.preManifestDocuments
+            ).completeManifest.core.roster
+        case .forming:
+            switch try formationState() {
+            case .nonceAllocationPending(_, _, let roleElection),
+                 .nonceAllocationAccepted(_, _, let roleElection, _),
+                 .manifestProposalPending(_, _, _, _, let roleElection, _):
+                roster = roleElection.roster
+            case .manifestSignatures(let proposal, _, _):
+                roster = proposal.manifest.core.roster
+            case .uninitialized,
+                 .discovery,
+                 .candidateSetAgreement,
+                 .admission,
+                 .controlRosterAgreement,
+                 .roleElection:
+                throw Runtime.Failure.invalidStateTransition
+            }
+        }
+
+        let identity = Attempt.ControlIdentity(
+            validatedBytes: Array(controlIdentity)
+        )
+        guard let member = roster.members.first(where: {
+            $0.controlIdentity == identity
+        }) else {
+            throw Runtime.Failure.localControlIdentityNotInPrivateDeployment
+        }
+        switch member.role {
+        case .contributor:
+            return .contributor
+        case .conductor:
+            return .conductor
+        }
+    }
+
     /// Revalidates and returns the installed complete manifest proof for the app-owned transport bootstrap.
     ///
     /// - Throws: `Failure.invalidStateTransition` until manifest agreement is
