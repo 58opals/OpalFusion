@@ -1,6 +1,6 @@
 # Mosaic Private-Alpha Transport Bootstrap.1
 
-Status: implemented package contract for the internal macOS private alpha as of 2026-08-21. Application-owned encrypted persistence, a concrete Tor-only WebSocket adapter, circuit-isolation evidence, and the complete G2 application rehearsal remain required before G2 can close.
+Status: implemented package contract for the internal macOS private alpha as of 2026-08-21. The application owns authenticated encrypted persistence, key custody, reviewed relay policy, concrete Tor-only WebSocket routes, restart cleanup, production-adapter evidence, and supervised session composition. [Mosaic Mainnet-Alpha Progress](mosaic-mainnet-alpha-progress.md) owns the current status of those obligations.
 
 Contract identifier: `nostr-tor/0-opal-mosaic-private-alpha-bootstrap.1`.
 
@@ -94,4 +94,4 @@ A local loopback harness must exercise the production adapter, SOCKS negotiation
 
 Relay acknowledgements are not durable delivery to every participant, circuit independence, operator independence beyond the reviewed registry assertion, anonymity, traffic-analysis resistance, Sybil resistance, wallet safety, broadcast permission, or chain acceptance. Blind authorization prevents the protocol transcript from directly labeling a registration with a control identity; it is not a proof against timing or network correlation. Complete roster acknowledgements prevent a successfully acknowledged split view only when every participant durably enforces the single-digest signing rule. Scripted package tests do not prove the concrete Tor adapter or application persistence.
 
-The feature remains structurally disabled until G2 and G3 evidence bind this contract to the exact promoted dependency graph and one supervised application owner. Rollback is to disable private discovery, stop and join bootstrap routes, preserve the authenticated G1/G2 record and wallet quarantine until exact disposition is known, and invoke the existing terminal cleanup authority only when package and application evidence permit it. No failure enables clearnet, a different relay, regenerated attempt material, a second runtime constructor, broadcast, or value movement.
+The feature remains structurally disabled until the progress record accepts the required exact-graph transport and supervised-session evidence. Rollback is to disable private discovery, stop and join bootstrap routes, preserve the authenticated G1/G2 record and wallet quarantine until exact disposition is known, and invoke the existing terminal cleanup authority only when package and application evidence permit it. No failure enables clearnet, a different relay, regenerated attempt material, a second runtime constructor, broadcast, or value movement.

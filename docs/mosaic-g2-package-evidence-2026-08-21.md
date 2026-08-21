@@ -1,6 +1,6 @@
 # Mosaic G2 Package Producer Evidence — 2026-08-21
 
-Status: the OpalFusion package-owned G2 transport-bootstrap producer and its recovery-safe application consumer surface are complete at `85635672603832ce9f1e8e62d69e6d4600571440`, extending the original producer at `e07151af7a4f5208153ed37b9533b3de7d8e0628`. G2 remains in progress until Wallet supplies authenticated encrypted persistence, application-owned secret custody, authoritative relay configuration, a concrete Tor-only WebSocket adapter, and the required production-adapter loopback. This record authorizes no external Mosaic network, application session, broadcast, value movement, release, or public claim.
+Status: the OpalFusion package-owned G2 transport-bootstrap producer and its recovery-safe application consumer surface are complete at `85635672603832ce9f1e8e62d69e6d4600571440`, extending the original producer at `e07151af7a4f5208153ed37b9533b3de7d8e0628`. At this producer checkpoint, G2 remained in progress until Wallet supplied authenticated encrypted persistence, application-owned secret custody, authoritative relay configuration, a concrete Tor-only WebSocket adapter, and the required production-adapter loopback; those application conditions were subsequently satisfied by [Mosaic G2 Closure Evidence — 2026-08-21](mosaic-g2-closure-evidence-2026-08-21.md). This record authorizes no external Mosaic network, application session, broadcast, value movement, release, or public claim.
 
 ## Decision And Scope
 
@@ -111,7 +111,7 @@ The production dependency scan found only first-party package dependencies and o
 - The complete acknowledgement barrier prevents a successfully acknowledged registration-set split view only if Wallet durably enforces authorization-spent identifiers and one acknowledged digest per round under the authenticated G2 record.
 - Wrapper freshness, durable publication acceptance, replay state, and application secret custody remain explicit injected capabilities. The package cannot silently weaken or simulate them.
 - Package cancellation and restoration paths close routes, preserve exact accepted state, and never mint a mailbox capability around partial or unauthenticated material.
-- The OpalFusion producer slice is therefore complete, but G2 is not complete until the application implements and proves the injected production responsibilities.
+- The OpalFusion producer slice is therefore complete. At this checkpoint G2 was not complete until the application implemented and proved the injected production responsibilities; the subsequent [G2 closure evidence](mosaic-g2-closure-evidence-2026-08-21.md) records that result.
 
 ## Approvals And Promotion
 
