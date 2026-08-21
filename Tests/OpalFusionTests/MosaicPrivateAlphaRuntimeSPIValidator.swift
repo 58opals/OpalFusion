@@ -331,18 +331,35 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             owner.completeManifestAgreement(),
             on: owner
         )
+        let freshTransportProof = try await owner
+            .makeTransportBootstrapPrivateDeploymentProof()
+        #expect(
+            freshTransportProof.roundIdentifier
+                == fixture.proof.roundIdentifier
+        )
+        #expect(
+            freshTransportProof.relayEndpointIdentifiers
+                == fixture.proof.relayEndpointIdentifiers
+        )
 
         let sealedRecovery = try Runtime.loadRecovery(
             from: sealedSnapshot,
             expectedBinding: binding
         )
         let sealedOwner = try Runtime.Owner(claiming: sealedRecovery)
+        await #expect(throws: Runtime.Failure.invalidStateTransition) {
+            _ = try await sealedOwner
+                .makeTransportBootstrapPrivateDeploymentProof()
+        }
         let sealedContinuation = try continuation(
             from: await sealedOwner.nextStep()
         )
         _ = try await sealedOwner.resumePrivateDeployment(
             sealedContinuation
         )
+        let recoveredTransportProof = try await sealedOwner
+            .makeTransportBootstrapPrivateDeploymentProof()
+        #expect(recoveredTransportProof == freshTransportProof)
         let admissionStore = MosaicPrivateAlphaRuntimePersistenceStore()
         let publicationStore = MosaicPrivateAlphaRuntimePersistenceStore()
         let terminalStore = MosaicPrivateAlphaRuntimePersistenceStore()

@@ -18,6 +18,7 @@ Modes:
   client          Run public client session tests.
   mosaic          Run the bounded Mosaic conformance and facade tests.
   mosaic-fast     Run the RSA-free Mosaic lifecycle and wiring lane.
+  mosaic-private-alpha-consumer-surface Run the app-visible private-alpha SPI recovery surface.
   mosaic-private-alpha-spi Run the complete serialized private-alpha SPI validator.
   mosaic-private-alpha-transport Run the private-alpha transport-bootstrap contract.
   mosaic-rehearsal Run the explicitly slow, no-network mainnet-alpha rehearsal.
@@ -83,6 +84,7 @@ run_serial_filter() {
 
 MOSAIC_RSA_DEPENDENT_FILTER='MosaicMainnetAlphaRuntimeSessionValidator|MosaicMainnetAlphaAdmissionLedgerValidator|MosaicMainnetAlphaConductorCoordinatorValidator|MosaicMainnetAlphaContributorExecutorValidator|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator|MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator|MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator|MosaicMainnetAlphaReservationCoordinatorValidator|MosaicMainnetAlphaContractValidator|MosaicOpalV0AuthorizationValidator'
 MOSAIC_FAST_FILTER='MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator|MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator'
+MOSAIC_PRIVATE_ALPHA_CONSUMER_SURFACE_FILTER='MosaicPrivateAlphaRuntimeRecoveryValidator'
 MOSAIC_PRIVATE_ALPHA_TRANSPORT_FILTER='MosaicPrivateAlphaTransportBootstrapValidator'
 MOSAIC_PRIVATE_ALPHA_SPI_FILTER="MosaicPrivateAlphaRuntimeSPIValidator|$MOSAIC_PRIVATE_ALPHA_TRANSPORT_FILTER"
 MOSAIC_MAINNET_REHEARSAL_FILTER='executeSixContributorConductor|executeThroughExactCommit'
@@ -109,6 +111,15 @@ assert_mosaic_reservation_dependency_lane_is_material_free() {
     || fail "The Mosaic reservation dependency lane requires rg for its material guard."
   if rg -n "$banned_pattern" "$dependency_file"; then
     fail "The Mosaic reservation dependency lane reached evaluator or material construction."
+  fi
+}
+
+assert_mosaic_private_alpha_consumer_surface_is_not_testable() {
+  local consumer_file=Tests/OpalFusionTests/MosaicPrivateAlphaRuntimeRecoveryValidator.swift
+  command -v rg >/dev/null 2>&1 \
+    || fail "The private-alpha consumer-surface lane requires rg for its import guard."
+  if rg -n '@testable import OpalFusion' "$consumer_file"; then
+    fail "The private-alpha consumer-surface lane must not use @testable import."
   fi
 }
 
@@ -171,6 +182,10 @@ case "$mode" in
   mosaic-fast)
     assert_mosaic_fast_lane_is_rsa_free
     run_bounded_test --filter "$MOSAIC_FAST_FILTER"
+    ;;
+  mosaic-private-alpha-consumer-surface)
+    assert_mosaic_private_alpha_consumer_surface_is_not_testable
+    run_filter "$MOSAIC_PRIVATE_ALPHA_CONSUMER_SURFACE_FILTER"
     ;;
   mosaic-private-alpha-spi)
     # Keep all recovery prefixes in one process so the exact private-alpha

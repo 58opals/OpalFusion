@@ -4,6 +4,28 @@
 import Foundation
 
 extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
+    /// Revalidates and returns the installed complete manifest proof for the app-owned transport bootstrap.
+    ///
+    /// - Throws: `Failure.invalidStateTransition` until manifest agreement is
+    ///   complete, recovered state has resumed, or after terminal disposition.
+    @_spi(MosaicPrivateAlpha)
+    public func makeTransportBootstrapPrivateDeploymentProof()
+        throws -> OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentProof {
+        typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
+        guard !loadedRecoveryNeedsDirective,
+              state.phase == .walletReservation,
+              case .validated = state.manifestState,
+              state.terminalDisposition() == nil else {
+            throw Runtime.Failure.invalidStateTransition
+        }
+        return try Runtime.restorePrivateDeploymentProof(
+            discoveryEpochStartUnixSeconds:
+                state.discoveryEpochStartUnixSeconds,
+            canonicalDocuments: state.preManifestDocuments
+        )
+    }
+
     /// Initializes both exact empty Fusion journals before any Tor route can be requested.
     @_spi(MosaicPrivateAlpha)
     public func preparePostManifestRuntime(

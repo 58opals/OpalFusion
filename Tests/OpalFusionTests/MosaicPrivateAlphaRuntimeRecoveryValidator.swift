@@ -90,6 +90,38 @@ struct MosaicPrivateAlphaRuntimeRecoveryValidator {
         #expect(try await owner.nextStep() == .persist(initial))
     }
 
+    @Test("Expose transport-bootstrap proof only after validated manifest recovery")
+    func rejectTransportBootstrapProofBeforeValidatedManifest() async throws {
+        let binding = try makeBinding(seed: 0x50)
+        let fresh = try Runtime.createFreshAttempt(
+            boundTo: binding,
+            discoveryEpochStartUnixSeconds: 1_800_000_000
+        )
+        let owner = try Runtime.Owner(claiming: fresh)
+        let initial = try transition(from: await owner.nextStep())
+        _ = try await owner.acknowledgePersistence(
+            initial,
+            exactReadback: initial.replacementSnapshot
+        )
+
+        let loaded = try Runtime.loadRecovery(
+            from: initial.replacementSnapshot,
+            expectedBinding: binding
+        )
+        let recovered = try Runtime.Owner(claiming: loaded)
+        guard case let .recover(.resumePrivateDeployment(continuation)) =
+            try await recovered.nextStep() else {
+            throw Runtime.Failure.invalidStateTransition
+        }
+        _ = try await recovered.resumePrivateDeployment(continuation)
+
+        await #expect(throws: Runtime.Failure.invalidStateTransition) {
+            let proof: Runtime.PrivateDeploymentProof = try await recovered
+                .makeTransportBootstrapPrivateDeploymentProof()
+            _ = proof
+        }
+    }
+
     private func transition(from step: Runtime.Step) throws
         -> Runtime.RecoveryTransition {
         guard case let .persist(transition) = step else {
