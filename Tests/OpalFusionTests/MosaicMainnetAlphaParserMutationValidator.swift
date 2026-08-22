@@ -650,6 +650,121 @@ struct MosaicMainnetAlphaParserMutationValidator {
     }
 
     @Test(
+        "Mutate private-alpha terminal recovery parsers",
+        .timeLimit(.minutes(1))
+    )
+    func mutatePrivateAlphaTerminalRecoveryParsers() throws {
+        let binding = try Runtime.Binding(
+            attemptIdentifier: Data(repeating: 0x71, count: 32),
+            generationIdentifier: Data(repeating: 0x72, count: 32),
+            materialIdentifier: Data(repeating: 0x73, count: 32)
+        )
+        let eventLimits = try Nostr.EventCodingLimits(
+            maximumEventJSONByteCount: 200_000,
+            maximumTagCount: 1,
+            maximumTagElementCount: 2,
+            maximumStringByteCount: 150_000
+        )
+        let signingKey = try OpalCrypto.Secp256k1.SigningKey(
+            rawRepresentation: Data(repeating: 0, count: 31) + Data([9])
+        )
+        let signedEvent = try Nostr.EventSigner.sign(
+            .init(
+                createdAt: 1_800_000_000,
+                kind: Alpha.nip59RumorKind,
+                tags: [["p", String(repeating: "a", count: 64)]],
+                content: "terminal recovery parser seed",
+                limits: eventLimits
+            ),
+            using: signingKey,
+            auxiliaryRandomness: .init(
+                rawRepresentation: Data(repeating: 0x79, count: 32)
+            ),
+            limits: eventLimits
+        )
+        let event = try Runtime.PrivateDeploymentEvent(
+            canonicalEventBytes: try Nostr.EventCodec.encode(
+                signedEvent,
+                limits: eventLimits
+            ),
+            acceptedAtUnixSeconds: 1_800_000_000
+        )
+        let abortRecord = Runtime.PostManifestTerminalRecord.abort(
+            binding: binding,
+            phase: .walletReservation,
+            event: event,
+            wasReceived: true
+        )
+        let completionRecord = Runtime.PostManifestTerminalRecord.completion(
+            binding: binding,
+            event: event
+        )
+        let evidence = try Runtime.PostManifestTerminalEvidence(
+            binding: binding,
+            reason: .aborted,
+            wasReceived: true,
+            predecessorRevision: 7,
+            predecessorSnapshotDigest: Data(repeating: 0x74, count: 32),
+            localControlIdentity: Data(repeating: 0x75, count: 32),
+            terminalIdentity: Data(repeating: 0x76, count: 32),
+            event: event,
+            admissionSnapshotDigest: Data(repeating: 0x77, count: 32),
+            publicationSnapshotDigest: Data(repeating: 0x78, count: 32)
+        )
+        let vectors = try [
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "private-deployment event recovery",
+                value: event,
+                encode: { Array(try $0.canonicalRecoveryBytes()) },
+                decode: {
+                    try Runtime.PrivateDeploymentEvent.decodeRecoveryBytes(
+                        Data($0)
+                    )
+                }
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "post-manifest abort terminal record",
+                value: abortRecord,
+                encode: { Array(try $0.canonicalBytes()) },
+                decode: {
+                    try Runtime.PostManifestTerminalRecord.decode(
+                        Data($0),
+                        expectedBinding: binding
+                    )
+                }
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "post-manifest completion terminal record",
+                value: completionRecord,
+                encode: { Array(try $0.canonicalBytes()) },
+                decode: {
+                    try Runtime.PostManifestTerminalRecord.decode(
+                        Data($0),
+                        expectedBinding: binding
+                    )
+                }
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "post-manifest terminal evidence",
+                value: evidence,
+                encode: { Array(try $0.canonicalBytes()) },
+                decode: {
+                    try Runtime.PostManifestTerminalEvidence.decode(
+                        Data($0),
+                        expectedBinding: binding
+                    )
+                }
+            ),
+        ]
+
+        try MosaicDeterministicParserMutationCampaign.validate(
+            vectors,
+            seed: 0x6A09_E667_F3BC_C909,
+            seededMutationCount: 64
+        )
+    }
+
+    @Test(
         "Mutate private-alpha recovery snapshots",
         .timeLimit(.minutes(1))
     )
