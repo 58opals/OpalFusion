@@ -12,7 +12,7 @@ The alpha.4 off-commitment accountability tradeoff is accepted unchanged: a vali
 
 Discovery requires a valid one-time BIP340 identity, a canonical availability beacon, and at least 20 leading zero bits in the beacon work digest. This work is an admission throttle only. It is not Sybil resistance, an anonymity measure, or evidence that selected candidates are independent people, devices, wallets, networks, or operators. Selection oversubscribes to seven through nine candidates and the existing commit-reveal election chooses exactly one conductor and six through eight contributors. Repeated selective aborts and candidate capture remain residual risks.
 
-Three distinct configured relay-operator digests assert only that the application reviewed three different registry labels. They do not prove corporate, jurisdictional, infrastructure, route, or Tor-circuit independence. Until G4 evidence exists, the only permitted readiness wording remains “deterministic mainnet-alpha contract foundation.”
+Three distinct configured relay-operator digests assert only that the application reviewed three different registry labels. They do not prove corporate, jurisdictional, infrastructure, route, or Tor-circuit independence. Until G4 closes with supported-environment traffic analysis and independent dispositions, the only permitted readiness wording remains “deterministic mainnet-alpha contract foundation.”
 
 ## 2. Canonical Primitives And Version Isolation
 
