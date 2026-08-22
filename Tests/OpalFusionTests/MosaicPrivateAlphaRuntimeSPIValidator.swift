@@ -1227,6 +1227,145 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
         }
     }
 
+    @Test("Bound subscription identifier bytes and JSON frame expansion")
+    func boundSubscriptionIdentifierBytesAndJSONFrameExpansion() async throws {
+        let fixture = try MosaicPrivateDeploymentFixtures
+            .makePrivateAlphaRuntimeProof()
+        let contributor = try #require(
+            fixture.formation.roleElection.roster.contributors.first
+        )
+        let localIdentity = Data(contributor.validatedBytes)
+        let binding = try makeBinding(seed: 0xE7)
+        let admission = MosaicPrivateAlphaRuntimePersistenceStore()
+        let publication = MosaicPrivateAlphaRuntimePersistenceStore()
+        let terminal = MosaicPrivateAlphaRuntimePersistenceStore()
+        let routes = MosaicPrivateAlphaRuntimePersistenceStore()
+        let baseCapabilities = try MosaicPrivateDeploymentFixtures
+            .makeRuntimeCapabilities(
+                formation: fixture.formation,
+                localControlIdentity: localIdentity,
+                admissionStore: admission,
+                publicationStore: publication,
+                terminalStore: terminal,
+                routeStore: routes
+            )
+        let sealedSnapshot = try makeSealedSnapshot(
+            proof: fixture.proof,
+            binding: binding,
+            epoch: fixture.epoch
+        )
+        let owner = try await resumedOwner(
+            snapshot: sealedSnapshot,
+            binding: binding
+        )
+        _ = try await persist(
+            owner.preparePostManifestRuntime(
+                localControlIdentity: localIdentity,
+                capabilities: baseCapabilities
+            ),
+            on: owner
+        )
+        let construction = try await owner.makePostManifestConstruction(
+            localControlIdentity: localIdentity
+        )
+
+        func makeRelays(
+            identifier: @escaping @Sendable (
+                Runtime.PostManifestRouteRequest,
+                String
+            ) throws -> String
+        ) -> Runtime.PostManifestRelayCapabilities {
+            .init(
+                provisionRoutes: { requests in
+                    routes.recordProvisionCall()
+                    return requests.enumerated().map { requestIndex, request in
+                        Runtime.PostManifestProvisionedRouteGroup(
+                            recipientEventIdentity:
+                                request.recipientEventIdentity,
+                            routes: request.relayEndpointIdentifiers.enumerated()
+                                .map { endpointIndex, endpoint in
+                                    Runtime.PostManifestProvisionedRoute(
+                                        relayEndpointIdentifier: endpoint,
+                                        connection:
+                                            ScriptedMosaicPrivateAlphaTorConnection(),
+                                        isolationIdentifier: UUID(
+                                            uuid: (
+                                                UInt8(requestIndex + 1),
+                                                UInt8(endpointIndex + 1),
+                                                0, 0, 0, 0, 0, 0,
+                                                0, 0, 0, 0, 0, 0, 0, 0
+                                            )
+                                        )
+                                    )
+                                }
+                        )
+                    }
+                },
+                makeSubscriptionIdentifier: identifier,
+                maximumSubscriptionIdentifierByteCount: 64
+            )
+        }
+
+        let escapedRelays = makeRelays { request, endpoint in
+            guard let index = request.relayEndpointIdentifiers
+                    .firstIndex(of: endpoint) else {
+                throw Runtime.Failure.invalidStateTransition
+            }
+            return String(repeating: "\"", count: 63) + String(index)
+        }
+        let escapedCapabilities = replacingRelays(
+            baseCapabilities,
+            with: escapedRelays
+        )
+        let relaySelection = try construction.makeRelaySelection(
+            escapedRelays
+        )
+        let transportOwner = try construction.makeTransportOwner(
+            capabilities: escapedCapabilities,
+            relaySelection: relaySelection
+        )
+        let inbound = try await transportOwner.provisionInboundRuntime()
+        let codingLimits = try construction.makeCodingLimits(escapedRelays)
+        try Alpha.PostManifestRelayFanIn.validateRoutePlan(
+            role: .contributor,
+            maximumAnonymousRecipientCount: 0,
+            manifestRelaySetDigest:
+                construction.completeManifest.core.relaySetDigest,
+            recipientRouteGroups: inbound.recipientRouteGroups,
+            relaySelection: inbound.relaySelection,
+            codingLimits: codingLimits,
+            maximumPendingEventCount:
+                escapedRelays.maximumPendingEventCount
+        )
+        for identifier in inbound.recipientRouteGroups.flatMap({
+            $0.subscriptionIdentifiers.values
+        }) {
+            #expect(identifier.value.utf8.count == 64)
+            #expect(try JSONEncoder().encode(identifier.value).count > 64)
+        }
+        for route in inbound.recipientRouteGroups.flatMap(\.routes) {
+            await route.connection.close()
+        }
+
+        let overlongRelays = makeRelays { _, _ in
+            String(repeating: "é", count: 33)
+        }
+        let overlongOwner = try construction.makeTransportOwner(
+            capabilities: replacingRelays(
+                baseCapabilities,
+                with: overlongRelays
+            ),
+            relaySelection: relaySelection
+        )
+        await #expect(
+            throws: Alpha.PostManifestAttemptTransportOwner.Failure
+                .subscriptionIdentifierUnavailable
+        ) {
+            _ = try await overlongOwner.provisionInboundRuntime()
+        }
+        #expect(routes.recordedProvisionCallCount == 2)
+    }
+
     @Test("Persist and reload received nonce and manifest proposal singletons")
     func persistReceivedFormationSingletons() async throws {
         let fixture = try MosaicPrivateDeploymentFixtures

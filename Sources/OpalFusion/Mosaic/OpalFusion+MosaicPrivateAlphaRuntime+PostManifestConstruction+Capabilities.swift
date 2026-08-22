@@ -166,11 +166,17 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                         relayEndpointIdentifiers:
                             request.endpoints.map(\.validatedIdentifier)
                     )
-                    return try Nostr.SubscriptionIdentifier(
-                        relayCapabilities.makeSubscriptionIdentifier(
+                    let value = try relayCapabilities
+                        .makeSubscriptionIdentifier(
                             publicRequest,
                             endpoint.validatedIdentifier
                         )
+                    guard value.utf8.count <= relayCapabilities
+                            .maximumSubscriptionIdentifierByteCount else {
+                        throw Runtime.Failure.invalidStateTransition
+                    }
+                    return try Nostr.SubscriptionIdentifier(
+                        value
                     )
                 }
             )
@@ -238,9 +244,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
         _ capabilities: Runtime.PostManifestRelayCapabilities
     ) throws -> Nostr.RelayMessageCodingLimits {
         try capabilities.validateResourceLimits()
+        // Foundation may escape one UTF-8 byte into as many as three JSON
+        // bytes. Include the surrounding quotes so the declared raw-byte
+        // limit remains sufficient for every valid subscription identifier.
+        let maximumEncodedSubscriptionIdentifierByteCount =
+            capabilities.maximumSubscriptionIdentifierByteCount * 3 + 2
         let fixedComponents = [
             Data("[\"EVENT\",".utf8).count,
-            capabilities.maximumSubscriptionIdentifierByteCount,
+            maximumEncodedSubscriptionIdentifierByteCount,
             1,
             Alpha.nip59MaximumGiftWrapJSONByteCount,
             1,
