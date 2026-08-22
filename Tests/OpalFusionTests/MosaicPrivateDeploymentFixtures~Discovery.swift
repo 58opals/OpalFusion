@@ -1,6 +1,7 @@
 // MosaicPrivateDeploymentFixtures~Discovery.swift
 
 import Foundation
+import OpalCrypto
 @_spi(MosaicPrivateAlpha) @testable import OpalFusion
 
 extension MosaicPrivateDeploymentFixtures {
@@ -251,7 +252,11 @@ extension MosaicPrivateDeploymentFixtures {
     }
 
     static func makeManifestValidation(
-        formation: Formation
+        formation: Formation,
+        componentAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey? = nil,
+        bchSignatureAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey? = nil
     ) throws -> Alpha.PrivateDeploymentManifestValidation {
         let policy = Alpha.PrivateDeploymentPolicy.frozen
         let phaseStart = try policy.preManifestDeadlines(
@@ -262,10 +267,12 @@ extension MosaicPrivateDeploymentFixtures {
             roleElection: formation.roleElection,
             opaquePoolIdentifier: formation.discovery.pool.opaqueIdentifier,
             componentAuthorizationVerificationKey:
-                try MosaicMainnetAlphaFixtures.rsaVerificationKey(),
+                try componentAuthorizationVerificationKey
+                    ?? MosaicMainnetAlphaFixtures.rsaVerificationKey(),
             bchSignatureAuthorizationVerificationKey:
-                try MosaicMainnetAlphaFixtures
-                    .bchSignatureRSAVerificationKey(),
+                try bchSignatureAuthorizationVerificationKey
+                    ?? MosaicMainnetAlphaFixtures
+                        .bchSignatureRSAVerificationKey(),
             contributorNonceAllocationDigest:
                 formation.nonceAllocation.digest,
             relaySetDigest: formation.discovery.relaySet.digest,
@@ -287,9 +294,19 @@ extension MosaicPrivateDeploymentFixtures {
     }
 
     static func makeManifestProposalValidation(
-        formation: Formation
+        formation: Formation,
+        componentAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey? = nil,
+        bchSignatureAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey? = nil
     ) throws -> Alpha.PrivateDeploymentManifestProposalValidation {
-        try .init(manifest: makeManifestValidation(formation: formation))
+        try .init(manifest: makeManifestValidation(
+            formation: formation,
+            componentAuthorizationVerificationKey:
+                componentAuthorizationVerificationKey,
+            bchSignatureAuthorizationVerificationKey:
+                bchSignatureAuthorizationVerificationKey
+        ))
     }
 
     static func makeRoundManifest(
@@ -345,6 +362,36 @@ extension MosaicPrivateDeploymentFixtures {
         try cachedPrivateAlphaRuntimeProof.get()
     }
 
+    static func makePrivateAlphaRuntimeProof(
+        componentAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey,
+        bchSignatureAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey
+    ) throws -> (
+        proof: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentProof,
+        formation: Formation,
+        epoch: UInt64,
+        localControlIdentity: Data,
+        opaquePoolDocument: Data,
+        relaySetDocument: Data,
+        beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
+        acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
+        admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
+        commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
+        revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
+        nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent,
+        proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent,
+        signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
+        completeManifestDocument: Data
+    ) {
+        try buildPrivateAlphaRuntimeProof(
+            componentAuthorizationVerificationKey:
+                componentAuthorizationVerificationKey,
+            bchSignatureAuthorizationVerificationKey:
+                bchSignatureAuthorizationVerificationKey
+        )
+    }
+
     private static func buildPrivateAlphaRuntimeProof()
         throws -> (
             proof: OpalFusion.MosaicPrivateAlphaRuntime
@@ -372,9 +419,50 @@ extension MosaicPrivateDeploymentFixtures {
                 .PrivateDeploymentEvent],
             completeManifestDocument: Data
         ) {
+        try buildPrivateAlphaRuntimeProof(
+            componentAuthorizationVerificationKey: nil,
+            bchSignatureAuthorizationVerificationKey: nil
+        )
+    }
+
+    private static func buildPrivateAlphaRuntimeProof(
+        componentAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey?,
+        bchSignatureAuthorizationVerificationKey:
+            OpalCrypto.RSABSSA.VerificationKey?
+    ) throws -> (
+        proof: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentProof,
+        formation: Formation,
+        epoch: UInt64,
+        localControlIdentity: Data,
+        opaquePoolDocument: Data,
+        relaySetDocument: Data,
+        beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent,
+        proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent,
+        signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent],
+        completeManifestDocument: Data
+    ) {
         let formation = try makeFormation()
         let proposal = try makeManifestProposalValidation(
-            formation: formation
+            formation: formation,
+            componentAuthorizationVerificationKey:
+                componentAuthorizationVerificationKey,
+            bchSignatureAuthorizationVerificationKey:
+                bchSignatureAuthorizationVerificationKey
         )
         let manifest = try makeRoundManifest(
             formation: formation,

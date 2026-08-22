@@ -52,7 +52,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             context: RuntimeContext,
             timestamps: LayerTimestamps,
             senderEventSigningKey: OpalCrypto.Secp256k1.SigningKey,
-            recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey
+            recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey,
+            randomness: OutboundRandomness? = nil
         ) throws(Failure) -> Nostr.Event {
             guard timestamps.phaseStartUnixSeconds
                     == context.phaseStartUnixSeconds else {
@@ -74,7 +75,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 expiryUnixSeconds: envelope.expiryUnixSeconds,
                 timestamps: timestamps,
                 senderSigningKey: senderEventSigningKey,
-                recipientPublicKey: recipientPublicKey
+                recipientPublicKey: recipientPublicKey,
+                randomness: randomness
             )
         }
 
@@ -257,7 +259,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             expiryUnixSeconds: UInt64,
             timestamps: LayerTimestamps,
             senderSigningKey: OpalCrypto.Secp256k1.SigningKey,
-            recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey
+            recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey,
+            randomness: OutboundRandomness? = nil
         ) throws(Failure) -> Nostr.Event {
             guard timestamps.rumorCreatedAt <= expiryUnixSeconds else {
                 throw .invalidRumorTimestamp
@@ -292,19 +295,44 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     template: template,
                     limits: limits.event
                 )
-                let seal = try Nostr.NIP59EnvelopeCodec.seal(
-                    rumor,
-                    createdAt: timestamps.sealCreatedAt,
-                    senderSigningKey: senderSigningKey,
-                    recipientPublicKey: recipientPublicKey,
-                    limits: limits
-                )
-                let giftWrap = try Nostr.NIP59EnvelopeCodec.wrap(
-                    seal,
-                    deliveryKind: .regular,
-                    createdAt: timestamps.giftWrapCreatedAt,
-                    limits: limits
-                )
+                let seal: Nostr.NIP59EnvelopeCodec.SealedRumor
+                let giftWrap: Nostr.Event
+                if let randomness {
+                    seal = try Nostr.NIP59EnvelopeCodec.seal(
+                        rumor,
+                        createdAt: timestamps.sealCreatedAt,
+                        senderSigningKey: senderSigningKey,
+                        recipientPublicKey: recipientPublicKey,
+                        nonce: randomness.sealNonce,
+                        auxiliaryRandomness:
+                            randomness.sealAuxiliaryRandomness,
+                        limits: limits
+                    )
+                    giftWrap = try Nostr.NIP59EnvelopeCodec.wrap(
+                        seal,
+                        deliveryKind: .regular,
+                        createdAt: timestamps.giftWrapCreatedAt,
+                        wrapperSigningKey: randomness.wrapperSigningKey,
+                        nonce: randomness.wrapperNonce,
+                        auxiliaryRandomness:
+                            randomness.wrapperAuxiliaryRandomness,
+                        limits: limits
+                    )
+                } else {
+                    seal = try Nostr.NIP59EnvelopeCodec.seal(
+                        rumor,
+                        createdAt: timestamps.sealCreatedAt,
+                        senderSigningKey: senderSigningKey,
+                        recipientPublicKey: recipientPublicKey,
+                        limits: limits
+                    )
+                    giftWrap = try Nostr.NIP59EnvelopeCodec.wrap(
+                        seal,
+                        deliveryKind: .regular,
+                        createdAt: timestamps.giftWrapCreatedAt,
+                        limits: limits
+                    )
+                }
                 try validateFixedOutboundSizes(
                     seal: seal.event,
                     giftWrap: giftWrap,

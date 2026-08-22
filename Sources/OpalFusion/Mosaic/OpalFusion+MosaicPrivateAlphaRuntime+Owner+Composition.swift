@@ -84,6 +84,34 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
         )
     }
 
+    /// Revalidates the complete manifest proof for post-manifest execution construction.
+    ///
+    /// Unlike transport bootstrap, exact terminal recovery must reconstruct the
+    /// no-route execution once to validate its authenticated companion journals.
+    /// A terminal proof is available only while that readback remains pending.
+    @_spi(MosaicPrivateAlpha)
+    public func makePostManifestExecutionPrivateDeploymentProof()
+        throws -> OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentProof {
+        typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
+        guard !loadedRecoveryNeedsDirective,
+              state.phase == .walletReservation,
+              case .validated = state.manifestState else {
+            throw Runtime.Failure.invalidStateTransition
+        }
+        if state.terminalDisposition() != nil {
+            guard !postManifestTerminalReadbackValidated,
+                  state.postManifestJournalState == .initialized else {
+                throw Runtime.Failure.invalidStateTransition
+            }
+        }
+        return try Runtime.restorePrivateDeploymentProof(
+            discoveryEpochStartUnixSeconds:
+                state.discoveryEpochStartUnixSeconds,
+            canonicalDocuments: state.preManifestDocuments
+        )
+    }
+
     /// Initializes both exact empty Fusion journals before any Tor route can be requested.
     @_spi(MosaicPrivateAlpha)
     public func preparePostManifestRuntime(

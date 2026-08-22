@@ -518,6 +518,15 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         _ = try await recoveredOwner.resumePrivateDeployment(
             recoveryContinuation
         )
+        await #expect(throws: Runtime.Failure.invalidStateTransition) {
+            _ = try await recoveredOwner
+                .makeTransportBootstrapPrivateDeploymentProof()
+        }
+        #expect(
+            try await recoveredOwner
+                .makePostManifestExecutionPrivateDeploymentProof()
+                == fixture.proof
+        )
         let recoveredConstruction = try await recoveredOwner
             .makePostManifestConstruction(
                 localControlIdentity: localIdentity
@@ -614,6 +623,10 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                 consuming: recoveredTermination
             ) else {
             throw Runtime.Failure.invalidStateTransition
+        }
+        await #expect(throws: Runtime.Failure.invalidStateTransition) {
+            _ = try await recoveredOwner
+                .makePostManifestExecutionPrivateDeploymentProof()
         }
         let recoveredEvidence = try await recoveredOwner
             .claimTerminalEvidence()

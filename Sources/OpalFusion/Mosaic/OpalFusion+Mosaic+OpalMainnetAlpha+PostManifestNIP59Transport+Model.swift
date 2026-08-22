@@ -63,6 +63,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestNIP59Transport {
         let phaseStartUnixSeconds: UInt64
     }
 
+    struct OutboundRandomness: Sendable {
+        let sealNonce: OpalCrypto.Nostr.NIP44.Nonce
+        let sealAuxiliaryRandomness:
+            OpalCrypto.Signature.BIP340.AuxiliaryRandomness
+        let wrapperSigningKey: OpalCrypto.Secp256k1.SigningKey
+        let wrapperNonce: OpalCrypto.Nostr.NIP44.Nonce
+        let wrapperAuxiliaryRandomness:
+            OpalCrypto.Signature.BIP340.AuxiliaryRandomness
+    }
+
     enum Failure: Error, Sendable, Equatable {
         case invalidLayerTimestamps
         case invalidGiftWrapTags

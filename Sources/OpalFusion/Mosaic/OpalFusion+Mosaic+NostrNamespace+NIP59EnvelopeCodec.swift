@@ -38,6 +38,27 @@ extension OpalFusion.Mosaic.NostrNamespace {
             recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey,
             limits: CodingLimits
         ) throws -> SealedRumor {
+            try seal(
+                rumor,
+                createdAt: createdAt,
+                senderSigningKey: senderSigningKey,
+                recipientPublicKey: recipientPublicKey,
+                nonce: .generate(),
+                auxiliaryRandomness: freshAuxiliaryRandomness(),
+                limits: limits
+            )
+        }
+
+        static func seal(
+            _ rumor: UnsignedEvent,
+            createdAt: UInt64,
+            senderSigningKey: OpalCrypto.Secp256k1.SigningKey,
+            recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey,
+            nonce: OpalCrypto.Nostr.NIP44.Nonce,
+            auxiliaryRandomness:
+                OpalCrypto.Signature.BIP340.AuxiliaryRandomness,
+            limits: CodingLimits
+        ) throws -> SealedRumor {
             guard rumor.publicKey == senderSigningKey.bip340VerificationKey else {
                 throw Error.rumorAuthorMismatch
             }
@@ -53,7 +74,8 @@ extension OpalFusion.Mosaic.NostrNamespace {
                 tags: [],
                 senderSigningKey: senderSigningKey,
                 recipientPublicKey: recipientPublicKey,
-                auxiliaryRandomness: freshAuxiliaryRandomness(),
+                nonce: nonce,
+                auxiliaryRandomness: auxiliaryRandomness,
                 maximumPlaintextByteCount: limits.maximumRumorJSONByteCount,
                 eventLimits: limits.event
             )
@@ -91,6 +113,29 @@ extension OpalFusion.Mosaic.NostrNamespace {
             wrapperSigningKey: OpalCrypto.Secp256k1.SigningKey,
             limits: CodingLimits
         ) throws -> Event {
+            try wrap(
+                sealedRumor,
+                deliveryKind: deliveryKind,
+                createdAt: createdAt,
+                additionalTags: additionalTags,
+                wrapperSigningKey: wrapperSigningKey,
+                nonce: .generate(),
+                auxiliaryRandomness: freshAuxiliaryRandomness(),
+                limits: limits
+            )
+        }
+
+        static func wrap(
+            _ sealedRumor: SealedRumor,
+            deliveryKind: DeliveryKind,
+            createdAt: UInt64,
+            additionalTags: [[String]] = [],
+            wrapperSigningKey: OpalCrypto.Secp256k1.SigningKey,
+            nonce: OpalCrypto.Nostr.NIP44.Nonce,
+            auxiliaryRandomness:
+                OpalCrypto.Signature.BIP340.AuxiliaryRandomness,
+            limits: CodingLimits
+        ) throws -> Event {
             let seal = sealedRumor.event
             let recipientPublicKey = sealedRumor.recipientPublicKey
             let wrapperPublicKey = wrapperSigningKey.bip340VerificationKey
@@ -112,7 +157,8 @@ extension OpalFusion.Mosaic.NostrNamespace {
                 tags: tags,
                 senderSigningKey: wrapperSigningKey,
                 recipientPublicKey: recipientPublicKey,
-                auxiliaryRandomness: freshAuxiliaryRandomness(),
+                nonce: nonce,
+                auxiliaryRandomness: auxiliaryRandomness,
                 maximumPlaintextByteCount: limits.maximumSealJSONByteCount,
                 eventLimits: limits.event
             )

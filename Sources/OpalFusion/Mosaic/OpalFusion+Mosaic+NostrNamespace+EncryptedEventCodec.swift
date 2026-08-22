@@ -19,6 +19,32 @@ extension OpalFusion.Mosaic.NostrNamespace {
             maximumPlaintextByteCount: Int,
             eventLimits: EventCodingLimits
         ) throws -> Event {
+            try encrypt(
+                plaintext,
+                kind: kind,
+                createdAt: createdAt,
+                tags: tags,
+                senderSigningKey: senderSigningKey,
+                recipientPublicKey: recipientPublicKey,
+                nonce: .generate(),
+                auxiliaryRandomness: auxiliaryRandomness,
+                maximumPlaintextByteCount: maximumPlaintextByteCount,
+                eventLimits: eventLimits
+            )
+        }
+
+        static func encrypt(
+            _ plaintext: String,
+            kind: UInt16,
+            createdAt: UInt64,
+            tags: [[String]],
+            senderSigningKey: OpalCrypto.Secp256k1.SigningKey,
+            recipientPublicKey: OpalCrypto.Signature.BIP340.VerificationKey,
+            nonce: OpalCrypto.Nostr.NIP44.Nonce,
+            auxiliaryRandomness: OpalCrypto.Signature.BIP340.AuxiliaryRandomness,
+            maximumPlaintextByteCount: Int,
+            eventLimits: EventCodingLimits
+        ) throws -> Event {
             let conversationKey = OpalCrypto.Nostr.NIP44
                 .deriveConversationKey(
                     signingKey: senderSigningKey,
@@ -27,6 +53,7 @@ extension OpalFusion.Mosaic.NostrNamespace {
             let encrypted = try OpalCrypto.Nostr.NIP44.encrypt(
                 plaintext,
                 conversationKey: conversationKey,
+                nonce: nonce,
                 maximumPlaintextByteCount: maximumPlaintextByteCount
             )
             let template = try EventTemplate(
