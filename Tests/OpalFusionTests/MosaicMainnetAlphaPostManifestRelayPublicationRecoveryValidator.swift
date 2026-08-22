@@ -358,6 +358,76 @@ struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
         })
     }
 
+    @Test("Replay a drained terminal publication without routes or journal mutation")
+    func replayDrainedTerminalPublicationWithoutRoutes() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let persistence = MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let journal = try Journal(
+            context: fixture.journalContext,
+            persistence: persistence.persistence
+        )
+        let continuation = try journal.prepare(
+            fixture.giftWrap,
+            binding: fixture.binding
+        )
+        for endpoint in fixture.journalContext.endpoints.prefix(2) {
+            try journal.recordAttempt(
+                eventIdentifier:
+                    continuation.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+            try journal.recordAcknowledgement(
+                .accepted,
+                eventIdentifier:
+                    continuation.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+        }
+        try journal.recordCompletion(
+            .transportAccepted,
+            eventIdentifier: continuation.publication.eventIdentifier
+        )
+        let snapshotBeforeReplay = try #require(persistence.snapshot)
+        let recovery = try Journal.TerminalRecovery(journal: journal)
+
+        await #expect(
+            throws: Journal.TerminalRecovery.Failure.journalMismatch
+        ) {
+            try await recovery.replay(
+                batchCount: 1,
+                on: .control,
+                to: [fixture.binding.recipientEventIdentity],
+                expiringAt: fixture.binding.expiryUnixSeconds + 1
+            )
+        }
+        #expect(await recovery.isComplete == false)
+
+        try await recovery.replay(
+            batchCount: 1,
+            on: .control,
+            to: [fixture.binding.recipientEventIdentity],
+            expiringAt: fixture.binding.expiryUnixSeconds
+        )
+        #expect(await recovery.isComplete)
+        #expect(persistence.snapshot == snapshotBeforeReplay)
+
+        let partialPersistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let partialJournal = try Journal(
+            context: fixture.journalContext,
+            persistence: partialPersistence.persistence
+        )
+        _ = try partialJournal.prepare(
+            fixture.giftWrap,
+            binding: fixture.binding
+        )
+        #expect(
+            throws: Journal.TerminalRecovery.Failure.journalNotDrained
+        ) {
+            _ = try Journal.TerminalRecovery(journal: partialJournal)
+        }
+    }
+
     @Test("Reject mismatched context and invalid restored transitions")
     func rejectInvalidRestoredState() async throws {
         let fixture = try await Self.sharedFixtureTask.value

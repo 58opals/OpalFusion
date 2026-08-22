@@ -30,106 +30,64 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
             relaySelection: relaySelection,
             persistence: capabilities.publicationPersistence
         )
+        let terminalRecordBytes = try capabilities.terminalPersistence
+            .load(binding)
+        if let terminalRecordBytes {
+            _ = try Runtime.PostManifestTerminalRecord.decode(
+                terminalRecordBytes,
+                expectedBinding: binding
+            )
+        }
+        let terminalRecoveryRequired = recoveredTerminalEvidence != nil
+            || terminalRecordBytes != nil
         let codingLimits = try makeCodingLimits(capabilities.relays)
         let deadlines = completeManifest.core.deadlines
         let timing = capabilities.timing
-        let bridge = try ContributorBridge(
-            bootstrap: bootstrap,
-            manifest: completeManifest,
-            controlSigningKey: host.controlSigningKey,
-            controlEventSigningKey: host.controlEventSigningKey,
-            relaySelection: relaySelection,
-            codingLimits: codingLimits,
-            maximumPendingRelayOutputCount:
-                capabilities.relays.maximumPendingRelayOutputCount,
-            dependencies: .init(
-                makeExpiryUnixSeconds: { publication in
-                    switch publication {
-                    case .playerCommit: deadlines.groupedCommitment
-                    case .anonymousComponents:
-                        deadlines.anonymousComponentSubmission
-                    case .preSignAcknowledgement:
-                        deadlines.transcriptAgreement
-                    case .localBCHSignatures: deadlines.bchSigning
-                    }
-                },
-                makeControlLayerTimestamps: { request in
-                    try Self.makeLayerTimestamps(
-                        timing.makeLayerTimestamps(Self.makeTimestampRequest(
-                            recipientEventIdentity: nil,
-                            phase: request.phase,
-                            sequence: request.sequence,
-                            expiryUnixSeconds: request.expiryUnixSeconds,
-                            deadlines: deadlines
-                        ))
-                    )
-                },
-                makeAnonymousLayerTimestamps: { request in
-                    try Self.makeLayerTimestamps(
-                        timing.makeLayerTimestamps(Self.makeTimestampRequest(
-                            recipientEventIdentity:
-                                request.recipientEventIdentity,
-                            phase: request.phase,
-                            sequence: request.sequence,
-                            expiryUnixSeconds: request.expiryUnixSeconds,
-                            deadlines: deadlines
-                        ))
-                    )
-                },
-                attemptTransportOwner: transportOwner,
-                publicationJournal: publicationJournal,
-                awaitAnonymousPublicationPermit: { request in
-                    let kind: Runtime.PostManifestPublicationKind
-                    switch request.kind {
-                    case .components: kind = .anonymousComponents
-                    case .bchSignatures: kind = .localBCHSignatures
-                    }
-                    try await capabilities.relays
-                        .awaitAnonymousPublicationPermit(.init(
-                            kind: kind,
-                            recipientEventIdentity:
-                                request.recipientEventIdentity
-                        ))
-                }
-            )
+        let controlContext = try ContributorBridge.ControlBridge.Context(
+            validating: completeManifest,
+            against: bootstrap
         )
-        let executionDependencies = bridge.makeExecutionDependencies(
-            transactionHost: host.transactionHost,
-            previousOutputSource: host.previousOutputSource,
-            makeLocalContributionMaterial: { eligibility, lease in
-                let secrets = try await host.loadSlotSecrets(
-                    executionBinding,
-                    lease
-                ).map { try $0.makeInternal() }
-                let candidate = try Alpha.LocalContributionMaterial.build(
-                    attemptIdentifier: eligibility.context.attemptIdentifier,
-                    generationIdentifier:
-                        eligibility.context.generationIdentifier,
-                    materialIdentifier:
-                        eligibility.context.materialIdentifier,
-                    contributor: eligibility.context.localControlIdentity,
-                    manifest: eligibility.manifest,
-                    reservationLease: lease,
-                    slotSecrets: secrets
-                )
-                let candidateRecoveryStates = candidate
-                    .componentSlotAuthorizationRecoveryStates.map {
-                        Runtime
-                            .PostManifestComponentSlotAuthorizationRecoveryState(
-                                $0
-                            )
-                    }
-                let installedRecoveryStates = try await host
-                    .installOrLoadAuthorizationRecoveryStates(
-                        executionBinding,
-                        lease,
-                        candidateRecoveryStates
-                    )
-                guard installedRecoveryStates != candidateRecoveryStates else {
-                    return candidate
+        let makeLocalContributionMaterial: @Sendable (
+            Alpha.ReservationCoordinator.ReservationEligibility,
+            OpalFusion.Host.MosaicReservationLease
+        ) async throws -> Alpha.LocalContributionMaterial = {
+            eligibility,
+            lease in
+            let secrets = try await host.loadSlotSecrets(
+                executionBinding,
+                lease
+            ).map { try $0.makeInternal() }
+            let candidate = try Alpha.LocalContributionMaterial.build(
+                attemptIdentifier: eligibility.context.attemptIdentifier,
+                generationIdentifier:
+                    eligibility.context.generationIdentifier,
+                materialIdentifier:
+                    eligibility.context.materialIdentifier,
+                contributor: eligibility.context.localControlIdentity,
+                manifest: eligibility.manifest,
+                reservationLease: lease,
+                slotSecrets: secrets
+            )
+            let candidateRecoveryStates = candidate
+                .componentSlotAuthorizationRecoveryStates.map {
+                    Runtime
+                        .PostManifestComponentSlotAuthorizationRecoveryState(
+                            $0
+                        )
                 }
-                return try Alpha.LocalContributionMaterial.build(
-                    attemptIdentifier: eligibility.context.attemptIdentifier,
+            let installedRecoveryStates = try await host
+                .installOrLoadAuthorizationRecoveryStates(
+                    executionBinding,
+                    lease,
+                    candidateRecoveryStates
+                )
+            let material: Alpha.LocalContributionMaterial
+            if installedRecoveryStates == candidateRecoveryStates {
+                material = candidate
+            } else {
+                material = try Alpha.LocalContributionMaterial.build(
+                    attemptIdentifier:
+                        eligibility.context.attemptIdentifier,
                     generationIdentifier:
                         eligibility.context.generationIdentifier,
                     materialIdentifier:
@@ -144,7 +102,199 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                         }
                 )
             }
-        )
+            try Alpha.ReservationMaterialLeaseValidator.validate(
+                actualLease: lease,
+                materialLease: material.reservationLease
+            )
+            guard try ContributorBridge.ControlBridge.Context(
+                validating: material,
+                against: eligibility.context
+            ) == controlContext else {
+                throw Runtime.Failure.invalidStateTransition
+            }
+            return material
+        }
+        let executionDependencies: Alpha.ReservationCoordinator
+            .ExecutionDependencies
+        let stopOutbound: @Sendable () async -> Void
+        let waitForOutboundDrain: @Sendable () async -> Bool
+        if terminalRecoveryRequired {
+            typealias Journal = Alpha.PostManifestRelayPublicationJournal
+            let recovery = try Journal.TerminalRecovery(
+                journal: publicationJournal
+            )
+            let controlRecipientEventIdentities = transportOwner
+                .controlRecipients.map {
+                    $0.eventVerificationKey.rawRepresentation
+                }
+            executionDependencies = .init(
+                transactionHost: host.transactionHost,
+                previousOutputSource: host.previousOutputSource,
+                makeLocalContributionMaterial:
+                    makeLocalContributionMaterial,
+                publishPlayerCommit: { validation in
+                    let request = validation.request
+                    guard controlContext.roster.contributors.contains(
+                            controlContext.localControlIdentity
+                          ), request.attemptIdentifier
+                            == controlContext.attemptIdentifier,
+                          request.generationIdentifier
+                            == controlContext.generationIdentifier,
+                          request.materialIdentifier
+                            == controlContext.materialIdentifier,
+                          request.contributor
+                            == controlContext.localControlIdentity,
+                          request.manifest == controlContext.manifest else {
+                        throw Runtime.Failure.invalidStateTransition
+                    }
+                    let reservation = try ContributorBridge.ControlBridge
+                        .makeAggregateReservation(
+                            for: .playerCommit(request.playerCommit)
+                        )
+                    try await recovery.replay(
+                        batchCount: reservation.fragmentCount + 1,
+                        on: .control,
+                        to: controlRecipientEventIdentities,
+                        expiringAt: deadlines.groupedCommitment
+                    )
+                },
+                publishAnonymousComponents: { validation in
+                    guard validation.context == controlContext else {
+                        throw Runtime.Failure.invalidStateTransition
+                    }
+                    try await recovery.replay(
+                        batchCount: 1,
+                        on: .anonymousComponents,
+                        to: validation.entries.map {
+                            Data($0.recipientEventIdentity)
+                        },
+                        expiringAt:
+                            deadlines.anonymousComponentSubmission
+                    )
+                },
+                publishPreSignAcknowledgement: { validation in
+                    let transcript = validation.transcript
+                    guard controlContext.roster.contributors.contains(
+                            controlContext.localControlIdentity
+                          ), validation.attemptIdentifier
+                            == controlContext.attemptIdentifier,
+                          validation.generationIdentifier
+                            == controlContext.generationIdentifier,
+                          validation.materialIdentifier
+                            == controlContext.materialIdentifier,
+                          validation.contributor
+                            == controlContext.localControlIdentity,
+                          transcript.manifest.roundIdentifier
+                            == controlContext.roundIdentifier,
+                          transcript.manifest
+                            == controlContext.manifest.binding else {
+                        throw Runtime.Failure.invalidStateTransition
+                    }
+                    try await recovery.replay(
+                        batchCount: 1,
+                        on: .control,
+                        to: controlRecipientEventIdentities,
+                        expiringAt: deadlines.transcriptAgreement
+                    )
+                },
+                publishLocalBCHSignatures: { validation in
+                    guard validation.context == controlContext else {
+                        throw Runtime.Failure.invalidStateTransition
+                    }
+                    try await recovery.replay(
+                        batchCount: 1,
+                        on: .anonymousBCHSignatures,
+                        to: validation.entries.map {
+                            Data($0.recipientEventIdentity)
+                        },
+                        expiringAt: deadlines.bchSigning
+                    )
+                }
+            )
+            stopOutbound = {}
+            waitForOutboundDrain = { await recovery.isComplete }
+        } else {
+            let bridge = try ContributorBridge(
+                bootstrap: bootstrap,
+                manifest: completeManifest,
+                controlSigningKey: host.controlSigningKey,
+                controlEventSigningKey: host.controlEventSigningKey,
+                relaySelection: relaySelection,
+                codingLimits: codingLimits,
+                maximumPendingRelayOutputCount:
+                    capabilities.relays.maximumPendingRelayOutputCount,
+                dependencies: .init(
+                    makeExpiryUnixSeconds: { publication in
+                        switch publication {
+                        case .playerCommit: deadlines.groupedCommitment
+                        case .anonymousComponents:
+                            deadlines.anonymousComponentSubmission
+                        case .preSignAcknowledgement:
+                            deadlines.transcriptAgreement
+                        case .localBCHSignatures: deadlines.bchSigning
+                        }
+                    },
+                    makeControlLayerTimestamps: { request in
+                        try Self.makeLayerTimestamps(
+                            timing.makeLayerTimestamps(
+                                Self.makeTimestampRequest(
+                                    recipientEventIdentity: nil,
+                                    phase: request.phase,
+                                    sequence: request.sequence,
+                                    expiryUnixSeconds:
+                                        request.expiryUnixSeconds,
+                                    deadlines: deadlines
+                                )
+                            )
+                        )
+                    },
+                    makeAnonymousLayerTimestamps: { request in
+                        try Self.makeLayerTimestamps(
+                            timing.makeLayerTimestamps(
+                                Self.makeTimestampRequest(
+                                    recipientEventIdentity:
+                                        request.recipientEventIdentity,
+                                    phase: request.phase,
+                                    sequence: request.sequence,
+                                    expiryUnixSeconds:
+                                        request.expiryUnixSeconds,
+                                    deadlines: deadlines
+                                )
+                            )
+                        )
+                    },
+                    attemptTransportOwner: transportOwner,
+                    publicationJournal: publicationJournal,
+                    awaitAnonymousPublicationPermit: { request in
+                        let kind: Runtime.PostManifestPublicationKind
+                        switch request.kind {
+                        case .components: kind = .anonymousComponents
+                        case .bchSignatures: kind = .localBCHSignatures
+                        }
+                        try await capabilities.relays
+                            .awaitAnonymousPublicationPermit(.init(
+                                kind: kind,
+                                recipientEventIdentity:
+                                    request.recipientEventIdentity
+                            ))
+                    }
+                )
+            )
+            executionDependencies = bridge.makeExecutionDependencies(
+                transactionHost: host.transactionHost,
+                previousOutputSource: host.previousOutputSource,
+                makeLocalContributionMaterial:
+                    makeLocalContributionMaterial
+            )
+            stopOutbound = { await bridge.requestStop() }
+            waitForOutboundDrain = {
+                let state = await bridge.waitForTermination()
+                switch state {
+                case .completed, .terminal: return true
+                default: return false
+                }
+            }
+        }
         let expectedReservationExpiration = Date(
             timeIntervalSince1970: TimeInterval(deadlines.walletReservation)
         )
@@ -189,16 +339,6 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
             context: admissionContext,
             requireExisting: true
         )
-        let terminalRecordBytes = try capabilities.terminalPersistence
-            .load(binding)
-        if let terminalRecordBytes {
-            _ = try Runtime.PostManifestTerminalRecord.decode(
-                terminalRecordBytes,
-                expectedBinding: binding
-            )
-        }
-        let terminalRecoveryRequired = recoveredTerminalEvidence != nil
-            || terminalRecordBytes != nil
         let admissionDependencies = Alpha.PostManifestTransportIngress
             .Dependencies(
                 currentUnixSeconds: timing.currentUnixSeconds,
@@ -276,14 +416,8 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                 return bytes
             },
             terminalPersistence: capabilities.terminalPersistence,
-            stopOutbound: { await bridge.requestStop() },
-            waitForOutboundDrain: {
-                let state = await bridge.waitForTermination()
-                switch state {
-                case .completed, .terminal: return true
-                default: return false
-                }
-            }
+            stopOutbound: stopOutbound,
+            waitForOutboundDrain: waitForOutboundDrain
         )
     }
 }

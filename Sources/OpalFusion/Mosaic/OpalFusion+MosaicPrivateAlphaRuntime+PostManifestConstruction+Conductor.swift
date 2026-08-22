@@ -44,6 +44,16 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
             relaySelection: relaySelection,
             persistence: capabilities.publicationPersistence
         )
+        let terminalRecordBytes = try capabilities.terminalPersistence
+            .load(binding)
+        if let terminalRecordBytes {
+            _ = try Runtime.PostManifestTerminalRecord.decode(
+                terminalRecordBytes,
+                expectedBinding: binding
+            )
+        }
+        let terminalRecoveryRequired = recoveredTerminalEvidence != nil
+            || terminalRecordBytes != nil
         let codingLimits = try makeCodingLimits(capabilities.relays)
         let context = try ControlBridge.Context(
             validating: completeManifest,
@@ -57,42 +67,103 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                 eventVerificationKey: $0.eventVerificationKey
             )
         }
-        let publisher = try Alpha.PostManifestControlBatchPublisher(
-            context: context,
-            recipients: recipients,
-            relaySelection: relaySelection,
-            publicationJournal: publicationJournal,
-            codingLimits: codingLimits,
-            maximumPendingRelayOutputCount:
-                capabilities.relays.maximumPendingRelayOutputCount,
-            provideRoutes: transportOwner.controlRouteProvider
-        )
         let deadlines = completeManifest.core.deadlines
         let timing = capabilities.timing
-        let bridge = try ControlBridge(
-            context: context,
-            controlSigningKey: controlSigningKey,
-            eventSigningKey: controlEventSigningKey,
-            recipients: recipients,
-            dependencies: .init(
-                makeLayerTimestamps: { request in
-                    try Self.makeLayerTimestamps(
-                        timing.makeLayerTimestamps(Self.makeTimestampRequest(
-                            recipientEventIdentity: nil,
-                            phase: request.phase,
-                            sequence: request.sequence,
-                            expiryUnixSeconds: request.expiryUnixSeconds,
-                            deadlines: deadlines
-                        ))
-                    )
-                },
-                handoffGiftWrapBatch: { batch in
-                    try await publisher.publish(batch)
-                }
+        let roleDependencies: Alpha.PostManifestRuntimeDriver
+            .RoleDependencies
+        let stopOutbound: @Sendable () async -> Void
+        let waitForOutboundDrain: @Sendable () async -> Bool
+        if terminalRecoveryRequired {
+            typealias Journal = Alpha.PostManifestRelayPublicationJournal
+            let recovery = try Journal.TerminalRecovery(
+                journal: publicationJournal
             )
-        )
-        let roleDependencies = Alpha.PostManifestRuntimeDriver
-            .RoleDependencies.conductor(.init(
+            let controlRecipientEventIdentities = recipients.map {
+                $0.eventVerificationKey.rawRepresentation
+            }
+            roleDependencies = .conductor(.init(
+                componentAuthorizationEvaluator: componentEvaluator,
+                bchSignatureAuthorizationEvaluator: signatureEvaluator,
+                previousOutputSource: previousOutputSource,
+                maximumPendingInputCount:
+                    capabilities.maximumPendingInputCount,
+                handoffPublication: { validation in
+                    guard validation.attemptIdentifier
+                            == context.attemptIdentifier,
+                          validation.generationIdentifier
+                            == context.generationIdentifier,
+                          validation.materialIdentifier
+                            == context.materialIdentifier,
+                          validation.conductor
+                            == context.localControlIdentity,
+                          validation.manifestBinding
+                            == context.manifest.binding else {
+                        throw Runtime.Failure.invalidStateTransition
+                    }
+                    let expiry: UInt64
+                    switch validation.publication {
+                    case .authorizationResponseSet:
+                        expiry = deadlines.walletReservation
+                    case .commitmentSet:
+                        expiry = deadlines.groupedCommitment
+                    case .componentSet:
+                        expiry = deadlines.anonymousComponentSubmission
+                    case .preSignAcknowledgementSet:
+                        expiry = deadlines.transcriptAgreement
+                    case .bchSignatureSet, .completeTransaction:
+                        expiry = deadlines.bchSigning
+                    }
+                    let reservation = try ControlBridge
+                        .makeAggregateReservation(
+                            for: validation.publication.aggregateDocument
+                        )
+                    try await recovery.replay(
+                        batchCount: reservation.fragmentCount + 1,
+                        on: .control,
+                        to: controlRecipientEventIdentities,
+                        expiringAt: expiry
+                    )
+                }
+            ))
+            stopOutbound = {}
+            waitForOutboundDrain = { await recovery.isComplete }
+        } else {
+            let publisher = try Alpha.PostManifestControlBatchPublisher(
+                context: context,
+                recipients: recipients,
+                relaySelection: relaySelection,
+                publicationJournal: publicationJournal,
+                codingLimits: codingLimits,
+                maximumPendingRelayOutputCount:
+                    capabilities.relays.maximumPendingRelayOutputCount,
+                provideRoutes: transportOwner.controlRouteProvider
+            )
+            let bridge = try ControlBridge(
+                context: context,
+                controlSigningKey: controlSigningKey,
+                eventSigningKey: controlEventSigningKey,
+                recipients: recipients,
+                dependencies: .init(
+                    makeLayerTimestamps: { request in
+                        try Self.makeLayerTimestamps(
+                            timing.makeLayerTimestamps(
+                                Self.makeTimestampRequest(
+                                    recipientEventIdentity: nil,
+                                    phase: request.phase,
+                                    sequence: request.sequence,
+                                    expiryUnixSeconds:
+                                        request.expiryUnixSeconds,
+                                    deadlines: deadlines
+                                )
+                            )
+                        )
+                    },
+                    handoffGiftWrapBatch: { batch in
+                        try await publisher.publish(batch)
+                    }
+                )
+            )
+            roleDependencies = .conductor(.init(
                 componentAuthorizationEvaluator: componentEvaluator,
                 bchSignatureAuthorizationEvaluator: signatureEvaluator,
                 previousOutputSource: previousOutputSource,
@@ -118,6 +189,9 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                     )
                 }
             ))
+            stopOutbound = {}
+            waitForOutboundDrain = { publicationJournal.isDrained }
+        }
         let admissionContext = makeAdmissionContext(capabilities)
         try Alpha.PostManifestAdmissionJournal.initializeRecoverySnapshot(
             binding: binding,
@@ -125,16 +199,6 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
             context: admissionContext,
             requireExisting: true
         )
-        let terminalRecordBytes = try capabilities.terminalPersistence
-            .load(binding)
-        if let terminalRecordBytes {
-            _ = try Runtime.PostManifestTerminalRecord.decode(
-                terminalRecordBytes,
-                expectedBinding: binding
-            )
-        }
-        let terminalRecoveryRequired = recoveredTerminalEvidence != nil
-            || terminalRecordBytes != nil
         let admissionDependencies = Alpha.PostManifestTransportIngress
             .Dependencies(
                 currentUnixSeconds: timing.currentUnixSeconds,
@@ -213,8 +277,8 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                 return bytes
             },
             terminalPersistence: capabilities.terminalPersistence,
-            stopOutbound: {},
-            waitForOutboundDrain: { publicationJournal.isDrained }
+            stopOutbound: stopOutbound,
+            waitForOutboundDrain: waitForOutboundDrain
         )
     }
 }

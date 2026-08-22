@@ -130,6 +130,21 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             self.dependencies = dependencies
         }
 
+        /// Derives the exact aggregate reservation shared by live publication and terminal replay.
+        static func makeAggregateReservation(
+            for document: AggregateDocument
+        ) throws -> AggregateReservation {
+            let canonicalBytes = document.canonicalBytes
+            return try AggregateReservation(
+                aggregateKind: document.kind,
+                aggregateDigest: RoleSeedValidator.hash(
+                    domainSuffix: document.kind.digestDomainSuffix,
+                    fields: [canonicalBytes]
+                ),
+                declaredCanonicalByteCount: canonicalBytes.count
+            )
+        }
+
         /// Publishes the exact manifest already bound to the validated runtime bootstrap.
         func publishManifest(
             expiryUnixSeconds: UInt64
@@ -202,13 +217,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let canonicalBytes = document.canonicalBytes
             let reservation: AggregateReservation
             do {
-                reservation = try .init(
-                    aggregateKind: kind,
-                    aggregateDigest: RoleSeedValidator.hash(
-                        domainSuffix: kind.digestDomainSuffix,
-                        fields: [canonicalBytes]
-                    ),
-                    declaredCanonicalByteCount: canonicalBytes.count
+                reservation = try Self.makeAggregateReservation(
+                    for: document
                 )
             } catch {
                 throw terminate(.invalidPublication)

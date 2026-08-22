@@ -245,6 +245,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        /// Immutable, fully drained batch metadata used only to reconstruct a terminal runtime.
+        ///
+        /// Canonical event bytes remain in the journal snapshot bound by terminal evidence. This
+        /// projection exposes only the structural facts needed to replay the prior transport
+        /// outcome without provisioning a route or minting a replacement event.
+        struct DrainedRecoveryBatch: Sendable, Equatable {
+            let channelPurpose: ChannelPurpose
+            let publicationBindings: [PublicationBinding]
+            let completions: [Completion]
+        }
+
         enum Status: Sendable, Equatable {
             case awaitingAcknowledgements
             case transportAccepted
@@ -545,6 +556,39 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 state.entriesByEventIdentifier.values.allSatisfy {
                     $0.completion != nil
                 }
+            }
+        }
+
+        /// Returns the exact durable batch order only when every publication is terminal.
+        ///
+        /// The returned value is an immutable snapshot. It never exposes journal mutation
+        /// authority and never treats a partial publication as safe terminal-recovery input.
+        func makeDrainedRecoveryBatches() -> [DrainedRecoveryBatch]? {
+            state.withLock { state in
+                var recovered: [DrainedRecoveryBatch] = []
+                recovered.reserveCapacity(state.batches.count)
+                for batch in state.batches {
+                    var bindings: [PublicationBinding] = []
+                    var completions: [Completion] = []
+                    bindings.reserveCapacity(batch.publications.count)
+                    completions.reserveCapacity(batch.publications.count)
+                    for publication in batch.publications {
+                        guard let entry = state.entriesByEventIdentifier[
+                            publication.eventIdentifier
+                        ], entry.publication == publication,
+                        let completion = entry.completion else {
+                            return nil
+                        }
+                        bindings.append(publication.binding)
+                        completions.append(completion)
+                    }
+                    recovered.append(.init(
+                        channelPurpose: batch.channelPurpose,
+                        publicationBindings: bindings,
+                        completions: completions
+                    ))
+                }
+                return recovered
             }
         }
 
