@@ -543,6 +543,162 @@ struct MosaicMainnetAlphaPostManifestNIP59TransportValidator {
         }
     }
 
+    @Test(
+        "Mutate composite NIP-59 open parsers",
+        .timeLimit(.minutes(1))
+    )
+    func mutateCompositeOpenParsers() throws {
+        let limits = try Transport.codingLimits
+        let controlSender = try signingKey(22)
+        let controlRecipient = try signingKey(23)
+        let anonymousSender = try signingKey(25)
+        let anonymousRecipient = try signingKey(26)
+
+        func makeGiftWrap(
+            canonicalEnvelope: [UInt8],
+            sender: OpalCrypto.Secp256k1.SigningKey,
+            recipient: OpalCrypto.Secp256k1.SigningKey,
+            wrapperScalarByte: UInt8,
+            nonceByte: UInt8
+        ) throws -> Nostr.Event {
+            let rumor = try Nostr.UnsignedEvent(
+                publicKey: sender.bip340VerificationKey,
+                template: .init(
+                    createdAt: current,
+                    kind: Alpha.nip59RumorKind,
+                    tags: [[
+                        "d",
+                        OpalFusion.Mosaic.TransportProfile
+                            .nostrTorOpalMainnetAlpha.rawValue,
+                    ]],
+                    content: try OpalFusion.Mosaic.PaddedEnvelopeCodec
+                        .encode(canonicalEnvelope),
+                    limits: limits.event
+                ),
+                limits: limits.event
+            )
+            let seal = try Nostr.NIP59EnvelopeCodec.seal(
+                rumor,
+                createdAt: current - 2,
+                senderSigningKey: sender,
+                recipientPublicKey: recipient.bip340VerificationKey,
+                nonce: .init(
+                    rawRepresentation: Data(repeating: nonceByte, count: 32)
+                ),
+                auxiliaryRandomness: .init(
+                    rawRepresentation: Data(
+                        repeating: nonceByte &+ 1,
+                        count: 32
+                    )
+                ),
+                limits: limits
+            )
+            return try Nostr.NIP59EnvelopeCodec.wrap(
+                seal,
+                deliveryKind: .regular,
+                createdAt: current - 1,
+                wrapperSigningKey: signingKey(wrapperScalarByte),
+                nonce: .init(
+                    rawRepresentation: Data(
+                        repeating: nonceByte &+ 2,
+                        count: 32
+                    )
+                ),
+                auxiliaryRandomness: .init(
+                    rawRepresentation: Data(
+                        repeating: nonceByte &+ 3,
+                        count: 32
+                    )
+                ),
+                limits: limits
+            )
+        }
+
+        let controlGiftWrap = try makeGiftWrap(
+            canonicalEnvelope: Alpha.CanonicalWireCodec
+                .encodeControlEnvelope(
+                    controlEnvelope(
+                        eventSigningKey: controlSender,
+                        payloadCount: 1
+                    )
+                ),
+            sender: controlSender,
+            recipient: controlRecipient,
+            wrapperScalarByte: 24,
+            nonceByte: 0xD6
+        )
+        let anonymousGiftWrap = try makeGiftWrap(
+            canonicalEnvelope: Alpha.CanonicalWireCodec
+                .encodeAnonymousEnvelope(
+                    anonymousEnvelope(
+                        senderSigningKey: anonymousSender,
+                        recipient: anonymousRecipient,
+                        payloadCount: 1
+                    )
+                ),
+            sender: anonymousSender,
+            recipient: anonymousRecipient,
+            wrapperScalarByte: 27,
+            nonceByte: 0xDA
+        )
+        let vectors = try [
+            MosaicDeterministicParserMutationVector(
+                name: "post-manifest control NIP-59 gift wrap",
+                seedBytes: Array(Nostr.EventCodec.encode(
+                    controlGiftWrap,
+                    limits: limits.event
+                ))
+            ) { bytes in
+                let giftWrap = try Nostr.EventCodec.decode(
+                    Data(bytes),
+                    limits: limits.event
+                )
+                guard case .control = try Transport.openControl(
+                    giftWrap,
+                    context: runtimeContext(),
+                    recipientSigningKey: controlRecipient,
+                    currentUnixSeconds: current
+                ).storage else {
+                    return false
+                }
+                return try Nostr.EventCodec.encode(
+                    giftWrap,
+                    limits: limits.event
+                ) == Data(bytes)
+            },
+            MosaicDeterministicParserMutationVector(
+                name: "post-manifest anonymous NIP-59 gift wrap",
+                seedBytes: Array(Nostr.EventCodec.encode(
+                    anonymousGiftWrap,
+                    limits: limits.event
+                ))
+            ) { bytes in
+                let giftWrap = try Nostr.EventCodec.decode(
+                    Data(bytes),
+                    limits: limits.event
+                )
+                guard case .anonymous = try Transport.openAnonymous(
+                    giftWrap,
+                    context: runtimeContext(),
+                    recipientSigningKey: anonymousRecipient,
+                    currentUnixSeconds: current
+                ).storage else {
+                    return false
+                }
+                return try Nostr.EventCodec.encode(
+                    giftWrap,
+                    limits: limits.event
+                ) == Data(bytes)
+            },
+        ]
+
+        try MosaicDeterministicParserMutationCampaign.validate(
+            vectors,
+            seed: 0xA54F_F53A_5F1D_36F1,
+            seededMutationCount: 64
+        )
+    }
+
     private func assertFixedSizes(
         _ giftWrap: Nostr.Event,
         sender: OpalCrypto.Secp256k1.SigningKey,
