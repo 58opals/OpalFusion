@@ -477,6 +477,80 @@ struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
         }
     }
 
+    @Test(
+        "Mutate the durable publication recovery parser",
+        .timeLimit(.minutes(1))
+    )
+    func mutateDurablePublicationRecoveryParser() async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let context = fixture.journalContext
+        let binding = try Runtime.Binding(
+            attemptIdentifier: Data(
+                context.attemptIdentifier.validatedBytes
+            ),
+            generationIdentifier: Data(
+                context.generationIdentifier.opaqueBytes
+            ),
+            materialIdentifier: Data(
+                context.materialIdentifier.opaqueBytes
+            )
+        )
+        let persistenceStore = MosaicPrivateAlphaRuntimePersistenceStore()
+        let persistence = Runtime.PostManifestPublicationPersistence(
+            load: persistenceStore.load,
+            compareAndSwap: persistenceStore.compareAndSwap
+        )
+        try Journal.initializeRecoverySnapshot(
+            binding: binding,
+            persistence: persistence,
+            context: context,
+            requireExisting: false
+        )
+        let journal = try Journal(
+            context: context,
+            persistence: Journal.recoveryPersistence(
+                binding: binding,
+                persistence: persistence
+            )
+        )
+        let continuation = try journal.prepare(
+            fixture.giftWrap,
+            binding: fixture.binding
+        )
+        for endpoint in context.endpoints.prefix(2) {
+            try journal.recordAttempt(
+                eventIdentifier: continuation.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+            try journal.recordAcknowledgement(
+                .accepted,
+                eventIdentifier: continuation.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+        }
+        try journal.recordCompletion(
+            .transportAccepted,
+            eventIdentifier: continuation.publication.eventIdentifier
+        )
+        let snapshot = try #require(persistenceStore.load(binding))
+
+        try MosaicDeterministicParserMutationCampaign.validate(
+            [
+                .init(
+                    name: "post-manifest publication journal snapshot",
+                    seedBytes: Array(snapshot)
+                ) { bytes in
+                    try Journal.validateDrainedRecoveryReadback(
+                        Data(bytes),
+                        expectedContext: context
+                    )
+                },
+            ],
+            seed: 0x510E_527F_ADE6_82D2,
+            seededMutationCount: 64
+        )
+    }
+
     private func verifyAppendReconciliation(
         boundary: AppendBoundary,
         durability: PublicationJournalFixture.AppendFailureDurability,

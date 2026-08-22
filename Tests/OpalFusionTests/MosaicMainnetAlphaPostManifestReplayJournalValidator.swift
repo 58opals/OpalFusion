@@ -435,6 +435,69 @@ struct MosaicMainnetAlphaPostManifestReplayJournalValidator {
         }
     }
 
+    @Test(
+        "Mutate the durable admission recovery parser",
+        .timeLimit(.minutes(1))
+    )
+    func mutateDurableAdmissionRecoveryParser() throws {
+        let construction = try makeContext()
+        let binding = try makeBinding(construction.context)
+        let persistenceStore = MosaicPrivateAlphaRuntimePersistenceStore()
+        let persistence = Runtime.PostManifestAdmissionPersistence(
+            load: persistenceStore.load,
+            compareAndSwap: persistenceStore.compareAndSwap
+        )
+        try Journal.initializeRecoverySnapshot(
+            binding: binding,
+            persistence: persistence,
+            context: construction.context,
+            requireExisting: false
+        )
+        let recoveryStore = Journal.recoveryStore(
+            binding: binding,
+            persistence: persistence
+        )
+        try recoveryStore.append(
+            construction.context,
+            0,
+            .control(
+                sender: construction.harness.election.result.roster.conductor,
+                sequence: 0,
+                messageDigest: [UInt8](repeating: 0xD1, count: 32),
+                source: source(0xD2, acceptedAt: 100)
+            )
+        )
+        try recoveryStore.append(
+            construction.context,
+            1,
+            anonymousRecord(
+                messageByte: 0xD3,
+                senderByte: 0xD4,
+                recipientByte: 0x51,
+                sequence: 0,
+                payloadByte: 0xD5
+            )
+        )
+        let snapshot = try #require(persistenceStore.load(binding))
+
+        try MosaicDeterministicParserMutationCampaign.validate(
+            [
+                .init(
+                    name: "post-manifest admission journal snapshot",
+                    seedBytes: Array(snapshot)
+                ) { bytes in
+                    try Journal.validateRecoveryReadback(
+                        Data(bytes),
+                        expectedContext: construction.context
+                    )
+                    return true
+                },
+            ],
+            seed: 0xA54F_F53A_5F1D_36F1,
+            seededMutationCount: 64
+        )
+    }
+
     private func makeContext() throws -> (
         context: Journal.Context,
         harness: Fixture.Harness
