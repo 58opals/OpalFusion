@@ -1,6 +1,6 @@
 # Mosaic G4 Parser-Root Registry — 2026-08-23
 
-Status: `partial`. OpalFusion's low-level parser implementation-file surface is frozen and machine-checked, and the first-party mutation campaign covers 72 positive seeds across eleven focused test bodies. Composite byte entrypoints and cross-repository parser roots still require reconciliation before the G4 every-parser requirement can close.
+Status: `partial`. OpalFusion's low-level parser implementation-file surface is frozen and machine-checked, and the first-party mutation campaign covers 75 positive seeds across twelve focused test bodies. Composite byte entrypoints and cross-repository parser roots still require reconciliation before the G4 every-parser requirement can close.
 
 ## Registry Boundary
 
@@ -18,17 +18,16 @@ The earlier source diagnostic found 93 declarations containing `func decode`. Th
 | Private-deployment canonical documents | 17 seeds / 1 test body | Covers discovery, formation, role, manifest, abort, completion, and payload document roots |
 | Typed private-deployment Nostr mapping | 11 seeds / 2 test bodies | Covers every typed event decoder plus the context-validating manifest-proposal-candidate root; each path also traverses the generic envelope/context decoder and its nested canonical document decoder |
 | Runtime recovery | 2 seeds / 2 test bodies | Covers fresh/forming/uninitialized and validated-manifest/initialized-journal positive states plus invalid phase, abort-cause, manifest, journal, publication, and terminal tags; positive abort, publication, and authorized-terminal variants remain open |
+| Post-manifest NIP-59 composite opens | 2 seeds / 1 test body | Covers control and anonymous parent roots through gift-wrap and seal opening, rumor decoding, padded application-content extraction, canonical envelope parsing, identity binding, and timing validation |
 | Private event and terminal recovery | 4 seeds / 1 test body | Covers event recovery, both terminal-record discriminants, and terminal evidence |
 | Durable admission journal | 1 seed / 1 test body | Covers the recovery readback root with both control and anonymous records, including private context, record, and source helpers |
-| Durable publication journal | 1 seed / 1 test body | Covers a drained recovery readback with prepared, attempted, acknowledged, and completed records, including private context, record, and batch helpers |
+| Durable publication journal | 2 seeds / 1 test body | Covers drained control and anonymous recovery readbacks with prepared, publication-permitted, attempted, acknowledged, and completed records, including private context, record, and batch helpers |
 
 The seed count is corpus accounting, not a coverage fraction. A seed may traverse several private helpers and discriminants, while two seeds may exercise different variants of one root.
 
 ## Open OpalFusion Root Queue
 
 - Cover remaining positive runtime recovery-state discriminants: pre-manifest abort causes, formation and terminal publication state, authorized terminal state, and post-manifest terminal state. The manifest-proposal-candidate root and validated-manifest plus initialized-journal recovery discriminants are now covered.
-- Cover NIP-59 composite open paths and post-manifest application-content extraction through their externally reachable roots, without treating their already-covered nested Event and padded-envelope codecs as separate missing roots.
-- Cover the publication-permit journal-record discriminant or document why an existing root seed reaches it.
 - Map and cover transport-bootstrap byte entrypoints for the authorization key, control claim and set, blind response set, anonymous request, registration and set, assignment, acknowledgement and set, consensus envelopes, and publication restoration. These APIs parse through functions named `make`, `load`, `restore`, or `open`, so declaration-name scans do not find them.
 - Reconcile any remaining composite validation and relay-restoration byte entrypoints that call an already-registered low-level parser but impose additional canonical, authority, time, route, or binding checks.
 
