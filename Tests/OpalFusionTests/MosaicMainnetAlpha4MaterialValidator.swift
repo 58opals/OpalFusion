@@ -3,7 +3,7 @@
 import Foundation
 import OpalCrypto
 import Testing
-@testable import OpalFusion
+@_spi(MosaicPrivateAlpha) @testable import OpalFusion
 
 @Suite("Mosaic mainnet-alpha.4 local contribution material")
 struct MosaicMainnetAlpha4MaterialValidator {
@@ -72,6 +72,58 @@ struct MosaicMainnetAlpha4MaterialValidator {
                 first.commitment.saltedComponentDigest
             ) == "42d8430e580cc0a7947a7426ae44ffb12db21c0e5c7b556ed61680617017e7d1"
         )
+    }
+
+    @Test("Restore byte-exact blind requests from authenticated slot state")
+    func restoreAuthorizationRequests() throws {
+        let prepared = try makePreparedMaterial()
+        let recoveryStates = prepared.material
+            .componentSlotAuthorizationRecoveryStates
+        let exportedRecoveryStates = recoveryStates.map {
+            OpalFusion.MosaicPrivateAlphaRuntime
+                .PostManifestComponentSlotAuthorizationRecoveryState($0)
+        }
+
+        #expect(recoveryStates.count == Alpha.componentCountPerContributor)
+        #expect(
+            try exportedRecoveryStates.map { try $0.makeInternal() }
+                == recoveryStates
+        )
+        let firstExported = try #require(exportedRecoveryStates.first)
+        #expect(throws: (any Error).self) {
+            _ = try OpalFusion.MosaicPrivateAlphaRuntime
+                .PostManifestComponentSlotAuthorizationRecoveryState(
+                    componentRequest: firstExported.componentRequest.dropLast(),
+                    bchSignatureRequest: firstExported.bchSignatureRequest
+                ).makeInternal()
+        }
+        let restored = try rebuild(
+            prepared,
+            authorizationRecoveryStates: recoveryStates
+        )
+        #expect(restored.playerCommit == prepared.material.playerCommit)
+        #expect(
+            restored.componentSlotAuthorizationRecoveryStates
+                == recoveryStates
+        )
+
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .authorizationRecoveryStateCountMismatch(actual: 22)) {
+            _ = try rebuild(
+                prepared,
+                authorizationRecoveryStates: Array(recoveryStates.dropLast())
+            )
+        }
+
+        var wrongSlotStates = recoveryStates
+        wrongSlotStates.swapAt(0, 1)
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .cryptographicMaterialInvalid(slot: 0)) {
+            _ = try rebuild(
+                prepared,
+                authorizationRecoveryStates: wrongSlotStates
+            )
+        }
     }
 
     @Test("Validate exact local openings and inclusion in a complete transcript")
@@ -667,7 +719,9 @@ struct MosaicMainnetAlpha4MaterialValidator {
     private func rebuild(
         _ prepared: PreparedMaterial,
         lease: OpalFusion.Host.MosaicReservationLease? = nil,
-        secrets: [Alpha.ComponentSlotSecrets]? = nil
+        secrets: [Alpha.ComponentSlotSecrets]? = nil,
+        authorizationRecoveryStates:
+            [Alpha.ComponentSlotAuthorizationRecoveryState]? = nil
     ) throws -> Alpha.LocalContributionMaterial {
         try Alpha.LocalContributionMaterial.build(
             attemptIdentifier: prepared.material.attemptIdentifier,
@@ -676,7 +730,8 @@ struct MosaicMainnetAlpha4MaterialValidator {
             contributor: prepared.material.contributor,
             manifest: prepared.manifest,
             reservationLease: lease ?? prepared.material.reservationLease,
-            slotSecrets: secrets ?? prepared.secrets
+            slotSecrets: secrets ?? prepared.secrets,
+            authorizationRecoveryStates: authorizationRecoveryStates
         )
     }
 

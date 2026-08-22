@@ -18,6 +18,11 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             Binding,
             OpalFusion.Host.MosaicReservationLease
         ) async throws -> [PostManifestComponentSlotSecrets]
+        let installOrLoadAuthorizationRecoveryStates: @Sendable (
+            Binding,
+            OpalFusion.Host.MosaicReservationLease,
+            [PostManifestComponentSlotAuthorizationRecoveryState]
+        ) async throws -> [PostManifestComponentSlotAuthorizationRecoveryState]
 
         @_spi(MosaicPrivateAlpha)
         public init(
@@ -30,13 +35,22 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             loadSlotSecrets: @escaping @Sendable (
                 Binding,
                 OpalFusion.Host.MosaicReservationLease
-            ) async throws -> [PostManifestComponentSlotSecrets]
+            ) async throws -> [PostManifestComponentSlotSecrets],
+            installOrLoadAuthorizationRecoveryStates:
+                @escaping @Sendable (
+                    Binding,
+                    OpalFusion.Host.MosaicReservationLease,
+                    [PostManifestComponentSlotAuthorizationRecoveryState]
+                ) async throws
+                    -> [PostManifestComponentSlotAuthorizationRecoveryState]
         ) {
             self.transactionHost = transactionHost
             self.previousOutputSource = previousOutputSource
             self.controlSigningKey = controlSigningKey
             self.controlEventSigningKey = controlEventSigningKey
             self.loadSlotSecrets = loadSlotSecrets
+            self.installOrLoadAuthorizationRecoveryStates =
+                installOrLoadAuthorizationRecoveryStates
         }
     }
 }

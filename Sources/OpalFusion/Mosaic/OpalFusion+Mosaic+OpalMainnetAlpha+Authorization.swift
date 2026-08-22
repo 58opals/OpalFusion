@@ -122,6 +122,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let input: AuthorizationTokenInput
         let blindedMessage: OpalCrypto.RSABSSA.BlindedMessage
 
+        var recoveryState: OpalCrypto.RSABSSA.BlindRequest.RecoveryState {
+            blindRequest.recoveryState
+        }
+
         private let blindRequest: OpalCrypto.RSABSSA.BlindRequest
         private let verificationKey: OpalCrypto.RSABSSA.VerificationKey
 
@@ -135,6 +139,26 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let blindRequest = try OpalCrypto.RSABSSA.makeBlindRequest(
                 message: Data(input.canonicalBytes),
                 using: verificationKey
+            )
+            self.input = input
+            self.blindedMessage = blindRequest.blindedMessage
+            self.blindRequest = blindRequest
+            self.verificationKey = verificationKey
+        }
+
+        init(
+            input: AuthorizationTokenInput,
+            using verificationKey: OpalCrypto.RSABSSA.VerificationKey,
+            restoring recoveryState:
+                OpalCrypto.RSABSSA.BlindRequest.RecoveryState
+        ) throws {
+            guard Data(input.keyIdentifier) == verificationKey.keyIdentifier else {
+                throw Failure.verificationKeyIdentifierMismatch
+            }
+            let blindRequest = try OpalCrypto.RSABSSA.restoreBlindRequest(
+                message: Data(input.canonicalBytes),
+                using: verificationKey,
+                from: recoveryState
             )
             self.input = input
             self.blindedMessage = blindRequest.blindedMessage

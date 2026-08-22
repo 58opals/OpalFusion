@@ -101,7 +101,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                     executionBinding,
                     lease
                 ).map { try $0.makeInternal() }
-                return try Alpha.LocalContributionMaterial.build(
+                let candidate = try Alpha.LocalContributionMaterial.build(
                     attemptIdentifier: eligibility.context.attemptIdentifier,
                     generationIdentifier:
                         eligibility.context.generationIdentifier,
@@ -111,6 +111,37 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                     manifest: eligibility.manifest,
                     reservationLease: lease,
                     slotSecrets: secrets
+                )
+                let candidateRecoveryStates = candidate
+                    .componentSlotAuthorizationRecoveryStates.map {
+                        Runtime
+                            .PostManifestComponentSlotAuthorizationRecoveryState(
+                                $0
+                            )
+                    }
+                let installedRecoveryStates = try await host
+                    .installOrLoadAuthorizationRecoveryStates(
+                        executionBinding,
+                        lease,
+                        candidateRecoveryStates
+                    )
+                guard installedRecoveryStates != candidateRecoveryStates else {
+                    return candidate
+                }
+                return try Alpha.LocalContributionMaterial.build(
+                    attemptIdentifier: eligibility.context.attemptIdentifier,
+                    generationIdentifier:
+                        eligibility.context.generationIdentifier,
+                    materialIdentifier:
+                        eligibility.context.materialIdentifier,
+                    contributor: eligibility.context.localControlIdentity,
+                    manifest: eligibility.manifest,
+                    reservationLease: lease,
+                    slotSecrets: secrets,
+                    authorizationRecoveryStates:
+                        try installedRecoveryStates.map {
+                            try $0.makeInternal()
+                        }
                 )
             }
         )

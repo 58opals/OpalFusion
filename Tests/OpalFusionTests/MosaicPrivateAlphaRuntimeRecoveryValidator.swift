@@ -122,6 +122,20 @@ struct MosaicPrivateAlphaRuntimeRecoveryValidator {
         }
     }
 
+    @Test("Expose authorization recovery as exact opaque app-owned bytes")
+    func exposeOpaqueAuthorizationRecoveryState() {
+        let component = Data([0x01]) + Data(repeating: 0x22, count: 400)
+        let bchSignature = Data([0x01]) + Data(repeating: 0x33, count: 400)
+        let state = Runtime
+            .PostManifestComponentSlotAuthorizationRecoveryState(
+                componentRequest: component,
+                bchSignatureRequest: bchSignature
+            )
+
+        #expect(state.componentRequest == component)
+        #expect(state.bchSignatureRequest == bchSignature)
+    }
+
     private func transition(from step: Runtime.Step) throws
         -> Runtime.RecoveryTransition {
         guard case let .persist(transition) = step else {

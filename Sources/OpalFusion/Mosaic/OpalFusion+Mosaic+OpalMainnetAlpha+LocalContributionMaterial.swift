@@ -15,6 +15,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case contributorNotInRoster
             case leaseComponentLimitExceeded(actual: Int)
             case slotSecretCountMismatch(actual: Int)
+            case authorizationRecoveryStateCountMismatch(actual: Int)
             case duplicateInputOutpoint(index: Int)
             case inputPublicKeyMissing(index: Int)
             case invalidInputPublicKey(index: Int)
@@ -52,6 +53,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let slots: [ComponentSlotMaterial]
         let playerCommit: PlayerCommit
 
+        var componentSlotAuthorizationRecoveryStates:
+            [ComponentSlotAuthorizationRecoveryState] {
+            slots.map {
+                .init(
+                    componentRequest:
+                        $0.componentAuthorizationRequest.recoveryState,
+                    bchSignatureRequest:
+                        $0.bchSignatureAuthorizationRequest.recoveryState
+                )
+            }
+        }
+
         private init(
             attemptIdentifier: AttemptIdentifier,
             generationIdentifier: GenerationIdentifier,
@@ -79,7 +92,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             contributor: ControlIdentity,
             manifest: RoundManifest,
             reservationLease: OpalFusion.Host.MosaicReservationLease,
-            slotSecrets: [ComponentSlotSecrets]
+            slotSecrets: [ComponentSlotSecrets],
+            authorizationRecoveryStates:
+                [ComponentSlotAuthorizationRecoveryState]? = nil
         ) throws(BuildError) -> Self {
             guard contributor != manifest.core.roster.conductor else {
                 throw .conductorCannotContribute
@@ -94,6 +109,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
             guard slotSecrets.count == componentCountPerContributor else {
                 throw .slotSecretCountMismatch(actual: slotSecrets.count)
+            }
+            if let authorizationRecoveryStates {
+                guard authorizationRecoveryStates.count
+                        == componentCountPerContributor else {
+                    throw .authorizationRecoveryStateCountMismatch(
+                        actual: authorizationRecoveryStates.count
+                    )
+                }
             }
             try validateUniqueSlotSecrets(slotSecrets)
             try validateAnonymousIdentities(
@@ -230,14 +253,33 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         nonce: secrets.bchSignatureAuthorizationNonce,
                         binding: componentInput.spentIdentifier
                     )
-                    let componentRequest = try AuthorizationRequest(
-                        input: componentInput,
-                        using: manifest.core.componentAuthorizationVerificationKey
-                    )
-                    let bchSignatureRequest = try AuthorizationRequest(
-                        input: bchSignatureInput,
-                        using: manifest.core.bchSignatureAuthorizationVerificationKey
-                    )
+                    let componentRequest: AuthorizationRequest
+                    let bchSignatureRequest: AuthorizationRequest
+                    if let recoveryState = authorizationRecoveryStates?[slot] {
+                        componentRequest = try AuthorizationRequest(
+                            input: componentInput,
+                            using: manifest.core
+                                .componentAuthorizationVerificationKey,
+                            restoring: recoveryState.componentRequest
+                        )
+                        bchSignatureRequest = try AuthorizationRequest(
+                            input: bchSignatureInput,
+                            using: manifest.core
+                                .bchSignatureAuthorizationVerificationKey,
+                            restoring: recoveryState.bchSignatureRequest
+                        )
+                    } else {
+                        componentRequest = try AuthorizationRequest(
+                            input: componentInput,
+                            using: manifest.core
+                                .componentAuthorizationVerificationKey
+                        )
+                        bchSignatureRequest = try AuthorizationRequest(
+                            input: bchSignatureInput,
+                            using: manifest.core
+                                .bchSignatureAuthorizationVerificationKey
+                        )
+                    }
                     pedersenCommitments.append(pedersenCommitment)
                     slots.append(
                         .init(

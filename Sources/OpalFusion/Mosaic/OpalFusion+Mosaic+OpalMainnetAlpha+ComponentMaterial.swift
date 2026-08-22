@@ -131,4 +131,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         let componentAuthorizationRequest: AuthorizationRequest
         let bchSignatureAuthorizationRequest: AuthorizationRequest
     }
+
+    struct ComponentSlotAuthorizationRecoveryState: Sendable, Equatable {
+        let componentRequest:
+            OpalCrypto.RSABSSA.BlindRequest.RecoveryState
+        let bchSignatureRequest:
+            OpalCrypto.RSABSSA.BlindRequest.RecoveryState
+    }
 }

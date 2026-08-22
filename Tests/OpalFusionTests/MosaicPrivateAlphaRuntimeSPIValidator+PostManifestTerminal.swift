@@ -726,6 +726,9 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                     ).signingKey,
                 loadSlotSecrets: { _, _ in
                     throw Runtime.Failure.invalidStateTransition
+                },
+                installOrLoadAuthorizationRecoveryStates: {
+                    _, _, candidate in candidate
                 }
             ),
             capabilities: capabilities
@@ -863,6 +866,9 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                     ).signingKey,
                 loadSlotSecrets: { _, _ in
                     throw Runtime.Failure.invalidStateTransition
+                },
+                installOrLoadAuthorizationRecoveryStates: {
+                    _, _, candidate in candidate
                 }
             ),
             capabilities: capabilities

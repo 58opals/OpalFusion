@@ -1209,6 +1209,9 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
                 controlEventSigningKey: contributorEventKey,
                 loadSlotSecrets: { _, _ in
                     throw Runtime.Failure.invalidStateTransition
+                },
+                installOrLoadAuthorizationRecoveryStates: {
+                    _, _, candidate in candidate
                 }
             )
             var constructionFailed = false
@@ -1714,6 +1717,9 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
                 ).signingKey,
             loadSlotSecrets: { _, _ in
                 throw Runtime.Failure.invalidStateTransition
+            },
+            installOrLoadAuthorizationRecoveryStates: {
+                _, _, candidate in candidate
             }
         )
     }
