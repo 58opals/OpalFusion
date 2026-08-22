@@ -51,7 +51,7 @@ These are predeclared program gaps, not independent findings and not substitutes
 | --- | --- | --- | --- |
 | `G4-GAP-001` | Exact-graph package CI | Definition ready / manual paid-CI dispatch pending | One successful manual Xcode 27 matrix with exact revisions, resolved-checkout parity, package results, per-job timing, and preserved run URL or logs |
 | `G4-GAP-002` | Golden vectors | Partial | Portable positive and negative vectors for every required canonical encoding, digest, and message contract |
-| `G4-GAP-003` | Parser fuzz | Pending implementation | Fuzz target and seed-corpus evidence for every parser before live profile enablement |
+| `G4-GAP-003` | Parser fuzz | Partial: first-party deterministic campaign covers 20 initial seeds / every-parser reconciliation remains open | Fuzz target, seed-corpus, and coverage evidence for every parser before live profile enablement; the current deterministic seeds may feed that lane but do not waive it |
 | `G4-GAP-004` | Simulator fault matrix | Partial | Complete required failure, cancellation, replay, retry, reservation-release, and downgrade-attempt coverage |
 | `G4-GAP-005` | Multi-device reliability | Pending external environment | Repeated supported-device composition evidence at the frozen deployment target |
 | `G4-GAP-006` | Supported Tor and relay traffic analysis | Pending external environment | Approved capture plan, supported-environment results, interpretation, and independent privacy disposition |
@@ -66,3 +66,4 @@ These are predeclared program gaps, not independent findings and not substitutes
 | 2026-08-23 | Register created with required lanes and predeclared evidence gaps | Git revision containing this file | Review intake only; no lane assigned or disposition granted |
 | 2026-08-23 | Bound Wallet's locally verified no-user-surface evidence and reframed the UXC gap without assigning a reviewer | Git revision containing this update | Local evidence intake only; UXC and every independent disposition remain open |
 | 2026-08-23 | Bound Wallet's manual-only exact-graph package CI definition without dispatching it | Git revision containing this update | CI preparation only; package CI execution and every independent disposition remain open |
+| 2026-08-23 | Bound OpalFusion's first-party deterministic mutation campaign for 20 initial parser seeds | Git revision containing this update | Parser-fuzz gap advanced to partial; every-parser reconciliation and every independent disposition remain open |
