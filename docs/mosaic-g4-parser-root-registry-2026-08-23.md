@@ -28,7 +28,7 @@ The seed count is corpus accounting, not a coverage fraction. A seed may travers
 ## Open OpalFusion Root Queue
 
 - Cover remaining positive runtime recovery-state discriminants: pre-manifest abort causes, formation and terminal publication state, authorized terminal state, and post-manifest terminal state. The manifest-proposal-candidate root and validated-manifest plus initialized-journal recovery discriminants are now covered.
-- Map and cover transport-bootstrap byte entrypoints for the authorization key, control claim and set, blind response set, anonymous request, registration and set, assignment, acknowledgement and set, consensus envelopes, and publication restoration. These APIs parse through functions named `make`, `load`, `restore`, or `open`, so declaration-name scans do not find them.
+- Map and cover transport-bootstrap byte entrypoints for the authorization key, control claim and set, blind response set, anonymous request, registration and set, assignment, acknowledgement and set, consensus envelopes, and publication restoration. These APIs parse through functions named `make`, `load`, `restore`, or `open`, so declaration-name scans do not find them. Three ordinary-lane shapes crossed 60 seconds because the runtime-generated RSA fixture dominates; do not repeat them. Use a digest-pinned first-party fixture or the single 600-second closure lane, recording fixture and parser time separately.
 - Reconcile any remaining composite validation and relay-restoration byte entrypoints that call an already-registered low-level parser but impose additional canonical, authority, time, route, or binding checks.
 
 ## Cross-Repository Queue
