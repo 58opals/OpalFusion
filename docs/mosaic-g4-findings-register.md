@@ -34,7 +34,7 @@ This register indexes independent-review assignments, findings, remediation, ret
 | `PRI` | Unassigned | Not recorded | Not reviewed | — | Unassigned | Supported-environment traffic-analysis evidence and independent privacy reviewer required | — |
 | `WAL` | Unassigned | Not recorded | Not reviewed | — | Unassigned | Independent wallet-policy and recovery reviewer required | — |
 | `OPS` | Unassigned | Not recorded | Not reviewed | — | Unassigned | Signed isolated runbook drill and independent deployment or operations reviewer required | — |
-| `UXC` | Unassigned | Not recorded | Not reviewed | — | Unassigned | Rendered UX, accessibility, and safe-claim review required | — |
+| `UXC` | Unassigned | Not recorded | Not reviewed | — | Unassigned | Independent verification of the no-user-surface boundary, future-interface contract, and safe claims required | — |
 
 ## Independent Findings
 
@@ -56,7 +56,7 @@ These are predeclared program gaps, not independent findings and not substitutes
 | `G4-GAP-005` | Multi-device reliability | Pending external environment | Repeated supported-device composition evidence at the frozen deployment target |
 | `G4-GAP-006` | Supported Tor and relay traffic analysis | Pending external environment | Approved capture plan, supported-environment results, interpretation, and independent privacy disposition |
 | `G4-GAP-007` | Operations runbook | Partial | Signed secret-free isolated runtime observability, recovery, and disable drill with sanitized artifacts |
-| `G4-GAP-008` | Conservative UX and accessibility | Pending implementation | Rendered state, wording, action, accessibility, and safe-claim review across affected Wallet surfaces |
+| `G4-GAP-008` | Conservative UX and accessibility | Local no-user-surface boundary verified / independent review pending | Independently confirm current Mosaic unreachability and structural coverage; review the future-interface and safe-claim contract; require rendered assistive-technology validation if an interface is introduced |
 | `G4-GAP-009` | Independent review | Pending independent review | Current dispositions for all seven lanes and no unresolved release-blocking finding |
 
 ## Change Log
@@ -64,3 +64,4 @@ These are predeclared program gaps, not independent findings and not substitutes
 | Date | Change | Revision | Authoritative effect |
 | --- | --- | --- | --- |
 | 2026-08-23 | Register created with required lanes and predeclared evidence gaps | Git revision containing this file | Review intake only; no lane assigned or disposition granted |
+| 2026-08-23 | Bound Wallet's locally verified no-user-surface evidence and reframed the UXC gap without assigning a reviewer | Git revision containing this update | Local evidence intake only; UXC and every independent disposition remain open |

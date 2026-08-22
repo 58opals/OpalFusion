@@ -20,8 +20,8 @@ Reviewers may cover more than one lane only when they declare the relevant exper
 | Wallet production source | `6fcfca789087f77ec556b22feec37e7b7226ad1d` | Sole application session owner, authenticated persistence, Keychain custody, concrete disabled transport, recovery, and aggregate observability |
 | Wallet executed test controls | `d0f232fb998730fad6282b536d51b6b4c5e210c9` | Exact-selector enumeration and the preserved 3/3 result bundle |
 | Wallet current test controls | `11ae405a1d6cf894934f512ef1e5b981672b6c19` | Timeout-only successor that begins graceful termination at 55 seconds and force-kills at 60; unchanged tests were not rerun |
-| Wallet G4 evidence | `14e0a6795acce5db4fc1f40705ad50f7ca58dcf4` | Privacy contract, bounded results, command non-proofs, and recovery-disable runbook |
-| Wallet G4 manifest | `43d405ebe389025363cf7f14ca41893beb289736` | Exact graph, stage states, budgets, run conditions, and authorization boundaries |
+| Wallet G4 evidence | `728d7cbaecb335e56eb62cc81afb13043a84f464` | Privacy contract, bounded results, recovery-disable runbook, no-user-surface reachability proof, structural guard, and future-interface contract |
+| Wallet G4 manifest | `6043c1b0d4a35302d5c3f43a277a3699206ff922` | Exact graph, stage states, budgets, run conditions, authorization boundaries, and exact evidence binding |
 | OpalFusion private status before this packet | `2d725ddbbe980442d8f1d899d9fa5b1abe385de1` | Private authoritative G4 progress checkpoint; public runtime revision remains unchanged |
 
 The packet itself is frozen by the OpalFusion Git revision containing this file and [`mosaic-g4-findings-register.md`](mosaic-g4-findings-register.md). Review conclusions must name that packet revision and every reviewed source revision. A later source, configuration, specification, test, or evidence change invalidates only the affected lane unless the reviewer records a broader dependency.
@@ -45,7 +45,7 @@ The packet itself is frozen by the OpalFusion Git revision containing this file 
 - [`mosaic-security-model.md`](mosaic-security-model.md) owns threat assumptions, security invariants, safe claims, required verification, and review gates.
 - [`mosaic-mainnet-alpha-progress.md`](mosaic-mainnet-alpha-progress.md) owns non-normative sequencing and closure status without weakening the sources above.
 - [`mosaic-g0-closure-evidence-2026-08-21.md`](mosaic-g0-closure-evidence-2026-08-21.md), [`mosaic-g1-closure-evidence-2026-08-21.md`](mosaic-g1-closure-evidence-2026-08-21.md), [`mosaic-g2-closure-evidence-2026-08-21.md`](mosaic-g2-closure-evidence-2026-08-21.md), and [`mosaic-g3-closure-evidence-2026-08-23.md`](mosaic-g3-closure-evidence-2026-08-23.md) own the exact closed-gate evidence.
-- Wallet `docs/readiness/mosaic-g4-assurance-manifest.json`, `docs/readiness/mosaic-g4-observability-evidence-2026-08-23.md`, and `docs/readiness/mosaic-private-alpha-recovery-disable-runbook.md` own the current application assurance state.
+- Wallet `docs/readiness/mosaic-g4-assurance-manifest.json`, `docs/readiness/mosaic-g4-observability-evidence-2026-08-23.md`, `docs/readiness/mosaic-g4-conservative-ux-accessibility-evidence-2026-08-23.md`, and `docs/readiness/mosaic-private-alpha-recovery-disable-runbook.md` own the current application assurance state.
 
 ## Review Lane Status
 
@@ -57,7 +57,7 @@ The packet itself is frozen by the OpalFusion Git revision containing this file 
 | `PRI` — Privacy, Tor, relay, and traffic analysis | Independent privacy and network-metadata reviewer | Unassigned | Awaiting supported-environment evidence and review |
 | `WAL` — Wallet policy, recovery, and transaction safety | Independent wallet-policy reviewer | Unassigned | Awaiting review |
 | `OPS` — Deployment, observability, incident response, and disable | Independent deployment or operations reviewer | Unassigned | Awaiting signed drill and review |
-| `UXC` — UX, accessibility, and safe claims | Independent product-safety and accessibility reviewer | Unassigned | Awaiting application review |
+| `UXC` — UX, accessibility, and safe claims | Independent product-safety and accessibility reviewer | Unassigned | Awaiting independent no-user-surface and safe-claim review |
 
 “Unassigned” and “awaiting review” mean unknown, not pass. G4 cannot close until every required lane has an independent disposition and every release-blocking finding is resolved and retested at the exact affected graph.
 
@@ -199,21 +199,22 @@ Local static checks, unsigned test builds, a passing Release compile, and focuse
 
 - [`mosaic-security-model.md`](mosaic-security-model.md#11-safe-public-claims) and the private-deployment safe-wording rule.
 - Wallet CashFusion presenters and views under `Wallet/App/Presenter/CashFusion/`, `Wallet/App/View/CashFusion/`, and the account CashFusion pilot surfaces.
-- Wallet Mosaic state, capability, policy, presenter, and view expectations in `docs/plans/mosaic-private-alpha.md`.
+- Wallet Mosaic state, capability, policy, and future-interface expectations in `docs/plans/mosaic-private-alpha.md`.
+- Wallet `docs/readiness/mosaic-g4-conservative-ux-accessibility-evidence-2026-08-23.md` and `scripts/check-mosaic-private-alpha-user-surface-boundary.sh`, which locally prove and guard the current absence of a production Mosaic View, Presenter, Intent, Router, localization entry, operation-factory consumer, or interactor-facade caller.
 - Wallet readiness tracker, application evidence, observability evidence, and recovery-disable runbook.
 
 ### Mandatory Questions
 
 1. Is any private-alpha Mosaic action or state user-accessible today, and if not, do internal or future-facing surfaces avoid implying availability?
-2. Do preparation, waiting, recovery-required, quarantined, suspended, approval, cleanup, disabled, and error states use conservative language with an unambiguous safe next action?
+2. Is the current no-user-surface decision appropriate while the operator workflow and authorization boundary remain incomplete, and does the structural guard cover every plausible app, command, capability, and system-surface entry point?
 3. Do labels, values, status, errors, progress, warnings, confirmation, stop, and disable affordances avoid “anonymous,” “untraceable,” “audited,” “production-ready,” participant-count anonymity, Sybil-resistance, or relay-independence implications?
-4. Are VoiceOver, Dynamic Type, keyboard navigation, focus order, contrast, Reduce Motion, localization expansion, status updates, and destructive-action confirmation adequate on every supported Wallet surface?
+4. If a future approved interface is reviewed, do preparation, waiting, recovery-required, quarantined, suspended, approval, cleanup, disabled, and error states provide conservative wording and a safe next action, and are VoiceOver, Dynamic Type, keyboard navigation, focus order, contrast, Reduce Motion, localization expansion, status updates, and destructive-action confirmation adequate on every supported Wallet surface?
 5. Does broadcast approval remain explicit and separate from successful preparation or protocol completion, with amounts, fees, inputs, outputs, and consequences reviewed through Wallet policy?
 6. Which wording is acceptable for private internal evidence, and which wording remains prohibited for public, App Store, fundraising, release, or investor use?
 
 ### Declared Non-Proofs
 
-Architecture plans and conservative documentation do not constitute a rendered UX or accessibility review. No public Mosaic availability, privacy, anonymity, audit, production-readiness, or measured-anonymity claim is supported by the current evidence.
+The local reachability proof establishes that no Mosaic interface is exposed at the frozen Wallet graph; it is not an independent review and does not validate any future rendered interface. No public Mosaic availability, privacy, anonymity, audit, production-readiness, or measured-anonymity claim is supported by the current evidence.
 
 ## Existing Evidence Summary
 
@@ -223,7 +224,7 @@ Architecture plans and conservative documentation do not constitute a rendered U
 | G1 | Authenticated outer record, Keychain anchor, atomic persistence, cross-process exclusion, fresh-process fault matrix, and terminal cleanup | Compromised-host resistance or complete physical-device secret analysis |
 | G2 | Disabled-by-default concrete Tor-only adapter, exact route policy, acknowledgement persistence, local production-adapter loopback, and restart cleanup | External route, operator, Tor-circuit, timing, delivery, or anonymity evidence |
 | G3 | Sole application owner, exact host commit, 78 publications, real-RSABSSA rehearsal, route-loss terminalization, fresh composition recovery, zero recovery opens or sends, and no broadcast intent | Broadcast, chain reconciliation, value accounting, canary, or G4 assurance closure |
-| G4 local slices | Release compile boundary, machine assurance manifest, exact Debug and Release entrypoints, aggregate diagnostics, 3/3 bounded signal and disable proof, and prepared no-network runbook | Exact package CI, complete vectors, parser fuzz, complete simulator faults, multi-device and supported-environment evidence, signed runbook drill, UX/accessibility review, and independent dispositions |
+| G4 local slices | Release compile boundary, machine assurance manifest, exact Debug and Release entrypoints, aggregate diagnostics, 3/3 bounded signal and disable proof, prepared no-network runbook, and locally verified no-user-surface UX/accessibility boundary | Exact package CI, complete vectors, parser fuzz, complete simulator faults, multi-device and supported-environment evidence, signed runbook drill, future rendered-interface validation if one is introduced, and independent dispositions |
 
 ## Reviewer Deliverable
 
