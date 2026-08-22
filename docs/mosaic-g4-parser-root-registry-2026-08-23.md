@@ -1,10 +1,12 @@
 # Mosaic G4 Parser-Root Registry — 2026-08-23
 
-Status: `partial`. OpalFusion's low-level parser implementation-file surface is frozen and machine-checked, and the first-party mutation campaign covers 75 positive seeds across twelve focused test bodies. Composite byte entrypoints and cross-repository parser roots still require reconciliation before the G4 every-parser requirement can close.
+Status: `partial`. OpalFusion's low-level parser implementation-file surface and its reviewed 41-covered / 3-partial-variant / 8-closure-budget disposition are machine-checked, and the first-party mutation campaign covers 75 positive seeds across twelve focused test bodies. Composite byte entrypoints and cross-repository parser roots still require reconciliation before the G4 every-parser requirement can close.
 
 ## Registry Boundary
 
 [`mosaic-g4-parser-implementation-files-2026-08-23.txt`](mosaic-g4-parser-implementation-files-2026-08-23.txt) records the 52 Mosaic production files that directly invoke `CanonicalDecoder.decode` or `JSONDecoder().decode`. [`../scripts/check-mosaic-g4-parser-root-registry.sh`](../scripts/check-mosaic-g4-parser-root-registry.sh) regenerates that sorted file set and fails on addition, removal, or rename. This prevents a new low-level parser implementation file from bypassing root review.
+
+[`mosaic-g4-parser-root-map-2026-08-23.txt`](mosaic-g4-parser-root-map-2026-08-23.txt) assigns every registered implementation file one reviewed disposition, deterministic target, and root description. The checker requires exact one-to-one path parity and freezes the current counts at 41 `covered`, three `partial-variants`, and eight `closure-budget`. `covered` means the named passing deterministic body reaches the file's root; it does not imply every enum variant in a different file. `partial-variants` names a reached recovery root with open positive discriminants. `closure-budget` identifies the transport-bootstrap family that cannot fit the ordinary fixture lane.
 
 The earlier source diagnostic found 93 declarations containing `func decode`. That declaration count is not the registry: it includes private helpers and non-byte accessors, while it misses parsers exposed through names such as `load`, `restore`, `open`, and `validate`. The 52-file gate is likewise a freshness boundary rather than an every-parser proof. Root accounting must follow externally reachable untrusted-byte entrypoints and map private helper decoders transitively to them.
 
@@ -27,8 +29,8 @@ The seed count is corpus accounting, not a coverage fraction. A seed may travers
 
 ## Open OpalFusion Root Queue
 
-- Cover remaining positive runtime recovery-state discriminants: pre-manifest abort causes, formation and terminal publication state, authorized terminal state, and post-manifest terminal state. The manifest-proposal-candidate root and validated-manifest plus initialized-journal recovery discriminants are now covered.
-- Map and cover transport-bootstrap byte entrypoints for the authorization key, control claim and set, blind response set, anonymous request, registration and set, assignment, acknowledgement and set, consensus envelopes, and publication restoration. These APIs parse through functions named `make`, `load`, `restore`, or `open`, so declaration-name scans do not find them. Three ordinary-lane shapes crossed 60 seconds because the runtime-generated RSA fixture dominates; do not repeat them. Use a digest-pinned first-party fixture or the single 600-second closure lane, recording fixture and parser time separately.
+- Cover the three `partial-variants` recovery files with remaining positive runtime discriminants: pre-manifest abort causes, formation and terminal publication state, authorized terminal state, and post-manifest terminal state. The manifest-proposal-candidate root and validated-manifest plus initialized-journal recovery discriminants are covered.
+- Cover the eight `closure-budget` transport-bootstrap implementation files through their public parent roots: authorization key; control claim and set; blind response set; anonymous request; registration and set; assignment; acknowledgement and set; consensus-envelope opens; and publication restoration. Three ordinary-lane shapes crossed 60 seconds because the runtime-generated RSA fixture dominates; do not repeat them. Use a digest-pinned first-party fixture or the single 600-second closure lane, recording fixture and parser time separately.
 - Reconcile any remaining composite validation and relay-restoration byte entrypoints that call an already-registered low-level parser but impose additional canonical, authority, time, route, or binding checks.
 
 ## Cross-Repository Queue
