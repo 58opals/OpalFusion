@@ -11,6 +11,7 @@ struct MosaicMainnetAlphaParserMutationValidator {
     typealias Attempt = OpalFusion.Mosaic.Attempt
     typealias Codec = Alpha.CanonicalWireCodec
     typealias Nostr = OpalFusion.Mosaic.NostrNamespace
+    typealias OpalV0 = OpalFusion.Mosaic.OpalV0
     typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
 
     @Test(
@@ -138,6 +139,145 @@ struct MosaicMainnetAlphaParserMutationValidator {
     }
 
     @Test(
+        "Mutate Opal v0 canonical wire parsers",
+        .timeLimit(.minutes(1))
+    )
+    func mutateOpalV0CanonicalWireParsers() throws {
+        typealias OpalV0Codec = OpalV0.CanonicalWireCodec
+
+        let authorizationRequest = try OpalV0.AuthorizationRequestPayload(
+            slot: 7,
+            blindedMessage: .init(
+                rawRepresentation: Data(repeating: 0xAA, count: 256)
+            )
+        )
+        let authorizationResponse = try OpalV0.AuthorizationResponsePayload(
+            slot: 22,
+            blindSignature: .init(
+                rawRepresentation: Data(repeating: 0xBB, count: 256)
+            )
+        )
+        let authorizationToken = try MosaicOpalV0WireContractValidator
+            .makeAuthorizationToken()
+        let componentCommitment = try MosaicOpalV0WireContractValidator
+            .makeCommitment(index: 9)
+        let groupedCommitment = try MosaicOpalV0WireContractValidator
+            .makeGroupedCommitment()
+        let inputComponent = try MosaicOpalV0WireContractValidator
+            .makeInputComponent()
+        let outputComponent = try MosaicOpalV0WireContractValidator
+            .makeOutputComponent()
+        let blankComponent = try MosaicOpalV0WireContractValidator
+            .makeBlankComponent(index: 9)
+        let anonymousComponent = try OpalV0.AnonymousComponentPayload(
+            roundIdentifier: [UInt8](repeating: 0x11, count: 32),
+            authorizationToken: authorizationToken,
+            component: blankComponent
+        )
+        let acknowledgement = try OpalV0.PreSignAcknowledgementPayload(
+            roundIdentifier: [UInt8](repeating: 0x11, count: 32),
+            transcriptRoot: [UInt8](repeating: 0x22, count: 32)
+        )
+        let commitmentSet = try MosaicOpalV0WireContractValidator
+            .makeCommitmentSet()
+        let componentSet = try MosaicOpalV0WireContractValidator
+            .makeBlankComponentSet()
+        let aggregateFragment = try #require(
+            OpalV0.AggregateFragmenter.fragments(
+                for: commitmentSet,
+                roundIdentifier: MosaicOpalV0WireContractValidator
+                    .aggregateFragmentRoundIdentifier
+            ).first
+        )
+        let vectors = try [
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 authorization request",
+                value: authorizationRequest,
+                encode: OpalV0Codec.encodeAuthorizationRequest,
+                decode: OpalV0Codec.decodeAuthorizationRequest
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 authorization response",
+                value: authorizationResponse,
+                encode: OpalV0Codec.encodeAuthorizationResponse,
+                decode: OpalV0Codec.decodeAuthorizationResponse
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 authorization token",
+                value: authorizationToken,
+                encode: OpalV0Codec.encodeAuthorizationToken,
+                decode: { try OpalV0Codec.decodeAuthorizationToken(from: $0) }
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 component commitment",
+                value: componentCommitment,
+                encode: OpalV0Codec.encodeComponentCommitment,
+                decode: OpalV0Codec.decodeComponentCommitment
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 grouped commitment",
+                value: groupedCommitment,
+                encode: OpalV0Codec.encodeGroupedCommitment,
+                decode: OpalV0Codec.decodeGroupedCommitment
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 input component",
+                value: inputComponent,
+                encode: OpalV0Codec.encodeComponent,
+                decode: OpalV0Codec.decodeComponent
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 output component",
+                value: outputComponent,
+                encode: OpalV0Codec.encodeComponent,
+                decode: OpalV0Codec.decodeComponent
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 blank component",
+                value: blankComponent,
+                encode: OpalV0Codec.encodeComponent,
+                decode: OpalV0Codec.decodeComponent
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 anonymous component",
+                value: anonymousComponent,
+                encode: OpalV0Codec.encodeAnonymousComponent,
+                decode: { try OpalV0Codec.decodeAnonymousComponent(from: $0) }
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 pre-sign acknowledgement",
+                value: acknowledgement,
+                encode: OpalV0Codec.encodePreSignAcknowledgement,
+                decode: OpalV0Codec.decodePreSignAcknowledgement
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 commitment set",
+                value: commitmentSet,
+                encode: OpalV0Codec.encodeCommitmentSet,
+                decode: { try OpalV0Codec.decodeCommitmentSet(from: $0) }
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 component set",
+                value: componentSet,
+                encode: OpalV0Codec.encodeComponentSet,
+                decode: { try OpalV0Codec.decodeComponentSet(from: $0) }
+            ),
+            MosaicDeterministicParserMutationVector.canonicalRoundTrip(
+                name: "Opal v0 aggregate fragment",
+                value: aggregateFragment,
+                encode: OpalV0Codec.encodeAggregateFragment,
+                decode: OpalV0Codec.decodeAggregateFragment
+            ),
+        ]
+
+        try MosaicDeterministicParserMutationCampaign.validate(
+            vectors,
+            seed: 0x6A09_E667_F3BC_C909,
+            seededMutationCount: 64
+        )
+    }
+
+    @Test(
         "Mutate core post-manifest canonical wire parsers",
         .timeLimit(.minutes(1))
     )
@@ -195,6 +335,38 @@ struct MosaicMainnetAlphaParserMutationValidator {
             bchSignatureAuthorizationRequests: MosaicMainnetAlphaFixtures
                 .makeAuthorizationRequests(byteOffset: 0x40)
         )
+        let componentAuthorizationResponses = try (0 ..< Alpha
+            .componentCountPerContributor).map { slot in
+                try OpalV0.AuthorizationResponsePayload(
+                    slot: slot,
+                    blindSignature: .init(
+                        rawRepresentation: Data(
+                            repeating: UInt8(slot + 1),
+                            count: OpalV0.authorizationMaterialByteCount
+                        )
+                    )
+                )
+            }
+        let bchSignatureAuthorizationResponses = try (0 ..< Alpha
+            .componentCountPerContributor).map { slot in
+                try OpalV0.AuthorizationResponsePayload(
+                    slot: slot,
+                    blindSignature: .init(
+                        rawRepresentation: Data(
+                            repeating: UInt8(slot + 0x41),
+                            count: OpalV0.authorizationMaterialByteCount
+                        )
+                    )
+                )
+            }
+        let authorizationResponseSet = try Alpha.AuthorizationResponseSet(
+            roundIdentifier: playerCommit.roundIdentifier,
+            contributor: playerCommit.contributor,
+            playerCommitDigest: playerCommit.digest,
+            componentAuthorizationResponses: componentAuthorizationResponses,
+            bchSignatureAuthorizationResponses:
+                bchSignatureAuthorizationResponses
+        )
         let fragmentBodyByteCount = try #require(
             reservation.expectedBodyByteCount(at: 0)
         )
@@ -209,6 +381,20 @@ struct MosaicMainnetAlphaParserMutationValidator {
                 purpose: .bchSignature,
                 binding: [UInt8](repeating: 0x91, count: 32)
             )
+        let anonymousComponentValue = try MosaicOpalV0WireContractValidator
+            .makeBlankComponent(index: 99)
+        let anonymousComponent = try Alpha.AnonymousComponentPayload(
+            roundIdentifier: manifest.binding.roundIdentifier,
+            authorizationToken: MosaicMainnetAlphaFixtures
+                .makeAuthorizationToken(
+                    purpose: .component,
+                    binding: Alpha.AuthorizationTokenInput.componentBinding(
+                        for: anonymousComponentValue
+                    ),
+                    roundIdentifier: manifest.binding.roundIdentifier
+                ),
+            component: anonymousComponentValue
+        )
         let transcriptRoot = try Attempt.TranscriptRoot(
             validating: MosaicMainnetAlphaFixtures.transcriptRoot
         )
@@ -264,7 +450,51 @@ struct MosaicMainnetAlphaParserMutationValidator {
             entries: [bchEntry],
             expectedInputCount: 1
         )
+        let completeTransactionPublicKey = try
+            MosaicOpalV0WireContractValidator.publicKeyFixture(
+                scalar: 1_300
+            ).compressed
+        let completeTransaction = OpalFusion.Execution.BCHTransaction(
+            version: 2,
+            inputs: [
+                .init(
+                    previousTransactionHashLittleEndian:
+                        [UInt8](repeating: 0x31, count: 32),
+                    previousOutputIndex: 0,
+                    unlockingScript: [0x41]
+                        + [UInt8](repeating: 0x52, count: 64)
+                        + [0x41, 0x21]
+                        + completeTransactionPublicKey,
+                    sequence: UInt32.max
+                ),
+            ],
+            outputs: [
+                .init(
+                    amountSatoshis: 1,
+                    lockingScript: MosaicOpalV0WireContractValidator
+                        .p2pkhLockingScript(fill: 0x73)
+                ),
+            ],
+            lockTime: 0
+        )
+        let completeTransactionPayload = try Alpha.CompleteTransactionPayload(
+            roundIdentifier: manifest.binding.roundIdentifier,
+            transcriptRoot: MosaicMainnetAlphaFixtures.transcriptRoot,
+            completeTransaction: .init(
+                transactionBytes: completeTransaction.serialize()
+            )
+        )
         let vectors = [
+            MosaicDeterministicParserMutationVector(
+                name: "round manifest core",
+                seedBytes: try Codec.encodeManifestCore(manifest.core)
+            ) { bytes in
+                let decoded = try Codec.decodeManifestCore(
+                    from: bytes,
+                    expectedContext: manifestContext
+                )
+                return try Codec.encodeManifestCore(decoded) == bytes
+            },
             MosaicDeterministicParserMutationVector(
                 name: "round manifest",
                 seedBytes: Codec.encodeManifest(manifest)
@@ -310,6 +540,17 @@ struct MosaicMainnetAlphaParserMutationValidator {
                 return Codec.encodePlayerCommit(decoded) == bytes
             },
             MosaicDeterministicParserMutationVector(
+                name: "authorization response set",
+                seedBytes: Codec.encodeAuthorizationResponseSet(
+                    authorizationResponseSet
+                )
+            ) { bytes in
+                let decoded = try Codec.decodeAuthorizationResponseSet(
+                    from: bytes
+                )
+                return Codec.encodeAuthorizationResponseSet(decoded) == bytes
+            },
+            MosaicDeterministicParserMutationVector(
                 name: "aggregate fragment",
                 seedBytes: try Codec.encodeAggregateFragment(
                     aggregateFragment
@@ -329,6 +570,15 @@ struct MosaicMainnetAlphaParserMutationValidator {
             ) { bytes in
                 let decoded = try Codec.decodeAuthorizationToken(from: bytes)
                 return try Codec.encodeAuthorizationToken(decoded) == bytes
+            },
+            MosaicDeterministicParserMutationVector(
+                name: "anonymous component",
+                seedBytes: try Codec.encodeAnonymousComponent(
+                    anonymousComponent
+                )
+            ) { bytes in
+                let decoded = try Codec.decodeAnonymousComponent(from: bytes)
+                return try Codec.encodeAnonymousComponent(decoded) == bytes
             },
             MosaicDeterministicParserMutationVector(
                 name: "pre-sign acknowledgement submission",
@@ -377,6 +627,18 @@ struct MosaicMainnetAlphaParserMutationValidator {
                     expectedInputCount: 1
                 )
                 return Codec.encodeBCHSignatureSet(decoded) == bytes
+            },
+            MosaicDeterministicParserMutationVector(
+                name: "complete transaction payload",
+                seedBytes: Codec.encodeCompleteTransactionPayload(
+                    completeTransactionPayload
+                )
+            ) { bytes in
+                let decoded = try Codec.decodeCompleteTransactionPayload(
+                    from: bytes
+                )
+                return Codec.encodeCompleteTransactionPayload(decoded)
+                    == bytes
             },
         ]
 

@@ -21,7 +21,10 @@ extension MosaicMainnetAlphaPrivateCanonicalContractValidator {
         let matchesGenesisHashError: (any Error) -> Bool
     }
 
-    @Test("Reject malformed canonical documents with deterministic bounds")
+    @Test(
+        "Reject malformed canonical documents with deterministic bounds",
+        .timeLimit(.minutes(1))
+    )
     func rejectMalformedCanonicalDocumentsWithDeterministicBounds() async throws {
         let formation = try MosaicPrivateDeploymentFixtures.makeFormation()
         let manifest = try MosaicPrivateDeploymentFixtures
@@ -194,6 +197,19 @@ extension MosaicMainnetAlphaPrivateCanonicalContractValidator {
                 }
             }
         }
+
+        try MosaicDeterministicParserMutationCampaign.validate(
+            vectors.map { vector in
+                MosaicDeterministicParserMutationVector(
+                    name: "private deployment \(vector.name)",
+                    seedBytes: vector.canonicalBytes
+                ) { bytes in
+                    try vector.decodeCanonicalBytes(bytes) == bytes
+                }
+            },
+            seed: 0xBB67_AE85_84CA_A73B,
+            seededMutationCount: 64
+        )
 
         var unknownContextKind = abortAuthority.context.canonicalBytes
         unknownContextKind[4 + Alpha.PrivateDeploymentNostrSelector.identifier.utf8.count] = 0xFF

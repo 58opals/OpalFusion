@@ -6,6 +6,18 @@ struct MosaicDeterministicParserMutationVector {
     let name: String
     let seedBytes: [UInt8]
     let validateAcceptedBytes: ([UInt8]) throws -> Bool
+
+    static func canonicalRoundTrip<Value>(
+        name: String,
+        value: Value,
+        encode: @escaping (Value) throws -> [UInt8],
+        decode: @escaping ([UInt8]) throws -> Value
+    ) throws -> Self {
+        let seedBytes = try encode(value)
+        return .init(name: name, seedBytes: seedBytes) { bytes in
+            try encode(decode(bytes)) == bytes
+        }
+    }
 }
 
 enum MosaicDeterministicParserMutationCampaign {
