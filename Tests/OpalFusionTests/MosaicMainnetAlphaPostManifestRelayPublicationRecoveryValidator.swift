@@ -532,13 +532,76 @@ struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
             .transportAccepted,
             eventIdentifier: continuation.publication.eventIdentifier
         )
-        let snapshot = try #require(persistenceStore.load(binding))
+        let controlSnapshot = try #require(persistenceStore.load(binding))
+
+        let anonymousPersistenceStore =
+            MosaicPrivateAlphaRuntimePersistenceStore()
+        let anonymousPersistence = Runtime.PostManifestPublicationPersistence(
+            load: anonymousPersistenceStore.load,
+            compareAndSwap: anonymousPersistenceStore.compareAndSwap
+        )
+        try Journal.initializeRecoverySnapshot(
+            binding: binding,
+            persistence: anonymousPersistence,
+            context: context,
+            requireExisting: false
+        )
+        let anonymousJournal = try Journal(
+            context: context,
+            persistence: Journal.recoveryPersistence(
+                binding: binding,
+                persistence: anonymousPersistence
+            )
+        )
+        let anonymousContinuation = try anonymousJournal.prepare(
+            fixture.giftWrap,
+            binding: .init(
+                channelPurpose: .anonymousComponents,
+                recipientEventIdentity:
+                    fixture.binding.recipientEventIdentity,
+                expiryUnixSeconds: fixture.binding.expiryUnixSeconds
+            )
+        )
+        try anonymousJournal.recordPublicationPermit(
+            eventIdentifier:
+                anonymousContinuation.publication.eventIdentifier
+        )
+        for endpoint in context.endpoints.prefix(2) {
+            try anonymousJournal.recordAttempt(
+                eventIdentifier:
+                    anonymousContinuation.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+            try anonymousJournal.recordAcknowledgement(
+                .accepted,
+                eventIdentifier:
+                    anonymousContinuation.publication.eventIdentifier,
+                endpoint: endpoint
+            )
+        }
+        try anonymousJournal.recordCompletion(
+            .transportAccepted,
+            eventIdentifier:
+                anonymousContinuation.publication.eventIdentifier
+        )
+        let anonymousSnapshot = try #require(
+            anonymousPersistenceStore.load(binding)
+        )
 
         try MosaicDeterministicParserMutationCampaign.validate(
             [
                 .init(
-                    name: "post-manifest publication journal snapshot",
-                    seedBytes: Array(snapshot)
+                    name: "post-manifest control publication journal snapshot",
+                    seedBytes: Array(controlSnapshot)
+                ) { bytes in
+                    try Journal.validateDrainedRecoveryReadback(
+                        Data(bytes),
+                        expectedContext: context
+                    )
+                },
+                .init(
+                    name: "post-manifest permitted anonymous publication journal snapshot",
+                    seedBytes: Array(anonymousSnapshot)
                 ) { bytes in
                     try Journal.validateDrainedRecoveryReadback(
                         Data(bytes),
