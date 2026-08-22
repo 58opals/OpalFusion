@@ -20,8 +20,8 @@ Reviewers may cover more than one lane only when they declare the relevant exper
 | Wallet production source | `6fcfca789087f77ec556b22feec37e7b7226ad1d` | Sole application session owner, authenticated persistence, Keychain custody, concrete disabled transport, recovery, and aggregate observability |
 | Wallet executed test controls | `d0f232fb998730fad6282b536d51b6b4c5e210c9` | Exact-selector enumeration and the preserved 3/3 result bundle |
 | Wallet current test controls | `11ae405a1d6cf894934f512ef1e5b981672b6c19` | Timeout-only successor that begins graceful termination at 55 seconds and force-kills at 60; unchanged tests were not rerun |
-| Wallet G4 evidence | `728d7cbaecb335e56eb62cc81afb13043a84f464` | Privacy contract, bounded results, recovery-disable runbook, no-user-surface reachability proof, structural guard, and future-interface contract |
-| Wallet G4 manifest | `6043c1b0d4a35302d5c3f43a277a3699206ff922` | Exact graph, stage states, budgets, run conditions, authorization boundaries, and exact evidence binding |
+| Wallet G4 evidence | `579584aee8ae8f1cc9794007954a5c5182a94609` | Privacy contract, bounded results, recovery-disable runbook, no-user-surface proof, and prepared manual-only exact-graph package matrix |
+| Wallet G4 manifest | `8375558e6c540fc9b2e7534ee9818cfa2986aa48` | Exact graph, stage states, budgets, run conditions, authorization boundaries, and exact evidence binding |
 | OpalFusion private status before this packet | `2d725ddbbe980442d8f1d899d9fa5b1abe385de1` | Private authoritative G4 progress checkpoint; public runtime revision remains unchanged |
 
 The packet itself is frozen by the OpalFusion Git revision containing this file and [`mosaic-g4-findings-register.md`](mosaic-g4-findings-register.md). Review conclusions must name that packet revision and every reviewed source revision. A later source, configuration, specification, test, or evidence change invalidates only the affected lane unless the reviewer records a broader dependency.
@@ -45,7 +45,7 @@ The packet itself is frozen by the OpalFusion Git revision containing this file 
 - [`mosaic-security-model.md`](mosaic-security-model.md) owns threat assumptions, security invariants, safe claims, required verification, and review gates.
 - [`mosaic-mainnet-alpha-progress.md`](mosaic-mainnet-alpha-progress.md) owns non-normative sequencing and closure status without weakening the sources above.
 - [`mosaic-g0-closure-evidence-2026-08-21.md`](mosaic-g0-closure-evidence-2026-08-21.md), [`mosaic-g1-closure-evidence-2026-08-21.md`](mosaic-g1-closure-evidence-2026-08-21.md), [`mosaic-g2-closure-evidence-2026-08-21.md`](mosaic-g2-closure-evidence-2026-08-21.md), and [`mosaic-g3-closure-evidence-2026-08-23.md`](mosaic-g3-closure-evidence-2026-08-23.md) own the exact closed-gate evidence.
-- Wallet `docs/readiness/mosaic-g4-assurance-manifest.json`, `docs/readiness/mosaic-g4-observability-evidence-2026-08-23.md`, `docs/readiness/mosaic-g4-conservative-ux-accessibility-evidence-2026-08-23.md`, and `docs/readiness/mosaic-private-alpha-recovery-disable-runbook.md` own the current application assurance state.
+- Wallet `docs/readiness/mosaic-g4-assurance-manifest.json`, `docs/readiness/mosaic-g4-observability-evidence-2026-08-23.md`, `docs/readiness/mosaic-g4-conservative-ux-accessibility-evidence-2026-08-23.md`, `docs/readiness/mosaic-g4-exact-graph-package-ci-preparation-2026-08-23.md`, and `docs/readiness/mosaic-private-alpha-recovery-disable-runbook.md` own the current application assurance state.
 
 ## Review Lane Status
 
@@ -177,7 +177,7 @@ G3 reaches explicit broadcast approval but does not authorize or prove a broadca
 ### Primary Source Map
 
 - Wallet `docs/readiness/mosaic-g4-assurance-manifest.json`, `docs/readiness/mosaic-g4-observability-evidence-2026-08-23.md`, and `docs/readiness/mosaic-private-alpha-recovery-disable-runbook.md`.
-- Wallet `scripts/check-mosaic-g4-assurance-manifest.sh`, static, Debug, Release, and exact observability runners.
+- Wallet `scripts/check-mosaic-g4-assurance-manifest.sh`, the manual-only exact-graph package workflow and runner, static, Debug, Release, and exact observability runners.
 - Wallet production composition, diagnostics configuration, observability interactor, and disabled session owner.
 - OpalFusion progress, security model, private-deployment supplement, this packet, and the findings register.
 
@@ -224,7 +224,7 @@ The local reachability proof establishes that no Mosaic interface is exposed at 
 | G1 | Authenticated outer record, Keychain anchor, atomic persistence, cross-process exclusion, fresh-process fault matrix, and terminal cleanup | Compromised-host resistance or complete physical-device secret analysis |
 | G2 | Disabled-by-default concrete Tor-only adapter, exact route policy, acknowledgement persistence, local production-adapter loopback, and restart cleanup | External route, operator, Tor-circuit, timing, delivery, or anonymity evidence |
 | G3 | Sole application owner, exact host commit, 78 publications, real-RSABSSA rehearsal, route-loss terminalization, fresh composition recovery, zero recovery opens or sends, and no broadcast intent | Broadcast, chain reconciliation, value accounting, canary, or G4 assurance closure |
-| G4 local slices | Release compile boundary, machine assurance manifest, exact Debug and Release entrypoints, aggregate diagnostics, 3/3 bounded signal and disable proof, prepared no-network runbook, and locally verified no-user-surface UX/accessibility boundary | Exact package CI, complete vectors, parser fuzz, complete simulator faults, multi-device and supported-environment evidence, signed runbook drill, future rendered-interface validation if one is introduced, and independent dispositions |
+| G4 local slices | Release compile boundary, machine assurance manifest, exact Debug and Release entrypoints, aggregate diagnostics, 3/3 bounded signal and disable proof, prepared no-network runbook, locally verified no-user-surface UX/accessibility boundary, and a manual-only exact-graph package matrix with locally checked ephemeral locks | Exact package CI execution, complete vectors, parser fuzz, complete simulator faults, multi-device and supported-environment evidence, signed runbook drill, future rendered-interface validation if one is introduced, and independent dispositions |
 
 ## Reviewer Deliverable
 
