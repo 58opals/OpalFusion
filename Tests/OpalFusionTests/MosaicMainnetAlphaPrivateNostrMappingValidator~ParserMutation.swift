@@ -181,6 +181,18 @@ extension MosaicMainnetAlphaPrivateNostrMappingValidator {
                 )
             },
             semanticEventVector(
+                name: "pre-manifest manifest proposal candidate",
+                event: proposalEvent
+            ) {
+                _ = try Alpha.PreManifestNostrCodec
+                    .decodeManifestProposalCandidate(
+                        $0,
+                        discoveryEpochStartUnixSeconds: epochStart,
+                        proposalContext: proposal.expectedContext,
+                        currentUnixSeconds: epochStart + 181
+                    )
+            },
+            semanticEventVector(
                 name: "pre-manifest manifest proposal",
                 event: proposalEvent
             ) {
