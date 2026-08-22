@@ -15,6 +15,8 @@ Opal Fusion is the collaborative-transaction protocol package for the Opal Bitco
 - [Opal Fusion Specification](docs/opal-fusion-specification.md): normative product hierarchy, shared facade, engine selection, fallback, and host boundaries.
 - [Mosaic Protocol Specification](docs/mosaic-protocol-specification.md): draft peer-conducted protocol, roles, phases, manifest, transcript, transport contract, and release gates.
 - [Mosaic Security Model](docs/mosaic-security-model.md): Mosaic threats, trust assumptions, safe claims, privacy limits, and review gates.
+- [Mosaic G4 Independent Review Packet](docs/mosaic-g4-independent-review-packet-2026-08-23.md): exact private-alpha review target, required independent lanes, source and evidence map, mandatory questions, declared non-proofs, and reviewer deliverable.
+- [Mosaic G4 Findings Register](docs/mosaic-g4-findings-register.md): independent assignments, findings, remediation, retest, dispositions, and known evidence gaps; an empty register is never closure evidence.
 - [Mosaic Private-Alpha Transport Bootstrap.1](docs/mosaic-private-alpha-transport-bootstrap.md): package-owned authenticated mailbox distribution, wrapper/ACK recovery, replay, and concrete G2 application obligations.
 - [CashFusion Implementation Spec](docs/cashfusion-implementation-spec.md): normative Electron Cash `4.4.3` CashFusion behavior, round lifecycle, timing, and host seams.
 - [CashFusion Official Protocol Matrix](docs/cashfusion-official-protocol-matrix.md): row-level implementation status and test evidence against the pinned Electron Cash baseline.
