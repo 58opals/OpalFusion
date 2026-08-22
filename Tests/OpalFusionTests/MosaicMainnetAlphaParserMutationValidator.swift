@@ -799,4 +799,77 @@ struct MosaicMainnetAlphaParserMutationValidator {
             seededMutationCount: 64
         )
     }
+
+    @Test(
+        "Mutate validated private-alpha recovery snapshots",
+        .timeLimit(.minutes(1))
+    )
+    func mutateValidatedPrivateAlphaRecoverySnapshots() throws {
+        let fixture = try MosaicPrivateDeploymentFixtures
+            .makePrivateAlphaRuntimeProof()
+        let binding = try Runtime.Binding(
+            attemptIdentifier: Data(repeating: 0x64, count: 32),
+            generationIdentifier: Data(repeating: 0x65, count: 32),
+            materialIdentifier: Data(repeating: 0x66, count: 32)
+        )
+        let state = Runtime.RecoveryState(
+            binding: binding,
+            revision: 50,
+            discoveryEpochStartUnixSeconds: fixture.epoch,
+            phase: .walletReservation,
+            preManifestDocuments: fixture.proof.canonicalDocuments,
+            preManifestAbortCause: .none,
+            manifestState: .validated(
+                privateManifestProposalBytes: Data(
+                    fixture.proof.proposalValidation.canonicalBody
+                ),
+                completeManifestBytes: Data(
+                    fixture.proof.completeManifest.canonicalBytes
+                )
+            ),
+            postManifestJournalState: .initialized,
+            publicationState: .none,
+            terminalState: .active
+        )
+        try state.validate()
+        let snapshot = Array(try state.canonicalBytes())
+        func validateSnapshot(_ bytes: [UInt8]) throws -> Bool {
+            let decoded = try Runtime.RecoveryState.decode(
+                from: Data(bytes),
+                expectedBinding: binding
+            )
+            return try decoded.canonicalBytes() == Data(bytes)
+        }
+        #expect(try validateSnapshot(snapshot))
+
+        let phaseOffset = 4 + 2 + (32 * 3)
+        let abortCauseOffset = phaseOffset + 1 + 8 + 8 + 4
+            + fixture.proof.canonicalDocuments.reduce(0) {
+                $0 + 4 + $1.count
+            }
+        let manifestStateOffset = abortCauseOffset + 1
+        let proposalBytes = fixture.proof.proposalValidation.canonicalBody
+        let manifestBytes = fixture.proof.completeManifest.canonicalBytes
+        let journalStateOffset = manifestStateOffset + 1
+            + 4 + proposalBytes.count
+            + 4 + manifestBytes.count
+        let publicationStateOffset = journalStateOffset + 1
+        let terminalStateOffset = publicationStateOffset + 1
+        #expect(terminalStateOffset == snapshot.count - 1)
+
+        for offset in [
+            phaseOffset,
+            abortCauseOffset,
+            manifestStateOffset,
+            journalStateOffset,
+            publicationStateOffset,
+            terminalStateOffset,
+        ] {
+            var mutation = snapshot
+            mutation[offset] = .max
+            #expect(throws: Runtime.Failure.malformedRecoverySnapshot) {
+                _ = try validateSnapshot(mutation)
+            }
+        }
+    }
 }
