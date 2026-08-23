@@ -74,9 +74,9 @@ covered_count=$(awk -F ' :: ' '$2 == "covered" { count += 1 } END { print count 
 partial_count=$(awk -F ' :: ' '$2 == "partial-variants" { count += 1 } END { print count + 0 }' "$root_map")
 closure_count=$(awk -F ' :: ' '$2 == "closure-budget" { count += 1 } END { print count + 0 }' "$root_map")
 
-if [ "$map_count" -ne 52 ] || [ "$covered_count" -ne 49 ] || [ "$partial_count" -ne 3 ] || [ "$closure_count" -ne 0 ]; then
+if [ "$map_count" -ne 52 ] || [ "$covered_count" -ne 52 ] || [ "$partial_count" -ne 0 ] || [ "$closure_count" -ne 0 ]; then
     echo "unexpected parser root-map disposition counts: total=$map_count covered=$covered_count partial=$partial_count closure=$closure_count" >&2
     exit 1
 fi
 
-echo "Mosaic G4 parser root registry passed (52 files: 49 covered, 3 partial variants, 0 closure-budget)"
+echo "Mosaic G4 parser root registry passed (52 files: 52 covered, 0 partial variants, 0 closure-budget)"
