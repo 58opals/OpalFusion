@@ -29,10 +29,12 @@ enum MosaicDeterministicParserMutationCampaign {
     static func validate(
         _ vectors: [MosaicDeterministicParserMutationVector],
         seed: UInt64,
-        seededMutationCount: Int
+        seededMutationCount: Int,
+        maximumMutationCount: Int? = nil
     ) throws {
         try #require(vectors.isEmpty == false)
         try #require(seededMutationCount > 0)
+        try #require(maximumMutationCount.map { $0 > 1 } ?? true)
 
         for (vectorIndex, vector) in vectors.enumerated() {
             let vectorSeed = seed &+ UInt64(vectorIndex)
@@ -43,10 +45,13 @@ enum MosaicDeterministicParserMutationCampaign {
                 "Positive parser seed is unstable: \(vector.name), seed=\(seedText)"
             )
 
-            let mutations = mutations(
-                of: vector.seedBytes,
-                seed: vectorSeed,
-                seededMutationCount: seededMutationCount
+            let mutations = boundedMutations(
+                mutations(
+                    of: vector.seedBytes,
+                    seed: vectorSeed,
+                    seededMutationCount: seededMutationCount
+                ),
+                maximumCount: maximumMutationCount
             )
             var rejectedCount = 0
 
@@ -69,6 +74,21 @@ enum MosaicDeterministicParserMutationCampaign {
                 rejectedCount > 0,
                 "Mutation campaign did not exercise rejection: \(vector.name), seed=\(seedText)"
             )
+        }
+    }
+
+    private static func boundedMutations(
+        _ mutations: [Mutation],
+        maximumCount: Int?
+    ) -> [Mutation] {
+        guard let maximumCount, mutations.count > maximumCount else {
+            return mutations
+        }
+        let lastIndex = mutations.count - 1
+        return (0 ..< maximumCount).map { selectionIndex in
+            let mutationIndex = selectionIndex * lastIndex
+                / (maximumCount - 1)
+            return mutations[mutationIndex]
         }
     }
 
