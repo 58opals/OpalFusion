@@ -1,12 +1,12 @@
 # Mosaic G4 Parser-Root Registry — 2026-08-23
 
-Status: `partial`. OpalFusion's low-level parser implementation-file surface and its reviewed 41-covered / 3-partial-variant / 8-closure-budget disposition are machine-checked, and the first-party mutation campaign covers 75 positive seeds across twelve focused test bodies. Composite byte entrypoints and cross-repository parser roots still require reconciliation before the G4 every-parser requirement can close.
+Status: `partial`. OpalFusion's low-level parser implementation-file surface and its reviewed 49-covered / 3-partial-variant / 0-closure-budget disposition are machine-checked, and the first-party mutation campaign covers 85 positive seeds across 21 focused test bodies. Three recovery variants, composite byte entrypoints, and final cross-repository reconciliation remain before the G4 every-parser requirement can close.
 
 ## Registry Boundary
 
 [`mosaic-g4-parser-implementation-files-2026-08-23.txt`](mosaic-g4-parser-implementation-files-2026-08-23.txt) records the 52 Mosaic production files that directly invoke `CanonicalDecoder.decode` or `JSONDecoder().decode`. [`../scripts/check-mosaic-g4-parser-root-registry.sh`](../scripts/check-mosaic-g4-parser-root-registry.sh) regenerates that sorted file set and fails on addition, removal, or rename. This prevents a new low-level parser implementation file from bypassing root review.
 
-[`mosaic-g4-parser-root-map-2026-08-23.txt`](mosaic-g4-parser-root-map-2026-08-23.txt) assigns every registered implementation file one reviewed disposition, deterministic target, and root description. The checker requires exact one-to-one path parity and freezes the current counts at 41 `covered`, three `partial-variants`, and eight `closure-budget`. `covered` means the named passing deterministic body reaches the file's root; it does not imply every enum variant in a different file. `partial-variants` names a reached recovery root with open positive discriminants. `closure-budget` identifies the transport-bootstrap family that cannot fit the ordinary fixture lane.
+[`mosaic-g4-parser-root-map-2026-08-23.txt`](mosaic-g4-parser-root-map-2026-08-23.txt) assigns every registered implementation file one reviewed disposition, deterministic target, and root description. The checker requires exact one-to-one path parity and freezes the current counts at 49 `covered`, three `partial-variants`, and zero `closure-budget`. `covered` means the named passing deterministic body reaches the file's root; it does not imply every enum variant in a different file. `partial-variants` names a reached recovery root with open positive discriminants. The former transport-bootstrap closure budget was retired after a digest-pinned first-party fixture placed all eight registered files inside focused 60-second selectors.
 
 The earlier source diagnostic found 93 declarations containing `func decode`. That declaration count is not the registry: it includes private helpers and non-byte accessors, while it misses parsers exposed through names such as `load`, `restore`, `open`, and `validate`. The 52-file gate is likewise a freshness boundary rather than an every-parser proof. Root accounting must follow externally reachable untrusted-byte entrypoints and map private helper decoders transitively to them.
 
@@ -24,18 +24,18 @@ The earlier source diagnostic found 93 declarations containing `func decode`. Th
 | Private event and terminal recovery | 4 seeds / 1 test body | Covers event recovery, both terminal-record discriminants, and terminal evidence |
 | Durable admission journal | 1 seed / 1 test body | Covers the recovery readback root with both control and anonymous records, including private context, record, and source helpers |
 | Durable publication journal | 2 seeds / 1 test body | Covers drained control and anonymous recovery readbacks with prepared, publication-permitted, attempted, acknowledged, and completed records, including private context, record, and batch helpers |
+| Transport bootstrap | 10 seeds / 9 test bodies | Covers authorization key, control claim and set, blind-response set, anonymous authorization input, registration and set, assignment, acknowledgement, and acknowledgement-set roots through a digest-pinned proof from the exact public production graph; expensive roots use an explicit balanced mutation cap while the helper default retains the full generated matrix |
 
 The seed count is corpus accounting, not a coverage fraction. A seed may traverse several private helpers and discriminants, while two seeds may exercise different variants of one root.
 
 ## Open OpalFusion Root Queue
 
 - Cover the three `partial-variants` recovery files with remaining positive runtime discriminants: pre-manifest abort causes, formation and terminal publication state, authorized terminal state, and post-manifest terminal state. The manifest-proposal-candidate root and validated-manifest plus initialized-journal recovery discriminants are covered.
-- Cover the eight `closure-budget` transport-bootstrap implementation files through their public parent roots: authorization key; control claim and set; blind response set; anonymous request; registration and set; assignment; acknowledgement and set; consensus-envelope opens; and publication restoration. Three ordinary-lane shapes crossed 60 seconds because the runtime-generated RSA fixture dominates; do not repeat them. Use a digest-pinned first-party fixture or the single 600-second closure lane, recording fixture and parser time separately.
-- Reconcile any remaining composite validation and relay-restoration byte entrypoints that call an already-registered low-level parser but impose additional canonical, authority, time, route, or binding checks.
+- Reconcile transport consensus-envelope opens and publication restoration, plus any other composite validation or relay-restoration byte entrypoints that call an already-registered low-level parser but impose additional canonical, authority, time, route, or binding checks. The eight low-level transport-bootstrap implementation files themselves are covered.
 
 ## Cross-Repository Queue
 
-OpalCrypto raw cryptographic inputs, OpalBase authenticated journals and facade recovery inputs, and Wallet outer records, anchors, and persisted application records remain application-owned registry work. Their existing positive and negative tests may supply seeds, but they require explicit root-to-target mapping and first-party mutation evidence before the cross-repository every-parser stage can close.
+Wallet and OpalBase now have focused first-party mutation evidence for ten additional seeds across four affected test bodies, and OpalCrypto's relevant raw inputs are mapped transitively through existing deterministic matrices. Those results still require final application-owned root-to-target reconciliation with the OpalFusion registry before the cross-repository every-parser stage can close.
 
 ## Closure Rule
 
