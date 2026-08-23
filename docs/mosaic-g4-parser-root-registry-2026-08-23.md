@@ -1,6 +1,6 @@
 # Mosaic G4 Parser-Root Registry — 2026-08-23
 
-Status: `partial`. OpalFusion's low-level parser implementation-file surface is machine-checked at 52 covered / 0 partial-variant / 0 closure-budget, with 92 positive seeds across 24 focused parser test bodies. Composite byte entrypoints and final cross-repository reconciliation remain before the G4 every-parser requirement can close.
+Status: `complete for the package-owned parser surface`. OpalFusion's low-level implementation-file surface is machine-checked at 52 covered / 0 partial-variant / 0 closure-budget, with 92 positive seeds across 24 focused parser test bodies. A second machine map accounts for all nine public transport composite byte entrypoints through existing mutation substrates and byte-identical passing integration evidence. The application-owned cross-repository map supplies the remaining Wallet, OpalBase, and OpalCrypto accounting.
 
 ## Registry Boundary
 
@@ -28,14 +28,16 @@ The earlier source diagnostic found 93 declarations containing `func decode`. Th
 
 The seed count is corpus accounting, not a coverage fraction. A seed may traverse several private helpers and discriminants, while two seeds may exercise different variants of one root.
 
-## Open OpalFusion Root Queue
+## Composite Parent Reconciliation
 
-- Reconcile transport consensus-envelope opens and publication restoration, plus any other composite validation or relay-restoration byte entrypoints that call an already-registered low-level parser but impose additional canonical, authority, time, route, or binding checks. All 52 registered low-level implementation files are covered.
+[`mosaic-g4-parser-composite-root-map-2026-08-23.txt`](mosaic-g4-parser-composite-root-map-2026-08-23.txt) assigns every public transport-bootstrap byte parent to its generic signed-envelope mutation substrate, typed-document mutation target, and positive/negative integration target. The checker regenerates the exact eight `openTransportBootstrap*` entrypoints plus `restoreTransportBootstrapPublication`, requires one-to-one parity, and verifies that their three production files and `MosaicPrivateAlphaTransportBootstrapValidator` are byte-identical between passing G2 checkpoint `117949b08f354f5a58b78075dbf14b2ec4e4f88f` and frozen runtime `79ba5f91449b2c0d5cd6ec73c38fafd58cae0b46`.
+
+This transitive mapping is deliberate. The composite parents reuse the already-mutated signed NIP-59 envelope, event, and typed bootstrap-document parsers, then add recipient, sender, timestamp, binding, operation-identifier, and exact-byte checks covered by the unchanged integration cases. Duplicating nine RSA-heavy wrapper corpora would add fixture cost without reaching a new decoder substrate.
 
 ## Cross-Repository Queue
 
-Wallet and OpalBase now have focused first-party mutation evidence for ten additional seeds across four affected test bodies, and OpalCrypto's relevant raw inputs are mapped transitively through existing deterministic matrices. Those results still require final application-owned root-to-target reconciliation with the OpalFusion registry before the cross-repository every-parser stage can close.
+Wallet and OpalBase have focused first-party mutation evidence for ten additional seeds across four affected test bodies, and OpalCrypto's relevant raw inputs are mapped transitively through existing deterministic matrices. Wallet's application-owned cross-repository root map records those exact parent decisions. Combined corpus accounting is 102 positive seeds across 28 focused bodies; this is not a coverage percentage.
 
 ## Closure Rule
 
-This registry becomes complete only when every externally reachable untrusted-byte root in the frozen first-party graph has one of two reviewed dispositions: directly exercised by a deterministic seed and the closure fuzz lane, or transitively exercised through a named parent root with an explicit mapping. `Fuzzing must cover every parser before any live profile is enabled` remains unchanged. A passing registry freshness check, a stable canonical round trip, or a large seed count cannot waive that requirement.
+The package registry is complete because every package-owned externally reachable untrusted-byte root in the frozen first-party graph is either directly exercised by a deterministic seed or transitively exercised through a named composite parent with an explicit mapping. Wallet's cross-repository registry applies the same rule to the application graph. `Fuzzing must cover every parser before any live profile is enabled` remains unchanged; a future parser or parent entrypoint must fail one of the freshness maps until reviewed. A passing registry check, stable canonical round trip, or large seed count is still not an exhaustive-input or coverage-guided fuzz proof.
