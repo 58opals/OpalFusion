@@ -152,8 +152,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                     )] = []
                     for route in routes {
                         let session = try OpalFusion.Mosaic.NIP01RelaySession(
-                            connection: TorWebSocketConnectionAdapter(
-                                route.connection
+                            connection: try TorWebSocketConnectionAdapter(
+                                route.connection,
+                                maximumPendingMessageCount:
+                                    capabilities.maximumPendingEventCount
                             ),
                             codingLimits: codingLimits,
                             maximumPendingOutputCount:

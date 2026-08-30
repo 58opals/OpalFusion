@@ -352,69 +352,68 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
 
             var receivedResultCount = 0
+            var observedAcknowledgements = current.relayAcknowledgements
+            var newAcknowledgements: [
+                Journal.Endpoint: Journal.RelayAcknowledgement
+            ] = [:]
             for await result in results {
                 receivedResultCount += 1
                 switch result {
                 case let .acknowledgement(endpoint, acknowledgement):
-                    do {
-                        try publicationJournal.recordAcknowledgement(
-                            acknowledgement,
-                            eventIdentifier:
-                                current.publication.eventIdentifier,
-                            endpoint: endpoint
-                        )
-                        current = try publicationJournal.currentContinuation(
-                            matching: current
-                        )
-                    } catch {
+                    if let existing = observedAcknowledgements[endpoint],
+                       existing != acknowledgement {
                         await shutdownResponseTasks(
                             responseTasks,
                             continuation: resultContinuation
                         )
                         throw Failure.journalFailed
                     }
+                    observedAcknowledgements[endpoint] = acknowledgement
+                    newAcknowledgements[endpoint] = acknowledgement
                 case .unavailable:
                     break
                 }
 
-                switch current.status {
-                case .transportAccepted:
-                    try recordCompletion(
-                        .transportAccepted,
-                        eventIdentifier: current.publication.eventIdentifier
-                    )
-                    await shutdownResponseTasks(
-                        responseTasks,
-                        continuation: resultContinuation
-                    )
-                    guard state == .publishing(event.identifier) else {
-                        throw .cancelled
-                    }
-                    return
-
-                case .transportRejected:
-                    try recordCompletion(
-                        .transportRejected,
-                        eventIdentifier: current.publication.eventIdentifier
-                    )
-                    await shutdownResponseTasks(
-                        responseTasks,
-                        continuation: resultContinuation
-                    )
-                    guard state == .publishing(event.identifier) else {
-                        throw .cancelled
-                    }
-                    throw .publicationRejected
-
-                case .awaitingAcknowledgements:
+                let acceptedCount = observedAcknowledgements.values.reduce(0) {
+                    $1 == .accepted ? $0 + 1 : $0
+                }
+                let unresolvedCount = current.publication.endpoints.count
+                    - observedAcknowledgements.count
+                if acceptedCount >= 2
+                    || acceptedCount + unresolvedCount < 2 {
                     break
-
-                case .completed:
-                    throw .continuationMismatch
                 }
                 if receivedResultCount == startedRoutes.count { break }
             }
 
+            guard state == .publishing(event.identifier) else {
+                await shutdownResponseTasks(
+                    responseTasks,
+                    continuation: resultContinuation
+                )
+                throw .cancelled
+            }
+            guard newAcknowledgements.isEmpty == false else {
+                await shutdownResponseTasks(
+                    responseTasks,
+                    continuation: resultContinuation
+                )
+                throw .publicationInterrupted
+            }
+            do {
+                current = try publicationJournal
+                    .recordAcknowledgementsAndDerivedCompletion(
+                        newAcknowledgements,
+                        eventIdentifier:
+                            current.publication.eventIdentifier
+                    )
+            } catch {
+                await shutdownResponseTasks(
+                    responseTasks,
+                    continuation: resultContinuation
+                )
+                throw .journalFailed
+            }
             await shutdownResponseTasks(
                 responseTasks,
                 continuation: resultContinuation
@@ -422,7 +421,18 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard state == .publishing(event.identifier) else {
                 throw .cancelled
             }
-            throw .publicationInterrupted
+            switch current.status {
+            case .completed(.transportAccepted):
+                return
+            case .completed(.transportRejected):
+                throw .publicationRejected
+            case .completed(.cancelled):
+                throw .cancelled
+            case .awaitingAcknowledgements:
+                throw .publicationInterrupted
+            case .transportAccepted, .transportRejected:
+                throw .journalFailed
+            }
         }
 
         private func recordCompletion(

@@ -402,6 +402,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 await connection.waitUntilSentTextCount(1)
             }
         }
+        #expect(persistence.appendCallCount == 2)
 
         let durableBatch = try #require(persistence.preparedBatches.first)
         #expect(persistence.preparedBatches.count == 1)
@@ -430,6 +431,9 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
         #expect(await completion.isCompleted == false)
         await finalConnection.resumeClose()
         try await publication.value
+        #expect(
+            persistence.appendCallCount == 2 + batch.recipients.count
+        )
 
         #expect(await probe.callCount == 1)
         var firstFrames: Set<String> = []
@@ -463,6 +467,9 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             publicationJournal: publicationJournal
         )
         try await replayPublisher.publish(batch)
+        #expect(
+            persistence.appendCallCount == 2 + batch.recipients.count
+        )
         #expect(await replayProbe.callCount == 0)
         for connections in replayAllocation.connections.values {
             for connection in connections {
@@ -1227,7 +1234,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             ),
             persistence: .init(
                 loadSnapshot: { _ in nil },
-                appendRecord: { _, _, _ in }
+                appendRecords: { _, _, _ in }
             )
         )
     }

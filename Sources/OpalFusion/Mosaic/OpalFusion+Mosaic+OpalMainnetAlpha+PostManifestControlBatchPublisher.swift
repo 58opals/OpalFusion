@@ -172,8 +172,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }) else {
                 throw .recipientPublicationFailed
             }
-            let pendingContinuations = durableBatch.pendingContinuations
-            guard !pendingContinuations.isEmpty else { return }
+            guard !durableBatch.pendingContinuations.isEmpty else { return }
 
             let routeGroups: [RecipientRouteGroup]
             do {
@@ -189,6 +188,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
                 throw .cancelled
             }
+
+            let attemptedBatch: PublicationJournal.BatchContinuation
+            do {
+                attemptedBatch = try publicationJournal.recordAttempts(
+                    matching: durableBatch
+                )
+            } catch {
+                await PostManifestPublicationRouteCloser.close(allRoutes)
+                throw .publicationJournalFailed
+            }
+            let pendingContinuations = attemptedBatch.pendingContinuations
 
             let prepared: [PreparedContinuation]
             do {
@@ -281,8 +291,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }) else {
                 throw .recipientPublicationFailed
             }
-            let pendingContinuations = reconciledBatch.pendingContinuations
-            guard !pendingContinuations.isEmpty else { return }
+            guard !reconciledBatch.pendingContinuations.isEmpty else { return }
 
             let routeGroups: [RecipientRouteGroup]
             do {
@@ -296,6 +305,17 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
                 throw .cancelled
             }
+
+            let attemptedBatch: PublicationJournal.BatchContinuation
+            do {
+                attemptedBatch = try publicationJournal.recordAttempts(
+                    matching: reconciledBatch
+                )
+            } catch {
+                await PostManifestPublicationRouteCloser.close(allRoutes)
+                throw .publicationJournalFailed
+            }
+            let pendingContinuations = attemptedBatch.pendingContinuations
 
             let allocation: PostManifestPublicationRouteAllocation
             do {

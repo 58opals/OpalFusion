@@ -82,10 +82,13 @@ extension OpalFusion.MosaicPrivateAlphaRuntime
                         do {
                             let startedSession = try OpalFusion.Mosaic
                                 .NIP01RelaySession(
-                                    connection: Runtime
+                                    connection: try Runtime
                                         .TorWebSocketConnectionAdapter(
-                                            route.connection
-                                ),
+                                            route.connection,
+                                            maximumPendingMessageCount:
+                                                capabilities.relays
+                                                    .maximumPendingRelayOutputCount
+                                        ),
                             codingLimits: codingLimits,
                             maximumPendingOutputCount:
                                     capabilities.relays

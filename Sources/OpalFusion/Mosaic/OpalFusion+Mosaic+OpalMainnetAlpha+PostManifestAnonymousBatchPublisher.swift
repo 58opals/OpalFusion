@@ -80,15 +80,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         ) async throws -> Void
 
         private struct PreparedPublication: Sendable {
-            let permitRequest: PublicationPermitRequest
             let continuation: PublicationJournal.Continuation
             let publisher: PostManifestRelayPublisher
         }
 
         private enum PublicationTaskResult: Sendable, Equatable {
             case completed
-            case permitFailed
-            case journalFailed
             case recipientFailed
             case cancelled
         }
@@ -222,8 +219,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }) else {
                 throw .recipientPublicationFailed
             }
-            let pendingContinuations = durableBatch.pendingContinuations
-            guard !pendingContinuations.isEmpty else { return }
+            guard !durableBatch.pendingContinuations.isEmpty else { return }
             let routeRequests = PostManifestPublicationRouteAllocation
                 .requests(for: expectedRecipients)
 
@@ -239,14 +235,34 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
                 throw .cancelled
             }
+            let preflighted: [PreparedPublication]
+            do {
+                preflighted = try prepare(
+                    durableBatch.pendingContinuations,
+                    expectedRecipients: expectedRecipients,
+                    routeGroups: routeGroups
+                )
+            } catch {
+                await PostManifestPublicationRouteCloser.close(allRoutes)
+                throw error
+            }
+            let routeUseBatch: PublicationJournal.BatchContinuation
+            do {
+                routeUseBatch = try await prepareRouteUse(
+                    matching: durableBatch,
+                    kind: batch.kind
+                )
+            } catch {
+                await PostManifestPublicationRouteCloser.close(allRoutes)
+                throw error
+            }
+            let pendingContinuations = routeUseBatch.pendingContinuations
 
             let prepared: [PreparedPublication]
             do {
-                prepared = try prepare(
-                    pendingContinuations,
-                    kind: batch.kind,
-                    expectedRecipients: expectedRecipients,
-                    routeGroups: routeGroups
+                prepared = try replacingContinuations(
+                    in: preflighted,
+                    with: pendingContinuations
                 )
             } catch {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
@@ -281,7 +297,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                             if Task.isCancelled, firstFailure == nil {
                                 firstFailure = .cancelled
                             }
-                        case .permitFailed, .journalFailed, .recipientFailed:
+                        case .recipientFailed:
                             guard firstFailure == nil else { continue }
                             firstFailure = taskResult
                             group.cancelAll()
@@ -300,12 +316,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             switch result {
             case .completed:
                 return
-            case .permitFailed:
-                await Self.stop(publishers)
-                throw .publicationPermitFailed
-            case .journalFailed:
-                await Self.stop(publishers)
-                throw .publicationJournalFailed
             case .recipientFailed:
                 await Self.stop(publishers)
                 throw .recipientPublicationFailed
@@ -360,8 +370,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }) else {
                 throw .recipientPublicationFailed
             }
-            let pendingContinuations = reconciledBatch.pendingContinuations
-            guard !pendingContinuations.isEmpty else { return }
+            guard !reconciledBatch.pendingContinuations.isEmpty else { return }
             let requests = PostManifestPublicationRouteAllocation.requests(
                 for: expectedRecipients
             )
@@ -378,48 +387,38 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
                 throw .cancelled
             }
-
-            let allocation: PostManifestPublicationRouteAllocation
+            let preflighted: [PreparedPublication]
             do {
-                allocation = try .init(
-                    expectedRecipientEventIdentities: expectedRecipients,
+                preflighted = try prepare(
+                    reconciledBatch.pendingContinuations,
+                    expectedRecipients: expectedRecipients,
                     routeGroups: routeGroups
                 )
             } catch {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
-                throw .routeAllocationMismatch
+                throw error
             }
+            let routeUseBatch: PublicationJournal.BatchContinuation
+            do {
+                routeUseBatch = try await prepareRouteUse(
+                    matching: reconciledBatch,
+                    kind: kind
+                )
+            } catch {
+                await PostManifestPublicationRouteCloser.close(allRoutes)
+                throw error
+            }
+            let pendingContinuations = routeUseBatch.pendingContinuations
 
             let prepared: [PreparedPublication]
             do {
-                prepared = try pendingContinuations.map { continuation in
-                    let recipient = continuation.publication.binding
-                        .recipientEventIdentity
-                    guard let routes = allocation.routes(for: recipient) else {
-                        throw Failure.routeAllocationMismatch
-                    }
-                    return try .init(
-                        permitRequest: .init(
-                            kind: kind,
-                            recipientEventIdentity: recipient
-                        ),
-                        continuation: continuation,
-                        publisher: .init(
-                            routes: routes,
-                            relaySelection: relaySelection,
-                            publicationJournal: publicationJournal,
-                            codingLimits: codingLimits,
-                            maximumPendingRelayOutputCount:
-                                maximumPendingRelayOutputCount
-                        )
-                    )
-                }
-            } catch let failure as Failure {
-                await PostManifestPublicationRouteCloser.close(allRoutes)
-                throw failure
+                prepared = try replacingContinuations(
+                    in: preflighted,
+                    with: pendingContinuations
+                )
             } catch {
                 await PostManifestPublicationRouteCloser.close(allRoutes)
-                throw .publisherConstructionFailed
+                throw error
             }
 
             let usedRecipients = Set(pendingContinuations.map {
@@ -461,12 +460,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             case .cancelled:
                 await Self.stop(publishers)
                 throw .cancelled
-            case .permitFailed:
-                await Self.stop(publishers)
-                throw .publicationPermitFailed
-            case .journalFailed:
-                await Self.stop(publishers)
-                throw .publicationJournalFailed
             case .recipientFailed:
                 await Self.stop(publishers)
                 throw .recipientPublicationFailed
@@ -535,7 +528,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private func prepare(
             _ pendingContinuations: [PublicationJournal.Continuation],
-            kind: PublicationKind,
             expectedRecipients: [Data],
             routeGroups: [RecipientRouteGroup]
         ) throws(Failure) -> [PreparedPublication] {
@@ -564,10 +556,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         throw Failure.routeAllocationMismatch
                     }
                     return try .init(
-                        permitRequest: .init(
-                            kind: kind,
-                            recipientEventIdentity: recipient
-                        ),
                         continuation: continuation,
                         publisher: PostManifestRelayPublisher(
                             routes: routes,
@@ -586,27 +574,88 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        private func prepareRouteUse(
+            matching batch: PublicationJournal.BatchContinuation,
+            kind: PublicationKind
+        ) async throws(Failure) -> PublicationJournal.BatchContinuation {
+            let requiringPermit = batch.pendingContinuations.filter {
+                $0.hasPublicationPermit == false
+            }
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    for continuation in requiringPermit {
+                        let recipient = continuation.publication.binding
+                            .recipientEventIdentity
+                        group.addTask {
+                            try await awaitPublicationPermit(.init(
+                                kind: kind,
+                                recipientEventIdentity: recipient
+                            ))
+                        }
+                    }
+                    while try await group.next() != nil {}
+                }
+            } catch {
+                guard !Task.isCancelled else { throw .cancelled }
+                throw .publicationPermitFailed
+            }
+            guard !Task.isCancelled else { throw .cancelled }
+
+            do {
+                let permitted = try publicationJournal
+                    .recordPublicationPermits(matching: batch)
+                return try publicationJournal.recordAttempts(
+                    matching: permitted
+                )
+            } catch {
+                throw .publicationJournalFailed
+            }
+        }
+
+        private func replacingContinuations(
+            in prepared: [PreparedPublication],
+            with continuations: [PublicationJournal.Continuation]
+        ) throws(Failure) -> [PreparedPublication] {
+            guard continuations.count == prepared.count else {
+                throw .publicationJournalFailed
+            }
+            var publishersByEventIdentifier: [Data: PostManifestRelayPublisher]
+                = [:]
+            publishersByEventIdentifier.reserveCapacity(prepared.count)
+            for publication in prepared {
+                let eventIdentifier = publication.continuation.publication
+                    .eventIdentifier
+                guard publishersByEventIdentifier[eventIdentifier] == nil else {
+                    throw .publicationJournalFailed
+                }
+                publishersByEventIdentifier[eventIdentifier] =
+                    publication.publisher
+            }
+            var rebound: [PreparedPublication] = []
+            rebound.reserveCapacity(continuations.count)
+            for continuation in continuations {
+                guard let publisher = publishersByEventIdentifier.removeValue(
+                    forKey: continuation.publication.eventIdentifier
+                ) else {
+                    throw .publicationJournalFailed
+                }
+                rebound.append(.init(
+                    continuation: continuation,
+                    publisher: publisher
+                ))
+            }
+            guard publishersByEventIdentifier.isEmpty else {
+                throw .publicationJournalFailed
+            }
+            return rebound
+        }
+
         private func publishPrepared(
             _ publication: PreparedPublication
         ) async -> PublicationTaskResult {
             guard !Task.isCancelled else { return .cancelled }
-            if !publication.continuation.hasPublicationPermit {
-                do {
-                    try await awaitPublicationPermit(
-                        publication.permitRequest
-                    )
-                } catch {
-                    return Task.isCancelled ? .cancelled : .permitFailed
-                }
-                guard !Task.isCancelled else { return .cancelled }
-                do {
-                    try publicationJournal.recordPublicationPermit(
-                        eventIdentifier: publication.continuation
-                            .publication.eventIdentifier
-                    )
-                } catch {
-                    return .journalFailed
-                }
+            guard publication.continuation.hasPublicationPermit else {
+                return .recipientFailed
             }
             guard !Task.isCancelled else { return .cancelled }
             do {

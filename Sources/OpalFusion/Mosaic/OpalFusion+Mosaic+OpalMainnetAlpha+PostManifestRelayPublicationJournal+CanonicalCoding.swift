@@ -79,9 +79,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha
                     expectedContext: context
                 )
             },
-            appendRecord: { context, expectedCount, record in
+            appendRecords: { context, expectedCount, records in
                 guard Self.matches(binding, context: context) else {
                     throw RecoveryCodingError.contextMismatch
+                }
+                guard records.isEmpty == false else {
+                    throw RecoveryCodingError.staleSnapshot
                 }
                 let priorBytes = try persistence.load(binding)
                 guard let priorBytes else {
@@ -94,12 +97,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha
                 guard prior.records.count == expectedCount else {
                     throw RecoveryCodingError.staleSnapshot
                 }
-                guard prior.records.count < maximumRecoveryRecordCount else {
+                guard prior.records.count + records.count
+                        <= maximumRecoveryRecordCount else {
                     throw RecoveryCodingError.resourceLimitExceeded
                 }
                 let replacement = Snapshot(
                     context: context,
-                    records: prior.records + [record]
+                    records: prior.records + records
                 )
                 let replacementBytes = try encodeRecoverySnapshot(replacement)
                 let readback = try persistence.compareAndSwap(
@@ -130,7 +134,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha
             context: expectedContext,
             persistence: .init(
                 loadSnapshot: { _ in snapshot },
-                appendRecord: { _, _, _ in
+                appendRecords: { _, _, _ in
                     throw RecoveryCodingError.staleSnapshot
                 }
             )

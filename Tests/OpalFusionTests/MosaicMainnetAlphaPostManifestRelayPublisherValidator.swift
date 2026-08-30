@@ -246,7 +246,14 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     )
     func acceptTwoAcknowledgements() async throws {
         let connections = makeConnections()
-        let publisher = try makePublisher(routes: makeRoutes(connections))
+        let persistence =
+            MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let publisher = try makePublisher(
+            routes: makeRoutes(connections),
+            publicationJournal: makePublicationJournal(
+                persistence: persistence.persistence
+            )
+        )
         let giftWrap = try makeGiftWrap()
         let binding = try publicationBinding(for: giftWrap)
         let publication = Task {
@@ -272,6 +279,16 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         for connection in connections {
             #expect(await connection.closeCount == 1)
         }
+        #expect(persistence.appendCallCount == 5)
+        let snapshot = try #require(persistence.snapshot)
+        #expect(snapshot.records.suffix(3).contains { record in
+            guard case let .completed(eventIdentifier, .transportAccepted) =
+                    record else {
+                return false
+            }
+            return eventIdentifier
+                == giftWrap.event.identifier.rawRepresentation
+        })
 
         await #expect(throws: Publisher.Failure.alreadyUsed) {
             try await publisher.publish(giftWrap, binding: binding)
@@ -682,7 +699,7 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
     private func makePublicationJournal(
         persistence: Journal.Persistence = .init(
             loadSnapshot: { _ in nil },
-            appendRecord: { _, _, _ in }
+            appendRecords: { _, _, _ in }
         )
     ) throws -> Journal {
         let harness = try Fixture.makeHarness(localRole: .conductor)

@@ -450,7 +450,7 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
                         ),
                         persistence: .init(
                             loadSnapshot: { _ in nil },
-                            appendRecord: { _, _, _ in }
+                            appendRecords: { _, _, _ in }
                         )
                     ),
                     awaitAnonymousPublicationPermit: { _ in

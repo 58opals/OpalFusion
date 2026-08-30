@@ -160,24 +160,28 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             /// Loads the last complete snapshot for this exact attempt context.
             let loadSnapshot: @Sendable (Context) throws -> Snapshot?
 
-            /// Atomically compares the durable record count and appends one record.
+            /// Atomically compares the durable record count and appends one or more records.
             ///
             /// A persistent implementation must commit before returning, reject a count
             /// mismatch, and must not synchronously re-enter this journal. If it throws after
             /// committing, `loadSnapshot` must immediately expose the last complete snapshot so
             /// the journal can reconcile the indeterminate result.
-            let appendRecord: @Sendable (Context, Int, Record) throws -> Void
+            let appendRecords: @Sendable (
+                Context,
+                Int,
+                [Record]
+            ) throws -> Void
 
             init(
                 loadSnapshot: @escaping @Sendable (Context) throws -> Snapshot?,
-                appendRecord: @escaping @Sendable (
+                appendRecords: @escaping @Sendable (
                     Context,
                     Int,
-                    Record
+                    [Record]
                 ) throws -> Void
             ) {
                 self.loadSnapshot = loadSnapshot
-                self.appendRecord = appendRecord
+                self.appendRecords = appendRecords
             }
         }
 
@@ -430,6 +434,47 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        /// Atomically persists caller-granted permits for every pending anonymous member.
+        func recordPublicationPermits(
+            matching batchContinuation: BatchContinuation
+        ) throws(RecordingError) -> BatchContinuation {
+            try update { state in
+                guard let batch = state.batches.first(where: {
+                    $0 == batchContinuation.batch
+                }) else {
+                    throw RecordingError.staleContinuation
+                }
+                let current = BatchContinuation(
+                    batch: batch,
+                    entriesByEventIdentifier: state.entriesByEventIdentifier
+                )
+                guard current == batchContinuation,
+                      batch.channelPurpose != .control else {
+                    throw RecordingError.staleContinuation
+                }
+
+                var records: [Record] = []
+                for continuation in current.pendingContinuations {
+                    guard continuation.hasPublicationPermit == false else {
+                        continue
+                    }
+                    guard continuation.attemptedEndpoints.isEmpty else {
+                        throw RecordingError.invalidTransition
+                    }
+                    records.append(.publicationPermitted(
+                        eventIdentifier: Data(
+                            continuation.publication.eventIdentifier
+                        )
+                    ))
+                }
+                try append(records, to: &state)
+                return .init(
+                    batch: batch,
+                    entriesByEventIdentifier: state.entriesByEventIdentifier
+                )
+            }
+        }
+
         /// Persists intent for one endpoint before the route is opened.
         func recordAttempt(
             eventIdentifier: Data,
@@ -456,6 +501,50 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         endpoint: endpoint
                     ),
                     to: &state
+                )
+            }
+        }
+
+        /// Atomically records every unresolved endpoint intent in one exact batch.
+        func recordAttempts(
+            matching batchContinuation: BatchContinuation
+        ) throws(RecordingError) -> BatchContinuation {
+            try update { state in
+                guard let batch = state.batches.first(where: {
+                    $0 == batchContinuation.batch
+                }) else {
+                    throw RecordingError.staleContinuation
+                }
+                let current = BatchContinuation(
+                    batch: batch,
+                    entriesByEventIdentifier: state.entriesByEventIdentifier
+                )
+                guard current == batchContinuation else {
+                    throw RecordingError.staleContinuation
+                }
+
+                var records: [Record] = []
+                for continuation in current.pendingContinuations {
+                    guard continuation.publication.binding.channelPurpose
+                            == .control
+                            || continuation.hasPublicationPermit else {
+                        throw RecordingError.invalidTransition
+                    }
+                    for endpoint in continuation.publication.endpoints
+                        where continuation.attemptedEndpoints
+                            .contains(endpoint) == false {
+                        records.append(.attempted(
+                            eventIdentifier: Data(
+                                continuation.publication.eventIdentifier
+                            ),
+                            endpoint: endpoint
+                        ))
+                    }
+                }
+                try append(records, to: &state)
+                return .init(
+                    batch: batch,
+                    entriesByEventIdentifier: state.entriesByEventIdentifier
                 )
             }
         }
@@ -490,6 +579,104 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     ),
                     to: &state
                 )
+            }
+        }
+
+        /// Atomically persists newly observed acknowledgements and any terminal result they
+        /// derive before returning the updated continuation.
+        func recordAcknowledgementsAndDerivedCompletion(
+            _ acknowledgements: [Endpoint: RelayAcknowledgement],
+            eventIdentifier: Data
+        ) throws(RecordingError) -> Continuation {
+            try update { state in
+                guard let entry = state.entriesByEventIdentifier[
+                    eventIdentifier
+                ] else {
+                    throw RecordingError.unknownPublication
+                }
+                guard acknowledgements.isEmpty == false,
+                      Set(acknowledgements.keys).isSubset(
+                        of: Set(entry.publication.endpoints)
+                      ) else {
+                    throw RecordingError.invalidTransition
+                }
+                if entry.completion != nil {
+                    guard acknowledgements.allSatisfy({
+                        entry.relayAcknowledgements[$0.key] == $0.value
+                    }) else {
+                        throw RecordingError.invalidTransition
+                    }
+                    return .init(entry: entry)
+                }
+
+                var records: [Record] = []
+                for endpoint in entry.publication.endpoints {
+                    guard let acknowledgement = acknowledgements[endpoint]
+                    else { continue }
+                    guard entry.attemptedEndpoints.contains(endpoint) else {
+                        throw RecordingError.invalidTransition
+                    }
+                    if let existing = entry.relayAcknowledgements[endpoint] {
+                        guard existing == acknowledgement else {
+                            throw RecordingError.invalidTransition
+                        }
+                        continue
+                    }
+                    records.append(.acknowledged(
+                        eventIdentifier: Data(eventIdentifier),
+                        endpoint: endpoint,
+                        acknowledgement
+                    ))
+                }
+
+                var projectedState = state
+                for record in records {
+                    do {
+                        try Self.apply(
+                            record,
+                            context: context,
+                            to: &projectedState
+                        )
+                    } catch {
+                        preconditionFailure(
+                            "A validated acknowledgement batch could not be projected."
+                        )
+                    }
+                }
+                guard let projectedEntry = projectedState
+                    .entriesByEventIdentifier[eventIdentifier] else {
+                    preconditionFailure(
+                        "A validated acknowledgement batch lost its publication."
+                    )
+                }
+                switch Continuation(entry: projectedEntry).status {
+                case .transportAccepted:
+                    records.append(.completed(
+                        eventIdentifier: Data(eventIdentifier),
+                        .transportAccepted
+                    ))
+                case .transportRejected:
+                    records.append(.completed(
+                        eventIdentifier: Data(eventIdentifier),
+                        .transportRejected
+                    ))
+                case .awaitingAcknowledgements:
+                    break
+                case .completed:
+                    preconditionFailure(
+                        "An incomplete publication projected a completed state."
+                    )
+                }
+
+                try append(records, to: &state)
+                guard let updated = state.entriesByEventIdentifier[
+                    eventIdentifier
+                ] else {
+                    preconditionFailure(
+                        "A persisted acknowledgement batch lost its publication."
+                    )
+                }
+                return .init(entry: updated)
             }
         }
 
@@ -686,26 +873,36 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             _ record: Record,
             to state: inout State
         ) throws(RecordingError) {
+            try append([record], to: &state)
+        }
+
+        private func append(
+            _ records: [Record],
+            to state: inout State
+        ) throws(RecordingError) {
+            guard records.isEmpty == false else { return }
             let priorRecords = state.records
             var expectedState = state
-            do {
-                try Self.apply(
-                    record,
-                    context: context,
-                    to: &expectedState
-                )
-            } catch {
-                preconditionFailure(
-                    "A record reached persistence without a valid state transition."
-                )
+            for record in records {
+                do {
+                    try Self.apply(
+                        record,
+                        context: context,
+                        to: &expectedState
+                    )
+                } catch {
+                    preconditionFailure(
+                        "A record reached persistence without a valid state transition."
+                    )
+                }
+                expectedState.records.append(record)
             }
-            expectedState.records.append(record)
 
             do {
-                try persistence.appendRecord(
+                try persistence.appendRecords(
                     context,
                     priorRecords.count,
-                    record
+                    records
                 )
                 state = expectedState
                 return

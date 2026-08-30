@@ -947,6 +947,43 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
     }
 
     @Test(
+        "Preserve a single-route phase burst within the configured bound",
+        .timeLimit(.minutes(1))
+    )
+    func preserveBoundedSingleRouteBurst() async throws {
+        let eventCount = 48
+        let clockGate = BlockingClockGate()
+        let probe = SubmissionProbe()
+        let harness = try makeHarness(
+            submissionProbe: probe,
+            maximumPendingEventCount: eventCount,
+            clockGate: clockGate
+        )
+        let event = try manifestReservationGiftWrap(harness)
+        let identifier = try #require(
+            harness.subscriptions[endpoint(1)]
+        )
+        try await harness.fanIn.start()
+        defer { clockGate.resume() }
+
+        for _ in 0 ..< eventCount {
+            await harness.connections[0].receive(
+                try relayEventFrame(
+                    subscription: identifier,
+                    event: event
+                )
+            )
+        }
+        await clockGate.waitUntilBlocked()
+        clockGate.resume()
+        await probe.waitUntilCount(eventCount)
+
+        #expect(await harness.fanIn.state == .running)
+        #expect(probe.observations.count == eventCount)
+        await harness.fanIn.stop()
+    }
+
+    @Test(
         "Fail closed after draining the bounded aggregate FIFO",
         .timeLimit(.minutes(1))
     )

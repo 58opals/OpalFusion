@@ -158,6 +158,12 @@ struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
                         accepted: true
                     )
                 )
+                await connections[1].receive(
+                    acknowledgement(
+                        for: fixture.giftWrap,
+                        accepted: true
+                    )
+                )
             case .completed:
                 for connection in connections {
                     await connection.waitUntilSentTextCount(1)

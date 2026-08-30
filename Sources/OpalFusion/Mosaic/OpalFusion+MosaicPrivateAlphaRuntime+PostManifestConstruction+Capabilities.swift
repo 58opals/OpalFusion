@@ -134,19 +134,22 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                             == provisionedConnections.count else {
                         throw Runtime.Failure.invalidStateTransition
                     }
-                    return groups.map { group in
+                    return try groups.map { group in
                         .init(
                             recipientEventIdentity:
                                 group.recipientEventIdentity,
-                            routes: group.routes.map { route in
+                            routes: try group.routes.map { route in
                                 .init(
                                     endpoint: .init(
                                         validatedIdentifier:
                                             route.relayEndpointIdentifier
                                     ),
-                                    connection: Runtime
+                                    connection: try Runtime
                                         .TorWebSocketConnectionAdapter(
-                                            route.connection
+                                            route.connection,
+                                            maximumPendingMessageCount:
+                                                relayCapabilities
+                                                    .maximumPendingEventCount
                                         ),
                                     isolationLease: .init(
                                         opaqueIdentifier:

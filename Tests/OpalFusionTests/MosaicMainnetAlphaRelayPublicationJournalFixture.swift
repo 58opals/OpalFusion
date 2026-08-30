@@ -28,6 +28,7 @@ final class MosaicMainnetAlphaRelayPublicationJournalFixture: Sendable {
 
     private struct State: Sendable {
         var snapshot: Journal.Snapshot?
+        var appendCallCount = 0
         var failingAppend: (
             kind: AppendKind,
             durability: AppendFailureDurability
@@ -47,14 +48,17 @@ final class MosaicMainnetAlphaRelayPublicationJournalFixture: Sendable {
                     return state.snapshot
                 }
             },
-            appendRecord: { [self] context, expectedCount, record in
+            appendRecords: { [self] context, expectedCount, newRecords in
                 try state.withLock { state in
+                    state.appendCallCount += 1
                     let records = state.snapshot?.records ?? []
                     guard records.count == expectedCount else {
                         throw Failure.recordCountMismatch
                     }
                     if let failure = state.failingAppend,
-                       failure.kind == Self.kind(of: record) {
+                       newRecords.contains(where: {
+                           failure.kind == Self.kind(of: $0)
+                       }) {
                         state.failingAppend = nil
                         switch failure.durability {
                         case .priorSnapshot:
@@ -62,20 +66,20 @@ final class MosaicMainnetAlphaRelayPublicationJournalFixture: Sendable {
                         case .appendedRecord:
                             state.snapshot = .init(
                                 context: context,
-                                records: records + [record]
+                                records: records + newRecords
                             )
                             throw Failure.injected
                         case .duplicatedRecord:
                             state.snapshot = .init(
                                 context: context,
-                                records: records + [record, record]
+                                records: records + newRecords + newRecords
                             )
                             throw Failure.injected
                         }
                     }
                     state.snapshot = .init(
                         context: context,
-                        records: records + [record]
+                        records: records + newRecords
                     )
                 }
             }
@@ -84,6 +88,10 @@ final class MosaicMainnetAlphaRelayPublicationJournalFixture: Sendable {
 
     var snapshot: Journal.Snapshot? {
         state.withLock { $0.snapshot }
+    }
+
+    var appendCallCount: Int {
+        state.withLock { $0.appendCallCount }
     }
 
     var preparedBatches: [Journal.PublicationBatch] {

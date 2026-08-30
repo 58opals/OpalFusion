@@ -131,7 +131,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             )
             let routes = try makeSessionRoutes(
                 plan.entries,
-                codingLimits: codingLimits
+                codingLimits: codingLimits,
+                maximumPendingOutputCount: maximumPendingEventCount
             )
             guard let claimedRuntimeConstruction =
                 inboundRuntimeProvisioning.claim(
@@ -288,7 +289,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             return try .init(
                 routes: makeSessionRoutes(
                     plan.entries,
-                    codingLimits: codingLimits
+                    codingLimits: codingLimits,
+                    maximumPendingOutputCount: maximumPendingEventCount
                 ),
                 runtime: runtime,
                 maximumPendingEventCount: maximumPendingEventCount,
@@ -454,7 +456,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private static func makeSessionRoutes(
             _ entries: [RoutePlanEntry],
-            codingLimits: Nostr.RelayMessageCodingLimits
+            codingLimits: Nostr.RelayMessageCodingLimits,
+            maximumPendingOutputCount: Int
         ) throws(InitializationError) -> [SessionRoute] {
             do {
                 return try entries.map { entry in
@@ -464,7 +467,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         session: try Session(
                             connection: entry.connection,
                             codingLimits: codingLimits,
-                            maximumPendingOutputCount: 1
+                            maximumPendingOutputCount:
+                                maximumPendingOutputCount
                         )
                     )
                 }

@@ -6,9 +6,17 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         OpalFusion.Mosaic.TorWebSocketConnectioning
     {
         private let connection: any TorWebSocketConnection
+        private let maximumPendingMessageCount: Int
 
-        init(_ connection: any TorWebSocketConnection) {
+        init(
+            _ connection: any TorWebSocketConnection,
+            maximumPendingMessageCount: Int
+        ) throws {
+            guard maximumPendingMessageCount > 0 else {
+                throw Failure.invalidStateTransition
+            }
             self.connection = connection
+            self.maximumPendingMessageCount = maximumPendingMessageCount
         }
 
         func open(
@@ -19,7 +27,9 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                     maximumIncomingMessageByteCount
             )
             let (stream, continuation) = MessageStream.makeStream(
-                bufferingPolicy: .bufferingOldest(1)
+                bufferingPolicy: .bufferingOldest(
+                    maximumPendingMessageCount
+                )
             )
             let connection = connection
             let task = Task {

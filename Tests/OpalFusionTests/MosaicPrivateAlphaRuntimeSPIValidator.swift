@@ -1435,7 +1435,10 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
     @Test("Close a private Tor adapter when its bounded buffer overflows")
     func closeOverflowingTorAdapter() async throws {
         let connection = ScriptedMosaicPrivateAlphaTorConnection()
-        let adapter = Runtime.TorWebSocketConnectionAdapter(connection)
+        let adapter = try Runtime.TorWebSocketConnectionAdapter(
+            connection,
+            maximumPendingMessageCount: 2
+        )
         let stream = try await adapter.open(
             maximumIncomingMessageByteCount: 64
         )
@@ -1446,9 +1449,45 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
 
         var iterator = stream.makeAsyncIterator()
         #expect(try await iterator.next() == .text(Data([0x01])))
+        #expect(try await iterator.next() == .text(Data([0x02])))
         await #expect(throws: Runtime.Failure.invalidStateTransition) {
             _ = try await iterator.next()
         }
+        #expect(await connection.closeCount == 1)
+    }
+
+    @Test("Preserve a private Tor adapter burst within its configured bound")
+    func preserveBoundedTorAdapterBurst() async throws {
+        let connection = ScriptedMosaicPrivateAlphaTorConnection()
+        let adapter = try Runtime.TorWebSocketConnectionAdapter(
+            connection,
+            maximumPendingMessageCount: 48
+        )
+        let stream = try await adapter.open(
+            maximumIncomingMessageByteCount: 64
+        )
+
+        for byte in UInt8(0) ..< UInt8(48) {
+            await connection.receive(.text(Data([byte])))
+        }
+
+        var received: [Data] = []
+        var iterator = stream.makeAsyncIterator()
+        while received.count < 48,
+              let message = try await iterator.next() {
+            guard case .text(let data) = message else {
+                throw Runtime.Failure.invalidStateTransition
+            }
+            received.append(data)
+        }
+
+        #expect(
+            received == (UInt8(0) ..< UInt8(48)).map {
+                Data([$0])
+            }
+        )
+        #expect(await connection.closeCount == 0)
+        await adapter.close()
         #expect(await connection.closeCount == 1)
     }
 

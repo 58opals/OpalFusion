@@ -335,6 +335,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             await completion.markCompleted()
         }
         await waitForEverySend(batch: batch, allocation: allocation)
+        #expect(persistence.appendCallCount == 3)
         let durableBatch = try #require(persistence.preparedBatches.first)
         #expect(persistence.preparedBatches.count == 1)
         #expect(durableBatch.channelPurpose == .anonymousComponents)
@@ -360,6 +361,9 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
         #expect(await completion.isCompleted == false)
         await finalConnection.resumeClose()
         try await publication.value
+        #expect(
+            persistence.appendCallCount == 3 + batch.recipients.count
+        )
 
         #expect(await routeProbe.callCount == 1)
         let permitRequests = await permitProbe.requests
@@ -398,6 +402,9 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             publicationJournal: publicationJournal
         )
         try await replayPublisher.publish(batch)
+        #expect(
+            persistence.appendCallCount == 3 + batch.recipients.count
+        )
         #expect(await replayProbe.callCount == 0)
         #expect(await permitProbe.requests.count == permitRequests.count)
         for connections in replayAllocation.connections.values {
@@ -1219,7 +1226,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
     }
 
     @Test(
-        "Preserve permit failure while cancelling active siblings",
+        "Preserve permit failure while every sibling remains unopened",
         .timeLimit(.minutes(2))
     )
     func preservePermitFailurePrecedence() async throws {
@@ -1244,52 +1251,25 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             routeProbe: routeProbe,
             permitProbe: permitProbe
         )
-        let activeSibling = batch.recipients[0]
-        let activeSiblingConnections = try #require(
-            allocation.connections[activeSibling.recipientEventIdentity]
-        )
-        await activeSiblingConnections[0].suspendNextClose()
-        let completion = CompletionProbe()
         let publication = Task { () -> Publisher.Failure? in
             do {
                 try await publisher.publish(batch)
-                await completion.markCompleted()
                 return nil
             } catch let failure as Publisher.Failure {
-                await completion.markCompleted()
                 return failure
             } catch {
-                await completion.markCompleted()
                 return nil
             }
         }
         await suspension.waitUntilSuspended()
-        for connection in activeSiblingConnections {
-            await connection.waitUntilSentTextCount(1)
-        }
+        try await assertNoExposure(allocation)
 
         await suspension.resume()
-        await activeSiblingConnections[0].waitUntilCloseSuspends()
-        #expect(await completion.isCompleted == false)
-        await activeSiblingConnections[0].resumeClose()
         #expect(
             await publication.value
                 == Publisher.Failure.publicationPermitFailed
         )
-        let selectedConnections = try #require(
-            allocation.connections[
-                selectedRecipient.recipientEventIdentity
-            ]
-        )
-        for connection in selectedConnections {
-            #expect(await connection.openCount == 0)
-            #expect(await connection.sentTexts.isEmpty)
-        }
-        for connections in allocation.connections.values {
-            for connection in connections {
-                #expect(await connection.closeCount == 1)
-            }
-        }
+        try await assertClosedWithoutExposure(allocation)
     }
 
     @Test(
@@ -1683,7 +1663,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             ),
             persistence: .init(
                 loadSnapshot: { _ in nil },
-                appendRecord: { _, _, _ in }
+                appendRecords: { _, _, _ in }
             )
         )
     }
