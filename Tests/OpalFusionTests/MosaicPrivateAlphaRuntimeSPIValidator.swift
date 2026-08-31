@@ -166,29 +166,16 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
         )
     }
 
-    @Test("Restore signed formation prefixes and construct the existing runtime")
-    func restoreSignedFormationPrefixesAndConstructRuntime() async throws {
-        let fixture = try MosaicPrivateDeploymentFixtures
-            .makePrivateAlphaRuntimeProof()
-        let binding = try makeBinding(seed: 0xD0)
-        let fresh = try Runtime.createFreshAttempt(
-            boundTo: binding,
-            discoveryEpochStartUnixSeconds: fixture.epoch
+    @Test("Restore every signed discovery prefix")
+    func restoreSignedDiscoveryPrefixes() async throws {
+        let harness = try await makeFormationHarness(
+            at: .discovery,
+            bindingSeed: 0xD0
         )
-        var owner = try Runtime.Owner(claiming: fresh)
-        var snapshot = try await persist(await owner.nextStep(), on: owner)
-        snapshot = try await persist(
-            owner.installPrivateDeploymentContext(
-                opaquePoolDocument: fixture.opaquePoolDocument,
-                relaySetDocument: fixture.relaySetDocument
-            ),
-            on: owner
-        )
-        owner = try await reloadFormation(
-            snapshot,
-            binding: binding,
-            phase: .discovery
-        )
+        let fixture = harness.fixture
+        let binding = harness.binding
+        var owner = harness.owner
+        var snapshot = harness.snapshot
         for event in fixture.beaconEvents {
             snapshot = try await persist(
                 owner.acceptAvailabilityBeacon(event),
@@ -204,11 +191,23 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             owner.completeDiscovery(currentUnixSeconds: fixture.epoch + 60),
             on: owner
         )
-        owner = try await reloadFormation(
+        _ = try await reloadFormation(
             snapshot,
             binding: binding,
             phase: .candidateSetAgreement
         )
+    }
+
+    @Test("Restore every signed candidate-set prefix")
+    func restoreSignedCandidateSetPrefixes() async throws {
+        let harness = try await makeFormationHarness(
+            at: .candidateSetAgreement,
+            bindingSeed: 0xD1
+        )
+        let fixture = harness.fixture
+        let binding = harness.binding
+        var owner = harness.owner
+        var snapshot = harness.snapshot
         let localInputs = try MosaicPrivateDeploymentFixtures
             .makeLocalFormationInputs(formation: fixture.formation)
         let localAcknowledgement = try await persistAndPublish(
@@ -251,11 +250,25 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             owner.completeCandidateSetAgreement(),
             on: owner
         )
-        owner = try await reloadFormation(
+        _ = try await reloadFormation(
             snapshot,
             binding: binding,
             phase: .admission
         )
+    }
+
+    @Test("Restore every signed admission prefix")
+    func restoreSignedAdmissionPrefixes() async throws {
+        let harness = try await makeFormationHarness(
+            at: .admission,
+            bindingSeed: 0xD2
+        )
+        let fixture = harness.fixture
+        let binding = harness.binding
+        var owner = harness.owner
+        var snapshot = harness.snapshot
+        let localInputs = try MosaicPrivateDeploymentFixtures
+            .makeLocalFormationInputs(formation: fixture.formation)
         let localAdmission = try await persistAndPublish(
             owner.prepareCandidateAdmission(
                 createdAtUnixSeconds: fixture.epoch + 91,
@@ -301,11 +314,25 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             owner.completeCandidateAdmission(),
             on: owner
         )
-        owner = try await reloadFormation(
+        _ = try await reloadFormation(
             snapshot,
             binding: binding,
             phase: .controlRosterAgreement
         )
+    }
+
+    @Test("Restore every signed role-commitment prefix")
+    func restoreSignedRoleCommitmentPrefixes() async throws {
+        let harness = try await makeFormationHarness(
+            at: .controlRosterAgreement,
+            bindingSeed: 0xD3
+        )
+        let fixture = harness.fixture
+        let binding = harness.binding
+        var owner = harness.owner
+        var snapshot = harness.snapshot
+        let localInputs = try MosaicPrivateDeploymentFixtures
+            .makeLocalFormationInputs(formation: fixture.formation)
         let localCommitment = try await persistAndPublish(
             owner.prepareRoleCommitment(
                 randomness: localInputs.roleRandomness,
@@ -347,11 +374,25 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             owner.completeRoleCommitments(),
             on: owner
         )
-        owner = try await reloadFormation(
+        _ = try await reloadFormation(
             snapshot,
             binding: binding,
             phase: .roleElection
         )
+    }
+
+    @Test("Restore every signed role-reveal prefix")
+    func restoreSignedRoleRevealPrefixes() async throws {
+        let harness = try await makeFormationHarness(
+            at: .roleElection,
+            bindingSeed: 0xD4
+        )
+        let fixture = harness.fixture
+        let binding = harness.binding
+        var owner = harness.owner
+        var snapshot = harness.snapshot
+        let localInputs = try MosaicPrivateDeploymentFixtures
+            .makeLocalFormationInputs(formation: fixture.formation)
         let localReveal = try await persistAndPublish(
             owner.prepareRoleReveal(
                 randomness: localInputs.roleRandomness,
@@ -390,11 +431,25 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             )
         }
         snapshot = try await persist(owner.completeRoleElection(), on: owner)
-        owner = try await reloadFormation(
+        _ = try await reloadFormation(
             snapshot,
             binding: binding,
             phase: .nonceAllocation
         )
+    }
+
+    @Test("Restore the signed nonce-allocation prefix")
+    func restoreSignedNonceAllocationPrefix() async throws {
+        let harness = try await makeFormationHarness(
+            at: .nonceAllocation,
+            bindingSeed: 0xD5
+        )
+        let fixture = harness.fixture
+        let binding = harness.binding
+        var owner = harness.owner
+        var snapshot = harness.snapshot
+        let localInputs = try MosaicPrivateDeploymentFixtures
+            .makeLocalFormationInputs(formation: fixture.formation)
         let localNonce = try await persistAndPublish(
             owner.prepareContributorNonceAllocation(
                 publicSources: localInputs.publicSources,
@@ -419,11 +474,25 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             ) == .ignoredDuplicate(.nonceAllocation)
         )
         snapshot = try await persist(owner.completeNonceAllocation(), on: owner)
-        owner = try await reloadFormation(
+        _ = try await reloadFormation(
             snapshot,
             binding: binding,
             phase: .manifestAgreement
         )
+    }
+
+    @Test("Restore signed manifest prefixes and construct the runtime")
+    func restoreSignedManifestPrefixesAndConstructRuntime() async throws {
+        let harness = try await makeFormationHarness(
+            at: .manifestAgreement,
+            bindingSeed: 0xD6
+        )
+        let fixture = harness.fixture
+        let binding = harness.binding
+        var owner = harness.owner
+        var snapshot = harness.snapshot
+        let localInputs = try MosaicPrivateDeploymentFixtures
+            .makeLocalFormationInputs(formation: fixture.formation)
         let localProposal = try await persistAndPublish(
             owner.prepareManifestProposal(
                 authorizationKeys: localInputs.authorizationKeys,
@@ -1598,6 +1667,171 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             throw Runtime.Failure.invalidStateTransition
         }
         return continuation
+    }
+
+    private struct FormationHarness {
+        let fixture: MosaicPrivateDeploymentFixtures
+            .PrivateAlphaRuntimeProofFixture
+        let binding: Runtime.Binding
+        let owner: Runtime.Owner
+        let snapshot: Data
+    }
+
+    private func makeFormationHarness(
+        at phase: Runtime.Phase,
+        bindingSeed: UInt8
+    ) async throws -> FormationHarness {
+        let fixture = try MosaicPrivateDeploymentFixtures
+            .makePrivateAlphaRuntimeProof()
+        let binding = try makeBinding(seed: bindingSeed)
+        let fresh = try Runtime.createFreshAttempt(
+            boundTo: binding,
+            discoveryEpochStartUnixSeconds: fixture.epoch
+        )
+        let owner = try Runtime.Owner(claiming: fresh)
+        var snapshot = try await persist(await owner.nextStep(), on: owner)
+        snapshot = try await persist(
+            owner.installPrivateDeploymentContext(
+                opaquePoolDocument: fixture.opaquePoolDocument,
+                relaySetDocument: fixture.relaySetDocument
+            ),
+            on: owner
+        )
+        if phase == .discovery {
+            return try await reloadFormationHarness(
+                fixture: fixture,
+                binding: binding,
+                snapshot: snapshot,
+                phase: phase
+            )
+        }
+
+        for event in fixture.beaconEvents {
+            snapshot = try await persist(
+                owner.acceptAvailabilityBeacon(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeDiscovery(currentUnixSeconds: fixture.epoch + 60),
+            on: owner
+        )
+        if phase == .candidateSetAgreement {
+            return try await reloadFormationHarness(
+                fixture: fixture,
+                binding: binding,
+                snapshot: snapshot,
+                phase: phase
+            )
+        }
+
+        for event in fixture.acknowledgementEvents {
+            snapshot = try await persist(
+                owner.acceptCandidateSetAcknowledgement(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeCandidateSetAgreement(),
+            on: owner
+        )
+        if phase == .admission {
+            return try await reloadFormationHarness(
+                fixture: fixture,
+                binding: binding,
+                snapshot: snapshot,
+                phase: phase
+            )
+        }
+
+        for event in fixture.admissionEvents {
+            snapshot = try await persist(
+                owner.acceptCandidateAdmission(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeCandidateAdmission(),
+            on: owner
+        )
+        if phase == .controlRosterAgreement {
+            return try await reloadFormationHarness(
+                fixture: fixture,
+                binding: binding,
+                snapshot: snapshot,
+                phase: phase
+            )
+        }
+
+        for event in fixture.commitmentEvents {
+            snapshot = try await persist(
+                owner.acceptRoleCommitment(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(
+            owner.completeRoleCommitments(),
+            on: owner
+        )
+        if phase == .roleElection {
+            return try await reloadFormationHarness(
+                fixture: fixture,
+                binding: binding,
+                snapshot: snapshot,
+                phase: phase
+            )
+        }
+
+        for event in fixture.revealEvents {
+            snapshot = try await persist(
+                owner.acceptRoleReveal(event),
+                on: owner
+            )
+        }
+        snapshot = try await persist(owner.completeRoleElection(), on: owner)
+        if phase == .nonceAllocation {
+            return try await reloadFormationHarness(
+                fixture: fixture,
+                binding: binding,
+                snapshot: snapshot,
+                phase: phase
+            )
+        }
+
+        snapshot = try await persist(
+            owner.acceptContributorNonceAllocation(fixture.nonceEvent),
+            on: owner
+        )
+        snapshot = try await persist(owner.completeNonceAllocation(), on: owner)
+        if phase == .manifestAgreement {
+            return try await reloadFormationHarness(
+                fixture: fixture,
+                binding: binding,
+                snapshot: snapshot,
+                phase: phase
+            )
+        }
+
+        throw Runtime.Failure.invalidStateTransition
+    }
+
+    private func reloadFormationHarness(
+        fixture: MosaicPrivateDeploymentFixtures
+            .PrivateAlphaRuntimeProofFixture,
+        binding: Runtime.Binding,
+        snapshot: Data,
+        phase: Runtime.Phase
+    ) async throws -> FormationHarness {
+        .init(
+            fixture: fixture,
+            binding: binding,
+            owner: try await reloadFormation(
+                snapshot,
+                binding: binding,
+                phase: phase
+            ),
+            snapshot: snapshot
+        )
     }
 
     private func reloadFormation(

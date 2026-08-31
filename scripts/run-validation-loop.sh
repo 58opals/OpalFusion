@@ -200,8 +200,8 @@ case "$mode" in
     run_filter "$MOSAIC_PRIVATE_ALPHA_CONSUMER_SURFACE_FILTER"
     ;;
   mosaic-private-alpha-spi)
-    # Keep all recovery prefixes in one process so the exact private-alpha
-    # proof fixture is constructed once and the suite remains serialized.
+    # Keep all phase-bounded recovery-prefix tests in one process so the exact
+    # private-alpha proof fixture is constructed once and the suite is serialized.
     # Start the generation-free transport fixture in a fresh process so it
     # cannot inherit process-global test state from the hour-long runtime suite.
     assert_mosaic_private_alpha_transport_is_generation_free

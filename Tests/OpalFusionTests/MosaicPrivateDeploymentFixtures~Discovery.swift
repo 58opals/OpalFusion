@@ -5,6 +5,33 @@ import OpalCrypto
 @_spi(MosaicPrivateAlpha) @testable import OpalFusion
 
 extension MosaicPrivateDeploymentFixtures {
+    struct PrivateAlphaRuntimeProofFixture {
+        let proof: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentProof
+        let formation: Formation
+        let epoch: UInt64
+        let localControlIdentity: Data
+        let opaquePoolDocument: Data
+        let relaySetDocument: Data
+        let beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent]
+        let acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent]
+        let admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent]
+        let commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent]
+        let revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent]
+        let nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent
+        let proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent
+        let signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime
+            .PrivateDeploymentEvent]
+        let completeManifestDocument: Data
+    }
+
     private static let beaconProofOfWorkNonces: [UInt64] = [
         988_699,
         20_377_683,
@@ -333,32 +360,7 @@ extension MosaicPrivateDeploymentFixtures {
     }
 
     static func makePrivateAlphaRuntimeProof()
-        throws -> (
-            proof: OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentProof,
-            formation: Formation,
-            epoch: UInt64,
-            localControlIdentity: Data,
-            opaquePoolDocument: Data,
-            relaySetDocument: Data,
-            beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent,
-            proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent,
-            signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            completeManifestDocument: Data
-        ) {
+        throws -> PrivateAlphaRuntimeProofFixture {
         try cachedPrivateAlphaRuntimeProof.get()
     }
 
@@ -367,23 +369,7 @@ extension MosaicPrivateDeploymentFixtures {
             OpalCrypto.RSABSSA.VerificationKey,
         bchSignatureAuthorizationVerificationKey:
             OpalCrypto.RSABSSA.VerificationKey
-    ) throws -> (
-        proof: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentProof,
-        formation: Formation,
-        epoch: UInt64,
-        localControlIdentity: Data,
-        opaquePoolDocument: Data,
-        relaySetDocument: Data,
-        beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
-        acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
-        admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
-        commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
-        revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
-        nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent,
-        proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent,
-        signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime.PrivateDeploymentEvent],
-        completeManifestDocument: Data
-    ) {
+    ) throws -> PrivateAlphaRuntimeProofFixture {
         try buildPrivateAlphaRuntimeProof(
             componentAuthorizationVerificationKey:
                 componentAuthorizationVerificationKey,
@@ -393,32 +379,7 @@ extension MosaicPrivateDeploymentFixtures {
     }
 
     private static func buildPrivateAlphaRuntimeProof()
-        throws -> (
-            proof: OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentProof,
-            formation: Formation,
-            epoch: UInt64,
-            localControlIdentity: Data,
-            opaquePoolDocument: Data,
-            relaySetDocument: Data,
-            beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent,
-            proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent,
-            signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-                .PrivateDeploymentEvent],
-            completeManifestDocument: Data
-        ) {
+        throws -> PrivateAlphaRuntimeProofFixture {
         try buildPrivateAlphaRuntimeProof(
             componentAuthorizationVerificationKey: nil,
             bchSignatureAuthorizationVerificationKey: nil
@@ -430,32 +391,7 @@ extension MosaicPrivateDeploymentFixtures {
             OpalCrypto.RSABSSA.VerificationKey?,
         bchSignatureAuthorizationVerificationKey:
             OpalCrypto.RSABSSA.VerificationKey?
-    ) throws -> (
-        proof: OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentProof,
-        formation: Formation,
-        epoch: UInt64,
-        localControlIdentity: Data,
-        opaquePoolDocument: Data,
-        relaySetDocument: Data,
-        beaconEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent],
-        acknowledgementEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent],
-        admissionEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent],
-        commitmentEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent],
-        revealEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent],
-        nonceEvent: OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent,
-        proposalEvent: OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent,
-        signatureEvents: [OpalFusion.MosaicPrivateAlphaRuntime
-            .PrivateDeploymentEvent],
-        completeManifestDocument: Data
-    ) {
+    ) throws -> PrivateAlphaRuntimeProofFixture {
         let formation = try makeFormation()
         let proposal = try makeManifestProposalValidation(
             formation: formation,
@@ -615,22 +551,28 @@ extension MosaicPrivateDeploymentFixtures {
                 manifestSignatureEvents: signatureEvents,
                 completeManifestDocument: Data(manifest.canonicalBytes)
             )
-        return (
-            proof,
-            formation,
-            formation.discovery.epochStart,
-            Data(formation.roleElection.roster.conductor.validatedBytes),
-            Data(formation.discovery.pool.canonicalBytes),
-            Data(formation.discovery.relaySet.canonicalBytes),
-            beaconEvents,
-            acknowledgementEvents,
-            admissionEvents,
-            commitmentEvents,
-            revealEvents,
-            nonceEvent,
-            proposalEvent,
-            signatureEvents,
-            Data(manifest.canonicalBytes)
+        return .init(
+            proof: proof,
+            formation: formation,
+            epoch: formation.discovery.epochStart,
+            localControlIdentity: Data(
+                formation.roleElection.roster.conductor.validatedBytes
+            ),
+            opaquePoolDocument: Data(
+                formation.discovery.pool.canonicalBytes
+            ),
+            relaySetDocument: Data(
+                formation.discovery.relaySet.canonicalBytes
+            ),
+            beaconEvents: beaconEvents,
+            acknowledgementEvents: acknowledgementEvents,
+            admissionEvents: admissionEvents,
+            commitmentEvents: commitmentEvents,
+            revealEvents: revealEvents,
+            nonceEvent: nonceEvent,
+            proposalEvent: proposalEvent,
+            signatureEvents: signatureEvents,
+            completeManifestDocument: Data(manifest.canonicalBytes)
         )
     }
 
