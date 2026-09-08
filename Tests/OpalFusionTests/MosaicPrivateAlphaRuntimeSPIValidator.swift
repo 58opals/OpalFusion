@@ -1684,135 +1684,14 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
         let fixture = try MosaicPrivateDeploymentFixtures
             .makePrivateAlphaRuntimeProof()
         let binding = try makeBinding(seed: bindingSeed)
-        let fresh = try Runtime.createFreshAttempt(
-            boundTo: binding,
-            discoveryEpochStartUnixSeconds: fixture.epoch
+        let snapshot = try await MosaicPrivateAlphaFormationClient
+            .makeSnapshot(at: phase, boundTo: binding)
+        return try await reloadFormationHarness(
+            fixture: fixture,
+            binding: binding,
+            snapshot: snapshot,
+            phase: phase
         )
-        let owner = try Runtime.Owner(claiming: fresh)
-        var snapshot = try await persist(await owner.nextStep(), on: owner)
-        snapshot = try await persist(
-            owner.installPrivateDeploymentContext(
-                opaquePoolDocument: fixture.opaquePoolDocument,
-                relaySetDocument: fixture.relaySetDocument
-            ),
-            on: owner
-        )
-        if phase == .discovery {
-            return try await reloadFormationHarness(
-                fixture: fixture,
-                binding: binding,
-                snapshot: snapshot,
-                phase: phase
-            )
-        }
-
-        for event in fixture.beaconEvents {
-            snapshot = try await persist(
-                owner.acceptAvailabilityBeacon(event),
-                on: owner
-            )
-        }
-        snapshot = try await persist(
-            owner.completeDiscovery(currentUnixSeconds: fixture.epoch + 60),
-            on: owner
-        )
-        if phase == .candidateSetAgreement {
-            return try await reloadFormationHarness(
-                fixture: fixture,
-                binding: binding,
-                snapshot: snapshot,
-                phase: phase
-            )
-        }
-
-        for event in fixture.acknowledgementEvents {
-            snapshot = try await persist(
-                owner.acceptCandidateSetAcknowledgement(event),
-                on: owner
-            )
-        }
-        snapshot = try await persist(
-            owner.completeCandidateSetAgreement(),
-            on: owner
-        )
-        if phase == .admission {
-            return try await reloadFormationHarness(
-                fixture: fixture,
-                binding: binding,
-                snapshot: snapshot,
-                phase: phase
-            )
-        }
-
-        for event in fixture.admissionEvents {
-            snapshot = try await persist(
-                owner.acceptCandidateAdmission(event),
-                on: owner
-            )
-        }
-        snapshot = try await persist(
-            owner.completeCandidateAdmission(),
-            on: owner
-        )
-        if phase == .controlRosterAgreement {
-            return try await reloadFormationHarness(
-                fixture: fixture,
-                binding: binding,
-                snapshot: snapshot,
-                phase: phase
-            )
-        }
-
-        for event in fixture.commitmentEvents {
-            snapshot = try await persist(
-                owner.acceptRoleCommitment(event),
-                on: owner
-            )
-        }
-        snapshot = try await persist(
-            owner.completeRoleCommitments(),
-            on: owner
-        )
-        if phase == .roleElection {
-            return try await reloadFormationHarness(
-                fixture: fixture,
-                binding: binding,
-                snapshot: snapshot,
-                phase: phase
-            )
-        }
-
-        for event in fixture.revealEvents {
-            snapshot = try await persist(
-                owner.acceptRoleReveal(event),
-                on: owner
-            )
-        }
-        snapshot = try await persist(owner.completeRoleElection(), on: owner)
-        if phase == .nonceAllocation {
-            return try await reloadFormationHarness(
-                fixture: fixture,
-                binding: binding,
-                snapshot: snapshot,
-                phase: phase
-            )
-        }
-
-        snapshot = try await persist(
-            owner.acceptContributorNonceAllocation(fixture.nonceEvent),
-            on: owner
-        )
-        snapshot = try await persist(owner.completeNonceAllocation(), on: owner)
-        if phase == .manifestAgreement {
-            return try await reloadFormationHarness(
-                fixture: fixture,
-                binding: binding,
-                snapshot: snapshot,
-                phase: phase
-            )
-        }
-
-        throw Runtime.Failure.invalidStateTransition
     }
 
     private func reloadFormationHarness(
@@ -1891,7 +1770,6 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
             publicationState: .none,
             terminalState: .active
         )
-        try state.validate()
         return try state.canonicalBytes()
     }
 

@@ -80,115 +80,6 @@ enum MosaicMainnetAlphaExecutionFixtures {
         let completePayload: Alpha.CompleteTransactionPayload
     }
 
-    static func prepare() async throws -> Prepared {
-        let componentEvaluator = try MosaicMainnetAlphaFixtures
-            .authorizationEvaluator()
-        let bchEvaluator = try MosaicMainnetAlphaFixtures
-            .bchSignatureAuthorizationEvaluator()
-        let componentVerificationKey = try require(
-            componentEvaluator.verificationKey
-        )
-        let bchVerificationKey = try require(bchEvaluator.verificationKey)
-        let admission = try Fixture.makeHarness(
-            localRole: .contributor,
-            verificationKey: componentVerificationKey,
-            bchSignatureVerificationKey: bchVerificationKey
-        )
-        let session = try Session(
-            validatedAttempt: Fixture.makeValidatedAttempt(
-                election: admission.election
-            ),
-            attemptIdentifier: admission.attemptIdentifier,
-            generationIdentifier: admission.generationIdentifier,
-            materialIdentifier: admission.materialIdentifier,
-            localControlIdentity: admission.localControlIdentity,
-            proposalValidation: admission.proposalValidation
-        )
-        let materialized = try MosaicMainnetAlphaFixtures
-            .makeMaterializedPreparation(
-                election: admission.election,
-                manifest: admission.manifest,
-                attemptIdentifier: admission.attemptIdentifier,
-                generationIdentifier: admission.generationIdentifier,
-                localContributor: admission.localControlIdentity,
-                localMaterialIdentifier: admission.materialIdentifier
-            )
-        let localMaterial = try require(
-            materialized.materials[admission.localControlIdentity]
-        )
-        let localResponseSet = try authorizationResponseSet(
-            material: localMaterial,
-            componentEvaluator: componentEvaluator,
-            bchEvaluator: bchEvaluator
-        )
-        let authorizationValidation = try Alpha
-            .AuthorizationResponseSetMaterialValidation(
-                validating: localResponseSet,
-                material: localMaterial
-            )
-        let transcript = materialized.prepared.transcript
-        let publication = try Session.ReservationPublicationValidation(
-            validating: .init(
-                attemptIdentifier: admission.attemptIdentifier,
-                generationIdentifier: admission.generationIdentifier,
-                materialIdentifier: admission.materialIdentifier,
-                contributor: admission.localControlIdentity,
-                manifest: admission.manifest,
-                reservationLease: localMaterial.reservationLease,
-                playerCommit: localMaterial.playerCommit
-            ),
-            using: localMaterial
-        )
-        let transcriptInclusion = try OpalFusion.Mosaic.LocalAttempt
-            .TranscriptInclusionValidation(
-                attemptIdentifier: admission.attemptIdentifier,
-                generationIdentifier: admission.generationIdentifier,
-                contributor: admission.localControlIdentity,
-                materialIdentifier: admission.materialIdentifier,
-                transcript: transcript,
-                using: localMaterial
-            )
-        let acknowledgementSet = try makeAcknowledgementSet(
-            admission: admission,
-            transcript: transcript
-        )
-        let completion = try await makeCompletion(
-            admission: admission,
-            materialized: materialized
-        )
-        let signingRequest = try Alpha.SigningRequestBuilder.build(
-            context: session.context,
-            reservationPublication: publication,
-            transcriptInclusion: transcriptInclusion,
-            acknowledgements: acknowledgementSet.submissions.map(\.validation),
-            previousOutputs: completion.previousOutputs
-        )
-        var locallySignedTransaction = transcript.transaction
-        for inputIndex in signingRequest.localInputIndices {
-            let entry = completion.signatureSet.entries[inputIndex]
-            locallySignedTransaction = try locallySignedTransaction
-                .settingUnlockingScript(unlockingScript(for: entry), at: inputIndex)
-        }
-        let localFinalizedTransaction = Host.FinalizedTransaction(
-            signedFusionTransactionBytes: try locallySignedTransaction.serialize()
-        )
-        return .init(
-            admission: admission,
-            session: session,
-            materialized: materialized,
-            localMaterial: localMaterial,
-            localAuthorizationResponseSet: localResponseSet,
-            localAuthorizationValidation: authorizationValidation,
-            acknowledgementSet: acknowledgementSet,
-            previousOutputSource: completion.previousOutputSource,
-            previousOutputs: completion.previousOutputs,
-            signingRequest: signingRequest,
-            localFinalizedTransaction: localFinalizedTransaction,
-            signatureSet: completion.signatureSet,
-            completePayload: completion.completePayload
-        )
-    }
-
     static func makeCompletion(
         admission: Fixture.Harness,
         materialized: MosaicMainnetAlphaFixtures.MaterializedPreparation
@@ -257,65 +148,6 @@ enum MosaicMainnetAlphaExecutionFixtures {
         )
     }
 
-    private static func authorizationResponseSet(
-        material: Alpha.LocalContributionMaterial,
-        componentEvaluator: OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator,
-        bchEvaluator: OpalFusion.Mosaic.OpalV0.AuthorizationEvaluator
-    ) throws -> Alpha.AuthorizationResponseSet {
-        try .init(
-            roundIdentifier: material.manifest.core.roundIdentifier,
-            contributor: material.contributor,
-            playerCommitDigest: material.playerCommit.digest,
-            componentAuthorizationResponses: try material.slots.map { slot in
-                try .init(
-                    slot: slot.slot,
-                    blindSignature: componentEvaluator.evaluate(
-                        slot.componentAuthorizationRequest.blindedMessage
-                    )
-                )
-            },
-            bchSignatureAuthorizationResponses: try material.slots.map { slot in
-                try .init(
-                    slot: slot.slot,
-                    blindSignature: bchEvaluator.evaluate(
-                        slot.bchSignatureAuthorizationRequest.blindedMessage
-                    )
-                )
-            }
-        )
-    }
-
-    private static func makeAcknowledgementSet(
-        admission: Fixture.Harness,
-        transcript: OpalFusion.Mosaic.OpalV0.UnsignedTransactionTranscript
-    ) throws -> Alpha.PreSignAcknowledgementSet {
-        let acknowledgements = MosaicManifestSignatureFixtures
-            .transcriptAcknowledgements(
-                for: admission.election.result.roster.contributors,
-                binding: admission.manifest.binding,
-                transcriptRoot: transcript.transcriptRoot,
-                profile: .opalMainnetAlpha
-            )
-        let submissions = try acknowledgements.sorted {
-            $0.contributor.validatedBytes.lexicographicallyPrecedes(
-                $1.contributor.validatedBytes
-            )
-        }.map {
-            try Alpha.PreSignAcknowledgementSubmission(
-                contributor: $0.contributor,
-                roundIdentifier: $0.roundIdentifier,
-                transcriptRoot: $0.transcriptRoot,
-                signature: $0.rawRepresentation
-            )
-        }
-        return try .init(
-            roundIdentifier: admission.manifest.core.roundIdentifier,
-            transcriptRoot: transcript.transcriptRoot.validatedBytes,
-            roster: admission.election.result.roster,
-            submissions: submissions
-        )
-    }
-
     private static func makeSignatureSet(
         admission: Fixture.Harness,
         materialized: MosaicMainnetAlphaFixtures.MaterializedPreparation,
@@ -372,7 +204,7 @@ enum MosaicMainnetAlphaExecutionFixtures {
         return result
     }
 
-    private static func require<Value>(_ value: Value?) throws -> Value {
+    static func require<Value>(_ value: Value?) throws -> Value {
         guard let value else {
             throw FixtureError.missingValue
         }

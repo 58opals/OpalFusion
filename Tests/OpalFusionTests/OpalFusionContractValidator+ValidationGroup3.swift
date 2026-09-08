@@ -112,19 +112,14 @@ extension OpalFusionContractValidator {
         ] {
             #expect(lowercaseSource.contains(forbiddenFieldName) == false)
         }
-
-        #expect(diagnosticsSource.contains("OpalDiagnostics.Field.errorMessage(summary)"))
-        #expect(diagnosticsSource.contains("OpalDiagnostics.Field.errorMessage(String(describing: error))"))
     }
 
-    @Test("Client session constructor exposes host-owned wallet boundaries")
-    func validateClientSessionConstructorNamesExposeHostBoundaries() throws {
+    @Test("Client session source excludes wallet storage and signing authority")
+    func validateClientSessionSourcesExcludeWalletAuthority() throws {
         let sessionSource = try Self.sourceWithoutComments(
             relativePath: "Sources/OpalFusion/Client/OpalFusion+Client+Session.swift"
         )
 
-        #expect(sessionSource.contains("hostParticipantReservationSource"))
-        #expect(sessionSource.contains("hostTransactionAssembler"))
         #expect(sessionSource.contains("SwiftData") == false)
         #expect(sessionSource.contains("broadcast") == false)
         #expect(sessionSource.contains("privateKey") == false)

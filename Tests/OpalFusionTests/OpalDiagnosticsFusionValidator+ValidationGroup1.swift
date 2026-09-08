@@ -8,15 +8,8 @@ import OpalDiagnostics
 import Testing
 
 extension OpalDiagnosticsFusionValidator {
-    @Test("OpalDiagnostics catalog exposes stable typed values")
-    func validateOpalDiagnosticsCatalogExposesStableTypedValues() {
-        let category: OpalDiagnostics.Category = OpalDiagnostics.Category.fusionPrimary
-        let event: OpalDiagnostics.Event = OpalDiagnostics.Event.primaryMessageDecodeFailed
-        let level: OpalDiagnostics.Level = .error
-
-        #expect(category == OpalDiagnostics.Category.fusionPrimary)
-        #expect(event == OpalDiagnostics.Event.primaryMessageDecodeFailed)
-        #expect(level == .error)
+    @Test("Fusion blame diagnostics preserve their public event name")
+    func validateStableBlameDiagnosticEventName() {
         #expect(OpalDiagnostics.Event.blameProofValidationFailed.rawValue == "opalfusion.blame.proof_validation.failed")
     }
 

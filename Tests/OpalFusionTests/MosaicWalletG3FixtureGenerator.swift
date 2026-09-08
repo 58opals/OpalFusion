@@ -1,3 +1,5 @@
+// MosaicWalletG3FixtureGenerator.swift
+
 #if os(macOS)
 import Compression
 import Foundation

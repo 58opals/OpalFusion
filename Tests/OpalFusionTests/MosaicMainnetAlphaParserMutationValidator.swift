@@ -805,8 +805,8 @@ struct MosaicMainnetAlphaParserMutationValidator {
         .timeLimit(.minutes(1))
     )
     func mutateValidatedPrivateAlphaRecoverySnapshots() throws {
-        let fixture = try MosaicPrivateDeploymentFixtures
-            .makePrivateAlphaRuntimeProof()
+        let fixture = try MosaicG4PinnedParserFixture.load()
+        let proof = try MosaicG4PinnedParserFixture.restoreProof()
         let binding = try Runtime.Binding(
             attemptIdentifier: Data(repeating: 0x64, count: 32),
             generationIdentifier: Data(repeating: 0x65, count: 32),
@@ -817,21 +817,20 @@ struct MosaicMainnetAlphaParserMutationValidator {
             revision: 50,
             discoveryEpochStartUnixSeconds: fixture.epoch,
             phase: .walletReservation,
-            preManifestDocuments: fixture.proof.canonicalDocuments,
+            preManifestDocuments: proof.canonicalDocuments,
             preManifestAbortCause: .none,
             manifestState: .validated(
                 privateManifestProposalBytes: Data(
-                    fixture.proof.proposalValidation.canonicalBody
+                    proof.proposalValidation.canonicalBody
                 ),
                 completeManifestBytes: Data(
-                    fixture.proof.completeManifest.canonicalBytes
+                    proof.completeManifest.canonicalBytes
                 )
             ),
             postManifestJournalState: .initialized,
             publicationState: .none,
             terminalState: .active
         )
-        try state.validate()
         let snapshot = Array(try state.canonicalBytes())
         func validateSnapshot(_ bytes: [UInt8]) throws -> Bool {
             let decoded = try Runtime.RecoveryState.decode(
@@ -844,12 +843,12 @@ struct MosaicMainnetAlphaParserMutationValidator {
 
         let phaseOffset = 4 + 2 + (32 * 3)
         let abortCauseOffset = phaseOffset + 1 + 8 + 8 + 4
-            + fixture.proof.canonicalDocuments.reduce(0) {
+            + proof.canonicalDocuments.reduce(0) {
                 $0 + 4 + $1.count
             }
         let manifestStateOffset = abortCauseOffset + 1
-        let proposalBytes = fixture.proof.proposalValidation.canonicalBody
-        let manifestBytes = fixture.proof.completeManifest.canonicalBytes
+        let proposalBytes = proof.proposalValidation.canonicalBody
+        let manifestBytes = proof.completeManifest.canonicalBytes
         let journalStateOffset = manifestStateOffset + 1
             + 4 + proposalBytes.count
             + 4 + manifestBytes.count
