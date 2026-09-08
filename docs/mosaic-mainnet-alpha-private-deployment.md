@@ -12,7 +12,7 @@ The alpha.4 off-commitment accountability tradeoff is accepted unchanged: a vali
 
 Discovery requires a valid one-time BIP340 identity, a canonical availability beacon, and at least 20 leading zero bits in the beacon work digest. This work is an admission throttle only. It is not Sybil resistance, an anonymity measure, or evidence that selected candidates are independent people, devices, wallets, networks, or operators. Selection oversubscribes to seven through nine candidates and the existing commit-reveal election chooses exactly one conductor and six through eight contributors. Repeated selective aborts and candidate capture remain residual risks.
 
-Three distinct configured relay-operator digests assert only that the application reviewed three different registry labels. They do not prove corporate, jurisdictional, infrastructure, route, or Tor-circuit independence. Until G4 closes with supported-environment traffic analysis and independent dispositions, the only permitted readiness wording remains “deterministic mainnet-alpha contract foundation.”
+Three distinct configured relay-operator digests assert only that the application reviewed three different registry labels. They do not prove corporate, jurisdictional, infrastructure, route, or Tor-circuit independence. Until supported-environment traffic analysis and independent review establish deployment safety, the only permitted readiness wording remains “deterministic mainnet-alpha contract foundation.”
 
 ## 2. Canonical Primitives And Version Isolation
 
@@ -87,7 +87,7 @@ A relay endpoint normalizes to exact lowercase ASCII `wss://dns-host/`. An expli
 
 For each relay, the application supplies one reviewed printable-ASCII registry label of one through 128 bytes with no surrounding space. ASCII letters are lowercased, and the canonical operator identity is `deploymentHash("private-deployment/relay-operator-registry-label", privateDeploymentIdentifier || normalizedLabel)`. The registry label itself is not transmitted in the relay document. A registration contains private-deployment identifier text, normalized endpoint text, operator digest32, `requiresNIP42 = false`, and `requiresProofOfWork = false`.
 
-A relay-set document contains private-deployment identifier text, alpha.4 protocol text, mainnet genesis hash32, and exactly three registrations sorted by canonical registration bytes. Endpoints and operator digests must each be unique. `relaySetDigest = deploymentHash("private-deployment/relay-set", privateDeploymentIdentifier || canonicalRelaySet)`. The application must bind every manifest endpoint identifier to the exact reviewed relay set and to one concrete Tor-only capability; that execution proof belongs to G2.
+A relay-set document contains private-deployment identifier text, alpha.4 protocol text, mainnet genesis hash32, and exactly three registrations sorted by canonical registration bytes. Endpoints and operator digests must each be unique. `relaySetDigest = deploymentHash("private-deployment/relay-set", privateDeploymentIdentifier || canonicalRelaySet)`. The application must bind every manifest endpoint identifier to the exact reviewed relay set and to one concrete Tor-only capability; the application must establish that execution proof.
 
 ## 5. Availability And Candidate-Set Agreement
 
@@ -135,13 +135,13 @@ A completion body contains the private-deployment identifier, alpha.4 protocol i
 
 ## 9. Cross-Layer Recovery Decisions
 
-The application owns one encrypted, atomically replaced outer attempt record containing the exact OpalFusion runtime/publication state, OpalBase wallet disposition, transport state, and minimum recoverable attempt material under one revision. Independent package files must not be treated as an atomic attempt. Keychain-backed key and rollback anchors, file and directory synchronization, cataloging, cross-process exclusion, and terminal erasure remain G1 application obligations.
+The application owns one encrypted, atomically replaced outer attempt record containing the exact OpalFusion runtime/publication state, OpalBase wallet disposition, transport state, and minimum recoverable attempt material under one revision. Independent package files must not be treated as an atomic attempt. Keychain-backed key and rollback anchors, file and directory synchronization, cataloging, cross-process exclusion, and terminal erasure remain application obligations.
 
 Durable missing-input tombstones are part of that application-owned outer record, not an OpalBase or OpalFusion store. An ambiguous OpalBase locally-signed or commit-intent recovery prefix may classify an absent selected input as removed by this exact attempt only when one authenticated inventory/tombstone snapshot binds the outer-record revision, wallet reservation UUID and generation, Fusion attempt, generation, and material identifiers, the exact outpoint and selected-input payload digest, and the exact committed transaction hash. The application must compare-and-replace and read back that snapshot with wallet inventory, enumerate it at startup, anchor rollback and deletion detection, exclude concurrent processes, and retain it through composed terminal cleanup. Missing, unknown, stale, tampered, extra, duplicate, rolled-back, deleted, or outcome-uncertain evidence remains quarantined and fail-closed. An authenticated OpalBase committed record remains the package-owned proof that selected-input absence is the required post-commit condition; it is not proof of application durability or readiness.
 
 A recovered signing intent without durable locally signed bytes aborts and releases; it never reconstructs material or signs again. A recovered locally signed state uses the exact stored signed bytes to finish idempotent commit; it never signs again. An ambiguous broadcast intent first reconciles exact transaction presence through the network-attested chain client and performs no dispatch while presence is unknown. Broadcast requires one durable cross-process owner, and terminal material is retained until the wallet has reached its exact chain disposition. Corruption, rollback, deletion, stale ownership, source loss, or uncertain state keeps affected inputs quarantined and cannot enable signing or broadcast.
 
-These decisions define the required G1 and G5 behavior; this supplement does not claim their implementation or evidence.
+These decisions define required application recovery and chain-reconciliation behavior; this supplement does not claim their implementation or evidence.
 
 ## 10. Ownership, Disable, And Non-Proofs
 

@@ -1,6 +1,6 @@
 # Mosaic Private-Deployment.1 Semantic Decision — 2026-08-21
 
-Status: Accepted as the frozen private-deployment contract for Mosaic private-alpha G0. This decision closed the semantic-approval blocker only; the separately recorded [Mosaic G0 Closure Evidence — 2026-08-21](mosaic-g0-closure-evidence-2026-08-21.md) subsequently closed G0 after one exact application dependency graph passed its required local cross-package validation.
+Status: frozen semantic decision for the internal macOS private-alpha deployment profile. This record defines protocol choices and residual risks; it does not establish application integration or deployment readiness.
 
 ## Scope
 
@@ -21,7 +21,7 @@ This decision adopts `nostr-tor/0-opal-mainnet-alpha-private-deployment.1` uncha
 | Post-manifest delivery | Retain alpha.5's byte-identical regular kind-1059 gift wrap on exactly three relays with at least two accepted acknowledgements and durable publication facts. | Regular gift wraps permit asynchronous retrieval, but acknowledgements do not prove honest storage, route independence, anonymity, or delivery to the semantic runtime. |
 | Keys and attempt material | Generate every discovery, control, sender, recipient-mailbox, wrapper, nonce, salt, token, output, and anonymous path value fresh for one attempt; never reconstruct signing material during recovery or reuse it for retry. | OpalCrypto owns primitives; the application owns production generation, Keychain wrapping, encrypted persistence, inventory, and terminal erasure. No external cryptographic runtime dependency is introduced. |
 | Recovery and broadcast | Use one authenticated atomically replaced application outer record over Fusion, Base, transport, wallet-inventory/tombstone, and minimum recoverable material state; unknown or ambiguous state stays quarantined. Recovered signing intent never re-signs, and ambiguous broadcast intent reconciles exact chain presence before dispatch. | Package snapshots are not independently atomic. Cross-process ownership, rollback/deletion anchors, startup enumeration, physical cleanup, approval, and exact chain reconciliation remain application obligations. |
-| Claims | Until G4 closes, the maximum readiness wording is “deterministic mainnet-alpha contract foundation.” Participant count, relay count, work, and successful tests may not be described as anonymity, Sybil resistance, audit completion, or production readiness. | Nostr encryption and gift wrapping do not hide all metadata, the admission throttle does not establish identity, and the inherited accountability tradeoff remains material. |
+| Claims | The current package supports only the readiness wording “deterministic mainnet-alpha contract foundation.” Participant count, relay count, work, and successful tests may not be described as anonymity, Sybil resistance, audit completion, or production readiness. | Nostr encryption and gift wrapping do not hide all metadata, the admission throttle does not establish identity, and the inherited accountability tradeoff remains material. |
 
 ## First-Party Dependency Principle
 
@@ -43,12 +43,8 @@ Production implementation remains inside the purpose-specific Opal repositories:
 - NIP-44 and NIP-59 do not provide forward secrecy, post-compromise security, complete metadata hiding, or protection from a sufficiently global observer.
 - Relay acknowledgements, local persistence, and deterministic tests do not establish external delivery, chain acceptance, privacy, or bounded-canary safety.
 
-These risks are acceptable only inside the private-alpha gates and safe-claim boundary. A G4 review may reject this acceptance and reopen G0; a successful G5 canary cannot waive it.
+These residual risks constrain the private-alpha profile and its safe claims. Independent review may require a revised profile; a successful canary cannot remove the need for that review.
 
-## Non-Authorizations
+## Implementation And Deployment Limits
 
-This decision does not authorize concrete external relay or Tor access, credentials, NIP-42 identity use, relay-required proof of work, Fulcrum access, broadcast, value movement, a bounded canary, a public Mosaic session, public release, tags, main-branch promotion, production-readiness wording, or an anonymity claim. Each later gate must still supply its own implementation and evidence, and every externally visible or value-moving action retains its separate approval boundary.
-
-## G0 Follow-Through
-
-The acceptance revision is the OpalFusion commit containing this record and the corresponding status updates in the authoritative documents. G0 may close only after that public integration candidate is consumed through the exact OpalBase and Wallet resolved graph alongside exact OpalCrypto, SwiftFulcrum, and OpalDiagnostics revisions; profile drift must fail before wallet, recovery, transport, or broadcast mutation; and the focused package and Wallet validation evidence is recorded with its exact commands and environment.
+This decision does not establish live relay or Tor interoperability, chain acceptance, a public Mosaic session, production readiness, or anonymity. The application must reject profile drift before wallet, recovery, transport, or broadcast mutation and validate its exact dependency graph. Independent assurance, integrated recovery evidence, and operational readiness remain required before a bounded-value deployment, as specified by the [security model](mosaic-security-model.md) and [mainnet-alpha profile](mosaic-mainnet-alpha-profile.md).
