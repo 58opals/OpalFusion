@@ -162,12 +162,16 @@ Candidate order is supplied by OpalBase. Cross-engine fallback is permitted only
 Default local validation:
 
 ```bash
-swift build
-./scripts/run-validation-loop.sh all
-./scripts/run-validation-loop.sh codec
+./scripts/run-validation-loop.sh
 ```
 
-The validation wrapper serializes the Security.framework-backed Mosaic authorization suites so the full local run does not exhaust transient RSA key generation. Use raw `swift test --filter <suite>` for focused work. Live Electron Cash coordinator proofing is opt-in, environment-gated, registration-guarded, and should be treated as a slow confidence gate:
+No arguments and `fast` run the same representative regression selection with a 60-second post-build budget. The wrapper builds test targets first, then includes discovery, process startup, and cold fixture preparation in that budget. It requires Python 3 and reports build time separately. A pass covers only the selected suites; run affected focused suites as well when changing a narrow layer.
+
+Use `./scripts/run-validation-loop.sh all` explicitly for comprehensive deterministic validation. Its historical Debug runtime is approximately 97 minutes. It retains serialized cryptographic phases and a bounded concurrent pool; the fast-lane cutoff does not apply. Plain `swift test` is unchanged and can start the expensive suites together, so it is not the recommended comprehensive runner.
+
+Documentation-only edits need relevant documentation checks. Cryptography, authentication, protocol bytes, shared cryptographic fixtures, dependency changes, and public candidate publication require comprehensive validation. See the [Validation Guide](docs/validation.md) for the complete change-to-lane matrix and exact fast selection.
+
+Live Electron Cash coordinator proofing is separately opt-in, environment-gated, registration-guarded, and should be treated as a slow confidence gate:
 
 ```bash
 ./scripts/run-electron-cash-interop-smoke.sh 3

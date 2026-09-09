@@ -4,13 +4,14 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: ./scripts/run-validation-loop.sh <mode>
+usage: ./scripts/run-validation-loop.sh [mode]
 
 Runs public-safe OpalFusion validation loops without live coordinator proofing.
 
 Modes:
+  fast            Run the default regression selection (60 seconds after build).
   build           Build the package.
-  all             Run the deterministic local test suite.
+  all             Run the comprehensive local suite (historically about 97 minutes).
   codec           Run primary/covert codec and official protobuf fixture tests.
   round           Run scripted round-engine tests.
   runtime         Run primary/covert runtime and live-driver loopback tests.
@@ -37,12 +38,12 @@ script_dir="${script_path:h}"
 repo_root="$(cd "${script_dir}/.." && pwd -P)"
 cd "$repo_root"
 
-if (( $# != 1 )); then
+if (( $# > 1 )); then
   usage
   exit 1
 fi
 
-mode="$1"
+mode="${1:-fast}"
 
 SPM_SCRATCH_PATH="${OPALFUSION_SPM_SCRATCH_PATH:-.build}"
 SPM_CACHE_PATH="${OPALFUSION_SPM_CACHE_PATH:-$SPM_SCRATCH_PATH}"
@@ -154,7 +155,21 @@ case "$mode" in
   build)
     run_build
     ;;
+  fast)
+    assert_mosaic_fast_lane_is_rsa_free
+    assert_mosaic_reservation_dependency_lane_is_material_free
+    command -v python3 >/dev/null 2>&1 \
+      || fail "The fast validation lane requires Python 3."
+    exec python3 -B "$script_dir/run-fast-validation.py" \
+      --rsa-filter "$MOSAIC_RSA_DEPENDENT_FILTER" \
+      --material-filter "$MOSAIC_MATERIAL_FILTER" \
+      --mosaic-fast-filter "$MOSAIC_FAST_FILTER" \
+      --parallel-width "$MAXIMUM_PARALLEL_TEST_WIDTH" \
+      -- "${SPM_LANE_FLAGS[@]}"
+    ;;
   all)
+    print -r -- "Comprehensive local validation: every deterministic test; live coordinator proof disabled."
+    print -r -- "Historical Debug runtime: approximately 97 minutes; no fast-lane cutoff applies."
     assert_mosaic_fast_lane_is_rsa_free
     assert_mosaic_reservation_dependency_lane_is_material_free
     run_mosaic_rsa_dependent_tests

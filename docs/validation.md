@@ -1,16 +1,20 @@
 # OpalFusion Validation Guide
 
-This guide separates fast deterministic package checks from slow live CashFusion proofing and future Mosaic conformance work. The default development loop should not depend on waiting for a real coordinator round.
+This guide separates routine regression checks, comprehensive deterministic cryptographic and recovery validation, and live CashFusion proofing. Expensive local cryptography does not require a network connection; both comprehensive local testing and live proofing are explicit choices.
 
 ## Default Local Loop
 
-Run the full deterministic local suite for normal repo work through the repository wrapper. It keeps the Security.framework-backed Mosaic authorization suites, the CPU-heavy 23-slot material suite, and the reconnect-timing client suite in isolated serialized processes while bounding the remaining deterministic pool to four concurrent tests:
+Run the fast regression selection for normal implementation work through the repository wrapper:
 
 ```bash
-./scripts/run-validation-loop.sh all
+./scripts/run-validation-loop.sh
+# Equivalent explicit mode:
+./scripts/run-validation-loop.sh fast
 ```
 
-Use `swift test --filter <suite>` for focused work. An unrestricted raw `swift test` can exhaust transient RSA key generation when all cryptographic suites start together and is not the full-suite validation lane.
+The wrapper requires Python 3 for the fast lane and `rg` for the existing material-free guards. It builds all test targets first. Discovery, process startup, and cold fixture preparation then share one 60-second post-build budget. Build time is reported separately and is not part of this budget. Timeout fails the run, terminates only the owned test process group, and allows up to five additional seconds for cleanup; it does not retry, extend the budget, or reduce the selection. Interruption also cleans up the owned test processes.
+
+Use `swift test --filter <suite>` for focused work; filters are not uniformly fast. Plain `swift test` retains its existing behavior, including expensive test registration. An unrestricted raw run can exhaust transient RSA key generation when cryptographic suites start together and is not the recommended comprehensive validation lane.
 
 Run a build-only check when you only need package compilation:
 
@@ -24,6 +28,7 @@ Use the validation wrapper when you want stable named loops:
 
 ```bash
 ./scripts/run-validation-loop.sh build
+./scripts/run-validation-loop.sh fast
 ./scripts/run-validation-loop.sh all
 ./scripts/run-validation-loop.sh codec
 ./scripts/run-validation-loop.sh round
@@ -34,6 +39,7 @@ Use the validation wrapper when you want stable named loops:
 ./scripts/run-validation-loop.sh mosaic-fast
 ./scripts/run-validation-loop.sh mosaic-private-alpha-consumer-surface
 ./scripts/run-validation-loop.sh mosaic-private-alpha-spi
+./scripts/run-validation-loop.sh mosaic-private-alpha-transport
 ./scripts/run-validation-loop.sh mosaic-rehearsal
 ./scripts/run-validation-loop.sh interop-parser
 ```
@@ -42,7 +48,27 @@ For exact cross-repository work, set `OPALFUSION_SPM_SCRATCH_PATH`, `OPALFUSION_
 
 The wrapper keeps the live Electron Cash coordinator proof disabled for deterministic modes, even when the caller has an interop flag in their shell environment.
 
-The local suite covers the protocol-neutral facade invariants, native protobuf primitives, official/manual CashFusion bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, and diagnostics.
+The comprehensive local suite covers the protocol-neutral facade invariants, native protobuf primitives, official/manual CashFusion bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, and diagnostics, together with real cryptographic conformance and exact authenticated recovery.
+
+### Fast Selection
+
+The fast lane runs every test in these suites. `ClientSessionValidator` runs in its existing serialized process; the remaining suites share a pool bounded to four concurrent tests. Existing suite-level serialization remains effective.
+
+| Contract | Complete suites |
+| --- | --- |
+| CashFusion codecs and official bytes | `CashFusionPrimaryMessageCodecValidator`, `CashFusionCovertMessageCodecValidator`, `CashFusionOfficialProtobufFixtureValidator` |
+| Round transitions and workflow | `RoundEngineScriptedValidator`, `ProductionWorkflowValidator` |
+| Client lifecycle and runtime state | `ClientSessionValidator`, `PrimaryRuntimeSessionValidator`, `CovertRuntimeSessionValidator` |
+| Facade, host bindings, and diagnostics | `FusionFacadeScaffoldValidator`, `MosaicHostContractValidator`, `OpalDiagnosticsFusionValidator` |
+| Material-free reservation and transport ownership | `MosaicMainnetAlphaReservationCoordinatorDependencyValidator`, `MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator`, `MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator` |
+
+Before execution, discovery must find at least one test in every configured suite, reject duplicate identifiers, and verify consistency with the comprehensive partitions. The runner prints per-suite counts and the selected scope. A fast pass is representative regression evidence only: it does not prove exhaustive cryptographic correctness, complete protocol coverage, full authenticated recovery, exact-capacity construction, or publication readiness. Changes in those areas still require their owning comprehensive checks.
+
+### Comprehensive Local Validation
+
+Run `./scripts/run-validation-loop.sh all` explicitly. The last measured Debug run took approximately 97 minutes; this is historical guidance, not a promised duration. The wrapper announces this scope before execution. It retains the Security.framework-backed Mosaic authorization suites, CPU-heavy 23-slot material suite, and reconnect-timing client suite in isolated serialized processes, followed by the remaining deterministic pool bounded to four concurrent tests. It has no fast-lane cutoff. No tests are newly disabled or removed, and real coordinator proof remains separately gated.
+
+Runner contracts can be checked without cryptographic execution using `python3 -B -m unittest discover -s scripts/tests -v`. These checks exercise command dispatch, discovery failures, failure propagation, timeouts, interruption cleanup, and live-coordinator exclusion through a command double; they are runner evidence, not package-test evidence.
 
 ## Coverage Boundary
 
@@ -176,10 +202,19 @@ Transcript capture is the bridge from slow live proofing to fast local replay:
 
 Use capture only after a configured live smoke actually executes and passes the real coordinator session proof. The capture candidate must be reviewed outside the repository, stripped to approved test-only primary/covert byte fixtures, then committed in a later replay slice. Once replay fixtures exist, they should become the fast Electron Cash compatibility loop, while live smoke remains the slower confidence gate.
 
-## Acceptance For Docs And Protocol Changes
+## Required Validation By Change
 
-- Run `./scripts/run-validation-loop.sh all` after changes that touch examples, public API references, protocol behavior, or validation docs.
-- Run the most relevant focused filter first when changing a narrow layer.
+| Change or operation | Required validation |
+| --- | --- |
+| Documentation and comments | Relevant documentation, relative-link, and structural checks; compile examples when executable usage changes |
+| Isolated implementation change | Fast lane plus affected suites |
+| Transport or lifecycle change | Fast lane plus affected integration, cancellation, and recovery suites |
+| Cryptography, authentication, protocol bytes, shared cryptographic fixtures, or dependency changes | Comprehensive `all` lane |
+| Public candidate publication | Comprehensive `all` against the exact candidate |
+
+When several rows apply, use the broader requirement. Documentation-only changes do not require the comprehensive suite just because they mention an API or validation command. Runner-only changes require dispatch, discovery, failure, and cleanup checks plus execution of the affected lane. A prior comprehensive pass may be reused only when test sources, dependencies, toolchain, complete selection, and comprehensive execution remain equivalent; a changed comprehensive path requires a new full run. Fast-lane budget failures block that lane's acceptance and require diagnosis, not a larger budget or automatic removal of tests.
+
+- Run the most relevant focused filter first when changing a narrow layer, then complete the applicable checks above.
 - Run live smoke only when the goal is coordinator-backed proof and the environment is configured.
 - Update [Opal Fusion Specification](opal-fusion-specification.md), [Mosaic Protocol Specification](mosaic-protocol-specification.md), [Mosaic Security Model](mosaic-security-model.md), and any applicable frozen profile such as the [private-deployment supplement](mosaic-mainnet-alpha-private-deployment.md) together when shared boundaries or Mosaic invariants change.
 - Update [CashFusion Official Protocol Matrix](cashfusion-official-protocol-matrix.md) when row-level support status or test evidence changes.
