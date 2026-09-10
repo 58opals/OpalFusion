@@ -17,10 +17,10 @@ extension ClientSessionValidator {
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantReservationSource: HostParticipantReservationSourceAdapter(
+            hostParticipantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
-            transactionAssembler: HostTransactionAssemblerAdapter(
+            hostTransactionAssembler: HostTransactionAssemblerAdapter(
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             stateObserver: invalidConfigurationObserver,
@@ -39,10 +39,10 @@ extension ClientSessionValidator {
             configuration: PrimaryRuntimeTestFixtures.configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantReservationSource: HostParticipantReservationSourceAdapter(
+            hostParticipantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
-            transactionAssembler: HostTransactionAssemblerAdapter(
+            hostTransactionAssembler: HostTransactionAssemblerAdapter(
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             reconnectPolicy: Self.fastReconnectPolicy,
@@ -70,10 +70,10 @@ extension ClientSessionValidator {
             configuration: PrimaryRuntimeTestFixtures.configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantReservationSource: HostParticipantReservationSourceAdapter(
+            hostParticipantReservationSource: HostParticipantReservationSourceAdapter(
                 participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
             ),
-            transactionAssembler: HostTransactionAssemblerAdapter(
+            hostTransactionAssembler: HostTransactionAssemblerAdapter(
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             reconnectPolicy: Self.fastReconnectPolicy,
@@ -109,8 +109,8 @@ extension ClientSessionValidator {
             configuration: PrimaryRuntimeTestFixtures.configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            participantReservationSource: hostReservationSource,
-            transactionAssembler: HostTransactionAssemblerAdapter(
+            hostParticipantReservationSource: hostReservationSource,
+            hostTransactionAssembler: HostTransactionAssemblerAdapter(
                 finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
             ),
             reconnectPolicy: Self.fastReconnectPolicy,

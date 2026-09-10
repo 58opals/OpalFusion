@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "OpalFusion",
     platforms: [
-        .macOS(.v26)
+        .macOS(.v27)
     ],
     products: [
         .library(

@@ -46,7 +46,7 @@ An internal contributor transport bridge binds the reservation coordinator's ord
 ## Requirements
 
 - Swift tools version: `6.4`
-- Platforms: `macOS 26`
+- Platforms: `macOS 27`
 - Xcode's Metal Toolchain component, required by the current OpalCrypto build plugin.
 - Current live CashFusion transport support, including the Tor SOCKS5 covert path, is macOS-only in this package. Mosaic has strict relay framing, a frozen internal post-manifest NIP-59 event mapping, blind-authorized mailbox bootstrap, attempt-scoped recipient routing, authenticated runtime ingress, a byte-stable exact-three-relay/two-durable-acknowledgement publisher, and a bounded reconnectable fan-in whose externally provisioned mailbox groups each use three injected Tor-only WebSocket capabilities; it has no concrete Mosaic Tor connection, application durable transport-secret lifecycle, supervised live session, or public live transport implementation.
 

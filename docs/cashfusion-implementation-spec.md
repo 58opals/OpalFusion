@@ -18,7 +18,7 @@ OpalFusion is the collaborative-transaction protocol package for the Opal Bitcoi
 - `OpalCrypto` owns reusable Bitcoin Cash cryptographic primitives.
 - `OpalBase` owns app-facing orchestration, wallet policy, and product-facing integration.
 - `SwiftFulcrum` owns Fulcrum transport responsibilities.
-- The current package support contract is `macOS 26` only; the live covert transport and Tor SOCKS5 runtime path are macOS-only in this first slice.
+- The current package support contract is `macOS 27` only; the live covert transport and Tor SOCKS5 runtime path are macOS-only in this first slice.
 - Coordinator host, coordinator port, primary-channel TLS policy, Tor SOCKS5 settings, join tiers, pool tags, and product retry policy are app-owned inputs. OpalFusion validates and consumes them, but does not provide production coordinator defaults.
 
 ### Non-goals
@@ -346,7 +346,7 @@ The implementation phase should preserve at least these top-level outcome catego
 
 Wallet and OpalBase should consume OpalFusion through `OpalFusion.Client.Session` with app-owned configuration:
 
-- Supported platform: macOS 26 for the live runtime in this first slice.
+- Supported platform: macOS 27 for the live runtime in this first slice.
 - Required configuration: non-empty coordinator host, nonzero coordinator port, explicit primary TLS flag, valid covert entry path, positive covert payload and timeout settings, optional valid Tor SOCKS5 host/port, optional 32-byte BCH genesis hash, and non-empty positive unique join-pool tiers.
 - Optional pool tags must have a non-empty identifier and positive limit.
 - Primary TLS follows `coordinatorRequiresTLS`; covert HTTP(S) follows `FusionBegin.covert_ssl`; Tor SOCKS5 is used only by covert HTTP(S) requests.
