@@ -18,6 +18,7 @@ The frozen [mainnet-alpha profile](docs/mosaic-mainnet-alpha-profile.md), [trans
 - [CashFusion Official Protocol Matrix](docs/cashfusion-official-protocol-matrix.md): row-level implementation status and test evidence against the pinned Electron Cash baseline.
 - [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md): current public support claim, intentional exclusions, and remaining proof gates.
 - [Integration Guide](docs/integration-guide.md): how app and OpalBase layers should wire OpalFusion.
+- [Local Mosaic Integration](docs/mosaic-local-integration.md): one-owner lifecycle, delayed expiry, wallet recovery obligations and public-fixture commands.
 - [Validation Guide](docs/validation.md): fast local loops, focused protocol/runtime filters, live-smoke caveats, and transcript replay direction.
 - [Architecture Guide](docs/architecture.md): compact maintainer map of public API, runtime, transport, wire, execution, host, and diagnostics layers.
 

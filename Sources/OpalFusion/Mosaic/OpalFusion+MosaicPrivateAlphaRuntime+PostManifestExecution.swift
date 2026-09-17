@@ -386,6 +386,26 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             await stopOutbound()
         }
 
+        /// The last signed protocol deadline; callers supervise their local clock.
+        @_spi(MosaicPrivateAlpha)
+        public var expiryUnixSeconds: UInt64 {
+            completeManifest.core.deadlines.bchSigning
+        }
+
+        /// Stops expired execution without signing or manufacturing terminal evidence.
+        ///
+        /// The final deadline itself still permits an authenticated timeout abort.
+        /// A later wake must use local stop and exact wallet recovery instead. Existing
+        /// completion and persisted abort evidence remain subject to normal validation.
+        /// Claim `waitForTermination` to verify the outbound drain and exact disposition.
+        @_spi(MosaicPrivateAlpha)
+        @discardableResult
+        public func stopIfExpired(currentUnixSeconds: UInt64) async -> Bool {
+            guard currentUnixSeconds > expiryUnixSeconds else { return false }
+            await stop()
+            return true
+        }
+
         /// Claims exactly one package-derived runtime disposition after exact durable readback.
         @_spi(MosaicPrivateAlpha)
         public func waitForTermination() async throws

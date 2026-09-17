@@ -48,6 +48,8 @@ For exact cross-repository work, set `OPALFUSION_SPM_SCRATCH_PATH`, `OPALFUSION_
 
 The wrapper keeps the live Electron Cash coordinator proof disabled for deterministic modes, even when the caller has an interop flag in their shell environment.
 
+SwiftPM package sandboxing remains enabled, including when custom cache paths are supplied. A surrounding execution environment must permit SwiftPM to start its sandbox; a sandbox launch failure is infrastructure failure, not permission to disable package isolation.
+
 The comprehensive local suite covers the protocol-neutral facade invariants, native protobuf primitives, official/manual CashFusion bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, and diagnostics, together with real cryptographic conformance and exact authenticated recovery.
 
 ### Fast Selection

@@ -51,7 +51,6 @@ SPM_CONFIG_PATH="${OPALFUSION_SPM_CONFIG_PATH:-.swiftpm-cache/validation/config}
 SPM_SECURITY_PATH="${OPALFUSION_SPM_SECURITY_PATH:-.swiftpm-cache/validation/security}"
 SPM_MODULE_CACHE_PATH="${OPALFUSION_SPM_MODULE_CACHE_PATH:-.swiftpm-cache/validation/module-cache}"
 SPM_LANE_FLAGS=(
-  --disable-sandbox
   --scratch-path "$SPM_SCRATCH_PATH"
   --cache-path "$SPM_CACHE_PATH"
   --config-path "$SPM_CONFIG_PATH"

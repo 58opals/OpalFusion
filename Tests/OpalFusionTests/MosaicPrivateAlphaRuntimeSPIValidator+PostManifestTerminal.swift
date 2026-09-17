@@ -894,6 +894,119 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         #expect(routes.recordedProvisionCallCount == 0)
     }
 
+    @Test("Late expiry drains routes and retains exact post-sign recovery")
+    func drainExpiredExecutionWithoutTerminalAuthority() async throws {
+        let reference = OpalFusion.Host.MosaicReservationReference(
+            identifier: UUID(uuidString: "C4000000-0000-0000-0000-000000000001")!,
+            generation: 3
+        )
+        let outboundStopped = Mutex(false)
+        let fixture = try MosaicPrivateDeploymentFixtures
+            .makePrivateAlphaRuntimeProof()
+        let contributorIdentity = try #require(
+            fixture.formation.roleElection.roster.contributors.first
+        )
+        let localIdentity = Data(contributorIdentity.validatedBytes)
+        let binding = try makeBinding(seed: 0xC4)
+        let admission = MosaicPrivateAlphaRuntimePersistenceStore()
+        let publication = MosaicPrivateAlphaRuntimePersistenceStore()
+        let terminal = MosaicPrivateAlphaRuntimePersistenceStore()
+        let routeProbe = MosaicPrivateAlphaRuntimePersistenceStore()
+        let baseCapabilities = try MosaicPrivateDeploymentFixtures
+            .makeRuntimeCapabilities(
+                formation: fixture.formation,
+                localControlIdentity: localIdentity,
+                admissionStore: admission,
+                publicationStore: publication,
+                terminalStore: terminal,
+                routeStore: routeProbe
+            )
+        let capabilities = replacingRelays(
+            baseCapabilities,
+            with: makeWorkingRelayCapabilities(
+                from: baseCapabilities,
+                routeProbe: routeProbe
+            )
+        )
+        let sealedSnapshot = try makeSealedSnapshot(
+            proof: fixture.proof,
+            binding: binding,
+            epoch: fixture.epoch
+        )
+        let firstOwner = try await resumedOwner(
+            snapshot: sealedSnapshot,
+            binding: binding
+        )
+        _ = try await persist(
+            firstOwner.preparePostManifestRuntime(
+                localControlIdentity: localIdentity,
+                capabilities: capabilities
+            ),
+            on: firstOwner
+        )
+        let firstConstruction = try await firstOwner
+            .makePostManifestConstruction(
+                localControlIdentity: localIdentity
+            )
+        let firstRuntime = MosaicPrivateAlphaTerminalRuntimeProbe(
+            phase: .bchSigning,
+            stopState: .contributor(.recoveryRequired(.init(
+                reservationReference: reference,
+                reason: .signingMayHaveStarted
+            )))
+        )
+        let firstComponent = try makeTerminalProbeExecution(
+            construction: firstConstruction,
+            capabilities: capabilities,
+            admissionStore: admission,
+            publicationStore: publication,
+            endpoint: await firstRuntime.endpoint(),
+            stopOutbound: { outboundStopped.withLock { $0 = true } },
+            waitForOutboundDrain: { outboundStopped.withLock { $0 } }
+        )
+        let firstExecution = firstComponent.execution
+        try await firstExecution.start()
+        for connection in firstComponent.connections {
+            #expect(await connection.openCount == 1)
+        }
+
+        let deadline = fixture.proof.completeManifest.core.deadlines.bchSigning
+        let beforeAdmission = admission.load(binding)
+        let beforePublication = publication.load(binding)
+        #expect(await firstExecution.expiryUnixSeconds == deadline)
+        #expect(await firstExecution.stopIfExpired(currentUnixSeconds: deadline - 1) == false)
+        #expect(await firstExecution.stopIfExpired(currentUnixSeconds: deadline) == false)
+        #expect(await firstRuntime.stopCount == 0)
+        #expect(!outboundStopped.withLock { $0 })
+        for connection in firstComponent.connections {
+            #expect(await connection.closeCount == 0)
+        }
+
+        #expect(await firstExecution.stopIfExpired(currentUnixSeconds: deadline + 1))
+        guard let outcome = try await firstExecution.waitForTermination() else {
+            Issue.record("Expected one expired execution disposition")
+            return
+        }
+        #expect(outcome.kind == .recoveryRequired)
+        #expect(outcome.reservationReference == reference)
+        let outboundIsDrained = outcome.outboundIsDrained
+        #expect(outboundIsDrained)
+        #expect(outcome.localTerminalEvent == nil)
+        #expect(outcome.receivedTerminalEvent == nil)
+        guard case .unavailable = outcome.authority else {
+            Issue.record("Local expiry cannot grant terminal authority")
+            return
+        }
+        #expect(await firstRuntime.stopCount == 1)
+        #expect(outboundStopped.withLock { $0 })
+        #expect(terminal.load(binding) == nil)
+        #expect(admission.load(binding) == beforeAdmission)
+        #expect(publication.load(binding) == beforePublication)
+        for connection in firstComponent.connections {
+            #expect(await connection.closeCount == 1)
+        }
+    }
+
     @Test("Recover a write-ahead local timeout after CAS before apply")
     func recoverLocalTimeoutAfterWriteAheadCAS() async throws {
         let fixture = try MosaicPrivateDeploymentFixtures
@@ -1575,7 +1688,9 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         capabilities: Runtime.PostManifestRuntimeCapabilities,
         admissionStore: MosaicPrivateAlphaRuntimePersistenceStore,
         publicationStore: MosaicPrivateAlphaRuntimePersistenceStore,
-        endpoint: Alpha.PostManifestRelayFanIn.RuntimeEndpoint
+        endpoint: Alpha.PostManifestRelayFanIn.RuntimeEndpoint,
+        stopOutbound: @escaping @Sendable () async -> Void = {},
+        waitForOutboundDrain: @escaping @Sendable () async -> Bool = { true }
     ) throws -> (
         execution: Runtime.PostManifestExecution,
         connections: [ScriptedMosaicTorWebSocketConnection]
@@ -1658,8 +1773,8 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                     return readback
                 },
                 terminalPersistence: capabilities.terminalPersistence,
-                stopOutbound: {},
-                waitForOutboundDrain: { true }
+                stopOutbound: stopOutbound,
+                waitForOutboundDrain: waitForOutboundDrain
             ),
             connections
         )

@@ -99,7 +99,7 @@ An implementation that violates one of these rules is not Mosaic-compatible.
 | Relay censors or reorders | Multi-relay replication, signatures, sequence numbers, idempotence | Enough relays can deny liveness or partition participants |
 | Replay from an earlier attempt | Protocol, network, round, phase, sequence, expiry, and payload digest binding | Implementation state loss may reopen replay windows |
 | One-more authorization attempt | Exactly 23 request slots per contributor, all-contributor issuance barrier, cached duplicate response, and spent identifier derived from token input | Security still depends on a vetted RFC 9474 provider and correct persistent replay accounting |
-| Participant submits malformed component | Commitment validation and CashFusion-derived blame | Blame can reveal bounded proof material and does not create durable bans |
+| Participant submits malformed component | Canonical and semantic validation; profile-specific accountability | Alpha.4 does not prove component membership in a contributor's commitment. Its accepted off-commitment case can cause unattributable abort; do not infer complete CashFusion-style blame or durable bans |
 | Participant withholds reveal or signature | Deadlines and abort | Permissionless peers can repeatedly deny liveness |
 | Last revealer selectively aborts role election | Fresh identities and randomness prevent an in-place reroll | Repeated abort-and-rejoin attempts can bias which conductor selections complete |
 | Sybil pool capture | The proposed private deployment would require a 20-leading-zero-bit beacon throttle, oversubscription, and role randomness | These only increase cost; they do not provide strong Sybil resistance |

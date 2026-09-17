@@ -8,14 +8,20 @@ actor MosaicPrivateAlphaTerminalRuntimeProbe {
     typealias FanIn = Alpha.PostManifestRelayFanIn
 
     private let phase: Attempt.Phase
+    private let stopState: Alpha.PostManifestRuntimeDriver.State?
+    private(set) var stopCount = 0
     private var terminalState: Alpha.PostManifestRuntimeDriver.State?
     private var terminalAbort: (
         phase: Attempt.Phase,
         reason: Attempt.AbortReason
     )?
 
-    init(phase: Attempt.Phase) {
+    init(
+        phase: Attempt.Phase,
+        stopState: Alpha.PostManifestRuntimeDriver.State? = nil
+    ) {
         self.phase = phase
+        self.stopState = stopState
     }
 
     func endpoint() -> FanIn.RuntimeEndpoint {
@@ -29,7 +35,7 @@ actor MosaicPrivateAlphaTerminalRuntimeProbe {
             },
             submit: { _ in .rejected(.notRunning) },
             inputSourceDidTerminate: { _ in false },
-            stop: {},
+            stop: { await self.stop() },
             waitForTermination: { await self.terminalState },
             currentPhase: { self.phase },
             terminalProtocolAbort: { await self.terminalAbort },
@@ -40,6 +46,11 @@ actor MosaicPrivateAlphaTerminalRuntimeProbe {
                 await self.applyAbort(deriving: operation)
             }
         )
+    }
+
+    private func stop() {
+        stopCount += 1
+        if terminalState == nil { terminalState = stopState }
     }
 
     private func applyAbort(

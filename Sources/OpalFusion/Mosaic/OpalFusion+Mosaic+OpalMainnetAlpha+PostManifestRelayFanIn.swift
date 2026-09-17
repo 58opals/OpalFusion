@@ -864,8 +864,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let termination: Termination
             switch cause {
             case .stopped:
-                _ = await runtime.waitForTermination()
-                termination = .stopped
+                // Stopping transport does not erase a contributor's exact
+                // post-sign reservation recovery requirement. Do not promote
+                // other runtime results to authenticated terminal evidence.
+                if let runtimeState = await runtime.waitForTermination(),
+                   case .contributor(.recoveryRequired) = runtimeState {
+                    termination = .runtime(runtimeState)
+                } else {
+                    termination = .stopped
+                }
             case .sourceFailed:
                 if let runtimeState = await runtime.waitForTermination(),
                    !isSourceFailure(runtimeState) {
