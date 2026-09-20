@@ -79,7 +79,49 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private(set) var state: State = .idle
         private(set) var reservationLifecycle: ReservationLifecycle = .unreserved
 
-        var diagnosticCounts: [String: Int] { runtimeSession.diagnosticCounts }
+        var diagnosticCounts: [String: Int] {
+            var counts = runtimeSession.diagnosticCounts
+            let failure: Failure?
+            if case let .terminal(.failed(terminalFailure)) = state {
+                failure = terminalFailure
+            } else {
+                failure = pendingDisposition?.failure
+            }
+            if let failure {
+                let stage: String
+                switch failure {
+                case .inputBufferOverflow: stage = "failureInputBufferOverflow"
+                case .inputSourceTerminated: stage = "failureInputSourceTerminated"
+                case .recoveryBarrierMisordered: stage = "failureRecoveryBarrier"
+                case .admissionJournalFailed: stage = "failureAdmissionJournal"
+                case .authorizationResponseValidationFailed:
+                    stage = "failureAuthorizationResponseMismatch"
+                case .reservationPublicationFailed,
+                     .anonymousComponentPublicationFailed,
+                     .preSignAcknowledgementPublicationFailed,
+                     .localBCHSignaturePublicationFailed:
+                    stage = "failurePublication"
+                case .previousOutputResolutionFailed:
+                    stage = "failurePreviousOutputResolution"
+                case .completeTransactionValidationFailed:
+                    stage = "failureTransactionValidation"
+                case .localAttemptRejected, .runtime:
+                    stage = "failureRuntime"
+                case .missingManifest, .effectContextMismatch,
+                     .duplicateReservationEligibility, .invalidReservationRequest,
+                     .reservationFailed, .reservationLeaseExpirationMismatch,
+                     .reservationPublicationLeaseMismatch, .localMaterialInvalid,
+                     .commitmentInclusionValidationFailed,
+                     .transcriptInclusionValidationFailed,
+                     .signingPrerequisiteMissing, .signingRequestFailed,
+                     .signingFailed, .localBCHSignatureValidationFailed,
+                     .completeTransactionCommitFailed:
+                    stage = "failureLocalEffect"
+                }
+                counts[stage] = 1
+            }
+            return counts
+        }
 
         var runtimeSessionState: RuntimeSession.State {
             runtimeSession.state

@@ -296,7 +296,9 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
             }
         }
         let expectedReservationExpiration = Date(
-            timeIntervalSince1970: TimeInterval(deadlines.walletReservation)
+            timeIntervalSince1970: TimeInterval(
+                privateManifest.reservationLeaseExpirationUnixSeconds
+            )
         )
         let roleDependencies = Alpha.PostManifestRuntimeDriver
             .RoleDependencies.contributor(.init(

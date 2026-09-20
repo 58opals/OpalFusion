@@ -363,6 +363,9 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
             await harness.coordinator.state
                 == .terminal(.failed(.inputSourceTerminated(.failed)))
         )
+        let diagnostics = await harness.coordinator.diagnosticCounts
+        #expect(diagnostics["failureInputSourceTerminated"] == 1)
+        #expect(diagnostics["failurePublication"] == nil)
     }
 
     @Test(
@@ -469,6 +472,9 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         )
         #expect(harness.signals.count(.publicationStarted) == 1)
         #expect(harness.signals.count(.validationAccepted) == 0)
+        let diagnostics = await harness.coordinator.diagnosticCounts
+        #expect(diagnostics["failurePublication"] == 1)
+        #expect(diagnostics["failureInputSourceTerminated"] == nil)
     }
 
     @Test(

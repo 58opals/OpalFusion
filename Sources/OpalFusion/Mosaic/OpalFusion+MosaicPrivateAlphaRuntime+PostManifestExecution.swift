@@ -30,6 +30,11 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         private let recoveredTerminalEvidence: PostManifestTerminalEvidence?
         private var terminationWasClaimed = false
         private var terminalRecord: PostManifestTerminalRecord?
+        private enum TerminalReadbackFailureStage {
+            case admission
+            case publication
+        }
+        private var terminalReadbackFailureStage: TerminalReadbackFailureStage?
 
         init(
             binding: Binding,
@@ -159,7 +164,18 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         /// Fixed protocol stage only; exposes no participant or transaction data.
         @_spi(MosaicPrivateAlpha)
         public var diagnosticCounts: [String: Int] {
-            get async { await fanIn.diagnosticCounts() }
+            get async {
+                var counts = await fanIn.diagnosticCounts()
+                switch terminalReadbackFailureStage {
+                case .admission:
+                    counts["terminalAdmissionReadbackFailed"] = 1
+                case .publication:
+                    counts["terminalPublicationReadbackFailed"] = 1
+                case nil:
+                    break
+                }
+                return counts
+            }
         }
 
         @_spi(MosaicPrivateAlpha)
@@ -462,8 +478,20 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                 && publicationJournal.isDrained
 
             // Never substitute empty data for an absent, unreadable, or invalid snapshot.
-            let admissionReadback = try loadAdmissionReadback()
-            let publicationReadback = try loadPublicationReadback()
+            let admissionReadback: Data
+            do {
+                admissionReadback = try loadAdmissionReadback()
+            } catch {
+                terminalReadbackFailureStage = .admission
+                throw error
+            }
+            let publicationReadback: Data
+            do {
+                publicationReadback = try loadPublicationReadback()
+            } catch {
+                terminalReadbackFailureStage = .publication
+                throw error
+            }
             let admissionDigest = RecoveryState.sha256(admissionReadback)
             let publicationDigest = RecoveryState.sha256(publicationReadback)
             let authority = try await makeAuthority(

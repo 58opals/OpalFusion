@@ -4,9 +4,12 @@
 
 actor MosaicPrivateAlphaRejectingCompleteTransactionHost:
     OpalFusion.Host.MosaicCompleteTransactionHost {
+    private(set) var reservationRequests: [OpalFusion.Host.MosaicReservationRequest] = []
+
     func reserveMosaicContribution(
-        for _: OpalFusion.Host.MosaicReservationRequest
+        for request: OpalFusion.Host.MosaicReservationRequest
     ) async throws -> OpalFusion.Host.MosaicReservationLease {
+        reservationRequests.append(request)
         throw OpalFusion.MosaicPrivateAlphaRuntime.Failure
             .invalidStateTransition
     }

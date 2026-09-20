@@ -1683,6 +1683,86 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         }
     }
 
+    enum TerminalReadbackProbeFailure: Error, Equatable, Sendable, CaseIterable {
+        case admission
+        case publication
+    }
+
+    @Test("Keep runtime failure diagnostics when terminal readback throws", arguments: TerminalReadbackProbeFailure.allCases)
+    func distinguishTerminalReadbackFailure(
+        _ failure: TerminalReadbackProbeFailure
+    ) async throws {
+        let fixture = try MosaicPrivateDeploymentFixtures.makePrivateAlphaRuntimeProof()
+        let contributor = try #require(fixture.formation.roleElection.roster.contributors.first)
+        let localIdentity = Data(contributor.validatedBytes)
+        let binding = try makeBinding(seed: 0xC5)
+        let admission = MosaicPrivateAlphaRuntimePersistenceStore()
+        let publication = MosaicPrivateAlphaRuntimePersistenceStore()
+        let terminal = MosaicPrivateAlphaRuntimePersistenceStore()
+        let routeProbe = MosaicPrivateAlphaRuntimePersistenceStore()
+        let capabilities = try MosaicPrivateDeploymentFixtures.makeRuntimeCapabilities(
+            formation: fixture.formation,
+            localControlIdentity: localIdentity,
+            admissionStore: admission,
+            publicationStore: publication,
+            terminalStore: terminal,
+            routeStore: routeProbe
+        )
+        let owner = try await resumedOwner(
+            snapshot: makeSealedSnapshot(proof: fixture.proof, binding: binding, epoch: fixture.epoch),
+            binding: binding
+        )
+        _ = try await persist(owner.preparePostManifestRuntime(
+            localControlIdentity: localIdentity,
+            capabilities: capabilities
+        ), on: owner)
+        let construction = try await owner.makePostManifestConstruction(localControlIdentity: localIdentity)
+        let stopped = Mutex(false)
+        let failedState = Alpha.PostManifestRuntimeDriver.State.contributor(
+            .terminal(.failed(.anonymousComponentPublicationFailed))
+        )
+        let endpoint = Alpha.PostManifestRelayFanIn.RuntimeEndpoint(
+            start: { true },
+            state: { stopped.withLock { $0 ? .terminal(failedState) : .running } },
+            submit: { _ in .rejected(.notRunning) },
+            inputSourceDidTerminate: { _ in false },
+            stop: { stopped.withLock { $0 = true } },
+            waitForTermination: { stopped.withLock { $0 ? failedState : nil } },
+            diagnosticCounts: { stopped.withLock { $0 ? ["failurePublication": 1] : [:] } }
+        )
+        let component = try makeTerminalProbeExecution(
+            construction: construction,
+            capabilities: capabilities,
+            admissionStore: admission,
+            publicationStore: publication,
+            endpoint: endpoint,
+            readbackFailure: failure
+        )
+        let execution = component.execution
+        try await execution.start()
+        let beforeAdmission = admission.load(binding)
+        let beforePublication = publication.load(binding)
+        #expect(await execution.diagnosticCounts["terminalAdmissionReadbackFailed"] == nil)
+        #expect(await execution.diagnosticCounts["terminalPublicationReadbackFailed"] == nil)
+        await execution.stop()
+
+        await #expect(throws: failure) { _ = try await execution.waitForTermination() }
+        let diagnostics = await execution.diagnosticCounts
+        #expect(diagnostics["failurePublication"] == 1)
+        #expect(diagnostics["terminalAdmissionReadbackFailed"] == (failure == .admission ? 1 : nil))
+        #expect(diagnostics["terminalPublicationReadbackFailed"] == (failure == .publication ? 1 : nil))
+        let secondClaim = try await execution.waitForTermination()
+        if case .some = secondClaim {
+            Issue.record("A failed terminal readback must retain its one-time claim")
+        }
+        #expect(terminal.load(binding) == nil)
+        #expect(admission.load(binding) == beforeAdmission)
+        #expect(publication.load(binding) == beforePublication)
+        for connection in component.connections {
+            #expect(await connection.closeCount == 1)
+        }
+    }
+
     func makeTerminalProbeExecution(
         construction: borrowing Runtime.PostManifestConstruction,
         capabilities: Runtime.PostManifestRuntimeCapabilities,
@@ -1690,7 +1770,8 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
         publicationStore: MosaicPrivateAlphaRuntimePersistenceStore,
         endpoint: Alpha.PostManifestRelayFanIn.RuntimeEndpoint,
         stopOutbound: @escaping @Sendable () async -> Void = {},
-        waitForOutboundDrain: @escaping @Sendable () async -> Bool = { true }
+        waitForOutboundDrain: @escaping @Sendable () async -> Bool = { true },
+        readbackFailure: TerminalReadbackProbeFailure? = nil
     ) throws -> (
         execution: Runtime.PostManifestExecution,
         connections: [ScriptedMosaicTorWebSocketConnection]
@@ -1761,12 +1842,14 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                 recoveredTerminalEvidence:
                     construction.recoveredTerminalEvidence,
                 loadAdmissionReadback: {
+                    if readbackFailure == .admission { throw TerminalReadbackProbeFailure.admission }
                     guard let readback = admissionStore.load(binding) else {
                         throw Runtime.Failure.terminalEvidenceUnavailable
                     }
                     return readback
                 },
                 loadPublicationReadback: {
+                    if readbackFailure == .publication { throw TerminalReadbackProbeFailure.publication }
                     guard let readback = publicationStore.load(binding) else {
                         throw Runtime.Failure.terminalEvidenceUnavailable
                     }
