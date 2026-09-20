@@ -74,64 +74,80 @@ extension OpalFusion.MosaicPrivateAlphaRuntime
         )
 
         await withTaskCancellationHandler {
-            await withTaskGroup(of: Void.self) { group in
+            await withTaskGroup(of: Bool.self) { group in
                 for route in routes {
                     group.addTask {
-                        let endpoint = route.relayEndpointIdentifier
-                        var session: OpalFusion.Mosaic.NIP01RelaySession?
-                        do {
-                            let startedSession = try OpalFusion.Mosaic
-                                .NIP01RelaySession(
-                                    connection: try Runtime
-                                        .TorWebSocketConnectionAdapter(
-                                            route.connection,
-                                            maximumPendingMessageCount:
-                                                capabilities.relays
-                                                    .maximumPendingRelayOutputCount
-                                        ),
-                            codingLimits: codingLimits,
-                            maximumPendingOutputCount:
-                                    capabilities.relays
-                                        .maximumPendingRelayOutputCount
-                                )
-                            session = startedSession
-                            let output = try await startedSession.start()
-                            try await startedSession.publish(event)
-                            var accepted = false
-                            for try await message in output {
-                                try Task.checkCancellation()
-                                guard case let .acknowledgement(
-                                    identifier,
-                                    wasAccepted,
-                                    _
-                                ) = message,
-                                identifier == event.identifier else {
-                                    continue
-                                }
-                                accepted = wasAccepted
-                                break
-                            }
-                            await startedSession.stop()
-                            await startedSession.waitForTermination()
-                            if accepted {
-                                try await capabilities
-                                    .recordAcceptedRelayEndpointIdentifier(
-                                        operationIdentifier,
-                                        endpoint
+                        await withTaskCancellationHandler {
+                            let endpoint = route.relayEndpointIdentifier
+                            var session: OpalFusion.Mosaic.NIP01RelaySession?
+                            do {
+                                let startedSession = try OpalFusion.Mosaic
+                                    .NIP01RelaySession(
+                                        connection: try Runtime
+                                            .TorWebSocketConnectionAdapter(
+                                                route.connection,
+                                                maximumPendingMessageCount:
+                                                    capabilities.relays
+                                                        .maximumPendingRelayOutputCount
+                                            ),
+                                codingLimits: codingLimits,
+                                maximumPendingOutputCount:
+                                        capabilities.relays
+                                            .maximumPendingRelayOutputCount
                                     )
+                                session = startedSession
+                                let output = try await startedSession.start()
+                                try await startedSession.publish(event)
+                                var accepted = false
+                                for try await message in output {
+                                    try Task.checkCancellation()
+                                    guard case let .acknowledgement(
+                                        identifier,
+                                        wasAccepted,
+                                        _
+                                    ) = message,
+                                    identifier == event.identifier else {
+                                        continue
+                                    }
+                                    accepted = wasAccepted
+                                    break
+                                }
+                                await startedSession.stop()
+                                await startedSession.waitForTermination()
+                                if accepted {
+                                    try await capabilities
+                                        .recordAcceptedRelayEndpointIdentifier(
+                                            operationIdentifier,
+                                            endpoint
+                                        )
+                                    return true
+                                }
+                            } catch {
+                                if let session {
+                                    await session.stop()
+                                    await session.waitForTermination()
+                                } else {
+                                    await route.connection.close()
+                                }
+                                return false
                             }
-                        } catch {
-                            if let session {
-                                await session.stop()
-                                await session.waitForTermination()
-                            } else {
-                                await route.connection.close()
-                            }
-                            return
+                            return false
+                        } onCancel: {
+                            Task { await route.connection.close() }
                         }
                     }
                 }
-                for await _ in group {}
+                var durableAcceptanceCount = priorAccepted.count
+                for await accepted in group {
+                    if accepted { durableAcceptanceCount += 1 }
+                    if durableAcceptanceCount >= OpalFusion.Mosaic
+                        .OpalMainnetAlpha.relayAcceptanceQuorum {
+                        // Every exact route was scheduled; a silent third relay
+                        // cannot withhold an already durably accepted quorum.
+                        // Cancellation closes and joins every unfinished route.
+                        group.cancelAll()
+                    }
+                }
             }
         } onCancel: {
             Task {

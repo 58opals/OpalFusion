@@ -67,6 +67,16 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var acceptedAnonymousBCHSignatures:
             [AcceptedAnonymousBCHSignature] = []
 
+        /// Fixed aggregate counts only; never exposes identities or payloads.
+        var diagnosticCounts: [String: Int] {
+            ["admittedControlEnvelopes": acceptedControlDigests.values.reduce(0) { $0 + $1.count },
+             "activeAggregates": activeAggregates.count,
+             "playerCommits": playerCommits.count,
+             "authorizationResponses": authorizationResponseSets.count,
+             "anonymousComponents": acceptedAnonymousComponents.count,
+             "acknowledgements": acknowledgements.count]
+        }
+
         init(
             attemptIdentifier: AttemptIdentifier,
             generationIdentifier: GenerationIdentifier,

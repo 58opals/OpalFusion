@@ -166,6 +166,30 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
         )
     }
 
+    @Test("Request manifest publication timestamps in the manifest-agreement phase")
+    func manifestPublicationTimestampPhase() throws {
+        let deadlines = try Alpha.DeadlineSchedule(
+            phaseStart: 1_800_000_240,
+            walletReservation: 1_800_000_420,
+            groupedCommitment: 1_800_000_480,
+            anonymousComponentSubmission: 1_800_000_600,
+            transcriptAgreement: 1_800_000_660,
+            bchSigning: 1_800_000_720
+        )
+        let request = try Runtime.PostManifestConstruction.makeTimestampRequest(
+            recipientEventIdentity: nil,
+            phase: .manifestAgreement,
+            sequence: 0,
+            expiryUnixSeconds: deadlines.walletReservation,
+            deadlines: deadlines
+        )
+        #expect(request.phase == .manifestAgreement)
+        #expect(request.phaseStartUnixSeconds == deadlines.phaseStart)
+        #expect(request.expiryUnixSeconds == deadlines.walletReservation)
+        #expect(request.sequence == 0)
+        #expect(request.recipientEventIdentity == nil)
+    }
+
     @Test("Restore every signed discovery prefix")
     func restoreSignedDiscoveryPrefixes() async throws {
         let harness = try await makeFormationHarness(

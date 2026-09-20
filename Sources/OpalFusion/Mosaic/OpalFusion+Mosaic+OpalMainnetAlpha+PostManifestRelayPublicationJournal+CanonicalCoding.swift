@@ -79,31 +79,28 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha
                     expectedContext: context
                 )
             },
-            appendRecords: { context, expectedCount, records in
+            appendRecords: { context, priorRecords, records in
                 guard Self.matches(binding, context: context) else {
                     throw RecoveryCodingError.contextMismatch
                 }
                 guard records.isEmpty == false else {
                     throw RecoveryCodingError.staleSnapshot
                 }
-                let priorBytes = try persistence.load(binding)
-                guard let priorBytes else {
-                    throw RecoveryCodingError.missingSnapshot
-                }
-                let prior = try decodeRecoverySnapshot(
-                    priorBytes,
-                    expectedContext: context
-                )
-                guard prior.records.count == expectedCount else {
-                    throw RecoveryCodingError.staleSnapshot
-                }
-                guard prior.records.count + records.count
-                        <= maximumRecoveryRecordCount else {
+                guard priorRecords.count <= maximumRecoveryRecordCount,
+                      records.count <= maximumRecoveryRecordCount - priorRecords.count else {
                     throw RecoveryCodingError.resourceLimitExceeded
                 }
+                // The journal already authenticated/replayed these exact records.
+                // Re-encode its comparison value; app-owned CAS still authenticates
+                // current storage and rejects every divergent byte under its lock.
+                // An uncertain CAS continues through the journal's fresh reload.
+                let priorBytes = try encodeRecoverySnapshot(.init(
+                    context: context,
+                    records: priorRecords
+                ))
                 let replacement = Snapshot(
                     context: context,
-                    records: prior.records + records
+                    records: priorRecords + records
                 )
                 let replacementBytes = try encodeRecoverySnapshot(replacement)
                 let readback = try persistence.compareAndSwap(

@@ -71,6 +71,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
         let timing = capabilities.timing
         let roleDependencies: Alpha.PostManifestRuntimeDriver
             .RoleDependencies
+        let startOutbound: @Sendable () async throws -> Void
         let stopOutbound: @Sendable () async -> Void
         let waitForOutboundDrain: @Sendable () async -> Bool
         if terminalRecoveryRequired {
@@ -81,6 +82,21 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
             let controlRecipientEventIdentities = recipients.map {
                 $0.eventVerificationKey.rawRepresentation
             }
+            // Manifest publication precedes every coordinator-owned output.
+            // Terminal reconstruction consumes its recorded result without
+            // generating a new event or allocating a network route.
+            if publicationJournal.makeDrainedRecoveryBatches()?.isEmpty == false {
+                let manifestReservation = try ControlBridge.makeAggregateReservation(
+                    for: .completeManifest(completeManifest)
+                )
+                try await recovery.replay(
+                    batchCount: manifestReservation.fragmentCount + 1,
+                    on: .control,
+                    to: controlRecipientEventIdentities,
+                    expiringAt: deadlines.walletReservation
+                )
+            }
+            startOutbound = {}
             roleDependencies = .conductor(.init(
                 componentAuthorizationEvaluator: componentEvaluator,
                 bchSignatureAuthorizationEvaluator: signatureEvaluator,
@@ -163,6 +179,11 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                     }
                 )
             )
+            startOutbound = {
+                try await bridge.publishManifest(
+                    expiryUnixSeconds: deadlines.walletReservation
+                )
+            }
             roleDependencies = .conductor(.init(
                 componentAuthorizationEvaluator: componentEvaluator,
                 bchSignatureAuthorizationEvaluator: signatureEvaluator,
@@ -277,6 +298,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                 return bytes
             },
             terminalPersistence: capabilities.terminalPersistence,
+            startOutbound: startOutbound,
             stopOutbound: stopOutbound,
             waitForOutboundDrain: waitForOutboundDrain
         )

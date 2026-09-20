@@ -175,6 +175,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
+        var diagnosticCounts: [String: Int] {
+            get async {
+                switch coordinator {
+                case let .contributor(coordinator): await coordinator.diagnosticCounts
+                case let .conductor(coordinator): await coordinator.diagnosticCounts
+                }
+            }
+        }
+
         var currentPhase: OpalFusion.Mosaic.Attempt.Phase? {
             get async {
                 switch coordinator {

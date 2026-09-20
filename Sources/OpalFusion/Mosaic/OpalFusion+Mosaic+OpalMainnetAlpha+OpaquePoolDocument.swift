@@ -16,11 +16,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         let opaqueIdentifier: [UInt8]
+        let policy: PrivateDeploymentPolicy
 
         var canonicalBytes: [UInt8] {
             var encoder = OpalFusion.Mosaic.CanonicalEncoder()
             do {
-                try encoder.writeText(PrivateDeploymentNostrSelector.identifier)
+                try encoder.writeText(policy.rawValue)
                 try encoder.writeText(OpalFusion.Mosaic.Profile.opalMainnetAlpha.rawValue)
                 try encoder.writeFixedBytes(
                     OpalFusion.Mosaic.OpalMainnetAlpha.mainnetGenesisHash,
@@ -47,7 +48,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             )
         }
 
-        init(appGeneratedOpaqueIdentifier opaqueIdentifier: [UInt8]) throws(ValidationError) {
+        init(
+            appGeneratedOpaqueIdentifier opaqueIdentifier: [UInt8],
+            policy: PrivateDeploymentPolicy = .frozen
+        ) throws(ValidationError) {
             guard opaqueIdentifier.count
                     == OpalFusion.Mosaic.OpalMainnetAlpha
                         .opaquePoolIdentifierByteCount else {
@@ -56,6 +60,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 )
             }
             self.opaqueIdentifier = Array(opaqueIdentifier)
+            self.policy = policy
         }
 
         static func decode(
@@ -64,8 +69,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             try OpalFusion.Mosaic.CanonicalDecoder.decode(
                 from: encodedBytes
             ) { decoder in
-                guard try decoder.readText()
-                        == PrivateDeploymentNostrSelector.identifier else {
+                guard let policy = PrivateDeploymentPolicy(rawValue: try decoder.readText()) else {
                     throw ValidationError.invalidSelector
                 }
                 let protocolIdentifier = try decoder.readText()
@@ -82,7 +86,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     appGeneratedOpaqueIdentifier: decoder.readFixedBytes(
                         byteCount: OpalFusion.Mosaic.OpalMainnetAlpha
                             .opaquePoolIdentifierByteCount
-                    )
+                    ),
+                    policy: policy
                 )
             }
         }

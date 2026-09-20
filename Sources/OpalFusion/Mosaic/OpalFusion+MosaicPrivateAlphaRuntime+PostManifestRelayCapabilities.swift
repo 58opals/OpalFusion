@@ -36,7 +36,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                 PostManifestAnonymousPublicationRequest
             ) async throws -> Void = { _ in },
             maximumSubscriptionIdentifierByteCount: Int,
-            maximumPendingEventCount: Int = 256,
+            // Eight contributors may deliver 23 components over three relays
+            // while durable ingress is occupied. Keep the aggregate bounded
+            // above that legitimate burst, with room for control messages.
+            maximumPendingEventCount: Int = 1_024,
             maximumPendingRelayOutputCount: Int = 64
         ) {
             self.provisionRoutes = provisionRoutes

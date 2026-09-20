@@ -23,7 +23,7 @@ final class MosaicMainnetAlphaRelayPublicationJournalFixture: Sendable {
 
     enum Failure: Error, Sendable {
         case injected
-        case recordCountMismatch
+        case recordSnapshotMismatch
     }
 
     private struct State: Sendable {
@@ -48,12 +48,12 @@ final class MosaicMainnetAlphaRelayPublicationJournalFixture: Sendable {
                     return state.snapshot
                 }
             },
-            appendRecords: { [self] context, expectedCount, newRecords in
+            appendRecords: { [self] context, expectedRecords, newRecords in
                 try state.withLock { state in
                     state.appendCallCount += 1
                     let records = state.snapshot?.records ?? []
-                    guard records.count == expectedCount else {
-                        throw Failure.recordCountMismatch
+                    guard records == expectedRecords else {
+                        throw Failure.recordSnapshotMismatch
                     }
                     if let failure = state.failingAppend,
                        newRecords.contains(where: {

@@ -15,6 +15,9 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         let terminalPersistence: PostManifestTerminalPersistence
         let maximumPendingInputCount: Int
 
+        /// The default accommodates a complete eight-contributor component burst
+        /// (23 components over three relays each), with room for control traffic
+        /// while the coordinator awaits a durable publication.
         @_spi(MosaicPrivateAlpha)
         public init(
             mailboxes: PostManifestMailboxCapabilities,
@@ -23,7 +26,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             admissionPersistence: PostManifestAdmissionPersistence,
             publicationPersistence: PostManifestPublicationPersistence,
             terminalPersistence: PostManifestTerminalPersistence,
-            maximumPendingInputCount: Int = 256
+            maximumPendingInputCount: Int = 1_024
         ) {
             self.mailboxes = mailboxes
             self.relays = relays

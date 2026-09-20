@@ -115,6 +115,41 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private(set) var state: State = .idle
 
+        var diagnosticCounts: [String: Int] {
+            var counts = runtimeSession.diagnosticCounts
+            let failure: Failure?
+            if case let .terminal(.failed(terminalFailure)) = state {
+                failure = terminalFailure
+            } else {
+                failure = pendingFailure
+            }
+            if let failure {
+                let stage: String
+                switch failure {
+                case .inputBufferOverflow: stage = "failureInputBufferOverflow"
+                case .inputSourceTerminated: stage = "failureInputSourceTerminated"
+                case .recoveryBarrierMisordered: stage = "failureRecoveryBarrier"
+                case .admissionJournalFailed: stage = "failureAdmissionJournal"
+                case .authorizationKeyMismatch: stage = "failureAuthorizationKey"
+                case .authorizationResponseSetMismatch: stage = "failureAuthorizationResponseMismatch"
+                case .authorizationIssuanceFailed: stage = "failureAuthorizationIssuance"
+                case .authorizationResponseSetConstructionFailed: stage = "failureAuthorizationResponseConstruction"
+                case .commitmentSetConstructionFailed: stage = "failureCommitmentConstruction"
+                case .componentSetConstructionFailed: stage = "failureComponentConstruction"
+                case .previousOutputResolutionFailed: stage = "failurePreviousOutputResolution"
+                case .preSignAcknowledgementSetConstructionFailed: stage = "failureAcknowledgementConstruction"
+                case .bchSignatureAdmissionUnavailable: stage = "failureSignatureAdmission"
+                case .completeTransactionAssemblyFailed: stage = "failureTransactionAssembly"
+                case .completeTransactionValidationFailed: stage = "failureTransactionValidation"
+                case .publicationFailed: stage = "failurePublication"
+                case .unexpectedLocalAttemptEffect: stage = "failureLocalEffect"
+                case .runtime: stage = "failureRuntime"
+                }
+                counts[stage] = 1
+            }
+            return counts
+        }
+
         var runtimeSessionState: Session.State {
             runtimeSession.state
         }

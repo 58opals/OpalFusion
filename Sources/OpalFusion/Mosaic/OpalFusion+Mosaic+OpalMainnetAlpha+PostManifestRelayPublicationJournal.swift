@@ -160,15 +160,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             /// Loads the last complete snapshot for this exact attempt context.
             let loadSnapshot: @Sendable (Context) throws -> Snapshot?
 
-            /// Atomically compares the durable record count and appends one or more records.
+            /// Atomically compares the complete prior records and appends one or more records.
             ///
-            /// A persistent implementation must commit before returning, reject a count
+            /// A persistent implementation must commit before returning, reject any prior-record
             /// mismatch, and must not synchronously re-enter this journal. If it throws after
             /// committing, `loadSnapshot` must immediately expose the last complete snapshot so
             /// the journal can reconcile the indeterminate result.
             let appendRecords: @Sendable (
                 Context,
-                Int,
+                [Record],
                 [Record]
             ) throws -> Void
 
@@ -176,7 +176,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 loadSnapshot: @escaping @Sendable (Context) throws -> Snapshot?,
                 appendRecords: @escaping @Sendable (
                     Context,
-                    Int,
+                    [Record],
                     [Record]
                 ) throws -> Void
             ) {
@@ -302,6 +302,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private let context: Context
         private let persistence: Persistence
         private let state: Mutex<State>
+        private let acknowledgementRecorder = AcknowledgementRecorder()
 
         var recoveryContext: Context { context }
 
@@ -582,101 +583,135 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
-        /// Atomically persists newly observed acknowledgements and any terminal result they
-        /// derive before returning the updated continuation.
-        func recordAcknowledgementsAndDerivedCompletion(
+        struct AcknowledgementObservation: Sendable {
+            let eventIdentifier: Data
+            let acknowledgements: [Endpoint: RelayAcknowledgement]
+        }
+
+        /// Coalesces already waiting observations without delaying for missing relays.
+        /// Every caller waits for the same durable transaction and readback. Cancellation
+        /// does not discard an acknowledgement that has already been observed.
+        func recordObservedAcknowledgements(
             _ acknowledgements: [Endpoint: RelayAcknowledgement],
             eventIdentifier: Data
-        ) throws(RecordingError) -> Continuation {
+        ) async throws(RecordingError) -> Continuation {
+            try await acknowledgementRecorder.record(.init(
+                eventIdentifier: eventIdentifier,
+                acknowledgements: acknowledgements
+            ), in: self)
+        }
+
+        /// Atomically persists acknowledgements and derived completions across publications.
+        /// Invalid observations reject the entire batch before persistence. The existing
+        /// append/reload boundary resolves an uncertain write as exactly old or new.
+        func recordAcknowledgementsAndDerivedCompletions(
+            _ observations: [AcknowledgementObservation]
+        ) throws(RecordingError) -> [Continuation] {
             try update { state in
-                guard let entry = state.entriesByEventIdentifier[
-                    eventIdentifier
-                ] else {
-                    throw RecordingError.unknownPublication
-                }
-                guard acknowledgements.isEmpty == false,
-                      Set(acknowledgements.keys).isSubset(
-                        of: Set(entry.publication.endpoints)
-                      ) else {
+                guard !observations.isEmpty, observations.count <= 256 else {
                     throw RecordingError.invalidTransition
                 }
-                if entry.completion != nil {
-                    guard acknowledgements.allSatisfy({
-                        entry.relayAcknowledgements[$0.key] == $0.value
-                    }) else {
+                var projectedState = state
+                var allRecords: [Record] = []
+                for observation in observations {
+                    let eventIdentifier = observation.eventIdentifier
+                    let acknowledgements = observation.acknowledgements
+                    guard let entry = projectedState.entriesByEventIdentifier[
+                        eventIdentifier
+                    ] else {
+                        throw RecordingError.unknownPublication
+                    }
+                    guard acknowledgements.isEmpty == false,
+                          Set(acknowledgements.keys).isSubset(
+                            of: Set(entry.publication.endpoints)
+                          ) else {
                         throw RecordingError.invalidTransition
                     }
-                    return .init(entry: entry)
-                }
-
-                var records: [Record] = []
-                for endpoint in entry.publication.endpoints {
-                    guard let acknowledgement = acknowledgements[endpoint]
-                    else { continue }
-                    guard entry.attemptedEndpoints.contains(endpoint) else {
-                        throw RecordingError.invalidTransition
-                    }
-                    if let existing = entry.relayAcknowledgements[endpoint] {
-                        guard existing == acknowledgement else {
+                    if entry.completion != nil {
+                        guard acknowledgements.allSatisfy({
+                            entry.relayAcknowledgements[$0.key] == $0.value
+                        }) else {
                             throw RecordingError.invalidTransition
                         }
                         continue
                     }
-                    records.append(.acknowledged(
-                        eventIdentifier: Data(eventIdentifier),
-                        endpoint: endpoint,
-                        acknowledgement
-                    ))
-                }
 
-                var projectedState = state
-                for record in records {
-                    do {
-                        try Self.apply(
-                            record,
-                            context: context,
-                            to: &projectedState
-                        )
-                    } catch {
+                    var records: [Record] = []
+                    for endpoint in entry.publication.endpoints {
+                        guard let acknowledgement = acknowledgements[endpoint]
+                        else { continue }
+                        guard entry.attemptedEndpoints.contains(endpoint) else {
+                            throw RecordingError.invalidTransition
+                        }
+                        if let existing = entry.relayAcknowledgements[endpoint] {
+                            guard existing == acknowledgement else {
+                                throw RecordingError.invalidTransition
+                            }
+                            continue
+                        }
+                        records.append(.acknowledged(
+                            eventIdentifier: Data(eventIdentifier),
+                            endpoint: endpoint,
+                            acknowledgement
+                        ))
+                    }
+
+                    for record in records {
+                        do {
+                            try Self.apply(
+                                record,
+                                context: context,
+                                to: &projectedState
+                            )
+                        } catch {
+                            preconditionFailure(
+                                "A validated acknowledgement batch could not be projected."
+                            )
+                        }
+                    }
+                    guard let projectedEntry = projectedState
+                        .entriesByEventIdentifier[eventIdentifier] else {
                         preconditionFailure(
-                            "A validated acknowledgement batch could not be projected."
+                            "A validated acknowledgement batch lost its publication."
                         )
                     }
-                }
-                guard let projectedEntry = projectedState
-                    .entriesByEventIdentifier[eventIdentifier] else {
-                    preconditionFailure(
-                        "A validated acknowledgement batch lost its publication."
-                    )
-                }
-                switch Continuation(entry: projectedEntry).status {
-                case .transportAccepted:
-                    records.append(.completed(
-                        eventIdentifier: Data(eventIdentifier),
-                        .transportAccepted
-                    ))
-                case .transportRejected:
-                    records.append(.completed(
-                        eventIdentifier: Data(eventIdentifier),
-                        .transportRejected
-                    ))
-                case .awaitingAcknowledgements:
-                    break
-                case .completed:
-                    preconditionFailure(
-                        "An incomplete publication projected a completed state."
-                    )
-                }
+                    let completionRecord: Record?
+                    switch Continuation(entry: projectedEntry).status {
+                    case .transportAccepted:
+                        completionRecord = .completed(
+                            eventIdentifier: Data(eventIdentifier),
+                            .transportAccepted
+                        )
+                    case .transportRejected:
+                        completionRecord = .completed(
+                            eventIdentifier: Data(eventIdentifier),
+                            .transportRejected
+                        )
+                    case .awaitingAcknowledgements:
+                        completionRecord = nil
+                    case .completed:
+                        preconditionFailure(
+                            "An incomplete publication projected a completed state."
+                        )
+                    }
 
-                try append(records, to: &state)
-                guard let updated = state.entriesByEventIdentifier[
-                    eventIdentifier
-                ] else {
-                    preconditionFailure(
-                        "A persisted acknowledgement batch lost its publication."
-                    )
+                    if let completionRecord {
+                        do {
+                            try Self.apply(completionRecord, context: context, to: &projectedState)
+                        } catch {
+                            preconditionFailure("A derived completion could not be projected.")
+                        }
+                        records.append(completionRecord)
+                    }
+                    allRecords.append(contentsOf: records)
                 }
-                return .init(entry: updated)
+                try append(allRecords, to: &state)
+                return observations.map { observation in
+                    guard let entry = state.entriesByEventIdentifier[observation.eventIdentifier] else {
+                        preconditionFailure("A persisted acknowledgement batch lost its publication.")
+                    }
+                    return .init(entry: entry)
+                }
             }
         }
 
@@ -901,7 +936,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             do {
                 try persistence.appendRecords(
                     context,
-                    priorRecords.count,
+                    priorRecords,
                     records
                 )
                 state = expectedState

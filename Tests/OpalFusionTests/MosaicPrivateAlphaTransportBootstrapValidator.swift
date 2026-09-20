@@ -346,6 +346,15 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
                 keys.count
                     == fixture.proof.contributorControlIdentities.count * 23
             )
+            // Compare against the authenticated assignment identities, independent
+            // of the dictionary's iteration order or the signing-key sort strategy.
+            let expectedIdentities = fixture.conductorAssignments.values
+                .flatMap { $0.assignment.recipientEventIdentities }
+                .sorted { $0.lexicographicallyPrecedes($1) }
+            #expect(
+                keys.map { $0.bip340VerificationKey.rawRepresentation }
+                    == expectedIdentities
+            )
         } else {
             Issue.record("Conductor distribution returned contributor keys.")
         }
@@ -660,7 +669,7 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
         )
     }
 
-    @Test("Seal, open, and publish one byte-identical bootstrap wrapper")
+    @Test("Seal, open, and publish one byte-identical bootstrap wrapper", .timeLimit(.minutes(1)))
     func sealOpenAndPublish() async throws {
         let fixture = try Self.makeFixture()
         let sender = try #require(fixture.proof.controlIdentities.first)
@@ -895,6 +904,47 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
             )
         )
         #expect(recovered == receipt)
+
+        // Two durable acknowledgements must finish even when the third relay stays silent.
+        let quorumConnections = (0 ..< 3).map { _ in
+            ScriptedMosaicPrivateAlphaTorConnection(eventAcceptance: nil)
+        }
+        let quorumRoutes = zip(endpoints, quorumConnections).map { endpoint, connection in
+            Runtime.PostManifestProvisionedRoute(relayEndpointIdentifier: endpoint,
+                connection: connection, isolationIdentifier: UUID())
+        }
+        let quorumPersistence = TransportBootstrapAcceptanceStore()
+        let quorumTask = Task {
+            try await publication.publish(using: .init(
+                relays: .init(provisionRoutes: { request in
+                    #expect(request.relayEndpointIdentifiers == endpoints)
+                    return quorumRoutes
+                }, makeSubscriptionIdentifier: { _, _ in "unused" }),
+                loadAcceptedRelayEndpointIdentifiers: { await quorumPersistence.load($0) },
+                recordAcceptedRelayEndpointIdentifier: { await quorumPersistence.record($0, $1) }
+            ))
+        }
+        var quorumRoutesSent = false
+        for _ in 0 ..< 1_000 {
+            var counts: [Int] = []
+            for connection in quorumConnections { counts.append(await connection.sentTexts.count) }
+            if counts == [1, 1, 1] { quorumRoutesSent = true; break }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(quorumRoutesSent)
+        for connection in quorumConnections.prefix(2) {
+            let text = try #require(await connection.sentTexts.first)
+            let frame = try #require(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any])
+            let event = try #require(frame[1] as? [String: Any])
+            let identifier = try #require(event["id"] as? String)
+            await connection.receive(.text(try JSONSerialization.data(
+                withJSONObject: ["OK", identifier, true, ""])))
+        }
+        let quorumReceipt = try await quorumTask.value
+        #expect(quorumReceipt.acceptedRelayEndpointIdentifiers == Array(endpoints.prefix(2)).sorted())
+        for connection in quorumConnections {
+            #expect(await connection.closeCount == 1)
+        }
 
         let cancelledPublication = try Runtime
             .sealTransportBootstrapControlMailboxClaim(

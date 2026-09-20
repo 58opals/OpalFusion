@@ -337,13 +337,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
         _ phase: OpalFusion.Mosaic.Attempt.Phase
     ) throws -> Runtime.Phase {
         switch phase {
+        case .manifestAgreement: .manifestAgreement
         case .walletReservation: .walletReservation
         case .groupedCommitment: .groupedCommitment
         case .anonymousComponentSubmission: .anonymousComponentSubmission
         case .transcriptAgreement: .transcriptAgreement
         case .bchSigning: .bchSigning
         case .discovery, .candidateSetAgreement,
-             .controlRosterAgreement, .roleSelection, .manifestAgreement:
+             .controlRosterAgreement, .roleSelection:
             throw Runtime.Failure.invalidStateTransition
         }
     }

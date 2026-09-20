@@ -19,16 +19,6 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             let session: Session
         }
 
-        private struct StartedRoute: Sendable {
-            let route: SessionRoute
-            let output: Session.OutputStream
-        }
-
-        private enum StartResult: Sendable {
-            case started(StartedRoute)
-            case unavailable(RelayEndpoint)
-        }
-
         private enum RelayResult: Sendable {
             case acknowledgement(
                 RelayEndpoint,
@@ -307,49 +297,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 throw .journalFailed
             }
 
-            let startResults = await startRoutes(
-                endpoints: Set(unresolvedEndpoints)
-            )
-            guard state == .publishing(event.identifier) else {
-                throw .cancelled
-            }
-
-            let startedRoutes: [StartedRoute] = startResults.compactMap {
-                result in
-                guard case let .started(started) = result else { return nil }
-                return started
-            }
-            guard !startedRoutes.isEmpty else {
-                await stopSessions()
-                guard state == .publishing(event.identifier) else {
-                    throw .cancelled
-                }
-                throw .publicationInterrupted
-            }
             let (results, resultContinuation) = AsyncStream<RelayResult>
                 .makeStream(
-                    bufferingPolicy: .bufferingOldest(startedRoutes.count)
+                    bufferingPolicy: .bufferingOldest(unresolvedEndpoints.count)
                 )
-            let responseTasks = startedRoutes.map { started in
-                Task {
-                    _ = resultContinuation.yield(
-                        await Self.awaitResponse(
-                            from: started.output,
-                            endpoint: started.route.endpoint,
-                            eventIdentifier: event.identifier
-                        )
-                    )
-                }
-            }
-
-            await send(event, to: startedRoutes)
-            guard state == .publishing(event.identifier) else {
-                await shutdownResponseTasks(
-                    responseTasks,
-                    continuation: resultContinuation
-                )
-                throw .cancelled
-            }
+            let routeTasks = startRouteTasks(
+                event,
+                endpoints: Set(unresolvedEndpoints),
+                continuation: resultContinuation
+            )
 
             var receivedResultCount = 0
             var observedAcknowledgements = current.relayAcknowledgements
@@ -362,8 +318,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 case let .acknowledgement(endpoint, acknowledgement):
                     if let existing = observedAcknowledgements[endpoint],
                        existing != acknowledgement {
-                        await shutdownResponseTasks(
-                            responseTasks,
+                        await shutdownRouteTasks(
+                            routeTasks,
                             continuation: resultContinuation
                         )
                         throw Failure.journalFailed
@@ -383,39 +339,39 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     || acceptedCount + unresolvedCount < 2 {
                     break
                 }
-                if receivedResultCount == startedRoutes.count { break }
+                if receivedResultCount == unresolvedEndpoints.count { break }
             }
 
             guard state == .publishing(event.identifier) else {
-                await shutdownResponseTasks(
-                    responseTasks,
+                await shutdownRouteTasks(
+                    routeTasks,
                     continuation: resultContinuation
                 )
                 throw .cancelled
             }
             guard newAcknowledgements.isEmpty == false else {
-                await shutdownResponseTasks(
-                    responseTasks,
+                await shutdownRouteTasks(
+                    routeTasks,
                     continuation: resultContinuation
                 )
                 throw .publicationInterrupted
             }
             do {
-                current = try publicationJournal
-                    .recordAcknowledgementsAndDerivedCompletion(
+                current = try await publicationJournal
+                    .recordObservedAcknowledgements(
                         newAcknowledgements,
                         eventIdentifier:
                             current.publication.eventIdentifier
                     )
             } catch {
-                await shutdownResponseTasks(
-                    responseTasks,
+                await shutdownRouteTasks(
+                    routeTasks,
                     continuation: resultContinuation
                 )
                 throw .journalFailed
             }
-            await shutdownResponseTasks(
-                responseTasks,
+            await shutdownRouteTasks(
+                routeTasks,
                 continuation: resultContinuation
             )
             guard state == .publishing(event.identifier) else {
@@ -449,43 +405,35 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
-        private func startRoutes(
-            endpoints: Set<RelayEndpoint>
-        ) async -> [StartResult] {
-            await withTaskGroup(of: StartResult.self) { group in
-                for route in routes where endpoints.contains(route.endpoint) {
-                    group.addTask {
-                        do {
-                            return .started(
-                                StartedRoute(
-                                    route: route,
-                                    output: try await route.session.start()
-                                )
-                            )
-                        } catch {
-                            return .unavailable(route.endpoint)
-                        }
+        /// Schedules every unresolved route independently. A slow handshake or
+        /// send cannot hold up another route's acknowledgement. Each task still
+        /// joins its send, and the owner closes every session before joining tasks.
+        private func startRouteTasks(
+            _ event: Nostr.Event,
+            endpoints: Set<RelayEndpoint>,
+            continuation: AsyncStream<RelayResult>.Continuation
+        ) -> [Task<Void, Never>] {
+            routes.filter { endpoints.contains($0.endpoint) }.map { route in
+                Task {
+                    do {
+                        let output = try await route.session.start()
+                        async let sendHandoff: Void = Self.send(event, on: route.session)
+                        let result = await Self.awaitResponse(
+                            from: output,
+                            endpoint: route.endpoint,
+                            eventIdentifier: event.identifier
+                        )
+                        _ = continuation.yield(result)
+                        await sendHandoff
+                    } catch {
+                        _ = continuation.yield(.unavailable(route.endpoint))
                     }
                 }
-                var results: [StartResult] = []
-                for await result in group {
-                    results.append(result)
-                }
-                return results
             }
         }
 
-        private func send(
-            _ event: Nostr.Event,
-            to startedRoutes: [StartedRoute]
-        ) async {
-            await withTaskGroup(of: Void.self) { group in
-                for started in startedRoutes {
-                    group.addTask {
-                        try? await started.route.session.publish(event)
-                    }
-                }
-            }
+        private static func send(_ event: Nostr.Event, on session: Session) async {
+            try? await session.publish(event)
         }
 
         private static func awaitResponse(
@@ -515,7 +463,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             return .unavailable(endpoint)
         }
 
-        private func shutdownResponseTasks(
+        private func shutdownRouteTasks(
             _ tasks: [Task<Void, Never>],
             continuation: AsyncStream<RelayResult>.Continuation
         ) async {

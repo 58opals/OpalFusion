@@ -41,8 +41,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             roleElection: OpalFusion.Mosaic.Attempt.RoleElectionResult,
             opaquePool: OpaquePoolDocument,
             relaySet: RelaySetDocument,
-            nonceAllocation: ContributorNonceAllocationDocument,
-            policy: PrivateDeploymentPolicy = .frozen
+            nonceAllocation: ContributorNonceAllocationDocument
         ) throws(ValidationError) {
             guard candidateSelection.discoveryEpochStartUnixSeconds
                     == discoveryEpochStartUnixSeconds,
@@ -104,6 +103,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             guard manifestContributors == allocationContributors else {
                 throw .nonceAllocationContributorMismatch
             }
+            // The application-selected canonical pool fixes the timing policy.
+            // Never infer it from a peer's proposed deadlines.
+            let policy = opaquePool.policy
             let preManifestDeadlines: PreManifestDeadlineSchedule
             let expectedDeadlines: DeadlineSchedule
             do {

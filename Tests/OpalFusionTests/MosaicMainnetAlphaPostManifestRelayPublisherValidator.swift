@@ -56,6 +56,32 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         }
     }
 
+    private actor AcknowledgingConnection:
+        OpalFusion.Mosaic.TorWebSocketConnectioning
+    {
+        let connection: ScriptedMosaicTorWebSocketConnection
+        let acknowledgement: OpalFusion.Mosaic.TorWebSocketMessage
+
+        init(
+            connection: ScriptedMosaicTorWebSocketConnection,
+            acknowledgement: OpalFusion.Mosaic.TorWebSocketMessage
+        ) {
+            self.connection = connection
+            self.acknowledgement = acknowledgement
+        }
+
+        func open(maximumIncomingMessageByteCount: Int) async throws -> MessageStream {
+            try await connection.open(maximumIncomingMessageByteCount: maximumIncomingMessageByteCount)
+        }
+
+        func send(text: String) async throws {
+            try await connection.send(text: text)
+            await connection.receive(acknowledgement)
+        }
+
+        func close() async { await connection.close() }
+    }
+
     @Test("Require exactly three distinct relay routes and alpha.5 limits")
     func requireExactRoutesAndLimits() async throws {
         let connections = makeConnections()
@@ -295,18 +321,66 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         }
     }
 
+    @Test("Two accepted routes complete while the third route is still opening", .timeLimit(.minutes(1)))
+    func quorumDoesNotWaitForThirdRouteStart() async throws {
+        let connections = makeConnections()
+        await connections[2].suspendNextOpen()
+        let giftWrap = try makeGiftWrap()
+        let persistence = MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let publisher = try makePublisher(
+            routes: connections.enumerated().map { index, connection in
+                .init(endpoint: endpoint(index + 1), connection: AcknowledgingConnection(
+                    connection: connection, acknowledgement: acknowledgement(for: giftWrap, accepted: true)))
+            },
+            publicationJournal: makePublicationJournal(persistence: persistence.persistence))
+        let binding = try publicationBinding(for: giftWrap)
+        let publication = Task { try await publisher.publish(giftWrap, binding: binding) }
+        await connections[2].waitUntilOpenSuspends()
+        // A failure must close the blocked open as well, so the regression cannot hang.
+        let deadline = Task {
+            do { try await Task.sleep(for: .seconds(2)) }
+            catch { return }
+            await publisher.stop()
+        }
+        let result = await publication.result
+        deadline.cancel()
+        await deadline.value
+        if case .failure(let error) = result {
+            Issue.record("The fast quorum was blocked by the third open: \(error)")
+        }
+        #expect(await connections[0].sentTexts.count == 1)
+        #expect(await connections[1].sentTexts.count == 1)
+        #expect(await connections[2].sentTexts.isEmpty)
+        for connection in connections {
+            #expect(await connection.openCount == 1)
+            #expect(await connection.closeCount == 1)
+        }
+        #expect(await publisher.state == .terminal(.accepted(giftWrap.event.identifier)))
+        let snapshot = try #require(persistence.snapshot)
+        #expect(snapshot.records.contains { record in
+            guard case let .completed(identifier, .transportAccepted) = record else { return false }
+            return identifier == giftWrap.event.identifier.rawRepresentation
+        })
+    }
+
     @Test(
-        "Do not return before every relay send handoff has completed",
+        "Quorum closes a suspended third send and waits for its complete closure",
         .timeLimit(.minutes(1))
     )
-    func waitForEverySendHandoff() async throws {
+    func quorumDrainsSuspendedSendAndClose() async throws {
         let connections = makeConnections()
         await connections[2].suspendNextSend()
-        let publisher = try makePublisher(routes: makeRoutes(connections))
+        await connections[2].suspendNextClose()
+        let persistence = MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let publisher = try makePublisher(
+            routes: makeRoutes(connections),
+            publicationJournal: makePublicationJournal(persistence: persistence.persistence))
         let giftWrap = try makeGiftWrap()
         let binding = try publicationBinding(for: giftWrap)
+        let completion = CompletionProbe()
         let publication = Task {
             try await publisher.publish(giftWrap, binding: binding)
+            await completion.markCompleted()
         }
 
         for connection in connections {
@@ -315,9 +389,18 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
         await connections[0].receive(acknowledgement(for: giftWrap, accepted: true))
         await connections[1].receive(acknowledgement(for: giftWrap, accepted: true))
 
-        #expect(await publisher.state == .publishing(giftWrap.event.identifier))
-        await connections[2].resumeSend()
+        await connections[2].waitUntilCloseSuspends()
+        #expect(await completion.isCompleted == false)
+        let snapshot = try #require(persistence.snapshot)
+        #expect(snapshot.records.contains { record in
+            guard case let .completed(identifier, .transportAccepted) = record else { return false }
+            return identifier == giftWrap.event.identifier.rawRepresentation
+        })
+        await connections[2].resumeClose()
         try await publication.value
+        for connection in connections {
+            #expect(await connection.closeCount == 1)
+        }
     }
 
     @Test(

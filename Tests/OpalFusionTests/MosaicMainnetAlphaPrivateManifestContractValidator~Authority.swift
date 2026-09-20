@@ -61,4 +61,38 @@ extension MosaicMainnetAlphaPrivateManifestContractValidator {
             )
         }
     }
+    @Test("Manifest timing must match the selected pool version on creation and replay")
+    func rejectCrossProfileSchedules() throws {
+        let formation = try MosaicPrivateDeploymentFixtures.makeFormation()
+        let frozen = try MosaicPrivateDeploymentFixtures.makeManifestValidation(formation: formation)
+        let candidatePool = try Alpha.OpaquePoolDocument(
+            appGeneratedOpaqueIdentifier: formation.discovery.pool.opaqueIdentifier,
+            policy: .bootstrap180Candidate)
+        let candidateCore = try Alpha.RoundManifestCore(
+            candidateSetDigest: frozen.core.candidateSetDigest,
+            roleElection: formation.roleElection,
+            opaquePoolIdentifier: frozen.core.opaquePoolIdentifier,
+            componentAuthorizationVerificationKey: frozen.core.componentAuthorizationVerificationKey,
+            bchSignatureAuthorizationVerificationKey: frozen.core.bchSignatureAuthorizationVerificationKey,
+            contributorNonceAllocationDigest: frozen.core.contributorNonceAllocationDigest,
+            relaySetDigest: frozen.core.relaySetDigest,
+            deadlines: Alpha.PrivateDeploymentPolicy.bootstrap180Candidate.postManifestDeadlines(
+                forPhaseStartingAt: frozen.core.deadlines.phaseStart))
+        func validate(_ core: Alpha.RoundManifestCore, _ pool: Alpha.OpaquePoolDocument) throws
+            -> Alpha.PrivateDeploymentManifestValidation {
+            try .init(discoveryEpochStartUnixSeconds: formation.discovery.epochStart,
+                      core: core, candidateSelection: formation.selection,
+                      controlRoster: formation.controlRoster, roleElection: formation.roleElection,
+                      opaquePool: pool, relaySet: formation.discovery.relaySet,
+                      nonceAllocation: formation.nonceAllocation)
+        }
+        _ = try validate(candidateCore, candidatePool)
+        #expect(throws: Alpha.PrivateDeploymentManifestValidation.ValidationError.deadlinePolicyMismatch) {
+            _ = try validate(frozen.core, candidatePool)
+        }
+        #expect(throws: Alpha.PrivateDeploymentManifestValidation.ValidationError.deadlinePolicyMismatch) {
+            _ = try validate(candidateCore, formation.discovery.pool)
+        }
+    }
+
 }

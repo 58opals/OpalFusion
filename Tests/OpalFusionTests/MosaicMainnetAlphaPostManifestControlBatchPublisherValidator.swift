@@ -50,6 +50,25 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
         let controlSigningKey: OpalCrypto.Secp256k1.SigningKey
         let eventSigningKey: OpalCrypto.Secp256k1.SigningKey
         let recipients: [Bridge.Recipient]
+        let playerCommit: Alpha.PlayerCommit?
+    }
+
+    private enum SchedulingScenario: CaseIterable {
+        case conductor
+        case largerConductorRoster
+        case contributor
+
+        var activeRecipientLimit: Int {
+            self == .contributor ? 1 : 7
+        }
+    }
+
+    private struct AcceptReservationPublication:
+        Alpha.RuntimeSession.ReservationPublicationValidating
+    {
+        func validateReservationPublication(
+            _: Alpha.RuntimeSession.ReservationPublicationRequest
+        ) throws {}
     }
 
     private struct SharedFixture: Sendable {
@@ -97,6 +116,34 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
         )
     }
 
+    private static let contributorFixtureTask = Task {
+        let harness = try Self.makeHarness(localRole: .contributor)
+        return SharedFixture(
+            harness: harness,
+            batch: try await Self.captureFirstBatch(harness: harness),
+            foreignBatches: []
+        )
+    }
+
+    private static let largerConductorFixtureTask = Task {
+        let harness = try Self.makeHarness(candidateCount: 9)
+        return SharedFixture(
+            harness: harness,
+            batch: try await Self.captureFirstBatch(harness: harness),
+            foreignBatches: []
+        )
+    }
+
+    private static func fixture(
+        for scenario: SchedulingScenario
+    ) async throws -> SharedFixture {
+        switch scenario {
+        case .conductor: try await sharedFixtureTask.value
+        case .largerConductorRoster: try await largerConductorFixtureTask.value
+        case .contributor: try await contributorFixtureTask.value
+        }
+    }
+
     private struct RouteAllocation {
         let groups: [Publisher.RecipientRouteGroup]
         let connections: [
@@ -122,6 +169,85 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
 
         func markCompleted() {
             isCompleted = true
+        }
+    }
+
+    private actor PublicationConcurrencyProbe {
+        private var activeRoutesByRecipient: [ControlIdentity: Int] = [:]
+        private(set) var maximumActiveRecipientCount = 0
+        private(set) var maximumActiveRouteCount = 0
+
+        var activeRouteCount: Int {
+            activeRoutesByRecipient.values.reduce(0, +)
+        }
+
+        func opened(for recipient: ControlIdentity) {
+            activeRoutesByRecipient[recipient, default: 0] += 1
+            maximumActiveRecipientCount = max(
+                maximumActiveRecipientCount,
+                activeRoutesByRecipient.count
+            )
+            maximumActiveRouteCount = max(
+                maximumActiveRouteCount,
+                activeRouteCount
+            )
+        }
+
+        func closed(for recipient: ControlIdentity) {
+            guard let count = activeRoutesByRecipient[recipient] else {
+                Issue.record("Closed a route that never opened")
+                return
+            }
+            if count == 1 {
+                activeRoutesByRecipient.removeValue(forKey: recipient)
+            } else {
+                activeRoutesByRecipient[recipient] = count - 1
+            }
+        }
+    }
+
+    private actor ObservedConnection: OpalFusion.Mosaic.TorWebSocketConnectioning {
+        let connection: ScriptedMosaicTorWebSocketConnection
+        let recipient: ControlIdentity
+        let probe: PublicationConcurrencyProbe
+        private var didOpen = false
+        private var closeTask: Task<Void, Never>?
+
+        init(
+            connection: ScriptedMosaicTorWebSocketConnection,
+            recipient: ControlIdentity,
+            probe: PublicationConcurrencyProbe
+        ) {
+            self.connection = connection
+            self.recipient = recipient
+            self.probe = probe
+        }
+
+        func open(maximumIncomingMessageByteCount: Int) async throws -> MessageStream {
+            guard closeTask == nil else { throw CancellationError() }
+            didOpen = true
+            await probe.opened(for: recipient)
+            return try await connection.open(
+                maximumIncomingMessageByteCount: maximumIncomingMessageByteCount
+            )
+        }
+
+        func send(text: String) async throws {
+            try await connection.send(text: text)
+        }
+
+        func close() async {
+            if let closeTask {
+                await closeTask.value
+                return
+            }
+            let didOpen = didOpen
+            let task = Task {
+                await connection.close()
+                if didOpen { await probe.closed(for: recipient) }
+            }
+            closeTask = task
+            await task.value
         }
     }
 
@@ -357,14 +483,23 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
     }
 
     @Test(
-        "Preflight all routes and await every recipient closure",
-        .timeLimit(.minutes(1))
+        "Bound each role's active recipients until durable acceptance and route closure",
+        .timeLimit(.minutes(1)),
+        arguments: SchedulingScenario.allCases, [false, true]
     )
-    func publishCompleteBatch() async throws {
-        let fixture = try await Self.sharedFixtureTask.value
+    private func publishCompleteBatch(
+        scenario: SchedulingScenario,
+        resuming: Bool
+    ) async throws {
+        let fixture = try await Self.fixture(for: scenario)
         let harness = fixture.harness
         let batch = fixture.batch
-        let allocation = makeRouteAllocation(recipients: harness.recipients)
+        let orderedRecipients = try publicationOrder(batch, harness: harness)
+        let concurrency = PublicationConcurrencyProbe()
+        let allocation = makeRouteAllocation(
+            recipients: harness.recipients,
+            concurrencyProbe: concurrency
+        )
         let requests = routeRequests(harness.recipients)
         let probe = RouteProviderProbe(
             expectedRequests: requests,
@@ -380,27 +515,30 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             ),
             persistence: persistence.persistence
         )
+        if resuming {
+            _ = try prepareBatch(fixture: fixture, journal: publicationJournal)
+        }
         let publisher = try makePublisher(
             harness: harness,
             probe: probe,
             publicationJournal: publicationJournal
         )
         let completion = CompletionProbe()
-        let finalConnection = try #require(
-            allocation.connections[batch.recipients.last!.controlIdentity]?.last
+        let suspendedConnection = try #require(
+            allocation.connections[orderedRecipients[0].controlIdentity]?.last
         )
-        await finalConnection.suspendNextClose()
+        await suspendedConnection.suspendNextClose()
 
         let publication = Task {
-            try await publisher.publish(batch)
+            if resuming {
+                try await publisher.resumePendingPublications()
+            } else {
+                try await publisher.publish(batch)
+            }
             await completion.markCompleted()
         }
-        for recipient in batch.recipients {
-            for connection in try #require(
-                allocation.connections[recipient.controlIdentity]
-            ) {
-                await connection.waitUntilSentTextCount(1)
-            }
+        for recipient in orderedRecipients.prefix(scenario.activeRecipientLimit) {
+            try await waitUntilSent(recipient, allocation: allocation)
         }
         #expect(persistence.appendCallCount == 2)
 
@@ -416,24 +554,45 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             })
         )
 
-        for recipient in batch.recipients {
-            let connections = try #require(
-                allocation.connections[recipient.controlIdentity]
-            )
-            await connections[0].receive(
-                acknowledgement(for: recipient.giftWrap, accepted: true)
-            )
-            await connections[1].receive(
-                acknowledgement(for: recipient.giftWrap, accepted: true)
-            )
-        }
-        await finalConnection.waitUntilCloseSuspends()
-        #expect(await completion.isCompleted == false)
-        await finalConnection.resumeClose()
-        try await publication.value
-        #expect(
-            persistence.appendCallCount == 2 + batch.recipients.count
+        try await acknowledge(orderedRecipients[0], allocation: allocation)
+        await suspendedConnection.waitUntilCloseSuspends()
+        let firstContinuation = try #require(
+            publicationJournal.pendingBatchContinuation(for: .control)?.continuations.first {
+                $0.publication.eventIdentifier
+                    == orderedRecipients[0].giftWrap.event.identifier.rawRepresentation
+            }
         )
+        #expect(firstContinuation.completion == .transportAccepted)
+        if scenario == .contributor {
+            for recipient in orderedRecipients.dropFirst() {
+                for connection in try #require(allocation.connections[recipient.controlIdentity]) {
+                    #expect(await connection.openCount == 0)
+                    #expect(await connection.sentTexts.isEmpty)
+                }
+            }
+            #expect(await completion.isCompleted == false)
+            await suspendedConnection.resumeClose()
+        }
+        // Conductor siblings can drain the roster while one slot waits for closure.
+        for recipient in orderedRecipients.dropFirst() {
+            try await waitUntilSent(recipient, allocation: allocation)
+            try await acknowledge(recipient, allocation: allocation)
+        }
+        if scenario != .contributor {
+            #expect(await completion.isCompleted == false)
+            await suspendedConnection.resumeClose()
+        }
+        try await publication.value
+        #expect(await concurrency.maximumActiveRecipientCount == scenario.activeRecipientLimit)
+        #expect(await concurrency.maximumActiveRouteCount == scenario.activeRecipientLimit * Alpha.relayCount)
+        #expect(await concurrency.activeRouteCount == 0)
+        let completedAppendCount = persistence.appendCallCount
+        #expect((3 ... 2 + batch.recipients.count).contains(completedAppendCount))
+        let completedRecords = try #require(persistence.snapshot).records.filter {
+            if case .completed(_, .transportAccepted) = $0 { return true }
+            return false
+        }
+        #expect(completedRecords.count == batch.recipients.count)
 
         #expect(await probe.callCount == 1)
         var firstFrames: Set<String> = []
@@ -467,9 +626,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             publicationJournal: publicationJournal
         )
         try await replayPublisher.publish(batch)
-        #expect(
-            persistence.appendCallCount == 2 + batch.recipients.count
-        )
+        #expect(persistence.appendCallCount == completedAppendCount)
         #expect(await replayProbe.callCount == 0)
         for connections in replayAllocation.connections.values {
             for connection in connections {
@@ -1093,6 +1250,7 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
         let fixture = try await Self.sharedFixtureTask.value
         let harness = fixture.harness
         let batch = fixture.batch
+        let orderedRecipients = try publicationOrder(batch, harness: harness)
         let allocation = makeRouteAllocation(recipients: harness.recipients)
         let probe = RouteProviderProbe(
             expectedRequests: routeRequests(harness.recipients),
@@ -1115,19 +1273,15 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             }
         }
 
-        for recipient in batch.recipients {
-            for connection in try #require(
-                allocation.connections[recipient.controlIdentity]
-            ) {
-                await connection.waitUntilSentTextCount(1)
-            }
+        for recipient in orderedRecipients {
+            try await waitUntilSent(recipient, allocation: allocation)
         }
-        let rejectedRecipient = batch.recipients[0]
+        let rejectedRecipient = orderedRecipients[0]
         let rejectedConnections = try #require(
             allocation.connections[rejectedRecipient.controlIdentity]
         )
         let suspendedSiblingConnection = try #require(
-            allocation.connections[batch.recipients[1].controlIdentity]?.first
+            allocation.connections[orderedRecipients[1].controlIdentity]?.first
         )
         await suspendedSiblingConnection.suspendNextClose()
         await rejectedConnections[0].receive(
@@ -1155,26 +1309,30 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
     }
 
     @Test(
-        "Cancel active recipient publications and drain all closures",
+        "Cancel active recipients, close queued routes, and recover exact pending bytes",
         .timeLimit(.minutes(1))
     )
     func cancelActivePublication() async throws {
-        let fixture = try await Self.sharedFixtureTask.value
+        let fixture = try await Self.contributorFixtureTask.value
         let harness = fixture.harness
         let batch = fixture.batch
+        let orderedRecipients = try publicationOrder(batch, harness: harness)
+        let (journal, persistence, durableBatch) = try await preparedAcknowledgementBatch(
+            scenario: .contributor
+        )
         let allocation = makeRouteAllocation(recipients: harness.recipients)
         let probe = RouteProviderProbe(
             expectedRequests: routeRequests(harness.recipients),
             groups: allocation.groups
         )
-        let publisher = try makePublisher(harness: harness, probe: probe)
+        let publisher = try makePublisher(
+            harness: harness,
+            probe: probe,
+            publicationJournal: journal
+        )
         let publication = Task { try await publisher.publish(batch) }
-        for recipient in batch.recipients {
-            for connection in try #require(
-                allocation.connections[recipient.controlIdentity]
-            ) {
-                await connection.waitUntilSentTextCount(1)
-            }
+        for recipient in orderedRecipients.prefix(1) {
+            try await waitUntilSent(recipient, allocation: allocation)
         }
 
         publication.cancel()
@@ -1185,6 +1343,77 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             for connection in connections {
                 #expect(await connection.closeCount == 1)
             }
+        }
+        let cancelledIdentifiers = Set(orderedRecipients.prefix(1).map {
+            $0.giftWrap.event.identifier.rawRepresentation
+        })
+        for continuation in durableBatch.continuations {
+            let current = try journal.currentContinuation(matching: continuation)
+            if cancelledIdentifiers.contains(current.publication.eventIdentifier) {
+                #expect(current.completion == .cancelled)
+            } else {
+                #expect(current.completion == nil)
+                #expect(current.relayAcknowledgements.isEmpty)
+            }
+        }
+        for recipient in orderedRecipients.dropFirst() {
+            for connection in try #require(allocation.connections[recipient.controlIdentity]) {
+                #expect(await connection.openCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        }
+
+        let restoredJournal = try Journal(
+            context: .init(
+                publicationContext: harness.context,
+                relaySelection: makeRelaySelection(context: harness.context)
+            ),
+            persistence: persistence.persistence
+        )
+        let concurrency = PublicationConcurrencyProbe()
+        let recoveryAllocation = makeRouteAllocation(
+            recipients: harness.recipients,
+            concurrencyProbe: concurrency
+        )
+        let recoveryProbe = RouteProviderProbe(
+            expectedRequests: routeRequests(harness.recipients),
+            groups: recoveryAllocation.groups
+        )
+        let recoveryPublisher = try makePublisher(
+            harness: harness,
+            probe: recoveryProbe,
+            publicationJournal: restoredJournal
+        )
+        let restoration = Task { try await recoveryPublisher.resumePendingPublications() }
+        for recipient in orderedRecipients.dropFirst() {
+            try await waitUntilSent(recipient, allocation: recoveryAllocation)
+            try await acknowledge(recipient, allocation: recoveryAllocation)
+        }
+        try await restoration.value
+
+        #expect(await recoveryProbe.callCount == 1)
+        #expect(await concurrency.maximumActiveRecipientCount == 1)
+        #expect(await concurrency.maximumActiveRouteCount == Alpha.relayCount)
+        #expect(await concurrency.activeRouteCount == 0)
+        #expect(restoredJournal.pendingContinuations(for: .control).isEmpty)
+        for recipient in orderedRecipients {
+            let wasCancelled = cancelledIdentifiers.contains(
+                recipient.giftWrap.event.identifier.rawRepresentation
+            )
+            let stored = try #require(durableBatch.continuations.first {
+                $0.publication.eventIdentifier == recipient.giftWrap.event.identifier.rawRepresentation
+            })
+            let exactFrame = "[\"EVENT\"," + String(
+                decoding: stored.publication.canonicalEventBytes,
+                as: UTF8.self
+            ) + "]"
+            for connection in try #require(recoveryAllocation.connections[recipient.controlIdentity]) {
+                #expect(await connection.openCount == (wasCancelled ? 0 : 1))
+                #expect(await connection.closeCount == 1)
+                #expect(await connection.sentTexts == (wasCancelled ? [] : [exactFrame]))
+            }
+            let current = try restoredJournal.currentContinuation(matching: stored)
+            #expect(current.completion == (wasCancelled ? .cancelled : .transportAccepted))
         }
     }
 
@@ -1197,6 +1426,131 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 maximumMessageStringByteCount: 256,
                 event: (try Transport.codingLimits).event
             )
+        }
+    }
+
+    @Test("Acknowledgements for multiple recipients persist in one atomic append")
+    func batchAcknowledgementsPersistAtomically() async throws {
+        let (journal, persistence, batch) = try await preparedAcknowledgementBatch()
+        let prior = persistence.appendCallCount
+        let observations = acknowledgementObservations(batch)
+        let completed = try journal.recordAcknowledgementsAndDerivedCompletions(observations)
+        #expect(completed.count == observations.count)
+        #expect(completed.allSatisfy { $0.completion == .transportAccepted })
+        #expect(persistence.appendCallCount == prior + 1)
+        let restarted = try Journal(context: journal.recoveryContext, persistence: persistence.persistence)
+        for continuation in batch.continuations {
+            #expect(try restarted.currentContinuation(matching: continuation).completion == .transportAccepted)
+        }
+        _ = try journal.recordAcknowledgementsAndDerivedCompletions(observations)
+        #expect(persistence.appendCallCount == prior + 1)
+    }
+
+    @Test("An invalid member rejects the acknowledgement batch without a partial write")
+    func invalidAcknowledgementBatchDoesNotPartiallyCommit() async throws {
+        let (journal, persistence, batch) = try await preparedAcknowledgementBatch()
+        var observations = acknowledgementObservations(batch)
+        observations.append(.init(eventIdentifier: Data(repeating: 0xFF, count: 32),
+                                  acknowledgements: observations[0].acknowledgements))
+        let prior = persistence.appendCallCount
+        #expect(throws: Journal.RecordingError.unknownPublication) {
+            _ = try journal.recordAcknowledgementsAndDerivedCompletions(observations)
+        }
+        #expect(persistence.appendCallCount == prior)
+        for continuation in batch.continuations {
+            #expect(try journal.currentContinuation(matching: continuation).relayAcknowledgements.isEmpty)
+        }
+    }
+
+    @Test("Uncertain acknowledgement batches resolve exactly old, new, or corrupt", arguments: [
+        MosaicMainnetAlphaRelayPublicationJournalFixture.AppendFailureDurability.priorSnapshot,
+        .appendedRecord, .duplicatedRecord,
+    ])
+    func uncertainAcknowledgementBatchResolvesDurably(
+        durability: MosaicMainnetAlphaRelayPublicationJournalFixture.AppendFailureDurability
+    ) async throws {
+        let (journal, persistence, batch) = try await preparedAcknowledgementBatch()
+        persistence.failNextAppend(of: .acknowledged, leaving: durability)
+        let observations = acknowledgementObservations(batch)
+        switch durability {
+        case .appendedRecord:
+            let completed = try journal.recordAcknowledgementsAndDerivedCompletions(observations)
+            #expect(completed.allSatisfy { $0.completion == .transportAccepted })
+        case .priorSnapshot:
+            #expect(throws: Journal.RecordingError.appendFailed) {
+                _ = try journal.recordAcknowledgementsAndDerivedCompletions(observations)
+            }
+            for continuation in batch.continuations {
+                #expect(try journal.currentContinuation(matching: continuation).relayAcknowledgements.isEmpty)
+            }
+        case .duplicatedRecord:
+            #expect(throws: Journal.RecordingError.staleOrCorruptSnapshot) {
+                _ = try journal.recordAcknowledgementsAndDerivedCompletions(observations)
+            }
+        }
+    }
+
+    @Test("Concurrent and cancelled acknowledgement observers retain durable results", .timeLimit(.minutes(1)))
+    func concurrentAcknowledgementObservers() async throws {
+        let (journal, persistence, batch) = try await preparedAcknowledgementBatch()
+        let observations = acknowledgementObservations(batch)
+        let task = Task {
+            try await withThrowingTaskGroup(of: Journal.Continuation.self) { group in
+                for observation in observations {
+                    group.addTask {
+                        try await journal.recordObservedAcknowledgements(
+                            observation.acknowledgements, eventIdentifier: observation.eventIdentifier)
+                    }
+                }
+                for try await result in group {
+                    #expect(result.completion == .transportAccepted)
+                }
+            }
+        }
+        task.cancel()
+        try await task.value
+        let restarted = try Journal(context: journal.recoveryContext, persistence: persistence.persistence)
+        for continuation in batch.continuations {
+            #expect(try restarted.currentContinuation(matching: continuation).completion == .transportAccepted)
+        }
+    }
+
+    private func preparedAcknowledgementBatch(
+        scenario: SchedulingScenario = .conductor
+    ) async throws -> (
+        Journal, MosaicMainnetAlphaRelayPublicationJournalFixture, Journal.BatchContinuation
+    ) {
+        let fixture = try await Self.fixture(for: scenario)
+        let persistence = MosaicMainnetAlphaRelayPublicationJournalFixture()
+        let journal = try Journal(context: .init(publicationContext: fixture.harness.context,
+            relaySelection: makeRelaySelection(context: fixture.harness.context)), persistence: persistence.persistence)
+        let prepared = try prepareBatch(fixture: fixture, journal: journal)
+        let attempted = try journal.recordAttempts(matching: prepared)
+        return (journal, persistence, attempted)
+    }
+
+    private func prepareBatch(
+        fixture: SharedFixture,
+        journal: Journal
+    ) throws -> Journal.BatchContinuation {
+        let preparations = try fixture.batch.recipients.map { recipient in
+            let identity = try #require(fixture.harness.recipients.first {
+                $0.controlIdentity == recipient.controlIdentity
+            })
+            return Journal.PublicationPreparation(giftWrap: recipient.giftWrap, binding: try .init(
+                channelPurpose: .control, recipientEventIdentity: identity.eventVerificationKey.rawRepresentation,
+                expiryUnixSeconds: fixture.batch.envelope.expiryUnixSeconds))
+        }
+        return try journal.prepareBatch(preparations)
+    }
+
+    private func acknowledgementObservations(
+        _ batch: Journal.BatchContinuation
+    ) -> [Journal.AcknowledgementObservation] {
+        batch.continuations.map { continuation in
+            .init(eventIdentifier: continuation.publication.eventIdentifier,
+                  acknowledgements: Dictionary(uniqueKeysWithValues:
+                    continuation.publication.endpoints.prefix(2).map { ($0, .accepted) }))
         }
     }
 
@@ -1240,12 +1594,17 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
     }
 
     private static func makeHarness(
+        localRole: OpalFusion.Mosaic.Role = .conductor,
+        candidateCount: Int = 7,
         attemptByte: UInt8 = 0xA1,
         generationByte: UInt8 = 0xA2,
         materialByte: UInt8 = 0xA3,
         manifestAuxiliaryRandomnessByte: UInt8? = nil
     ) throws -> BridgeHarness {
-        let ledgerHarness = try Fixture.makeHarness(localRole: .conductor)
+        let ledgerHarness = try Fixture.makeHarness(
+            candidateCount: candidateCount,
+            localRole: localRole
+        )
         let scalar = try #require(
             MosaicMainnetAlphaFixtures.scalarByte(
                 for: ledgerHarness.localControlIdentity
@@ -1292,6 +1651,21 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             validating: manifest,
             against: bootstrap
         )
+        let playerCommit: Alpha.PlayerCommit?
+        if localRole == .contributor {
+            let transcript = try MosaicUnsignedTransactionTranscriptFixtures.prepare(
+                roster: context.roster,
+                manifest: context.manifest.binding,
+                profile: .opalMainnetAlpha
+            )
+            let contributorCommit: Alpha.PlayerCommit = try #require(Fixture.makePlayerCommits(
+                harness: ledgerHarness,
+                commitmentSet: transcript.commitmentSet
+            ).first { $0.contributor == context.localControlIdentity })
+            playerCommit = contributorCommit
+        } else {
+            playerCommit = nil
+        }
         return .init(
             context: context,
             controlSigningKey: controlSigningKey,
@@ -1299,7 +1673,8 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             recipients: try Self.makeRecipients(
                 roster: context.roster,
                 scalarBase: 30
-            )
+            ),
+            playerCommit: playerCommit
         )
     }
 
@@ -1348,9 +1723,41 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             )
         )
         do {
-            try await bridge.publishManifest(
-                expiryUnixSeconds: Self.expiryUnixSeconds
-            )
+            if let playerCommit = harness.playerCommit {
+                let lease = try OpalFusion.Host.MosaicReservationLease(
+                    reference: .init(identifier: UUID(), generation: 1),
+                    expiresAt: Date(timeIntervalSince1970: 1_900_000_000),
+                    participantReservation: .init(
+                        inputs: [.init(
+                            outpointTransactionHashBytes: [UInt8](repeating: 0x51, count: 32),
+                            outpointIndex: 0,
+                            amountSatoshis: 100_000,
+                            lockingScriptBytes: [0x51]
+                        )],
+                        outputs: [.init(lockingScriptBytes: [0x51], amountSatoshis: 99_000)]
+                    )
+                )
+                let validation = try Alpha.RuntimeSession.ReservationPublicationValidation(
+                    validating: .init(
+                        attemptIdentifier: harness.context.attemptIdentifier,
+                        generationIdentifier: harness.context.generationIdentifier,
+                        materialIdentifier: harness.context.materialIdentifier,
+                        contributor: harness.context.localControlIdentity,
+                        manifest: harness.context.manifest,
+                        reservationLease: lease,
+                        playerCommit: playerCommit
+                    ),
+                    using: AcceptReservationPublication()
+                )
+                try await bridge.publishPlayerCommit(
+                    validation,
+                    expiryUnixSeconds: Self.expiryUnixSeconds
+                )
+            } else {
+                try await bridge.publishManifest(
+                    expiryUnixSeconds: Self.expiryUnixSeconds
+                )
+            }
         } catch let failure as Bridge.Failure {
             guard failure == .handoffFailed else {
                 throw failure
@@ -1378,7 +1785,8 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
     }
 
     private func makeRouteAllocation(
-        recipients: [Bridge.Recipient]
+        recipients: [Bridge.Recipient],
+        concurrencyProbe: PublicationConcurrencyProbe? = nil
     ) -> RouteAllocation {
         var connectionsByIdentity: [
             ControlIdentity: [ScriptedMosaicTorWebSocketConnection]
@@ -1391,12 +1799,56 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             return Publisher.RecipientRouteGroup(
                 recipientEventIdentity:
                     recipient.eventVerificationKey.rawRepresentation,
-                routes: zip(selectedEndpoints, connections).map {
-                    .init(endpoint: $0.0, connection: $0.1)
+                routes: zip(selectedEndpoints, connections).map { endpoint, connection in
+                    let observed: any OpalFusion.Mosaic.TorWebSocketConnectioning
+                    if let concurrencyProbe {
+                        observed = ObservedConnection(
+                            connection: connection,
+                            recipient: recipient.controlIdentity,
+                            probe: concurrencyProbe
+                        )
+                    } else {
+                        observed = connection
+                    }
+                    return .init(endpoint: endpoint, connection: observed)
                 }
             )
         }
         return .init(groups: groups, connections: connectionsByIdentity)
+    }
+
+    private func publicationOrder(
+        _ batch: Bridge.GiftWrapBatch,
+        harness: BridgeHarness
+    ) throws -> [Bridge.RecipientGiftWrap] {
+        try harness.recipients.sorted {
+            $0.eventVerificationKey.rawRepresentation.lexicographicallyPrecedes(
+                $1.eventVerificationKey.rawRepresentation
+            )
+        }.map { recipient in
+            try #require(batch.recipients.first {
+                $0.controlIdentity == recipient.controlIdentity
+            })
+        }
+    }
+
+    private func waitUntilSent(
+        _ recipient: Bridge.RecipientGiftWrap,
+        allocation: RouteAllocation
+    ) async throws {
+        for connection in try #require(allocation.connections[recipient.controlIdentity]) {
+            await connection.waitUntilSentTextCount(1)
+        }
+    }
+
+    private func acknowledge(
+        _ recipient: Bridge.RecipientGiftWrap,
+        allocation: RouteAllocation
+    ) async throws {
+        let connections = try #require(allocation.connections[recipient.controlIdentity])
+        for connection in connections.prefix(2) {
+            await connection.receive(acknowledgement(for: recipient.giftWrap, accepted: true))
+        }
     }
 
     private func makeRelaySelection(

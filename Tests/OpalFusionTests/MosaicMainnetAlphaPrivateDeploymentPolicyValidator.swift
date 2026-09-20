@@ -101,4 +101,39 @@ struct MosaicMainnetAlphaPrivateDeploymentPolicyValidator {
             )
         }
     }
+    @Test("Explicit bootstrap180 candidate preserves frozen bytes and changes only post-manifest offsets")
+    func versionedBootstrapCandidate() throws {
+        let frozen = Alpha.PrivateDeploymentPolicy.frozen
+        let candidate = Alpha.PrivateDeploymentPolicy.bootstrap180Candidate
+        #expect(frozen.rawValue == Alpha.PrivateDeploymentNostrSelector.identifier)
+        let epoch: UInt64 = 1_800_000_000
+        #expect(try frozen.preManifestDeadlines(forEpochStartingAt: epoch)
+            == candidate.preManifestDeadlines(forEpochStartingAt: epoch))
+        let schedule = try candidate.postManifestDeadlines(forPhaseStartingAt: epoch + 240)
+        #expect(schedule.walletReservation == epoch + 420)
+        #expect(schedule.groupedCommitment == epoch + 480)
+        #expect(schedule.anonymousComponentSubmission == epoch + 600)
+        #expect(schedule.transcriptAgreement == epoch + 660)
+        #expect(schedule.bchSigning == epoch + 720)
+        #expect(candidate.reservationLeaseExpirationUnixSeconds(for: schedule) == epoch + 720)
+        #expect(throws: Alpha.PrivateDeploymentPolicy.ValidationError.deadlineOverflow) {
+            _ = try candidate.postManifestDeadlines(forPhaseStartingAt: UInt64.max - 479)
+        }
+        let identifier = (0 ..< 32).map(UInt8.init)
+        let oldPool = try Alpha.OpaquePoolDocument(appGeneratedOpaqueIdentifier: identifier)
+        var encoder = OpalFusion.Mosaic.CanonicalEncoder()
+        try encoder.writeText("nostr-tor/0-opal-mainnet-alpha-private-deployment.1")
+        try encoder.writeText("Mosaic/0-opal-mainnet-alpha.4")
+        try encoder.writeFixedBytes(Alpha.mainnetGenesisHash, byteCount: 32)
+        try encoder.writeFixedBytes(identifier, byteCount: 32)
+        #expect(oldPool.canonicalBytes == encoder.encodedBytes)
+        let pool = try Alpha.OpaquePoolDocument(appGeneratedOpaqueIdentifier: identifier, policy: candidate)
+        #expect(pool.canonicalBytes != oldPool.canonicalBytes)
+        #expect(pool.digest != oldPool.digest)
+        #expect(try Alpha.OpaquePoolDocument.decode(from: pool.canonicalBytes) == pool)
+        #expect(throws: (any Error).self) {
+            _ = try Alpha.OpaquePoolDocument.decode(from: pool.canonicalBytes + [0])
+        }
+    }
+
 }

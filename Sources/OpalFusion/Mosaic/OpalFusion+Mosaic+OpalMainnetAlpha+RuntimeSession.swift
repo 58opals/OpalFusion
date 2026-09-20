@@ -71,6 +71,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             reason: OpalFusion.Mosaic.Attempt.AbortReason
         )?
 
+        var diagnosticCounts: [String: Int] {
+            var counts = admissionLedger.diagnosticCounts
+            counts["localReservationPublished"] = reservationPublication == nil ? 0 : 1
+            return counts
+        }
+
         var localAttemptState: OpalFusion.Mosaic.Attempt.State {
             localAttempt.state
         }

@@ -218,48 +218,15 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     !usedIdentities.contains($0.recipientEventIdentity)
                 }.flatMap(\.routes)
             )
-            let publishers = prepared.map(\.publisher)
-
-            do {
-                try await withTaskCancellationHandler {
-                    try await withThrowingTaskGroup(of: Void.self) { group in
-                        for publication in prepared {
-                            group.addTask {
-                                try await publication.publisher.publish(
-                                    publication.continuation
-                                )
-                            }
-                        }
-                        do {
-                            while try await group.next() != nil {}
-                        } catch {
-                            group.cancelAll()
-                            await Self.stop(publishers)
-                            throw error
-                        }
-                    }
-                } onCancel: {
-                    Task {
-                        await Self.stop(publishers)
-                    }
-                }
-            } catch {
-                await Self.stop(publishers)
-                guard !Task.isCancelled else {
-                    throw .cancelled
-                }
-                throw .recipientPublicationFailed
-            }
-            guard !Task.isCancelled else {
-                await Self.stop(publishers)
-                throw .cancelled
+            try await execute(prepared) { publication in
+                try await publication.publisher.publish(publication.continuation)
             }
         }
 
         /// Performs one caller-triggered attempt for each pending control continuation.
         ///
         /// The operation provisions a fresh complete control allocation and retransmits only
-        /// byte-identical journaled events. It defines no reconnect or scheduling policy.
+        /// byte-identical journaled events. It defines no reconnect or retry policy.
         func resumePendingPublications() async throws(Failure) {
             guard let durableBatch = publicationJournal
                 .pendingBatchContinuation(for: .control) else {
@@ -366,19 +333,38 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     !usedIdentities.contains($0.recipientEventIdentity)
                 }.flatMap(\.routes)
             )
+            try await execute(prepared) { publication in
+                try await publication.publisher.resume(publication.continuation)
+            }
+        }
+
+        /// Bounds simultaneous handshakes without sharing routes between recipients.
+        /// Contributors publish concurrently with one another, so each receives one slot.
+        /// The conductor serializes its control documents and can use up to seven slots.
+        /// A slot includes acknowledgement persistence and complete route closure.
+        private func execute(
+            _ prepared: [PreparedContinuation],
+            operation: @escaping @Sendable (PreparedContinuation) async throws -> Void
+        ) async throws(Failure) {
             let publishers = prepared.map(\.publisher)
+            let maximumActiveRecipientCount =
+                context.localControlIdentity == context.roster.conductor ? 7 : 1
             do {
                 try await withTaskCancellationHandler {
                     try await withThrowingTaskGroup(of: Void.self) { group in
-                        for publication in prepared {
-                            group.addTask {
-                                try await publication.publisher.resume(
-                                    publication.continuation
-                                )
-                            }
-                        }
+                        var pending = prepared.makeIterator()
                         do {
-                            while try await group.next() != nil {}
+                            for _ in 0 ..< maximumActiveRecipientCount {
+                                try Task.checkCancellation()
+                                guard let publication = pending.next() else { break }
+                                group.addTask { try await operation(publication) }
+                            }
+                            while try await group.next() != nil {
+                                try Task.checkCancellation()
+                                if let publication = pending.next() {
+                                    group.addTask { try await operation(publication) }
+                                }
+                            }
                         } catch {
                             group.cancelAll()
                             await Self.stop(publishers)
@@ -392,6 +378,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 await Self.stop(publishers)
                 guard !Task.isCancelled else { throw .cancelled }
                 throw .recipientPublicationFailed
+            }
+            guard !Task.isCancelled else {
+                await Self.stop(publishers)
+                throw .cancelled
             }
         }
 

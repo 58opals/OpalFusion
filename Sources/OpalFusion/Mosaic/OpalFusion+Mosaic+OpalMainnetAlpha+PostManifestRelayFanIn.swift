@@ -65,6 +65,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private var readerTasks: [Task<Void, Never>] = []
         private var runtimeTask: Task<Void, Never>?
         private var shutdownTask: Task<Void, Never>?
+        private var submissionCounts: [String: Int] = [:]
         private var hasCompletedIngressStartup = false
         private var ingressStartupWaiters: [
             CheckedContinuation<Void, Never>
@@ -653,6 +654,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             return await runtime.terminalCompletionValidation()
         }
 
+        func diagnosticCounts() async -> [String: Int] {
+            let counts = await runtime.diagnosticCounts()
+            return counts.merging(submissionCounts) { first, _ in first }
+        }
+
         func currentPhase() async -> OpalFusion.Mosaic.Attempt.Phase? {
             await runtime.currentPhase()
         }
@@ -704,42 +710,46 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         }
 
         private func startRoutes() async -> [StartResult] {
-            await withTaskGroup(of: StartResult.self) { group in
-                for route in routes {
-                    group.addTask {
-                        do {
-                            let output = try await route.session.start()
-                            let started = StartedRoute(
-                                route: route,
-                                output: output
-                            )
-                            await self.startReading(started)
-                            try await route.session.subscribe(
-                                route.subscription
-                            )
-                            return .started(started)
-                        } catch {
-                            guard !Task.isCancelled else {
-                                return .cancelled
-                            }
-                            return .failed
-                        }
-                    }
+            // Keep every required isolated route, but bound simultaneous TLS/SOCKS handshakes.
+            // A conductor may retain hundreds of routes; opening them in one burst can exhaust
+            // native connection startup resources before the protocol has begun.
+            let maximumConcurrentStarts = 16
+            return await withTaskGroup(of: StartResult.self) { group in
+                var next = 0
+                for route in routes.prefix(maximumConcurrentStarts) {
+                    group.addTask { await self.startRoute(route) }
+                    next += 1
                 }
                 var results: [StartResult] = []
                 var didClaimFailure = false
                 for await result in group {
                     results.append(result)
-                    guard case .failed = result,
-                          !Task.isCancelled,
-                          !didClaimFailure else {
-                        continue
+                    if case .failed = result, !Task.isCancelled, !didClaimFailure {
+                        didClaimFailure = true
+                        _ = beginShutdown(.sourceFailed)
+                        group.cancelAll()
                     }
-                    didClaimFailure = true
-                    _ = beginShutdown(.sourceFailed)
-                    group.cancelAll()
+                    if !Task.isCancelled, !didClaimFailure, state == .starting,
+                       next < routes.count {
+                        let route = routes[next]
+                        next += 1
+                        group.addTask { await self.startRoute(route) }
+                    }
                 }
                 return results
+            }
+        }
+
+        private func startRoute(_ route: SessionRoute) async -> StartResult {
+            do {
+                let output = try await route.session.start()
+                let started = StartedRoute(route: route, output: output)
+                await startReading(started)
+                try await route.session.subscribe(route.subscription)
+                return .started(started)
+            } catch {
+                guard !Task.isCancelled else { return .cancelled }
+                return .failed
             }
         }
 
@@ -773,41 +783,66 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                                 == started.route.subscription.identifier,
                               (try? Transport.recipientEventIdentity(in: event))
                                 == started.route.recipientEventIdentity else {
-                            sourceDidFail()
+                            sourceDidFail("sourceInvalidRouteEvent")
                             return
                         }
                         switch eventContinuation.yield(event) {
                         case .enqueued:
                             break
-                        case .dropped, .terminated:
-                            sourceDidFail()
+                        case .dropped:
+                            sourceDidFail("sourceEventBufferOverflow")
+                            return
+                        case .terminated:
+                            sourceDidFail("sourceEventBufferTerminated")
                             return
                         @unknown default:
-                            sourceDidFail()
+                            sourceDidFail("sourceEventBufferUnknownResult")
                             return
                         }
                     case .endOfStoredEvents, .notice:
                         continue
                     case .subscriptionClosed, .acknowledgement:
-                        sourceDidFail()
+                        sourceDidFail("sourceUnexpectedRelayMessage")
                         return
                     }
                 }
                 guard state == .starting || state == .running else {
                     return
                 }
-                sourceDidFail()
+                sourceDidFail("sourceEnded")
             } catch {
                 guard state == .starting || state == .running else {
                     return
                 }
-                sourceDidFail()
+                sourceDidFail("sourceReadFailed")
             }
         }
 
         private func consumeEvents() async {
             for await event in eventStream {
                 let decision = await runtime.submit(event)
+                let key: String
+                switch decision {
+                case .accepted: key = "ingressAccepted"
+                case .rejected(.notRunning): key = "ingressNotRunning"
+                case .rejected(.unknownRecipient): key = "ingressUnknownRecipient"
+                case .rejected(.runtimeRejected): key = "ingressRuntimeRejected"
+                case let .rejected(.transport(failure)):
+                    switch failure {
+                    case .invalidLayerTimestamps: key = "ingressInvalidLayerTimestamps"
+                    case .invalidGiftWrapTags: key = "ingressInvalidGiftWrapTags"
+                    case .invalidRumorTags: key = "ingressInvalidRumorTags"
+                    case .invalidRumorTimestamp: key = "ingressInvalidRumorTimestamp"
+                    case .senderIdentityMismatch: key = "ingressSenderIdentityMismatch"
+                    case .recipientIdentityMismatch: key = "ingressRecipientIdentityMismatch"
+                    case .paddedPayload: key = "ingressInvalidPadding"
+                    case .invalidCanonicalEnvelope: key = "ingressInvalidCanonicalEnvelope"
+                    case .invalidNIP59Envelope: key = "ingressInvalidNIP59Envelope"
+                    case .envelopeConstructionFailed: key = "ingressEnvelopeConstructionFailed"
+                    case .invalidRuntimeMessageIdentifier: key = "ingressInvalidRuntimeMessageIdentifier"
+                    }
+                }
+                submissionCounts[key, default: 0] += 1
                 dependencies.submissionObserver(
                     event.identifier,
                     decision
@@ -815,8 +850,9 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             }
         }
 
-        private func sourceDidFail() {
+        private func sourceDidFail(_ stage: String) {
             guard state == .starting || state == .running else { return }
+            submissionCounts[stage, default: 0] += 1
             _ = beginShutdown(.sourceFailed)
         }
 

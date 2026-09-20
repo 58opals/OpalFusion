@@ -635,6 +635,45 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
         }
     }
 
+    @Test("Start queued recipient routes after earlier handshakes finish", .timeLimit(.minutes(1)))
+    func startMultipleRouteBatches() async throws {
+        let (fanIn, connections) = try makeStartupBatchHarness()
+        try await fanIn.start()
+        #expect(await fanIn.state == .running)
+        for connection in connections {
+            #expect(await connection.openCount == 1)
+            #expect(await connection.sentTexts.count == 1)
+        }
+        await fanIn.stop()
+        for connection in connections { #expect(await connection.closeCount == 1) }
+    }
+
+    @Test("Cancel bounded startup without opening queued routes", .timeLimit(.minutes(1)))
+    func cancelQueuedRouteStartup() async throws {
+        let (fanIn, connections) = try makeStartupBatchHarness()
+        for connection in connections { await connection.suspendNextOpen() }
+        let starting = Task { try await fanIn.start() }
+        for connection in connections.prefix(16) { await connection.waitUntilOpenSuspends() }
+        starting.cancel()
+        await #expect(throws: FanIn.Failure.cancelled) { try await starting.value }
+        for connection in connections.dropFirst(16) { #expect(await connection.openCount == 0) }
+        for connection in connections { #expect(await connection.closeCount == 1) }
+    }
+
+    private func makeStartupBatchHarness() throws -> (FanIn, [ScriptedMosaicTorWebSocketConnection]) {
+        let ledger = try Fixture.makeHarness(localRole: .conductor)
+        var groups: [FanIn.RecipientRouteGroup] = []
+        var connections: [ScriptedMosaicTorWebSocketConnection] = []
+        for index in 0 ..< 7 {
+            let peers = makeConnections()
+            connections.append(contentsOf: peers)
+            groups.append(try recipientRouteGroup(
+                recipient: signingKey(UInt8(21 + index)), channel: index == 0 ? .control : .anonymous,
+                connections: peers, subscriptions: makeSubscriptions(prefix: "startup-\(index)")))
+        }
+        return (try makeFanIn(ledger: ledger, recipientRouteGroups: groups), connections)
+    }
+
     @Test(
         "Cancel a suspended startup and close every route once",
         .timeLimit(.minutes(1))
@@ -948,10 +987,10 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
 
     @Test(
         "Preserve a single-route phase burst within the configured bound",
-        .timeLimit(.minutes(1))
+        .timeLimit(.minutes(1)),
+        arguments: [48, 8 * Alpha.componentCountPerContributor * Alpha.relayCount]
     )
-    func preserveBoundedSingleRouteBurst() async throws {
-        let eventCount = 48
+    func preserveBoundedSingleRouteBurst(eventCount: Int) async throws {
         let clockGate = BlockingClockGate()
         let probe = SubmissionProbe()
         let harness = try makeHarness(
@@ -1026,6 +1065,7 @@ struct MosaicMainnetAlphaPostManifestRelayFanInValidator {
             await harness.fanIn.waitForTermination()
                 == .failed(.sourceFailed)
         )
+        #expect(await harness.fanIn.diagnosticCounts()["sourceEventBufferOverflow"] == 1)
         #expect(probe.observations.count == 2)
         #expect(
             probe.observations.map(\.decision)

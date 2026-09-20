@@ -79,6 +79,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         private(set) var state: State = .idle
         private(set) var reservationLifecycle: ReservationLifecycle = .unreserved
 
+        var diagnosticCounts: [String: Int] { runtimeSession.diagnosticCounts }
+
         var runtimeSessionState: RuntimeSession.State {
             runtimeSession.state
         }

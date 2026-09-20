@@ -8,13 +8,15 @@ final class MosaicPrivateAlphaRuntimePersistenceStore: Sendable {
     typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
 
     private let values = Mutex<[Runtime.Binding: Data]>([:])
+    private let loadCallCount = Mutex(0)
     private let compareAndSwapFailureCount = Mutex(0)
     private let compareAndSwapPostWriteFailureCount = Mutex(0)
     private let compareAndSwapCallCount = Mutex(0)
     private let provisionCallCount = Mutex(0)
 
     func load(_ binding: Runtime.Binding) -> Data? {
-        values.withLock { $0[binding] }
+        loadCallCount.withLock { $0 += 1 }
+        return values.withLock { $0[binding] }
     }
 
     func compareAndSwap(
@@ -67,6 +69,10 @@ final class MosaicPrivateAlphaRuntimePersistenceStore: Sendable {
 
     var recordedProvisionCallCount: Int {
         provisionCallCount.withLock { $0 }
+    }
+
+    var recordedLoadCallCount: Int {
+        loadCallCount.withLock { $0 }
     }
 
     var recordedCompareAndSwapCallCount: Int {

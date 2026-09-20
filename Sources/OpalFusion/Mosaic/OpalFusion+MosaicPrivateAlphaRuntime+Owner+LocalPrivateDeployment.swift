@@ -429,7 +429,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.Owner {
                 == [UInt8](signing.verificationKey.rawRepresentation) else {
             throw Runtime.Failure.invalidStateTransition
         }
-        let policy = Alpha.PrivateDeploymentPolicy.frozen
+        let policy = pool.policy
         let phaseStart = try policy.preManifestDeadlines(
             forEpochStartingAt: state.discoveryEpochStartUnixSeconds
         ).manifestAgreement

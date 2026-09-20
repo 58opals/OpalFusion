@@ -8,6 +8,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
     @_spi(MosaicPrivateAlpha)
     public static func makePrivateDeploymentContextDocuments(
         opaquePoolIdentifier: Data,
+        timingProfile: DiscoveryPreparation.TimingProfile = .frozen,
         relayRegistrations: [PrivateDeploymentRelayRegistration]
     ) throws -> PrivateDeploymentContextDocuments {
         typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
@@ -15,7 +16,8 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         let pool: Alpha.OpaquePoolDocument
         do {
             pool = try .init(
-                appGeneratedOpaqueIdentifier: Array(opaquePoolIdentifier)
+                appGeneratedOpaqueIdentifier: Array(opaquePoolIdentifier),
+                policy: timingProfile.policy
             )
         } catch {
             throw PrivateDeploymentConfigurationFailure

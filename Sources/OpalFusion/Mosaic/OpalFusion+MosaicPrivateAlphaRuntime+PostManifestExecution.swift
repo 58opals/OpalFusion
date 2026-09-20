@@ -21,6 +21,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             .RoundManifest
         private let localControlIdentity: OpalFusion.Mosaic.Attempt
             .ControlIdentity
+        private let startOutbound: @Sendable () async throws -> Void
         private let loadAdmissionReadback: @Sendable () throws -> Data
         private let loadPublicationReadback: @Sendable () throws -> Data
         private let stopOutbound: @Sendable () async -> Void
@@ -42,6 +43,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             loadAdmissionReadback: @escaping @Sendable () throws -> Data,
             loadPublicationReadback: @escaping @Sendable () throws -> Data,
             terminalPersistence: PostManifestTerminalPersistence,
+            startOutbound: @escaping @Sendable () async throws -> Void = {},
             stopOutbound: @escaping @Sendable () async -> Void,
             waitForOutboundDrain: @escaping @Sendable () async -> Bool
         ) {
@@ -55,6 +57,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             self.loadAdmissionReadback = loadAdmissionReadback
             self.loadPublicationReadback = loadPublicationReadback
             self.terminalPersistence = terminalPersistence
+            self.startOutbound = startOutbound
             self.stopOutbound = stopOutbound
             self.waitForOutboundDrain = waitForOutboundDrain
         }
@@ -142,6 +145,28 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                 }
             } else {
                 try await fanIn.start()
+                do {
+                    // The conductor publishes the authenticated manifest through
+                    // its existing journaled bridge only after intake is ready.
+                    try await startOutbound()
+                } catch {
+                    await stop()
+                    throw error
+                }
+            }
+        }
+
+        /// Fixed protocol stage only; exposes no participant or transaction data.
+        @_spi(MosaicPrivateAlpha)
+        public var diagnosticCounts: [String: Int] {
+            get async { await fanIn.diagnosticCounts() }
+        }
+
+        @_spi(MosaicPrivateAlpha)
+        public var currentPhase: Phase? {
+            get async {
+                guard let phase = await fanIn.currentPhase() else { return nil }
+                return try? PostManifestConstruction.publicPhase(phase)
             }
         }
 

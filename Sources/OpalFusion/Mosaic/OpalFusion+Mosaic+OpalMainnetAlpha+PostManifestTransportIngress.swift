@@ -344,6 +344,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             await driver.terminalCompletionValidation()
         }
 
+        var diagnosticCounts: [String: Int] {
+            get async { await driver.diagnosticCounts }
+        }
+
         var currentPhase: OpalFusion.Mosaic.Attempt.Phase? {
             get async { await driver.currentPhase }
         }

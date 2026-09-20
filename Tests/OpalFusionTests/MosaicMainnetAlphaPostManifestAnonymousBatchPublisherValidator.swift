@@ -361,9 +361,13 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
         #expect(await completion.isCompleted == false)
         await finalConnection.resumeClose()
         try await publication.value
-        #expect(
-            persistence.appendCallCount == 3 + batch.recipients.count
-        )
+        let completedAppendCount = persistence.appendCallCount
+        #expect((4 ... 3 + batch.recipients.count).contains(completedAppendCount))
+        let completedRecords = try #require(persistence.snapshot).records.filter {
+            if case .completed(_, .transportAccepted) = $0 { return true }
+            return false
+        }
+        #expect(completedRecords.count == batch.recipients.count)
 
         #expect(await routeProbe.callCount == 1)
         let permitRequests = await permitProbe.requests
@@ -402,9 +406,7 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             publicationJournal: publicationJournal
         )
         try await replayPublisher.publish(batch)
-        #expect(
-            persistence.appendCallCount == 3 + batch.recipients.count
-        )
+        #expect(persistence.appendCallCount == completedAppendCount)
         #expect(await replayProbe.callCount == 0)
         #expect(await permitProbe.requests.count == permitRequests.count)
         for connections in replayAllocation.connections.values {

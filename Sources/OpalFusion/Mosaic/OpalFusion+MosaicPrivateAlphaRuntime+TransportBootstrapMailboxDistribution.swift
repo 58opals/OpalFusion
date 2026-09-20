@@ -189,12 +189,12 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
         )
         let anonymousKeys = conductorAssignments.flatMap {
             $0.recipientSigningKeys
+        }.map { key in
+            // Derive each public identity once, outside the sort comparator.
+            (key: key, identity: key.bip340VerificationKey.rawRepresentation)
         }.sorted {
-            $0.bip340VerificationKey.rawRepresentation
-                .lexicographicallyPrecedes(
-                    $1.bip340VerificationKey.rawRepresentation
-                )
-        }
+            $0.identity.lexicographicallyPrecedes($1.identity)
+        }.map(\.key)
         guard anonymousKeys.count
                 == context.contributorControlIdentities.count
                     * TransportBootstrapContract.anonymousMailboxCount else {

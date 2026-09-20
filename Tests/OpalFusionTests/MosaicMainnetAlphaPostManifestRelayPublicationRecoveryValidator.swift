@@ -483,6 +483,80 @@ struct MosaicMainnetAlphaPostManifestRelayPublicationRecoveryValidator {
         }
     }
 
+    private enum ExactComparisonScenario: CaseIterable, Sendable {
+        case healthy, failedBeforeWrite, failedAfterWrite, deleted, sameCountDivergence
+    }
+
+    @Test("Publication appends compare the exact retained snapshot and reload only on uncertainty",
+          arguments: ExactComparisonScenario.allCases)
+    private func exactRetainedSnapshotComparison(_ scenario: ExactComparisonScenario) async throws {
+        let fixture = try await Self.sharedFixtureTask.value
+        let context = fixture.journalContext
+        let binding = try Runtime.Binding(
+            attemptIdentifier: Data(context.attemptIdentifier.validatedBytes),
+            generationIdentifier: Data(context.generationIdentifier.opaqueBytes),
+            materialIdentifier: Data(context.materialIdentifier.opaqueBytes)
+        )
+        let store = MosaicPrivateAlphaRuntimePersistenceStore()
+        let persistence = Runtime.PostManifestPublicationPersistence(
+            load: store.load, compareAndSwap: store.compareAndSwap
+        )
+        try Journal.initializeRecoverySnapshot(binding: binding, persistence: persistence,
+                                              context: context, requireExisting: false)
+        let journal = try Journal(context: context, persistence: Journal.recoveryPersistence(
+            binding: binding, persistence: persistence
+        ))
+        let initialLoads = store.recordedLoadCallCount
+        let continuation = try journal.prepare(fixture.giftWrap, binding: fixture.binding)
+        #expect(store.recordedLoadCallCount == initialLoads)
+
+        var divergentBytes: Data?
+        switch scenario {
+        case .healthy: break
+        case .failedBeforeWrite: store.failNextCompareAndSwap()
+        case .failedAfterWrite: store.failNextCompareAndSwapAfterWriting()
+        case .deleted: store.remove(binding)
+        case .sameCountDivergence:
+            let other = MosaicPrivateAlphaRuntimePersistenceStore()
+            let otherPersistence = Runtime.PostManifestPublicationPersistence(
+                load: other.load, compareAndSwap: other.compareAndSwap
+            )
+            try Journal.initializeRecoverySnapshot(binding: binding, persistence: otherPersistence,
+                                                  context: context, requireExisting: false)
+            let otherJournal = try Journal(context: context, persistence: Journal.recoveryPersistence(
+                binding: binding, persistence: otherPersistence
+            ))
+            _ = try otherJournal.prepare(fixture.giftWrap, binding: .init(
+                channelPurpose: .anonymousComponents,
+                recipientEventIdentity: fixture.binding.recipientEventIdentity,
+                expiryUnixSeconds: fixture.binding.expiryUnixSeconds
+            ))
+            divergentBytes = try #require(other.load(binding))
+            _ = try store.compareAndSwap(binding, store.load(binding), try #require(divergentBytes))
+        }
+        let loadsBeforeAttempt = store.recordedLoadCallCount
+        let attempt = {
+            try journal.recordAttempt(eventIdentifier: continuation.publication.eventIdentifier,
+                                      endpoint: try #require(context.endpoints.first))
+        }
+        switch scenario {
+        case .healthy, .failedAfterWrite:
+            try attempt()
+            let current = try journal.currentContinuation(matching: continuation)
+            #expect(current.attemptedEndpoints.count == 1)
+        case .failedBeforeWrite:
+            #expect(throws: Journal.RecordingError.appendFailed) { try attempt() }
+            let current = try journal.currentContinuation(matching: continuation)
+            #expect(current.attemptedEndpoints.isEmpty)
+        case .deleted, .sameCountDivergence:
+            #expect(throws: Journal.RecordingError.staleOrCorruptSnapshot) { try attempt() }
+        }
+        #expect(store.recordedLoadCallCount == loadsBeforeAttempt + (scenario == .healthy ? 0 : 1))
+        if scenario == .sameCountDivergence {
+            #expect(store.load(binding) == divergentBytes)
+        }
+    }
+
     @Test(
         "Mutate the durable publication recovery parser",
         .timeLimit(.minutes(1))

@@ -1,21 +1,24 @@
 // OpalFusion+Mosaic+OpalMainnetAlpha+PrivateDeploymentPolicy.swift
 
 extension OpalFusion.Mosaic.OpalMainnetAlpha {
-    /// Frozen timing and admission-throttle values for the private deployment lane.
+    /// Explicitly versioned timing and admission-throttle values for the private deployment lane.
     ///
     /// The work threshold throttles admission only. It does not establish Sybil resistance.
-    struct PrivateDeploymentPolicy: Sendable, Equatable {
+    enum PrivateDeploymentPolicy: String, Sendable, Equatable {
+        // The frozen selector and encoded pool bytes remain unchanged.
+        case frozen = "nostr-tor/0-opal-mainnet-alpha-private-deployment.1"
+        case bootstrap180Candidate = "nostr-tor/0-opal-mainnet-alpha-private-deployment-bootstrap180.1"
         enum ValidationError: Error, Sendable, Equatable {
             case unalignedEpochStart(UInt64)
             case deadlineOverflow
         }
 
-        static let frozen = Self()
+        var discoveryEpochDurationSeconds: UInt64 { 300 }
+        var minimumLeadingZeroWorkBitCount: UInt16 { 20 }
 
-        let discoveryEpochDurationSeconds: UInt64 = 300
-        let minimumLeadingZeroWorkBitCount: UInt16 = 20
-
-        private init() {}
+        private var additionalBootstrapSeconds: UInt64 {
+            self == .bootstrap180Candidate ? 120 : 0
+        }
 
         func epochStart(containing unixSeconds: UInt64) -> UInt64 {
             unixSeconds - unixSeconds % discoveryEpochDurationSeconds
@@ -45,11 +48,11 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
         func postManifestDeadlines(
             forPhaseStartingAt phaseStart: UInt64
         ) throws(ValidationError) -> DeadlineSchedule {
-            let walletReservation = try adding(60, to: phaseStart)
-            let groupedCommitment = try adding(120, to: phaseStart)
-            let anonymousComponentSubmission = try adding(240, to: phaseStart)
-            let transcriptAgreement = try adding(300, to: phaseStart)
-            let bchSigning = try adding(360, to: phaseStart)
+            let walletReservation = try adding(60 + additionalBootstrapSeconds, to: phaseStart)
+            let groupedCommitment = try adding(120 + additionalBootstrapSeconds, to: phaseStart)
+            let anonymousComponentSubmission = try adding(240 + additionalBootstrapSeconds, to: phaseStart)
+            let transcriptAgreement = try adding(300 + additionalBootstrapSeconds, to: phaseStart)
+            let bchSigning = try adding(360 + additionalBootstrapSeconds, to: phaseStart)
             do {
                 return try .init(
                     phaseStart: phaseStart,
@@ -60,7 +63,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     bchSigning: bchSigning
                 )
             } catch {
-                preconditionFailure("Frozen deadline offsets must remain strictly ordered.")
+                preconditionFailure("Versioned deadline offsets must remain strictly ordered.")
             }
         }
 

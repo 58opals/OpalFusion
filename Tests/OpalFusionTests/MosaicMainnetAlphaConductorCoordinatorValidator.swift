@@ -643,9 +643,10 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
 
     @Test(
         "A bounded-input overflow wins over an in-flight publication",
-        .timeLimit(.minutes(4))
+        .timeLimit(.minutes(4)),
+        arguments: [64, 1_024]
     )
-    func failOnInputBufferOverflow() async throws {
+    func failOnInputBufferOverflow(limit: Int) async throws {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
         let publications = PublicationProbe(
@@ -654,7 +655,7 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
         )
         let harness = try makeAuthorizationHarness(
             publications: publications,
-            maximumPendingInputCount: 64
+            maximumPendingInputCount: limit
         )
         await harness.coordinator.start()
         let manifestSequence = try await driveToAuthorizationResponses(harness)
@@ -676,7 +677,7 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
             sequence: manifestSequence,
             harness: harness.admission
         )
-        for _ in 0 ..< 64 {
+        for _ in 0 ..< limit {
             guard await harness.coordinator.submitControl(
                 responseRun.reservation
             ) else {
@@ -693,6 +694,7 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
             await harness.coordinator.state
                 == .terminal(.failed(.inputBufferOverflow))
         )
+        #expect(await harness.coordinator.diagnosticCounts["failureInputBufferOverflow"] == 1)
         #expect(await publications.count(.authorizationResponseSet) == 1)
         #expect(await publications.count(.commitmentSet) == 0)
     }

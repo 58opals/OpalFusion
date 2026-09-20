@@ -60,6 +60,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
         private let waitOperation: @Sendable () async -> Driver.State?
         private let completionValidationOperation: @Sendable () async
             -> OpalFusion.Mosaic.OpalMainnetAlpha.CompleteTransactionValidation?
+        private let diagnosticCountsOperation: @Sendable () async -> [String: Int]
         private let phaseOperation: @Sendable () async
             -> OpalFusion.Mosaic.Attempt.Phase?
         private let terminalProtocolAbortOperation: @Sendable () async -> (
@@ -87,6 +88,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
             terminalCompletionValidation: @escaping @Sendable () async
                 -> OpalFusion.Mosaic.OpalMainnetAlpha
                     .CompleteTransactionValidation? = { nil },
+            diagnosticCounts: @escaping @Sendable () async -> [String: Int] = { [:] },
             currentPhase: @escaping @Sendable () async
                 -> OpalFusion.Mosaic.Attempt.Phase? = { nil },
             terminalProtocolAbort: @escaping @Sendable () async -> (
@@ -109,6 +111,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
             stopOperation = stop
             waitOperation = waitForTermination
             completionValidationOperation = terminalCompletionValidation
+            diagnosticCountsOperation = diagnosticCounts
             phaseOperation = currentPhase
             terminalProtocolAbortOperation = terminalProtocolAbort
             abortOperation = submitAuthenticatedAbort
@@ -128,6 +131,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
                 terminalCompletionValidation: {
                     await ingress.terminalCompletionValidation()
                 },
+                diagnosticCounts: { await ingress.diagnosticCounts },
                 currentPhase: {
                     await ingress.currentPhase
                 },
@@ -168,6 +172,7 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha.PostManifestRelayFanIn {
                 .CompleteTransactionValidation? {
             await completionValidationOperation()
         }
+        func diagnosticCounts() async -> [String: Int] { await diagnosticCountsOperation() }
         func currentPhase() async -> OpalFusion.Mosaic.Attempt.Phase? {
             await phaseOperation()
         }
