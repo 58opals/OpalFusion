@@ -113,12 +113,14 @@ extension MosaicPrivateAlphaRuntimeSPIValidator {
                     await connection.receive(.text(Data(frame.utf8)))
                 }
             }
-            let limit = ContinuousClock.now.advanced(by: .seconds(2))
+            // Real manifest cryptography must finish before the host can observe a reservation.
+            let limit = ContinuousClock.now.advanced(by: .seconds(30))
             while await rejectingHost.reservationRequests.isEmpty, ContinuousClock.now < limit {
                 try await Task.sleep(for: .milliseconds(10))
             }
             let requests = await rejectingHost.reservationRequests
-            let request = try #require(requests.first)
+            let diagnostics = await execution.diagnosticCounts
+            let request = try #require(requests.first, "Runtime diagnostics: \(diagnostics)")
             #expect(requests.count == 1)
             #expect(expectedExpiration == deadlines.bchSigning)
             #expect(request.expiresAt == Date(timeIntervalSince1970: TimeInterval(expectedExpiration)))
