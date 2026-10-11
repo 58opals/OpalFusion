@@ -4,7 +4,7 @@ Opal Fusion is the collaborative-transaction protocol package for the Opal Bitco
 
 CashFusion is a pilot on `develop`, with `OpalFusion.Client.Session` as its live entry point. Mosaic provides deterministic protocol contracts, authenticated admission and replay, role-specific execution, mailbox bootstrap, and injected transport and recovery seams. Its generic mainnet runtime driver remains disabled, and `OpalFusion.Session` has no public constructor. Package tests do not establish a concrete Tor deployment, application durability, anonymity, or production readiness.
 
-The frozen [mainnet-alpha profile](docs/mosaic-mainnet-alpha-profile.md), [transport bootstrap contract](docs/mosaic-private-alpha-transport-bootstrap.md), and [security model](docs/mosaic-security-model.md) describe Mosaic's capabilities, application obligations, and remaining proof requirements. The [parser evidence](docs/mosaic-g4-parser-mutation-evidence-2026-08-23.md) records bounded deterministic package coverage and its limits. CashFusion's remaining proof requirements are in the [support statement](docs/cashfusion-native-support-statement.md).
+The frozen [mainnet-alpha profile](docs/mosaic-mainnet-alpha-profile.md), [transport bootstrap contract](docs/mosaic-private-alpha-transport-bootstrap.md), and [security model](docs/mosaic-security-model.md) describe Mosaic's capabilities, application obligations, and remaining proof requirements. The [parser evidence](docs/mosaic-g4-parser-mutation-evidence-2026-08-23.md) records bounded deterministic package coverage and its limits. CashFusion's remaining implementation and proof gates are in the [support statement](docs/cashfusion-native-support-statement.md).
 
 ## Source Of Truth
 
@@ -16,7 +16,7 @@ The frozen [mainnet-alpha profile](docs/mosaic-mainnet-alpha-profile.md), [trans
 - [Mosaic Private-Alpha Transport Bootstrap.1](docs/mosaic-private-alpha-transport-bootstrap.md): package-owned authenticated mailbox distribution, wrapper/ACK recovery, replay, and concrete application obligations.
 - [CashFusion Implementation Spec](docs/cashfusion-implementation-spec.md): normative Electron Cash `4.4.3` CashFusion behavior, round lifecycle, timing, and host seams.
 - [CashFusion Official Protocol Matrix](docs/cashfusion-official-protocol-matrix.md): row-level implementation status and test evidence against the pinned Electron Cash baseline.
-- [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md): current public support claim, intentional exclusions, and remaining proof gates.
+- [CashFusion Native Swift Support Statement](docs/cashfusion-native-support-statement.md): current public support claim, intentional exclusions, and remaining implementation and proof gates.
 - [Integration Guide](docs/integration-guide.md): how app and OpalBase layers should wire OpalFusion.
 - [Local Mosaic Integration](docs/mosaic-local-integration.md): one-owner lifecycle, delayed expiry, wallet recovery obligations and public-fixture commands.
 - [Validation Guide](docs/validation.md): fast local loops, focused protocol/runtime filters, live-smoke caveats, and transcript replay direction.
@@ -55,7 +55,7 @@ dependencies: [
 ]
 ```
 
-Do not treat `develop` as a SemVer release. The current pilot is intentionally narrow and remains blocked on repeated coordinator-backed confidence plus reviewed pinned transcript replay before a complete support claim.
+Do not treat `develop` as a SemVer release. The current pilot is intentionally narrow; the [support statement](docs/cashfusion-native-support-statement.md) owns the remaining implementation and proof gates that must close before a complete support claim.
 
 ## 5-Minute CashFusion Pilot Integration
 
