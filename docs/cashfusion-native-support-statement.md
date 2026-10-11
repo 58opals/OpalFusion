@@ -6,7 +6,7 @@ This statement defines only the current OpalFusion CashFusion-engine support cla
 
 The OpalFusion CashFusion engine currently provides a native Swift client implementation for the Electron Cash `4.4.3` CashFusion `alpha13` protocol baseline. The supported scope is the client-side package surface: native protobuf wire handling, primary/covert protocol envelopes, client runtime lifecycle, production workflow materialization, blame/restart handling, and the live transport profile documented in the implementation spec.
 
-This is not yet a final 100% official CashFusion support claim. That final claim remains blocked until reviewed pinned Electron Cash transcript replay is committed and repeated env-gated live coordinator smoke passes on the supported pilot profile.
+This is not yet a final 100% official CashFusion support claim. That final claim remains blocked by the implementation gaps and proof gates below, including randomized covert scheduling, spare preconnection, reviewed pinned Electron Cash transcript replay, and repeated env-gated live coordinator smoke on the supported pilot profile. Passing evidence gates alone does not close missing implementation.
 
 ## Dependency Contract
 
@@ -26,7 +26,14 @@ Current protobuf support is implemented through native Swift reader/writer primi
 
 The deterministic local suite is not a complete support proof. It provides fast package-level confidence for codecs, round-state behavior, runtime semantics, production workflow materialization, host boundaries, and diagnostics, but it does not by itself prove successful Electron Cash coordinator participation or downstream wallet/app behavior.
 
-Complete support remains dependent on the proof gates below plus downstream validation of host-owned responsibilities such as coin selection, funding, signing authority, persistence, broadcast, retry behavior, and user-facing fusion policy.
+Complete support remains dependent on the implementation and proof gates below plus downstream validation of host-owned responsibilities such as coin selection, funding, signing authority, persistence, broadcast, retry behavior, and user-facing fusion policy. The [row-level conformance matrix](cashfusion-official-protocol-matrix.md) owns detailed status; every `Partial` or gap row must be resolved before claiming complete support.
+
+## Remaining Implementation Gates
+
+- Randomized live covert connection scheduling across `COVERT_CONNECT_WINDOW`: the window is configured, but live connections are not yet spread randomly across it.
+- Randomized live socket submissions across `COVERT_SUBMIT_WINDOW`: the runtime enforces a deadline, but does not yet randomize submissions within the window.
+- Spare covert preconnection for `COVERT_CONNECT_SPARES`: the spare count is configured, but the live transport does not yet preconnect spare slots.
+- Restart continuation and skip-signature blame transitions: the runtime still expects another `FusionBegin` after `RestartRound` and waits for `FusionResult` when signatures are skipped. Correct sequencing and cumulative session-hash preservation remain deferred implementation work, as recorded in the matrix.
 
 ## Remaining Proof Gates
 
