@@ -1,9 +1,9 @@
 // OpalFusion+Transport+FrameConfiguration.swift
 
 public extension OpalFusion.Transport {
-    /// Framing values for the primary CashFusion message channel.
+    /// Framing values shared by the primary and covert CashFusion message channels.
     struct FrameConfiguration: Sendable, Equatable {
-        /// Electron Cash primary-channel frame magic from `connection.py`.
+        /// Electron Cash frame magic from `connection.py`.
         public let magicBytes: [UInt8]
         /// Electron Cash maximum framed message length from `connection.py`.
         public let maximumMessageLengthBytes: Int

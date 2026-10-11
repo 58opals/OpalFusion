@@ -40,7 +40,7 @@ let joinPools = OpalFusion.ProtocolModel.JoinPools(
 )
 ```
 
-Primary TLS follows `coordinatorRequiresTLS`. Covert HTTP(S) follows the coordinator's `FusionBegin.covert_ssl`. Tor SOCKS5, when configured, applies to the covert HTTP(S) path only.
+Primary TLS follows `coordinatorRequiresTLS`. Covert framed TCP/TLS follows the coordinator's `FusionBegin.covert_ssl`. Tor SOCKS5, when configured, applies only to covert sockets, uses remote hostname resolution and per-socket isolation credentials, and forbids direct fallback. SOCKS mode opens TCP only to the configured proxy and negotiates the target explicitly before starting system TLS, so automatic proxy exemptions cannot create a direct coordinator connection. The retained `covertChannel.entryPath` property is legacy configuration compatibility and is ignored by the socket transport; no HTTP path is sent.
 
 `OpalFusion.CashFusion.Configuration` can aggregate these coordinator, genesis-hash, join-pool, and reconnect values for the future facade. The runnable pilot continues to pass them directly to `OpalFusion.Client.Session`.
 

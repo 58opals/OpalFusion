@@ -2,6 +2,7 @@
 
 public extension OpalFusion.Transport {
     struct CovertChannelConfiguration: Sendable, Equatable {
+        /// Retained for configuration compatibility; framed covert sockets do not use a URL path.
         public let entryPath: String
         public let maxPayloadBytes: Int
         public let requestTimeoutMilliseconds: UInt64

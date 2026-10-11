@@ -1,161 +1,150 @@
 // OpalFusion+Runtime+LiveCovertTransport.swift
 
-import CFNetwork
 import Foundation
 import Network
 import Security
 
 extension OpalFusion.Runtime {
-    actor LiveCovertTransport: OpalFusion.Runtime.CovertTransporting {
+    actor LiveCovertTransport: CovertTransporting {
         private let torSocks5: OpalFusion.Transport.TorSocks5Configuration?
-        private let sessionFactory: @Sendable (URLSessionConfiguration) -> URLSession
-        private let requestExecutor: @Sendable (URLSession, URLRequest) async throws -> (Data, URLResponse)
-        private(set) var currentEndpoint: OpalFusion.Runtime.CovertEndpointContext?
-        private(set) var proxyConfiguration: [AnyHashable: Any]?
-        private var session: URLSession?
+        private let tlsTrustAnchorCertificateDERs: [Data]
+        private let tlsVerificationQueue = DispatchQueue(label: "OpalFusion.Covert.TLSVerify")
+        private var generation = UUID()
+        private var connections: [UUID: CovertSocketConnection] = [:]
+        private(set) var currentEndpoint: CovertEndpointContext?
 
         init(
             torSocks5: OpalFusion.Transport.TorSocks5Configuration?,
-            sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> URLSession = {
-                URLSession(configuration: $0)
-            },
-            requestExecutor: @escaping @Sendable (URLSession, URLRequest) async throws -> (Data, URLResponse) = {
-                session, request in
-                try await session.data(for: request)
-            }
+            tlsTrustAnchorCertificateDERs: [Data] = []
         ) {
             self.torSocks5 = torSocks5
-            self.sessionFactory = sessionFactory
-            self.requestExecutor = requestExecutor
-            self.currentEndpoint = nil
-            self.proxyConfiguration = nil
-            self.session = nil
+            self.tlsTrustAnchorCertificateDERs = tlsTrustAnchorCertificateDERs
         }
 
-        func prepare(_ plan: OpalFusion.Runtime.CovertPreparationPlan) async throws {
-            let timeoutSeconds = Self.timeInterval(
-                from: plan.startedAt.distance(to: plan.deadline),
-                minimumMilliseconds: 1
-            )
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = timeoutSeconds
-            configuration.timeoutIntervalForResource = timeoutSeconds
-            configuration.waitsForConnectivity = false
+        func prepare(_ plan: CovertPreparationPlan) async throws {
+            guard OpalFusion.Runtime.isValidHostName(plan.endpoint.host),
+                  (1...UInt32(UInt16.max)).contains(plan.endpoint.port),
+                  plan.endpoint.maxPayloadBytes > 0 else {
+                throw LiveTransportError.malformedCovertEndpoint
+            }
+            if let torSocks5 {
+                guard OpalFusion.Runtime.isValidHostName(torSocks5.host),
+                      torSocks5.port > 0,
+                      torSocks5.resolvesCoordinatorHostNameRemotely else {
+                    throw LiveTransportError.invalidConfiguration("Invalid Tor SOCKS5 configuration")
+                }
+            }
 
-            let proxyConfiguration = makeProxyConfiguration()
-            configuration.connectionProxyDictionary = proxyConfiguration
-            self.proxyConfiguration = proxyConfiguration
-
-            session?.invalidateAndCancel()
-            session = sessionFactory(configuration)
+            // Detach the old generation before suspension. Its completions and
+            // cancellation handlers can only close the sockets they own.
+            let previousConnections = Array(connections.values)
+            connections.removeAll()
+            generation = UUID()
             currentEndpoint = plan.endpoint
+            for connection in previousConnections { await connection.cancel() }
         }
 
-        func perform(_ request: OpalFusion.Runtime.CovertRequest) async throws -> [UInt8] {
+        func perform(_ request: CovertRequest) async throws -> [UInt8] {
+            try Task.checkCancellation()
             guard currentEndpoint == request.endpoint else {
-                throw OpalFusion.Runtime.LiveTransportError.covertEndpointNotPrepared
+                throw LiveTransportError.covertEndpointNotPrepared
             }
-
-            guard let session else {
-                throw OpalFusion.Runtime.LiveTransportError.covertEndpointNotPrepared
-            }
-
-            guard request.payload.count <= request.endpoint.maxPayloadBytes else {
-                throw OpalFusion.Runtime.LiveTransportError.covertPayloadTooLarge
-            }
-
-            let timeoutSeconds = Self.timeInterval(
-                from: request.startedAt.distance(to: request.deadline),
-                minimumMilliseconds: 1
+            let baselineFrame = OpalFusion.Transport.BaselineConfiguration.electronCash443.framing
+            let framing = OpalFusion.Transport.FrameConfiguration(
+                magicBytes: baselineFrame.magicBytes,
+                maximumMessageLengthBytes: min(request.endpoint.maxPayloadBytes, baselineFrame.maximumMessageLengthBytes)
             )
-            let url = try makeURL(for: request.endpoint)
-            var urlRequest = URLRequest(url: url, timeoutInterval: timeoutSeconds)
-            urlRequest.httpMethod = "POST"
-            urlRequest.httpBody = Data(request.payload)
-            urlRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-
-            let (data, response) = try await requestExecutor(session, urlRequest)
-
-            guard let response = response as? HTTPURLResponse else {
-                throw OpalFusion.Runtime.LiveTransportError.invalidHTTPResponse
+            guard request.payload.count <= framing.maximumMessageLengthBytes else {
+                throw LiveTransportError.covertPayloadTooLarge
             }
+            let frame = try OpalFusion.Wire.PrimaryFrameEncoder(configuration: framing).encode(payload: request.payload)
+            let timeout = request.startedAt.distance(to: request.deadline)
+            guard timeout > .zero else { throw LiveTransportError.covertRequestTimedOut }
 
-            if (200 ..< 300).contains(response.statusCode) == false {
-                throw OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(response.statusCode)
+            // EC permits only one submission per connection per phase. Never
+            // reuse a socket for another component or signature.
+            let connectionID = UUID()
+            let requestGeneration = generation
+            let connection = CovertSocketConnection(
+                host: torSocks5?.host ?? request.endpoint.host,
+                port: torSocks5?.port ?? UInt16(request.endpoint.port),
+                parameters: makeParameters(for: request.endpoint, isolationID: connectionID)
+            )
+            connections[connectionID] = connection
+            do {
+                let response = try await withTaskCancellationHandler {
+                    try await withThrowingTaskGroup(of: [UInt8].self) { group in
+                        group.addTask { try await connection.exchange(frame, framing: framing) }
+                        group.addTask {
+                            try await Task.sleep(for: timeout)
+                            throw LiveTransportError.covertRequestTimedOut
+                        }
+                        defer { group.cancelAll() }
+                        return try await group.next()!
+                    }
+                } onCancel: {
+                    Task { await connection.cancel() }
+                }
+                try Task.checkCancellation()
+                guard generation == requestGeneration else { throw CancellationError() }
+                // Retain successful sockets until the round's reset/close effect,
+                // rather than signal individual submission completion by closing.
+                return response
+            } catch {
+                connections.removeValue(forKey: connectionID)
+                await connection.cancel()
+                if case OpalFusion.Wire.PrimaryFrameError.payloadTooLarge = error {
+                    throw LiveTransportError.covertResponsePayloadTooLarge
+                }
+                throw error
             }
-
-            guard data.count <= request.endpoint.maxPayloadBytes else {
-                throw OpalFusion.Runtime.LiveTransportError.covertResponsePayloadTooLarge
-            }
-
-            return [UInt8](data)
         }
 
         func reset() async {
-            session?.invalidateAndCancel()
-            session = nil
+            let previousConnections = Array(connections.values)
+            connections.removeAll()
+            generation = UUID()
             currentEndpoint = nil
-            proxyConfiguration = nil
+            for connection in previousConnections { await connection.cancel() }
         }
 
-        var proxyConfigurationSnapshot: OpalFusion.Runtime.CovertProxyConfigurationSnapshot {
-            .init(
-                socksEnabled: (proxyConfiguration?[kCFNetworkProxiesSOCKSEnable as String] as? Int) == 1,
-                proxyHost: proxyConfiguration?[kCFNetworkProxiesSOCKSProxy as String] as? String,
-                proxyPort: proxyConfiguration?[kCFNetworkProxiesSOCKSPort as String] as? Int
-            )
-        }
-
-        private func makeURL(
-            for endpoint: OpalFusion.Runtime.CovertEndpointContext
-        ) throws -> URL {
-            guard OpalFusion.Runtime.isValidHostName(endpoint.host) else {
-                throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
+        private func makeParameters(for endpoint: CovertEndpointContext, isolationID: UUID) -> NWParameters {
+            let tlsOptions: NWProtocolTLS.Options?
+            if endpoint.requiresTLS == true {
+                let options = NWProtocolTLS.Options()
+                endpoint.host.withCString {
+                    sec_protocol_options_set_tls_server_name(options.securityProtocolOptions, $0)
+                }
+                if !tlsTrustAnchorCertificateDERs.isEmpty {
+                    let anchors = tlsTrustAnchorCertificateDERs
+                    let host = endpoint.host
+                    sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, trustReference, complete in
+                        let trust = sec_trust_copy_ref(trustReference).takeRetainedValue()
+                        let certificates = anchors.compactMap { SecCertificateCreateWithData(nil, $0 as CFData) }
+                        guard certificates.count == anchors.count,
+                              SecTrustSetAnchorCertificates(trust, certificates as CFArray) == errSecSuccess,
+                              SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess,
+                              SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, host as CFString)) == errSecSuccess else {
+                            complete(false)
+                            return
+                        }
+                        complete(SecTrustEvaluateWithError(trust, nil))
+                    }, tlsVerificationQueue)
+                }
+                tlsOptions = options
+            } else {
+                tlsOptions = nil
             }
 
-            guard (1 ... UInt32(UInt16.max)).contains(endpoint.port) else {
-                throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
+            if torSocks5 != nil {
+                let parameters = NWParameters.tcp
+                parameters.preferNoProxies = true
+                parameters.defaultProtocolStack.applicationProtocols = [SOCKS5Framer.options(
+                    host: endpoint.host, port: UInt16(endpoint.port), isolationID: isolationID, tls: tlsOptions
+                )]
+                return parameters
             }
-
-            guard OpalFusion.Runtime.validateCovertEntryPath(endpoint.entryPath) == nil else {
-                throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
-            }
-
-            var components = URLComponents()
-            components.scheme = endpoint.requiresTLS == true ? "https" : "http"
-            components.host = Self.makeURLComponentsHost(from: endpoint.host)
-            components.port = Int(endpoint.port)
-            components.path = endpoint.entryPath
-
-            guard let url = components.url else {
-                throw OpalFusion.Runtime.LiveTransportError.malformedCovertURL
-            }
-
-            return url
-        }
-
-        private static func makeURLComponentsHost(from host: String) -> String {
-            host.contains(":") ? "[\(host)]" : host
-        }
-
-        private func makeProxyConfiguration() -> [AnyHashable: Any]? {
-            guard let torSocks5 else {
-                return nil
-            }
-
-            return [
-                kCFNetworkProxiesSOCKSEnable as String: 1,
-                kCFNetworkProxiesSOCKSProxy as String: torSocks5.host,
-                kCFNetworkProxiesSOCKSPort as String: Int(torSocks5.port)
-            ]
-        }
-
-        private static func timeInterval(
-            from duration: Duration,
-            minimumMilliseconds: Int64
-        ) -> TimeInterval {
-            let milliseconds = max(duration.wholeMilliseconds, minimumMilliseconds)
-            return TimeInterval(milliseconds) / 1_000
+            return NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
         }
     }
 }

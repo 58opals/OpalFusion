@@ -43,14 +43,14 @@ extension OpalDiagnosticsFusionValidator {
             var session = makeDispatchedCovertSession()
 
             OpalDiagnostics.clearRecentRecords()
-            let error = OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus(503)
+            let error = OpalFusion.Runtime.LiveTransportError.covertRequestTimedOut
             OpalDiagnostics.logger(category: .fusionCovert).record(
                 event: .covertRequestFailed,
                 level: .opalFusionDefault(for: .covertRequestFailed),
                 traceID: .opalFusionRound(PrimaryRuntimeTestFixtures.covertEndpointContext.roundIdentifier),
                 fields: [
                     .operation("covert_request"),
-                    .errorCode(OpalDiagnostics.ErrorCode.unexpectedHTTPStatus),
+                    .errorCode(OpalDiagnostics.ErrorCode.covertRequestTimedOut),
                     .errorType(error),
                     .errorMessage(String(describing: error))
                 ]
@@ -66,7 +66,7 @@ extension OpalDiagnosticsFusionValidator {
             #expect(records.count == 1)
             let record = try #require(records.first)
             #expect(findField("operation", in: record)?.value == "covert_request")
-            #expect(findField("error_code", in: record)?.value == "unexpected_http_status")
+            #expect(findField("error_code", in: record)?.value == "covert_request_timed_out")
         }
     }
 }

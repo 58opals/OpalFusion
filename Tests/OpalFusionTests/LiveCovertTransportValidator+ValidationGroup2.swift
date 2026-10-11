@@ -1,192 +1,93 @@
-// LiveCovertTransportValidator+ValidationGroup2.swift
-
 @testable import OpalFusion
 import Foundation
 import Testing
 
 extension LiveCovertTransportValidator {
-    @Test("macOS live covert transport rejects out-of-range endpoint ports before request execution")
-    func validateOutOfRangeEndpointPortRejection() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
-            }
-        )
-        let invalidEndpoint = Self.makeCovertEndpoint(port: UInt32(UInt16.max) + 1)
-        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
-        let request = try Self.makeRequest(endpoint: invalidEndpoint)
-
-        try await transport.prepare(plan)
-
-        await Self.expectLiveTransportError(.malformedCovertURL) {
-            try await transport.perform(request)
+    @Test("Covert preparation rejects invalid endpoints before opening sockets", arguments: ["", "-covert.example.org"])
+    func invalidHost(_ host: String) async throws {
+        let transport = OpalFusion.Runtime.LiveCovertTransport(torSocks5: nil)
+        await #expect(throws: OpalFusion.Runtime.LiveTransportError.malformedCovertEndpoint) {
+            try await transport.prepare(Self.makePreparationPlan(endpoint: Self.makeCovertEndpoint(host: host)))
         }
-        #expect((await executor.recordedRequests).isEmpty)
     }
 
-    @Test("macOS live covert transport rejects empty endpoint hosts before request execution")
-    func validateEmptyEndpointHostRejection() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
-            }
-        )
-        let invalidEndpoint = Self.makeCovertEndpoint(host: "")
-        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
-        let request = try Self.makeRequest(endpoint: invalidEndpoint)
-
-        try await transport.prepare(plan)
-
-        await Self.expectLiveTransportError(.malformedCovertURL) {
-            try await transport.perform(request)
+    @Test("Covert preparation rejects invalid ports", arguments: [UInt32(0), UInt32(UInt16.max) + 1])
+    func invalidPort(_ port: UInt32) async throws {
+        let transport = OpalFusion.Runtime.LiveCovertTransport(torSocks5: nil)
+        await #expect(throws: OpalFusion.Runtime.LiveTransportError.malformedCovertEndpoint) {
+            try await transport.prepare(Self.makePreparationPlan(endpoint: Self.makeCovertEndpoint(port: port)))
         }
-        #expect((await executor.recordedRequests).isEmpty)
     }
 
-    @Test("macOS live covert transport rejects malformed endpoint hosts before request execution")
-    func validateMalformedEndpointHostRejection() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
-            }
-        )
-        let invalidEndpoint = Self.makeCovertEndpoint(host: "-covert.example.org")
-        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
-        let request = try Self.makeRequest(endpoint: invalidEndpoint)
-
-        try await transport.prepare(plan)
-
-        await Self.expectLiveTransportError(.malformedCovertURL) {
-            try await transport.perform(request)
+    @Test("Oversized covert payloads are rejected before opening a socket")
+    func oversizedRequest() async throws {
+        try await Self.withPeer { transport, peer, endpoint in
+            let request = Self.request(endpoint: endpoint, payload: [UInt8](repeating: 0, count: endpoint.maxPayloadBytes + 1))
+            await #expect(throws: OpalFusion.Runtime.LiveTransportError.covertPayloadTooLarge) { try await transport.perform(request) }
+            #expect(await peer.connectionCount == 0)
         }
-        #expect((await executor.recordedRequests).isEmpty)
     }
 
-    @Test("macOS live covert transport rejects malformed endpoint paths before request execution")
-    func validateMalformedEndpointPathRejection() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
-            }
-        )
-        let invalidEndpoint = Self.makeCovertEndpoint(
-            entryPath: "\(PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath) "
-        )
-        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
-        let request = try Self.makeRequest(endpoint: invalidEndpoint)
-
-        try await transport.prepare(plan)
-
-        await Self.expectLiveTransportError(.malformedCovertURL) {
-            try await transport.perform(request)
+    @Test("Malformed and truncated covert frames fail without accepting a response", arguments: [CovertSocketTestServer.Reply.badMagic, .truncated])
+    func invalidResponse(_ reply: CovertSocketTestServer.Reply) async throws {
+        try await Self.withPeer(reply: reply) { transport, peer, endpoint in
+            await #expect(throws: (any Error).self) { try await transport.perform(Self.componentRequest(endpoint: endpoint)) }
+            try await peer.waitFor(closedCount: 1)
         }
-        #expect((await executor.recordedRequests).isEmpty)
     }
 
-    @Test("macOS live covert transport rejects endpoint paths with query delimiters before request execution")
-    func validateEndpointPathQueryDelimiterRejection() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
+    @Test("Oversized covert response headers are rejected before their bodies arrive")
+    func oversizedResponse() async throws {
+        try await Self.withPeer(reply: .oversized(PrimaryRuntimeTestFixtures.covertEndpointContext.maxPayloadBytes + 1)) { transport, peer, endpoint in
+            await #expect(throws: OpalFusion.Runtime.LiveTransportError.covertResponsePayloadTooLarge) {
+                try await transport.perform(Self.componentRequest(endpoint: endpoint))
             }
-        )
-        let invalidEndpoint = Self.makeCovertEndpoint(
-            entryPath: "\(PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath)?round=1"
-        )
-        let plan = Self.makePreparationPlan(endpoint: invalidEndpoint)
-        let request = try Self.makeRequest(endpoint: invalidEndpoint)
-
-        try await transport.prepare(plan)
-
-        await Self.expectLiveTransportError(.malformedCovertURL) {
-            try await transport.perform(request)
+            try await peer.waitFor(closedCount: 1)
         }
-        #expect((await executor.recordedRequests).isEmpty)
     }
 
-    @Test("macOS live covert transport rejects oversized payloads before request execution")
-    func validateOversizedPayloadRejection() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
+    @Test("Covert request deadline closes a silent peer connection")
+    func requestDeadline() async throws {
+        try await Self.withPeer(reply: .silence) { transport, peer, endpoint in
+            await #expect(throws: OpalFusion.Runtime.LiveTransportError.covertRequestTimedOut) {
+                try await transport.perform(Self.componentRequest(endpoint: endpoint, timeout: .milliseconds(100)))
             }
-        )
-        let endpoint = PrimaryRuntimeTestFixtures.covertEndpointContext
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: endpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: endpoint,
-            payload: [UInt8](repeating: 0xA0, count: endpoint.maxPayloadBytes + 1),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
-
-        try await transport.prepare(plan)
-
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected oversized covert payload to fail")
-        } catch {
-            #expect(
-                error.localizedDescription ==
-                    "Covert request payload exceeded the configured size limit"
-            )
+            try await peer.waitFor(closedCount: 1)
         }
-        #expect((await executor.recordedRequests).isEmpty)
     }
 
-    @Test("macOS live covert transport rejects oversized response payloads")
-    func validateOversizedResponsePayloadRejection() async throws {
-        let endpoint = PrimaryRuntimeTestFixtures.covertEndpointContext
-        let executor = RecordedCovertRequestExecutor(
-            responseData: Data(repeating: 0xA0, count: endpoint.maxPayloadBytes + 1)
-        )
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
+    @Test("Cancelling a pending SOCKS handshake closes its socket")
+    func cancelDuringConnect() async throws {
+        try await Self.withPeer(proxyMode: .stall, host: "covert-protocol-test.invalid") { transport, peer, endpoint in
+            let task = Task { try await transport.perform(Self.componentRequest(endpoint: endpoint)) }
+            try await peer.waitFor(connectionCount: 1)
+            task.cancel()
+            let result = await task.result
+            if case .success = result { Issue.record("Cancelled connection succeeded") }
+            try await peer.waitFor(closedCount: 1)
+        }
+    }
+
+    @Test("Reset cancels an old response without closing a newly prepared generation")
+    func resetDuringResponse() async throws {
+        try await Self.withPeer(reply: .silence) { transport, peer, endpoint in
+            let task = Task { try await transport.perform(Self.componentRequest(endpoint: endpoint)) }
+            try await peer.waitFor(payloadCount: 1)
+            await transport.reset()
+            let nextPeer = try await CovertSocketTestServer.start()
+            let nextEndpoint = Self.makeCovertEndpoint(host: "127.0.0.1", port: UInt32(await nextPeer.port), requiresTLS: false)
+            do {
+                try await transport.prepare(Self.makePreparationPlan(endpoint: nextEndpoint))
+                let result = await task.result
+                if case .success = result { Issue.record("Reset request succeeded") }
+                #expect(try await transport.perform(Self.componentRequest(endpoint: nextEndpoint)) == [0x0a, 0])
+                #expect(await transport.currentEndpoint == nextEndpoint)
+                try await peer.waitFor(closedCount: 1)
+            } catch {
+                await nextPeer.stop()
+                throw error
             }
-        )
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: endpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: endpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
-
-        try await transport.prepare(plan)
-
-        do {
-            _ = try await transport.perform(request)
-            Issue.record("Expected oversized covert response payload to fail")
-        } catch let error as OpalFusion.Runtime.LiveTransportError {
-            #expect(error == .covertResponsePayloadTooLarge)
-            #expect(
-                error.localizedDescription ==
-                    "Covert response payload exceeded the configured size limit"
-            )
+            await nextPeer.stop()
         }
     }
 }

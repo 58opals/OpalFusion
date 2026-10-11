@@ -12,11 +12,11 @@ extension OpalFusion.Runtime {
         case primaryConnectionNotReady
         case primaryConnectionCancelled
         case covertEndpointNotPrepared
-        case malformedCovertURL
+        case malformedCovertEndpoint
         case covertPayloadTooLarge
         case covertResponsePayloadTooLarge
-        case invalidHTTPResponse
-        case unexpectedHTTPStatus(Int)
+        case covertConnectionClosed
+        case covertRequestTimedOut
 
         var errorDescription: String? {
             switch self {
@@ -30,16 +30,16 @@ extension OpalFusion.Runtime {
                 "Primary connection was cancelled"
             case .covertEndpointNotPrepared:
                 "Covert endpoint was not prepared"
-            case .malformedCovertURL:
-                "Covert request URL could not be constructed"
+            case .malformedCovertEndpoint:
+                "Covert endpoint is invalid"
             case .covertPayloadTooLarge:
                 "Covert request payload exceeded the configured size limit"
             case .covertResponsePayloadTooLarge:
                 "Covert response payload exceeded the configured size limit"
-            case .invalidHTTPResponse:
-                "Covert request did not receive an HTTP response"
-            case let .unexpectedHTTPStatus(statusCode):
-                "Covert request failed with HTTP status \(statusCode)"
+            case .covertConnectionClosed:
+                "Covert connection closed before a complete response"
+            case .covertRequestTimedOut:
+                "Covert request timed out"
             }
         }
     }

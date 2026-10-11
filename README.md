@@ -65,7 +65,7 @@ OpalFusion exposes a conservative public `OpalFusion.Client.Session` wrapper ove
 import OpalFusion
 
 let covertChannel = OpalFusion.Transport.CovertChannelConfiguration(
-    entryPath: "/fusion",
+    entryPath: "/fusion", // Legacy compatibility; ignored by framed covert sockets.
     maxPayloadBytes: 32_768,
     requestTimeoutMilliseconds: 15_000
 )

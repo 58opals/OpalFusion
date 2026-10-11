@@ -251,7 +251,7 @@ Current implementation alignment:
 
 - `CovertChannelConfiguration` models entry path, payload sizing, and request timeout.
 - `TorSocks5Configuration` models proxy host, port, and remote hostname resolution behavior.
-- Tor SOCKS5 applies to the covert HTTP(S) transport path only. The primary coordinator connection stays direct unless a future product requirement explicitly asks for coordinator-over-Tor.
+- Tor SOCKS5 applies to the covert framed TCP/TLS transport path only. The primary coordinator connection stays direct unless a future product requirement explicitly asks for coordinator-over-Tor.
 
 ### `OpalFusion.Host`
 
@@ -349,7 +349,7 @@ Wallet and OpalBase should consume OpalFusion through `OpalFusion.Client.Session
 - Supported platform: macOS 27 for the live runtime in this first slice.
 - Required configuration: non-empty coordinator host, nonzero coordinator port, explicit primary TLS flag, valid covert entry path, positive covert payload and timeout settings, optional valid Tor SOCKS5 host/port, optional 32-byte BCH genesis hash, and non-empty positive unique join-pool tiers.
 - Optional pool tags must have a non-empty identifier and positive limit.
-- Primary TLS follows `coordinatorRequiresTLS`; covert HTTP(S) follows `FusionBegin.covert_ssl`; Tor SOCKS5 is used only by covert HTTP(S) requests.
+- Primary TLS follows `coordinatorRequiresTLS`; covert TLS follows `FusionBegin.covert_ssl`; Tor SOCKS5 is used only by covert sockets. Covert messages and responses use the same eight-byte magic and big-endian length framing as `connection.py`, with the upstream 200 KiB payload ceiling. Each submission opens a distinct socket with a unique SOCKS isolation credential, and successful sockets remain owned until the existing round close/reset effect. TLS validates the peer certificate and hostname; SOCKS resolves the destination remotely and cannot fall back directly. SOCKS mode connects TCP only to the configured proxy, requires per-connection username/password authentication, sends domain destinations for remote resolution, and consumes the complete CONNECT reply before enabling the data stream. When TLS is required, the SOCKS framer inserts system TLS above the tunnel with the target server name; certificate verification remains enabled. This explicit connection avoids Network.framework automatic proxy exemptions. The public `entryPath` setting is retained for configuration compatibility and is ignored by this transport. This bounded transport implementation does not implement the upstream randomized warm connection pool or spare-slot scheduling; those timing and anonymity properties are not established by loopback framing tests.
 - Primary transport may retry transient Network.framework waiting states before startup failure, but TLS failures are terminal. Product-level coordinator retry cadence remains app-owned.
 - Terminal round statuses are `success`, `coordinatorRejected`, `hostRejected`, `protocolIncompatible`, `transportFailed`, and `blameRequired`.
 - Public user-safe error categories are `invalidConfiguration`, `transportUnavailable`, `coordinatorRejected`, `hostRejected`, `protocolIncompatible`, `blameRequired`, and `notImplemented`.

@@ -56,7 +56,7 @@ The anonymous-batch publisher applies the same route-preflight, sibling-cancella
 - Public facade: `OpalFusion.Client`, `Round`, `Transport`, `Host`, `Commitment`, `BlindSignature`, and `Blame` expose the pilot integration surface.
 - Client session: `OpalFusion.Client.Session` owns lifecycle, reconnect policy, snapshot delivery, and the bridge from host callbacks into the runtime.
 - Runtime: primary and covert runtime sessions coordinate live transport, clock ticks, host operations, stale-result suppression, and snapshot projection.
-- Transport: live primary transport owns framed coordinator TCP/TLS I/O; live covert transport owns HTTP(S) requests and optional Tor SOCKS5 usage for the covert path.
+- Transport: live primary transport owns framed coordinator TCP/TLS I/O; live covert transport owns framed TCP/TLS exchanges and optional Tor SOCKS5 usage for the covert path. Each submission uses a separate socket retained until the round resets the transport. In SOCKS mode, TCP connects only to the proxy; a bounded SOCKS handshake completes before a Network framer enables the byte stream or system TLS with the target hostname.
 - Wire: native CashFusion protobuf reader/writer and message codecs implement the pinned schema without generated protobuf code in the production target.
 - Round engine: a deterministic state machine validates primary/covert ordering, timing windows, deadlines, restart/blame flow, and terminal outcomes.
 - Production workflow: OpalCrypto-backed code materializes commitments, blind requests, covert components, transaction proposals, local signature extraction, proof material, and blame.

@@ -4,29 +4,10 @@
 import Foundation
 import Testing
 
-struct LiveCovertTransportValidator {
-
-
-
-
-
-
-
-
-
-
-}
+@Suite(.timeLimit(.minutes(1)))
+struct LiveCovertTransportValidator { }
 
 extension LiveCovertTransportValidator {
-    static func expectLiveTransportError(
-        _ expectedError: OpalFusion.Runtime.LiveTransportError,
-        from operation: () async throws -> [UInt8]
-    ) async {
-        await #expect(throws: expectedError) {
-            try await operation()
-        }
-    }
-
     static func makeCovertEndpoint(
         host: String = PrimaryRuntimeTestFixtures.covertEndpointContext.host,
         port: UInt32 = PrimaryRuntimeTestFixtures.covertEndpointContext.port,
@@ -60,16 +41,44 @@ extension LiveCovertTransportValidator {
         )
     }
 
-    static func makeRequest(
-        endpoint: OpalFusion.Runtime.CovertEndpointContext
-    ) throws -> OpalFusion.Runtime.CovertRequest {
-        .init(
-            endpoint: endpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
+
+}
+
+extension LiveCovertTransportValidator {
+    static func componentRequest(endpoint: OpalFusion.Runtime.CovertEndpointContext, timeout: Duration = .seconds(2)) throws -> OpalFusion.Runtime.CovertRequest {
+        request(endpoint: endpoint, payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(PrimaryRuntimeTestFixtures.covertComponentMessage), timeout: timeout)
+    }
+
+    static func request(endpoint: OpalFusion.Runtime.CovertEndpointContext, payload: [UInt8], timeout: Duration = .seconds(2)) -> OpalFusion.Runtime.CovertRequest {
+        let start = PrimaryRuntimeTestFixtures.instant(1_000)
+        return .init(endpoint: endpoint, payload: payload, startedAt: start, deadline: start.advanced(by: timeout))
+    }
+
+    static func withPeer(
+        reply: CovertSocketTestServer.Reply = .acknowledgement,
+        requiresTLS: Bool = false,
+        trustCertificate: Bool = false,
+        proxyMode: CovertSocketTestServer.ProxyMode = .disabled,
+        host: String = "127.0.0.1",
+        destinationPort: UInt32? = nil,
+        proxyReply: [UInt8]? = nil,
+        operation: @Sendable (OpalFusion.Runtime.LiveCovertTransport, CovertSocketTestServer, OpalFusion.Runtime.CovertEndpointContext) async throws -> Void
+    ) async throws {
+        let server = try await CovertSocketTestServer.start(reply: reply, requiresTLS: requiresTLS, proxyMode: proxyMode, proxyReply: proxyReply)
+        let proxy: OpalFusion.Transport.TorSocks5Configuration? = proxyMode == .disabled ? nil : .init(host: "127.0.0.1", port: await server.port)
+        let anchors = trustCertificate ? try await LoopbackPrimaryTLSTestFixture.loadTrustAnchorCertificateDERs() : []
+        let transport = OpalFusion.Runtime.LiveCovertTransport(torSocks5: proxy, tlsTrustAnchorCertificateDERs: anchors)
+        let serverPort = await server.port
+        let endpoint = makeCovertEndpoint(host: host, port: destinationPort ?? UInt32(serverPort), requiresTLS: requiresTLS)
+        do {
+            try await transport.prepare(makePreparationPlan(endpoint: endpoint))
+            try await operation(transport, server, endpoint)
+        } catch {
+            await transport.reset()
+            await server.stop()
+            throw error
+        }
+        await transport.reset()
+        await server.stop()
     }
 }

@@ -15,11 +15,11 @@ extension OpalDiagnostics.ErrorCode {
     static let primaryConnectionNotReady = Self(rawValue: "primary_connection_not_ready")
     static let primaryConnectionCancelled = Self(rawValue: "primary_connection_cancelled")
     static let covertEndpointNotPrepared = Self(rawValue: "covert_endpoint_not_prepared")
-    static let malformedCovertURL = Self(rawValue: "malformed_covert_url")
+    static let malformedCovertEndpoint = Self(rawValue: "malformed_covert_endpoint")
     static let covertPayloadTooLarge = Self(rawValue: "covert_payload_too_large")
     static let covertResponsePayloadTooLarge = Self(rawValue: "covert_response_payload_too_large")
-    static let invalidHTTPResponse = Self(rawValue: "invalid_http_response")
-    static let unexpectedHTTPStatus = Self(rawValue: "unexpected_http_status")
+    static let covertConnectionClosed = Self(rawValue: "covert_connection_closed")
+    static let covertRequestTimedOut = Self(rawValue: "covert_request_timed_out")
     static let missingClientMessageCase = Self(rawValue: "missing_client_message_case")
     static let missingServerMessageCase = Self(rawValue: "missing_server_message_case")
     static let missingBlameDecrypter = Self(rawValue: "missing_blame_decrypter")
@@ -65,16 +65,16 @@ extension OpalDiagnostics.ErrorCode {
             .primaryConnectionCancelled
         case OpalFusion.Runtime.LiveTransportError.covertEndpointNotPrepared:
             .covertEndpointNotPrepared
-        case OpalFusion.Runtime.LiveTransportError.malformedCovertURL:
-            .malformedCovertURL
+        case OpalFusion.Runtime.LiveTransportError.malformedCovertEndpoint:
+            .malformedCovertEndpoint
         case OpalFusion.Runtime.LiveTransportError.covertPayloadTooLarge:
             .covertPayloadTooLarge
         case OpalFusion.Runtime.LiveTransportError.covertResponsePayloadTooLarge:
             .covertResponsePayloadTooLarge
-        case OpalFusion.Runtime.LiveTransportError.invalidHTTPResponse:
-            .invalidHTTPResponse
-        case OpalFusion.Runtime.LiveTransportError.unexpectedHTTPStatus:
-            .unexpectedHTTPStatus
+        case OpalFusion.Runtime.LiveTransportError.covertConnectionClosed:
+            .covertConnectionClosed
+        case OpalFusion.Runtime.LiveTransportError.covertRequestTimedOut:
+            .covertRequestTimedOut
         case OpalFusion.Runtime.LiveTransportError.invalidConfiguration:
             .invalidConfiguration
 

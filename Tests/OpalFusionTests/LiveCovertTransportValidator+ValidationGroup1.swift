@@ -1,173 +1,89 @@
-// LiveCovertTransportValidator+ValidationGroup1.swift
-
 @testable import OpalFusion
 import Foundation
 import Testing
 
 extension LiveCovertTransportValidator {
-    @Test("macOS live covert transport prepares endpoint state and executes HTTPS requests")
+    @Test("Covert submissions use separate retained sockets and reset closes them")
+    func separateSubmissionsAndReset() async throws {
+        try await Self.withPeer { transport, peer, endpoint in
+            let request = try Self.componentRequest(endpoint: endpoint)
+            #expect(try await transport.perform(request) == [0x0a, 0])
+            #expect(try await transport.perform(request) == [0x0a, 0])
+            #expect(await peer.connectionCount == 2)
+            #expect(await peer.payloads == [request.payload, request.payload])
+            #expect(await peer.closedConnectionCount == 0)
+            await transport.reset()
+            try await peer.waitFor(closedCount: 2)
+            #expect(await transport.currentEndpoint == nil)
+        }
+    }
+
+    @Test("Covert TLS verifies a trusted certificate and its destination hostname")
     func validateTLSExecution() async throws {
-        let executor = RecordedCovertRequestExecutor(
-            responseData: Data(
-                try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
-                    PrimaryRuntimeTestFixtures.acknowledgement
-                )
-            )
-        )
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
-            }
-        )
-        let expectedResponseBytes = try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
-            PrimaryRuntimeTestFixtures.acknowledgement
-        )
-        let expectedRequestPayload = try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-            PrimaryRuntimeTestFixtures.covertComponentMessage
-        )
-
-        try await transport.prepare(
-            PrimaryRuntimeTestFixtures.expectedPreparationPlan(startedAt: 1_000)
-        )
-        let responseBytes = try await transport.perform(
-            try PrimaryRuntimeTestFixtures.expectedRequest(
-                for: PrimaryRuntimeTestFixtures.covertComponentMessage,
-                startedAt: 1_001
-            )
-        )
-
-        #expect(responseBytes == expectedResponseBytes)
-        #expect(await transport.currentEndpoint == PrimaryRuntimeTestFixtures.covertEndpointContext)
-
-        let recordedRequests = await executor.recordedRequests
-        guard let request = recordedRequests.last else {
-            Issue.record("Expected a recorded covert request")
-            return
+        try await Self.withPeer(requiresTLS: true, trustCertificate: true, host: "localhost") { transport, peer, endpoint in
+            let response = try await transport.perform(Self.componentRequest(endpoint: endpoint))
+            #expect(response == [0x0a, 0])
+            #expect(await peer.payloads.count == 1)
         }
-        #expect(request.url?.scheme == "https")
-        #expect(request.url?.host == PrimaryRuntimeTestFixtures.covertEndpointContext.host)
-        #expect(request.url?.port == Int(PrimaryRuntimeTestFixtures.covertEndpointContext.port))
-        #expect(request.url?.path == PrimaryRuntimeTestFixtures.covertEndpointContext.entryPath)
-        #expect(request.httpMethod == "POST")
-        #expect([UInt8](request.httpBody ?? Data()) == expectedRequestPayload)
-    }
-
-    @Test("macOS live covert transport switches between HTTP and HTTPS and applies SOCKS5 proxy settings")
-    func validateURLAndProxyConfiguration() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let torSocks5 = OpalFusion.Transport.TorSocks5Configuration(
-            host: "127.0.0.1",
-            port: 9_050
-        )
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: torSocks5,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
-            }
-        )
-
-        let insecureEndpoint = Self.makeCovertEndpoint(requiresTLS: false)
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: insecureEndpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: insecureEndpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
-
-        try await transport.prepare(plan)
-        _ = try await transport.perform(request)
-
-        let recordedRequests = await executor.recordedRequests
-        guard let recordedRequest = recordedRequests.last else {
-            Issue.record("Expected an HTTP covert request")
-            return
+        try await Self.withPeer(requiresTLS: true, trustCertificate: true) { transport, peer, endpoint in
+            await #expect(throws: (any Error).self) { try await transport.perform(Self.componentRequest(endpoint: endpoint)) }
+            #expect(await peer.payloads.isEmpty) // Certificate is for localhost, not 127.0.0.1.
         }
-        #expect(recordedRequest.url?.scheme == "http")
-
-        let proxyConfiguration = await transport.proxyConfigurationSnapshot
-        #expect(proxyConfiguration.socksEnabled)
-        #expect(proxyConfiguration.proxyHost == torSocks5.host)
-        #expect(proxyConfiguration.proxyPort == Int(torSocks5.port))
     }
 
-    @Test("macOS live covert transport builds requests for raw IPv6 endpoint hosts")
-    func validateRawIPv6EndpointHostExecution() async throws {
-        let executor = RecordedCovertRequestExecutor(responseData: Data())
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { session, request in
-                try await executor.execute(session: session, request: request)
-            }
-        )
-        let endpoint = Self.makeCovertEndpoint(host: "::1")
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: endpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: endpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
-
-        try await transport.prepare(plan)
-        _ = try await transport.perform(request)
-
-        let recordedRequests = await executor.recordedRequests
-        let recordedRequest = try #require(recordedRequests.last)
-        #expect(recordedRequest.url?.host == "::1")
+    @Test("Covert TLS never accepts an untrusted peer")
+    func rejectUntrustedTLS() async throws {
+        try await Self.withPeer(requiresTLS: true, host: "localhost") { transport, peer, endpoint in
+            await #expect(throws: (any Error).self) { try await transport.perform(Self.componentRequest(endpoint: endpoint)) }
+            #expect(await peer.payloads.isEmpty)
+        }
     }
 
-    @Test("macOS live covert transport rejects responses without HTTP metadata")
-    func validateNonHTTPResponseRejection() async throws {
-        let transport = OpalFusion.Runtime.LiveCovertTransport(
-            torSocks5: nil,
-            requestExecutor: { _, request in
-                guard let url = request.url else {
-                    throw LiveRuntimeTestHarnessError.inboundStreamClosed
-                }
-                return (
-                    Data(),
-                    URLResponse(
-                        url: url,
-                        mimeType: nil,
-                        expectedContentLength: 0,
-                        textEncodingName: nil
-                    )
-                )
+    @Test("SOCKS5 receives the remote hostname and distinct isolation credentials")
+    func remoteSOCKS5Destination() async throws {
+        try await Self.withPeer(proxyMode: .accept, host: "covert-protocol-test.invalid") { transport, peer, endpoint in
+            let request = try Self.componentRequest(endpoint: endpoint)
+            #expect(try await transport.perform(request) == [0x0a, 0])
+            #expect(try await transport.perform(request) == [0x0a, 0])
+            let requests = await peer.proxyRequests
+            #expect(requests.map(\.host) == [endpoint.host, endpoint.host])
+            #expect(requests.map(\.port) == [UInt16(endpoint.port), UInt16(endpoint.port)])
+            #expect(Set(requests.map(\.username)).count == 2)
+        }
+    }
+
+    @Test("SOCKS5 cannot bypass the proxy for a directly reachable loopback destination")
+    func noDirectProxyFallback() async throws {
+        let destination = try await CovertSocketTestServer.start()
+        do {
+            try await Self.withPeer(proxyMode: .reject, destinationPort: UInt32(await destination.port)) { transport, proxy, endpoint in
+                await #expect(throws: (any Error).self) { try await transport.perform(Self.componentRequest(endpoint: endpoint)) }
+                #expect(await destination.connectionCount == 0)
+                #expect(await proxy.connectionCount == 1)
             }
-        )
-        let endpoint = PrimaryRuntimeTestFixtures.covertEndpointContext
-        let plan = OpalFusion.Runtime.CovertPreparationPlan(
-            endpoint: endpoint,
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_000),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_015)
-        )
-        let request = OpalFusion.Runtime.CovertRequest(
-            endpoint: endpoint,
-            payload: try PrimaryRuntimeTestFixtures.encodeCovertMessagePayload(
-                PrimaryRuntimeTestFixtures.pingMessage
-            ),
-            startedAt: PrimaryRuntimeTestFixtures.instant(1_001),
-            deadline: PrimaryRuntimeTestFixtures.instant(1_004)
-        )
+        } catch {
+            await destination.stop()
+            throw error
+        }
+        await destination.stop()
+    }
 
-        try await transport.prepare(plan)
+    @Test("Remote SOCKS5 connection rejection is terminal")
+    func rejectProxyFailure() async throws {
+        try await Self.withPeer(proxyMode: .reject, host: "covert-protocol-test.invalid") { transport, proxy, endpoint in
+            await #expect(throws: (any Error).self) { try await transport.perform(Self.componentRequest(endpoint: endpoint)) }
+            #expect(await proxy.proxyRequests.count == 1)
+            #expect(await proxy.payloads.isEmpty)
+        }
+    }
 
-        await Self.expectLiveTransportError(.invalidHTTPResponse) {
-            try await transport.perform(request)
+    @Test("SOCKS5 tunnels loopback and numeric destinations through the configured proxy", arguments: ["localhost", "LOCALHOST.", "foo.localhost", "127.0.0.2", "::1", "::ffff:127.0.0.1", "0.0.0.0", "::"])
+    func proxyLoopbackAliases(_ host: String) async throws {
+        try await Self.withPeer(proxyMode: .accept, host: host) { transport, proxy, endpoint in
+            let response = try await transport.perform(Self.componentRequest(endpoint: endpoint))
+            #expect(response == [0x0a, 0])
+            #expect(await proxy.connectionCount == 1)
+            #expect(await proxy.proxyRequests.count == 1)
         }
     }
 }
