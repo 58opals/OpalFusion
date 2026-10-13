@@ -157,6 +157,21 @@ extension ClientSessionValidator {
         #expect(policy.calculateDelay(forRetryAttempt: 3) == .milliseconds(30))
     }
 
+    @Test("Public client session reconnect policy preserves bounded immediate retries across overflow")
+    func validateReconnectPolicyPreservesBoundedImmediateRetriesAcrossOverflow() {
+        let policy = OpalFusion.Client.ReconnectPolicy(
+            initialDelay: .zero,
+            maximumDelay: .seconds(30),
+            multiplier: Double.greatestFiniteMagnitude,
+            maximumAttempts: 3
+        )
+
+        for attempt in 1...3 {
+            #expect(policy.calculateDelay(forRetryAttempt: attempt) == .zero)
+        }
+        #expect(policy.calculateDelay(forRetryAttempt: 4) == nil)
+    }
+
     @Test("Public client session reconnect policy clamps huge configured delays")
     func validateReconnectPolicyClampsHugeConfiguredDelays() {
         let policy = OpalFusion.Client.ReconnectPolicy(

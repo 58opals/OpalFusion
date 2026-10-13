@@ -71,6 +71,10 @@ extension OpalFusion.Client.ReconnectPolicy {
             return nil
         }
 
+        if initialMilliseconds == 0 {
+            return .zero
+        }
+
         let maximumMilliseconds = maximumDelay.opalFusionMillisecondsRoundedUp
         let multiplierExponent = Double(attempt - 1)
         let scaledMilliseconds = Double(initialMilliseconds) * pow(multiplier, multiplierExponent)
