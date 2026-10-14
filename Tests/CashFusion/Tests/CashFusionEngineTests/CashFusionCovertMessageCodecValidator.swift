@@ -1,0 +1,175 @@
+// CashFusionCovertMessageCodecValidator.swift
+
+@testable import CashFusionEngine
+@testable import OpalFusionCore
+import Testing
+
+struct CashFusionCovertMessageCodecValidator {
+    @Test("CashFusion covert codec matches pinned message bytes")
+    func validateCovertMessagePinnedByteParity() throws {
+        #expect(
+            PrimaryRuntimeTestFixtures.covertMessages.count
+                == CashFusionPinnedProtobufFixtures.covertMessageBytes.count
+        )
+
+        for (message, pinnedBytes) in zip(
+            PrimaryRuntimeTestFixtures.covertMessages,
+            CashFusionPinnedProtobufFixtures.covertMessageBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionCovertMessageCodec.encode(message)
+
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeMessage(
+                    pinnedBytes
+                ) == message
+            )
+        }
+    }
+
+    @Test("CashFusion covert codec matches pinned response bytes")
+    func validateCovertResponsePinnedByteParity() throws {
+        #expect(
+            PrimaryRuntimeTestFixtures.covertResponses.count
+                == CashFusionPinnedProtobufFixtures.covertResponseBytes.count
+        )
+
+        for (response, pinnedBytes) in zip(
+            PrimaryRuntimeTestFixtures.covertResponses,
+            CashFusionPinnedProtobufFixtures.covertResponseBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionCovertMessageCodec.encode(response)
+
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeResponse(
+                    pinnedBytes
+                ) == response
+            )
+        }
+    }
+
+    @Test("CashFusion covert codec handles absent optional fields")
+    func validateOptionalFieldParity() throws {
+        let messages: [OpalFusion.ProtocolModel.CovertMessage] = [
+            .component(
+                .init(
+                    roundPublicKey: nil,
+                    signature: [0x01],
+                    serializedComponent: [0x02]
+                )
+            ),
+            .transactionSignature(
+                .init(
+                    roundPublicKey: nil,
+                    inputIndex: 1,
+                    transactionSignature: [0x03]
+                )
+            )
+        ]
+        let responses: [OpalFusion.ProtocolModel.CovertResponse] = [
+            .serverFailure(.init(message: nil))
+        ]
+
+        #expect(
+            messages.count
+                == CashFusionPinnedProtobufFixtures.covertOptionalMessageBytes.count
+        )
+        #expect(
+            responses.count
+                == CashFusionPinnedProtobufFixtures.covertOptionalResponseBytes.count
+        )
+
+        for (message, pinnedBytes) in zip(
+            messages,
+            CashFusionPinnedProtobufFixtures.covertOptionalMessageBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionCovertMessageCodec.encode(message)
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeMessage(
+                    pinnedBytes
+                ) == message
+            )
+        }
+
+        for (response, pinnedBytes) in zip(
+            responses,
+            CashFusionPinnedProtobufFixtures.covertOptionalResponseBytes
+        ) {
+            let nativeBytes = try OpalFusion.Wire.CashFusionCovertMessageCodec.encode(response)
+            #expect(nativeBytes == pinnedBytes)
+            #expect(
+                try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeResponse(
+                    pinnedBytes
+                ) == response
+            )
+        }
+    }
+
+    @Test("CashFusion covert codec rejects malformed envelopes explicitly")
+    func validateMalformedCovertMessages() throws {
+        Self.expectCovertError(.missingCovertMessageCase) {
+            _ = try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeMessage([])
+        }
+
+        Self.expectCovertError(.missingCovertResponseCase) {
+            _ = try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeResponse([])
+        }
+
+        Self.expectCodingError(
+            .conflictingOneOfField(
+                messageName: "CovertMessage",
+                fieldNumber: 3
+            )
+        ) {
+            _ = try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeMessage(
+                Self.makeConflictingCovertEnvelope()
+            )
+        }
+
+        Self.expectCodingError(
+            .conflictingOneOfField(
+                messageName: "CovertResponse",
+                fieldNumber: 15
+            )
+        ) {
+            _ = try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeResponse(
+                Self.makeConflictingCovertResponseEnvelope()
+            )
+        }
+
+        Self.expectCodingError(.invalidUTF8String) {
+            _ = try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeResponse(
+                Self.makeCovertFailureEnvelopeWithInvalidMessage()
+            )
+        }
+
+        Self.expectCodingError(
+            .lengthDelimitedValueOutOfBounds(
+                length: 2,
+                remainingByteCount: 1
+            )
+        ) {
+            _ = try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeResponse(
+                CashFusionOfficialProtobufFixtures.malformedCovertResponseLengthBytes
+            )
+        }
+    }
+
+    @Test("CashFusion covert codec skips unknown envelope fields")
+    func validateUnknownEnvelopeFields() throws {
+        let message = OpalFusion.ProtocolModel.CovertMessage.component(
+            .init(
+                signature: [0x30],
+                serializedComponent: [0x31]
+            )
+        )
+
+        #expect(
+            try OpalFusion.Wire.CashFusionCovertMessageCodec.decodeMessage(
+                CashFusionOfficialProtobufFixtures.covertMessageEnvelopeWithUnknownPrefixBytes
+            ) == message
+        )
+    }
+}

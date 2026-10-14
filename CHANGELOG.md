@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Separated CashFusion and deferred Mosaic into independent engine modules and test harnesses while preserving the `OpalFusion` public and private-alpha SPI import surface. Routine CashFusion validation excludes Mosaic compilation and tests, with separate build and test deadlines; all protocol validation remains available in the owning engine lanes.
 - Replaced covert HTTP requests with Electron Cash framed TCP/TLS exchanges, explicit SOCKS5 routing, per-socket isolation credentials, retained submission sockets, and verified TLS hostnames.
 - Added the Opal Fusion umbrella specification, Mosaic draft protocol and security specifications, and compile-time facade scaffolding for explicit CashFusion, Mosaic, and pre-reservation automatic selection modes.
 - Added this changelog to track public-facing package changes.

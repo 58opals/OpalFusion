@@ -43,7 +43,7 @@ The private mainnet rehearsal is a paired, explicitly slow test path over the ex
 
 Private mainnet composition has one owner-provisioned runtime path. Only a successfully initialized attempt transport owner can mint its opaque inbound-runtime provisioning value; fan-in alone can request its one claim, and the resulting immutable construction token is required by ingress and the specialized driver. Foreign bootstrap or role substitution does not consume the claim, a second exact claim fails, and any ingress-construction failure closes every transferred route before returning. Focused component tests use either a pure route-plan validator or an inert runtime endpoint that cannot construct ingress. The generic `RuntimeSessionDriver` remains disabled for `.opalMainnetAlpha`, `OpalFusion.Session` remains privately initialized, and neither path can carry transaction bytes or reach a broadcaster. After an exact host commit, OpalBase separately derives a committed candidate and retains its existing security-profile, network-binding, persisted app-approval, persisted broadcast-intent, and network-client gates; none is satisfied by OpalFusion runtime authorization.
 
-The package currently uses one Swift target. This keeps the existing CashFusion implementation source-compatible while the common facade is stabilized.
+The package separates CashFusion and Mosaic into independent engine targets. The `OpalFusion` compatibility umbrella re-exports both engines, including the existing Mosaic private-alpha SPI. Consumers that only need CashFusion can depend on `CashFusionEngine` directly; that graph does not compile Mosaic.
 
 The Mosaic reducers consume validated aggregate publications, generation-bound host facts, and contributor-local validation tokens, while `RuntimeCoordinator` preserves reservation release, post-sign recovery, exact commit, and terminal ordering against injected seams. Private-alpha recovery reconstructs the same contributor or conductor coordinator, authenticates the exact admission snapshot and original acceptance times before provisioning routes, replays coordinator and wallet callbacks behind an ordered barrier, restores pending outbound publication, and validates write-ahead abort or completion records on a zero-route terminal path. Missing, partial, reordered, substituted, oversized, or inconsistent snapshots fail closed. The generic transport-facing mainnet driver remains disabled. The application still owns durable backends, state cataloging, rollback/deletion detection, cross-process exclusion, recipient-key persistence and distribution, authoritative route allocation, concrete Tor isolation, lifecycle supervision, and composition with Base wallet/chain cleanup evidence.
 
@@ -86,16 +86,23 @@ The anonymous-batch publisher applies the same route-preflight, sibling-cancella
 8. Peers assemble the complete transaction; any peer may hand it to its host for a separately reported broadcast decision.
 9. Failure releases the reservation and ends the attempt. Retry creates fresh outputs, identities, keys, commitments, nonces, salts, mailboxes, and anonymous paths.
 
-## Intended Module Boundaries
+## Module Boundaries
 
-```text
-OpalFusionCore
-CashFusionEngine
-MosaicEngine
-OpalFusion
+```mermaid
+flowchart BT
+    Core[OpalFusionCore] --> Cash[CashFusionEngine]
+    Core --> Mosaic[MosaicEngine · deferred]
+    Cash --> Umbrella[OpalFusion compatibility umbrella]
+    Mosaic --> Umbrella
+    Cash --> CashTests[CashFusion test harness]
+    Umbrella --> MosaicTests[Mosaic and facade test harness]
 ```
 
-The eventual split must preserve one `import OpalFusion` integration surface. Only engine identity, mode selection, coarse lifecycle/result values, genuinely shared host contracts, diagnostics, and reusable OpalCrypto adapters belong in the core. CashFusion coordinator state and wire types stay out of Mosaic; Mosaic discovery, election, manifest, transcript, and mailbox types stay out of CashFusion.
+`OpalFusionCore` owns the shared namespace, engine identity, the inert session shell, common host transaction values, and package-only BCH parsing, serialization, hashing, and key/script checks. Engine selection modes belong to the umbrella because their configurations reference both engines. CashFusion owns coordinator state, wire codecs, transport, timing, diagnostics, and its host workflow. Mosaic owns its profiles, host contracts, discovery, election, manifest, transcript, mailbox, and private-alpha runtime. Neither engine depends on the other.
+
+The two test harness packages depend on their owning products. SwiftPM filters alone still build unrelated products in a root package, so the routine CashFusion lane uses its narrow dependency graph. The compatibility umbrella preserves one `import OpalFusion` surface and the existing SPI imports, but intentionally compiles both engines. No wire or runtime implementation types become public to support the split. Source consumers must rebuild; the split makes no binary compatibility claim.
+
+Mosaic remains deferred and has no public runnable session. Its complete protocol and recovery tests remain available in explicit Mosaic lanes; they are excluded from routine CashFusion validation. See the [validation guide](validation.md) for build and test deadlines.
 
 ## Ownership Rules
 

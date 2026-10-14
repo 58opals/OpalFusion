@@ -44,7 +44,7 @@ class ValidationProcess:
 
     def run(self, command, *, deadline=None, capture=False):
         if deadline is not None and time.monotonic() >= deadline:
-            raise ValidationTimeout("60-second post-build budget exhausted")
+            raise ValidationTimeout("validation deadline exhausted")
         # A new session keeps signals away from the caller and unrelated work.
         try:
             self.launching = True
@@ -63,12 +63,12 @@ class ValidationProcess:
             if result:
                 raise subprocess.CalledProcessError(result, command)
             if deadline is not None and time.monotonic() > deadline:
-                raise ValidationTimeout("60-second post-build budget exhausted")
+                raise ValidationTimeout("validation deadline exhausted")
             self.active = None
             return output
         except subprocess.TimeoutExpired as error:
             self.cleanup()
-            raise ValidationTimeout("60-second post-build budget exhausted") from error
+            raise ValidationTimeout("validation deadline exhausted") from error
         except BaseException:
             self.cleanup()
             raise
@@ -77,7 +77,6 @@ class ValidationProcess:
         process = self.active
         if process is None:
             return
-        self.active = None
         # Repeated interrupts must not abandon the owned process group.
         saved = {s: signal.signal(s, signal.SIG_IGN) for s in self.handlers}
         try:
@@ -86,6 +85,7 @@ class ValidationProcess:
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 process.wait(timeout=max(0, end - time.monotonic()))
+                self.active = None
                 return
             # Reserve time to reap a process that needs SIGKILL.
             grace_end = end - 0.2
@@ -95,6 +95,11 @@ class ValidationProcess:
                     os.killpg(process.pid, 0)
                 except ProcessLookupError:
                     break
+                except PermissionError:
+                    # A macOS permission failure for the existence probe does
+                    # not prove the group is gone. Finish the bounded grace
+                    # period, then deliver SIGKILL and reap the owned child.
+                    pass
                 time.sleep(min(0.05, max(0, grace_end - time.monotonic())))
             else:
                 try:
@@ -102,6 +107,7 @@ class ValidationProcess:
                 except ProcessLookupError:
                     pass
             process.wait(timeout=max(0, end - time.monotonic()))
+            self.active = None
         finally:
             if process.stdout is not None:
                 process.stdout.close()

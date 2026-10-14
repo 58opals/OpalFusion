@@ -173,7 +173,7 @@ Raw transaction bytes, outpoints, locking scripts, addresses, peer keys, relay e
 
 ## 9. Module Boundaries
 
-The intended package decomposition is:
+The package decomposition is:
 
 ```text
 OpalFusionCore
@@ -182,15 +182,15 @@ MosaicEngine
 OpalFusion
 ```
 
-The current source remains in one Swift target while the shared contract is stabilized. A target split MUST preserve a single `import OpalFusion` integration surface and MUST NOT expose wire or runtime implementation types merely to avoid adapter work.
+`CashFusionEngine` and `MosaicEngine` depend only on `OpalFusionCore` and their external foundations, never on each other. The compatibility umbrella preserves a single `import OpalFusion` integration surface and the existing Mosaic private-alpha SPI. Wire and runtime implementation types MUST NOT become public merely to support the split. Source consumers rebuild against the separated modules; binary compatibility is not claimed.
 
 Shared code is limited to:
 
-- engine identity and mode configuration;
-- coarse session lifecycle and result models;
-- genuinely protocol-neutral host contracts;
-- privacy-safe diagnostics;
-- reusable adapters to OpalCrypto.
+- engine identity and the inert common session shell;
+- genuinely protocol-neutral host transaction values;
+- package-only BCH transaction codecs and reusable adapters to OpalCrypto.
+
+Mode configuration belongs to the umbrella because it references both engine configurations. CashFusion diagnostics stay with their owning engine. Mosaic remains deferred; separating its module and tests does not satisfy its runtime, transport, privacy, or release gates.
 
 CashFusion wire messages, timing, coordinator state, and compatibility fixtures stay in the CashFusion engine. Mosaic discovery, role election, manifest, transcript, mailbox transport, and retry freshness stay in the Mosaic engine.
 

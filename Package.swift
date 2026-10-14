@@ -11,6 +11,18 @@ let package = Package(
         .library(
             name: "OpalFusion",
             targets: ["OpalFusion"]
+        ),
+        .library(
+            name: "OpalFusionCore",
+            targets: ["OpalFusionCore"]
+        ),
+        .library(
+            name: "CashFusionEngine",
+            targets: ["CashFusionEngine"]
+        ),
+        .library(
+            name: "MosaicEngine",
+            targets: ["MosaicEngine"]
         )
     ],
     dependencies: [
@@ -25,18 +37,31 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "OpalFusion",
+            name: "OpalFusionCore",
             dependencies: [
                 .product(name: "OpalCrypto", package: "OpalCrypto"),
                 .product(name: "OpalDiagnostics", package: "OpalDiagnostics")
             ]
         ),
-        .testTarget(
-            name: "OpalFusionTests",
+        .target(
+            name: "CashFusionEngine",
             dependencies: [
-                "OpalFusion",
+                "OpalFusionCore",
+                .product(name: "OpalCrypto", package: "OpalCrypto"),
                 .product(name: "OpalDiagnostics", package: "OpalDiagnostics")
             ]
+        ),
+        .target(
+            name: "MosaicEngine",
+            dependencies: [
+                "OpalFusionCore",
+                .product(name: "OpalCrypto", package: "OpalCrypto"),
+                .product(name: "OpalDiagnostics", package: "OpalDiagnostics")
+            ]
+        ),
+        .target(
+            name: "OpalFusion",
+            dependencies: ["OpalFusionCore", "CashFusionEngine", "MosaicEngine"]
         )
     ]
 )

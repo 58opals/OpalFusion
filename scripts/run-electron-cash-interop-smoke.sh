@@ -146,7 +146,13 @@ SPM_CACHE_PATH=".swiftpm-cache/swiftpm/cache"
 SPM_CONFIG_PATH=".swiftpm-cache/swiftpm/config"
 SPM_SECURITY_PATH=".swiftpm-cache/swiftpm/security"
 SPM_MODULE_CACHE_PATH=".swiftpm-cache/swiftpm/module-cache"
+# SwiftPM changes to the nested harness; resolve path overrides first.
+SPM_SCRATCH_PATH="${SPM_SCRATCH_PATH:A}"
+SPM_CACHE_PATH="${SPM_CACHE_PATH:A}"
+SPM_CONFIG_PATH="${SPM_CONFIG_PATH:A}"
+SPM_SECURITY_PATH="${SPM_SECURITY_PATH:A}"
 SPM_LANE_FLAGS=(
+  --package-path "$repo_root/Tests/CashFusion"
   --disable-sandbox
   --scratch-path "$SPM_SCRATCH_PATH"
   --cache-path "$SPM_CACHE_PATH"
@@ -159,7 +165,7 @@ mkdir -p "$CLANG_MODULE_CACHE_PATH"
 spm_package() { swift package "${SPM_LANE_FLAGS[@]}" "$@"; }
 spm_test() { swift test "${SPM_LANE_FLAGS[@]}" "$@"; }
 
-LIVE_COORDINATOR_TEST_ID="OpalFusionTests.ElectronCashInteropValidator/validateRealElectronCashCoordinatorInterop()"
+LIVE_COORDINATOR_TEST_ID="CashFusionEngineTests.ElectronCashInteropValidator/validateRealElectronCashCoordinatorInterop()"
 
 verify_live_coordinator_test_registration() {
   local listed_tests

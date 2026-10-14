@@ -1,10 +1,10 @@
 # OpalFusion Validation Guide
 
-This guide separates routine regression checks, comprehensive deterministic cryptographic and recovery validation, and live CashFusion proofing. Expensive local cryptography does not require a network connection; both comprehensive local testing and live proofing are explicit choices.
+This guide separates complete routine CashFusion validation, deferred Mosaic conformance and recovery, and live CashFusion proofing. Expensive Mosaic cryptography does not require a network connection. Mosaic and live proofing are explicit choices, never part of the default CashFusion lane.
 
 ## Default Local Loop
 
-Run the fast regression selection for normal implementation work through the repository wrapper:
+Run complete CashFusion validation for normal implementation work through the repository wrapper:
 
 ```bash
 ./scripts/run-validation-loop.sh
@@ -12,14 +12,14 @@ Run the fast regression selection for normal implementation work through the rep
 ./scripts/run-validation-loop.sh fast
 ```
 
-The wrapper requires Python 3 for the fast lane and `rg` for the existing material-free guards. It builds all test targets first. Discovery, process startup, and cold fixture preparation then share one 60-second post-build budget. Build time is reported separately and is not part of this budget. Timeout fails the run, terminates only the owned test process group, and allows up to five additional seconds for cleanup; it does not retry, extend the budget, or reduce the selection. Interruption also cleans up the owned test processes.
+The wrapper requires Python 3. It builds only the CashFusion harness at `Tests/CashFusion`, whose dependencies exclude Mosaic and the compatibility umbrella. The build has a separate 300-second deadline. Discovery, process startup, and cold fixture preparation then share one 60-second post-build budget. Timeout fails the run, terminates only the owned process group, and allows up to five additional seconds for cleanup; it does not retry, extend the budget, or reduce the selection. Interruption also cleans up the owned processes. Test deadlines are runner limits; CashFusion protocol timing constants and runtime validation remain unchanged.
 
-Use `swift test --filter <suite>` for focused work; filters are not uniformly fast. Plain `swift test` retains its existing behavior, including expensive test registration. An unrestricted raw run can exhaust transient RSA key generation when cryptographic suites start together and is not the recommended comprehensive validation lane.
+Use the named bounded modes for focused work. Raw `swift test --package-path Tests/CashFusion --filter <suite>` selects a CashFusion suite, and `swift test --package-path Tests/Mosaic --filter <suite>` explicitly selects a deferred Mosaic suite. Raw commands do not provide the wrapper's deadlines. Filters in the root package cannot isolate compilation: SwiftPM builds unrelated root products even when a test filter excludes them. Root tests have moved into the two harness packages.
 
 Run a build-only check when you only need package compilation:
 
 ```bash
-swift build
+./scripts/run-validation-loop.sh build
 ```
 
 The current OpalCrypto dependency compiles a Metal library through a SwiftPM build plugin. Install the matching Xcode Metal Toolchain component before running package builds; a missing component stops the dependency build before OpalFusion sources or tests compile.
@@ -29,6 +29,8 @@ Use the validation wrapper when you want stable named loops:
 ```bash
 ./scripts/run-validation-loop.sh build
 ./scripts/run-validation-loop.sh fast
+./scripts/run-validation-loop.sh cashfusion-all
+./scripts/run-validation-loop.sh mosaic-all
 ./scripts/run-validation-loop.sh all
 ./scripts/run-validation-loop.sh codec
 ./scripts/run-validation-loop.sh round
@@ -44,31 +46,41 @@ Use the validation wrapper when you want stable named loops:
 ./scripts/run-validation-loop.sh interop-parser
 ```
 
-For exact cross-repository work, set `OPALFUSION_SPM_SCRATCH_PATH`, `OPALFUSION_SPM_CACHE_PATH`, `OPALFUSION_SPM_CONFIG_PATH`, `OPALFUSION_SPM_SECURITY_PATH`, and `OPALFUSION_SPM_MODULE_CACHE_PATH` to the same lane used by the preceding SwiftPM resolve and dependency audit. These overrides are local validation inputs; local paths and private remotes must not be committed to the product manifest or lockfile.
+For exact cross-repository work, set `OPALFUSION_SPM_SCRATCH_PATH`, `OPALFUSION_SPM_CACHE_PATH`, `OPALFUSION_SPM_CONFIG_PATH`, `OPALFUSION_SPM_SECURITY_PATH`, and `OPALFUSION_SPM_MODULE_CACHE_PATH` to the same lane used by the preceding SwiftPM resolve and dependency audit. These overrides are local validation inputs; machine-specific paths and private remotes must not be committed to the product manifest or lockfile. Keep the CashFusion and Mosaic scratch directories separate; they have distinct harness graphs and test executables.
 
 The wrapper keeps the live Electron Cash coordinator proof disabled for deterministic modes, even when the caller has an interop flag in their shell environment.
 
 SwiftPM package sandboxing remains enabled, including when custom cache paths are supplied. A surrounding execution environment must permit SwiftPM to start its sandbox; a sandbox launch failure is infrastructure failure, not permission to disable package isolation.
 
-The comprehensive local suite covers the protocol-neutral facade invariants, native protobuf primitives, official/manual CashFusion bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, and diagnostics, together with real cryptographic conformance and exact authenticated recovery.
+Complete CashFusion validation covers native protobuf primitives, official/manual bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, diagnostics, and real CashFusion cryptography. Mosaic's independent harness retains all its cryptographic conformance, exact authenticated recovery, and mixed facade cases. No existing test cases are removed by the split.
 
-### Fast Selection
+### Routine CashFusion Coverage
 
-The fast lane runs every test in these suites. `ClientSessionValidator` runs in its existing serialized process; the remaining suites share a pool bounded to four concurrent tests. Existing suite-level serialization remains effective.
+The fast lane runs every discovered deterministic CashFusion test. `ClientSessionValidator` runs in its existing serialized process; its complete complement shares a pool bounded to four concurrent tests. Existing suite-level serialization remains effective. The following critical suites must be present in discovery; the selection also includes every other CashFusion suite.
 
 | Contract | Complete suites |
 | --- | --- |
 | CashFusion codecs and official bytes | `CashFusionPrimaryMessageCodecValidator`, `CashFusionCovertMessageCodecValidator`, `CashFusionOfficialProtobufFixtureValidator` |
 | Round transitions and workflow | `RoundEngineScriptedValidator`, `ProductionWorkflowValidator` |
 | Client lifecycle and runtime state | `ClientSessionValidator`, `PrimaryRuntimeSessionValidator`, `CovertRuntimeSessionValidator` |
-| Facade, host bindings, and diagnostics | `FusionFacadeScaffoldValidator`, `MosaicHostContractValidator`, `OpalDiagnosticsFusionValidator` |
-| Material-free reservation and transport ownership | `MosaicMainnetAlphaReservationCoordinatorDependencyValidator`, `MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator`, `MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator` |
+| CashFusion diagnostics | `OpalDiagnosticsFusionValidator` |
 
-Before execution, discovery must find at least one test in every configured suite, reject duplicate identifiers, and verify consistency with the comprehensive partitions. The runner prints per-suite counts and the selected scope. A fast pass is representative regression evidence only: it does not prove exhaustive cryptographic correctness, complete protocol coverage, full authenticated recovery, exact-capacity construction, or publication readiness. Changes in those areas still require their owning comprehensive checks.
+Before execution, discovery must find at least one test in every required critical suite and reject empty, duplicate, or foreign-module identifiers. The runner prints the discovered scope and runs each test exactly once. `cashfusion-all` is an explicit alias for the same complete selection and the same 60-second deadline. Facade, Mosaic host, reservation, and transport tests remain in the explicit Mosaic harness. A routine CashFusion pass does not establish live coordinator interoperability, resolve the documented support gaps, or prove Mosaic conformance or package publication readiness.
 
 ### Comprehensive Local Validation
 
-Run `./scripts/run-validation-loop.sh all` explicitly. The last measured Debug run took approximately 97 minutes; this is historical guidance, not a promised duration. The wrapper announces this scope before execution. It retains the Security.framework-backed Mosaic authorization suites, CPU-heavy 23-slot material suite, and reconnect-timing client suite in isolated serialized processes, followed by the remaining deterministic pool bounded to four concurrent tests. It has no fast-lane cutoff. No tests are newly disabled or removed, and real coordinator proof remains separately gated.
+Routine validation runs every discovered CashFusion test exactly once within 60 seconds after build. Discovery, startup, and fixture preparation count toward that deadline. It does not weaken codec, malformed-message, cryptographic, timing, cancellation, or host validation to meet the limit. There is no larger alternate CashFusion budget.
+
+`mosaic-all` explicitly runs every deferred Mosaic and facade test. It retains the Security.framework-backed authorization suites and the 23-slot material suite in isolated serialized processes, followed by their exact complement at width four. The historical combined Debug run took approximately 97 minutes; that is guidance for the expensive Mosaic work, not a current timing promise. The explicit slow lane has a 7,200-second post-build deadline. `all` explicitly runs both complete harnesses with their separate budgets. None of these modes enables a live coordinator.
+
+| Lane | Build deadline | Post-build deadline | Scope |
+| --- | --- | --- | --- |
+| Default / `fast` / `cashfusion-all` | 300 seconds | 60 seconds | Every deterministic CashFusion test |
+| `codec`, `round`, `runtime`, `workflow`, `client`, `interop-parser` | 300 seconds | 60 seconds | Named CashFusion suites |
+| `mosaic-fast` | 300 seconds | 15 seconds | Existing material-free Mosaic feedback selection |
+| Other explicit Mosaic modes | 300 seconds | 7,200 seconds | Named Mosaic selection or complete Mosaic harness |
+
+The harness lockfiles retain the same external dependency revisions as the root package. Changing dependency versions requires deliberate lockfile updates and the owning engine's complete validation. A deadline failure is a failed check requiring fixture or runner diagnosis, not permission to skip cases, reduce protocol delays, or expand the deadline automatically.
 
 Runner contracts can be checked without cryptographic execution using `python3 -B -m unittest discover -s scripts/tests -v`. These checks exercise command dispatch, discovery failures, failure propagation, timeouts, interruption cleanup, and live-coordinator exclusion through a command double; they are runner evidence, not package-test evidence.
 
@@ -102,11 +114,11 @@ The fast mailbox-route provisioning validator uses embedded RSA verification key
 
 The private-alpha consumer-surface gate is `./scripts/run-validation-loop.sh mosaic-private-alpha-consumer-surface`. It statically rejects `@testable import OpalFusion` from the selected recovery validator, then compiles and runs the app-visible SPI recovery path through loaded-owner continuation, resume, and transport-bootstrap proof access. It must pass before the expensive producer aggregate or downstream promotion so an internal test fixture cannot hide a missing consumer API. Its early-phase proof request is expected to fail closed because no complete manifest exists; successful post-manifest proof restoration remains in the authoritative aggregate.
 
-The authoritative private-alpha recovery aggregate is `./scripts/run-validation-loop.sh mosaic-private-alpha-spi`. It first rejects any direct RSABSSA signing-key generation in the transport validator and its test fixture, then runs the complete serialized `MosaicPrivateAlphaRuntimeSPIValidator` suite in one process so the cached nine-member, 59-document proof is built once while every exact persistence readback, snapshot reload, re-authentication, signed formation prefix, sealed recovery, and post-manifest construction remains covered. Signed formation recovery is intentionally divided into seven phase-bounded test bodies: each body reaches its starting phase through the same real state machine, then reloads after every signed prefix in that phase and verifies the next recovery boundary. This preserves the complete recovery contract while allowing an exact-revision downstream CI owner to assign individual test bodies deterministically across isolated jobs; downstream sharding must discover the complete package test list, reject duplicate normalized identifiers, and assign every identifier exactly once without changing the selected test set. The wrapper starts the serialized `MosaicPrivateAlphaTransportBootstrapValidator` suite in a fresh process so the transport fixture does not inherit process-global test state from the long-running runtime suite; it does not parallelize, skip, or change either suite's test selection. The transport suite imports RFC 9500's publicly known RSA-2048 test key through Security, and OpalCrypto validates the resulting `SecKey` capability and performs every cryptographic calculation. The fixture is test-target-only, has no security properties, and is not a substitute for application-owned production key generation or custody evidence. The command fails if either process fails and has no elapsed-time cutoff: long canonical signing and recovery progress is not a failure. A pass is package-level deterministic SPI evidence only; it does not prove an application durable backend, live transport, broadcast, value movement, readiness, privacy, or anonymity.
+The authoritative private-alpha recovery aggregate is `./scripts/run-validation-loop.sh mosaic-private-alpha-spi`. It first rejects any direct RSABSSA signing-key generation in the transport validator and its test fixture, then runs the complete serialized `MosaicPrivateAlphaRuntimeSPIValidator` suite in one process so the cached nine-member, 59-document proof is built once while every exact persistence readback, snapshot reload, re-authentication, signed formation prefix, sealed recovery, and post-manifest construction remains covered. Signed formation recovery is intentionally divided into seven phase-bounded test bodies: each body reaches its starting phase through the same real state machine, then reloads after every signed prefix in that phase and verifies the next recovery boundary. This preserves the complete recovery contract while allowing an exact-revision downstream CI owner to assign individual test bodies deterministically across isolated jobs; downstream sharding must discover the complete package test list, reject duplicate normalized identifiers, and assign every identifier exactly once without changing the selected test set. The wrapper starts the serialized `MosaicPrivateAlphaTransportBootstrapValidator` suite in a fresh process so the transport fixture does not inherit process-global test state from the long-running runtime suite; it does not parallelize, skip, or change either suite's test selection. The transport suite imports RFC 9500's publicly known RSA-2048 test key through Security, and OpalCrypto validates the resulting `SecKey` capability and performs every cryptographic calculation. The fixture is test-target-only, has no security properties, and is not a substitute for application-owned production key generation or custody evidence. The command fails if either process fails or its shared 7,200-second post-build deadline expires. A timeout requires fixture diagnosis; it does not permit shorter authentication or recovery checks. A pass is package-level deterministic SPI evidence only; it does not prove an application durable backend, live transport, broadcast, value movement, readiness, privacy, or anonymity.
 
 The named private mainnet rehearsal is `./scripts/run-validation-loop.sh mosaic-rehearsal`. It runs exactly the six-contributor conductor completion and contributor exact-commit cases, serially in one SwiftPM process so both purpose-separated real RSABSSA evaluator fixtures are paid once. The conductor case proves authorization issuance and canonical completion publication; the contributor case proves local authorization finalization, BCH signing, exact complete-transaction validation, and one refined-host commit. The host and publication seams are in-memory, OpalFusion has no broadcast callback, and the rehearsal performs no relay contact, wallet access, value movement, or public session construction. It is intentionally slow milestone evidence, not part of the fast feedback lane and not proof of concrete Tor, authenticated mailbox distribution, crash continuation, or live-mainnet readiness. Run it in an environment where Security.framework may create nonpersistent RSA keys; an immediate `authorizationEvaluatorUnavailable` before either test body is a runner precondition failure and should not trigger repeated per-test retries.
 
-`MosaicMainnetAlphaReservationCoordinatorDependencyValidator` is the material-construction-free reservation ownership filter. It proves complete lease equality, unconditional execution-material dependency, exact pre-sign release, and exact-reference recovery after release failure without creating a `LocalContributionMaterial`. Before running it, apply the same static pattern used by `assert_mosaic_reservation_dependency_lane_is_material_free`: `requireAuthorizationEvaluators\(|authorizationEvaluator\(|bchSignatureAuthorizationEvaluator\(|AuthorizationEvaluator\.generate\(|ExecutionFixtures?\.prepare\(|LocalContributionMaterial\.build\(|makeLocalContributionMaterial\(|makeMaterializedPreparation\(`. Run it once with `swift test --skip-build --filter MosaicMainnetAlphaReservationCoordinatorDependencyValidator`; its warm post-build budget is 15 seconds. The existing full-material reservation suite belongs to the one serialized `MOSAIC_RSA_DEPENDENT_FILTER` process, and contributor-executor coverage retains successful execution, pre-sign release, and post-sign recovery.
+`MosaicMainnetAlphaReservationCoordinatorDependencyValidator` is the material-construction-free reservation ownership filter. It proves complete lease equality, unconditional execution-material dependency, exact pre-sign release, and exact-reference recovery after release failure without creating a `LocalContributionMaterial`. Before running it, apply the same static pattern used by `assert_mosaic_reservation_dependency_lane_is_material_free`: `requireAuthorizationEvaluators\(|authorizationEvaluator\(|bchSignatureAuthorizationEvaluator\(|AuthorizationEvaluator\.generate\(|ExecutionFixtures?\.prepare\(|LocalContributionMaterial\.build\(|makeLocalContributionMaterial\(|makeMaterializedPreparation\(`. Run it once with `swift test --package-path Tests/Mosaic --skip-build --filter MosaicMainnetAlphaReservationCoordinatorDependencyValidator`; its warm post-build budget is 15 seconds. The existing full-material reservation suite runs in the serialized authorization process selected by `MOSAIC_RSA_SUITES` in the Python runner, and contributor-executor coverage retains successful execution, pre-sign release, and post-sign recovery.
 
 The fan-in suite also pins route-to-recipient `p` binding before shared ingress, pre-subscription route drains, multiple stored events plus EOSE buffered without early admission, an exact roster-derived mailbox-group count boundary, and terminal failure when startup input exceeds the shared FIFO.
 
@@ -119,65 +131,65 @@ Use the fast loop to validate package behavior while editing. Use the live smoke
 Use focused filters while iterating on a specific layer:
 
 ```bash
-swift test --filter CashFusionPrimaryMessageCodecValidator
-swift test --filter CashFusionCovertMessageCodecValidator
-swift test --filter CashFusionOfficialProtobufFixtureValidator
-swift test --filter RoundEngineScriptedValidator
-swift test --filter PrimaryRuntimeSessionValidator
-swift test --filter LiveRuntimeDriverValidator
-swift test --filter ProductionWorkflowValidator
-swift test --filter ClientSessionValidator
-swift test --filter FusionFacadeScaffoldValidator
-swift test --filter MosaicAttemptCoreValidator
-swift test --filter MosaicRoleElectionValidator
-swift test --filter MosaicManifestAgreementValidator
-swift test --filter MosaicManifestSignatureValidator
-swift test --filter MosaicUnsignedTransactionTranscriptValidator
-swift test --filter MosaicRuntimeSessionValidator
-swift test --filter MosaicRuntimeSessionDriverValidator
-swift test --filter MosaicRuntimeCoordinatorValidator
-swift test --filter MosaicMainnetAlphaReservationCoordinatorValidator
-swift test --filter MosaicMainnetAlphaReservationCoordinatorDependencyValidator
-swift test --filter MosaicMainnetAlphaSigningRequestBuilderValidator
-swift test --filter MosaicPreviousOutputContractValidator
-swift test --filter MosaicSemanticValidator
-swift test --filter MosaicNostrRelayMessageCodecValidator
-swift test --filter MosaicNostrNIP59EnvelopeCodecValidator
-swift test --filter MosaicMainnetAlphaPostManifestNIP59TransportValidator
-swift test --filter MosaicMainnetAlphaPostManifestTransportIngressValidator
-swift test --filter PostManifestReplayJournal
-swift test --filter MosaicMainnetAlphaControlPublicationBridgeValidator
-swift test --filter MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator
-swift test --filter MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator
-swift test --filter MosaicMainnetAlphaPostManifestControlBatchPublisherValidator
-swift test --filter MosaicMainnetAlphaPostManifestPublicationRouteAllocationValidator
-swift test --filter MosaicMainnetAlphaPostManifestRelayPublisherValidator
-swift test --filter MosaicMainnetAlphaPostManifestRelayFanInValidator
-swift test --filter MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator
-swift test --filter MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator
-swift test --filter MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator
-swift test --filter MosaicMainnetAlphaMinimumRosterCompositionValidator
-swift test --filter MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator
-swift test --filter MosaicMainnetAlphaExecutionGateValidator
-swift test --filter MosaicNIP01RelaySessionValidator
-swift test --filter MosaicOpalV0ProfileValidator
-swift test --filter MosaicOpalV0AuthorizationValidator
-swift test --filter MosaicOpalV0WireContractValidator
-swift test --filter MosaicOpalV0TransportContractValidator
-swift test --filter MosaicHostContractValidator
-swift test --filter MosaicMainnetAlphaContractValidator
-swift test --filter MosaicMainnetAlphaContributionFeeValidator
-swift test --filter MosaicMainnetAlphaAggregateContractValidator
-swift test --filter MosaicMainnetAlpha4MaterialValidator
-swift test --filter MosaicMainnetAlphaAdmissionLedgerValidator
-swift test --filter MosaicMainnetAlphaRuntimeSessionValidator
-swift test --filter MosaicMainnetAlphaBCHCompletionValidator
-swift test --filter MosaicMainnetAlphaLocalBCHSignatureBuilderValidator
-swift test --filter MosaicMainnetAlphaContributorExecutorValidator
-swift test --filter MosaicMainnetAlphaConductorCoordinatorValidator
+swift test --package-path Tests/CashFusion --filter CashFusionPrimaryMessageCodecValidator
+swift test --package-path Tests/CashFusion --filter CashFusionCovertMessageCodecValidator
+swift test --package-path Tests/CashFusion --filter CashFusionOfficialProtobufFixtureValidator
+swift test --package-path Tests/CashFusion --filter RoundEngineScriptedValidator
+swift test --package-path Tests/CashFusion --filter PrimaryRuntimeSessionValidator
+swift test --package-path Tests/CashFusion --filter LiveRuntimeDriverValidator
+swift test --package-path Tests/CashFusion --filter ProductionWorkflowValidator
+swift test --package-path Tests/CashFusion --filter ClientSessionValidator
+swift test --package-path Tests/Mosaic --filter FusionFacadeScaffoldValidator
+swift test --package-path Tests/Mosaic --filter MosaicAttemptCoreValidator
+swift test --package-path Tests/Mosaic --filter MosaicRoleElectionValidator
+swift test --package-path Tests/Mosaic --filter MosaicManifestAgreementValidator
+swift test --package-path Tests/Mosaic --filter MosaicManifestSignatureValidator
+swift test --package-path Tests/Mosaic --filter MosaicUnsignedTransactionTranscriptValidator
+swift test --package-path Tests/Mosaic --filter MosaicRuntimeSessionValidator
+swift test --package-path Tests/Mosaic --filter MosaicRuntimeSessionDriverValidator
+swift test --package-path Tests/Mosaic --filter MosaicRuntimeCoordinatorValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaReservationCoordinatorValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaReservationCoordinatorDependencyValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaSigningRequestBuilderValidator
+swift test --package-path Tests/Mosaic --filter MosaicPreviousOutputContractValidator
+swift test --package-path Tests/Mosaic --filter MosaicSemanticValidator
+swift test --package-path Tests/Mosaic --filter MosaicNostrRelayMessageCodecValidator
+swift test --package-path Tests/Mosaic --filter MosaicNostrNIP59EnvelopeCodecValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestNIP59TransportValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestTransportIngressValidator
+swift test --package-path Tests/CashFusion --filter PostManifestReplayJournal
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaControlPublicationBridgeValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestControlBatchPublisherValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestPublicationRouteAllocationValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestRelayPublisherValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestRelayFanInValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaMinimumRosterCompositionValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaExecutionGateValidator
+swift test --package-path Tests/Mosaic --filter MosaicNIP01RelaySessionValidator
+swift test --package-path Tests/Mosaic --filter MosaicOpalV0ProfileValidator
+swift test --package-path Tests/Mosaic --filter MosaicOpalV0AuthorizationValidator
+swift test --package-path Tests/Mosaic --filter MosaicOpalV0WireContractValidator
+swift test --package-path Tests/Mosaic --filter MosaicOpalV0TransportContractValidator
+swift test --package-path Tests/Mosaic --filter MosaicHostContractValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaContractValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaContributionFeeValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaAggregateContractValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlpha4MaterialValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaAdmissionLedgerValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaRuntimeSessionValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaBCHCompletionValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaLocalBCHSignatureBuilderValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaContributorExecutorValidator
+swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaConductorCoordinatorValidator
 ```
 
-Focused filters isolate one layer, but they are not uniformly fast. The `mosaic-fast` wrapper owns the 15-second contributor feedback contract, and the separately guarded `MosaicMainnetAlphaReservationCoordinatorDependencyValidator` owns the 15-second reservation-dependency contract. `MosaicMainnetAlphaMinimumRosterCompositionValidator`, `MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator`, and `MosaicMainnetAlphaExecutionGateValidator` are extended RSA-free structural checks; they do not require coordinator credentials, wallet secrets, live UTXOs, Tor, or funded test material, but they have no claim to the focused latency budget. A focused filter that reaches RSA generation, a live wallet or network, a SwiftPM lock retry, or its documented cap must stop for fixture diagnosis instead of widening the budget. `MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator`, together with every suite named by the wrapper's `MOSAIC_RSA_DEPENDENT_FILTER`, is deterministic but intentionally slow and serialized. The slow filter includes the runtime, admission, conductor, contributor, reservation coordinator, local BCH-signature, anonymous publication bridge, anonymous batch publisher, contributor conformance, contract, and Opal v0 authorization suites so both purpose-separated Security.framework evaluator fixtures are shared in one process.
+Focused filters isolate one layer, but they are not uniformly fast. The `mosaic-fast` wrapper owns the 15-second contributor feedback contract, and the separately guarded `MosaicMainnetAlphaReservationCoordinatorDependencyValidator` owns the 15-second reservation-dependency contract. `MosaicMainnetAlphaMinimumRosterCompositionValidator`, `MosaicMainnetAlphaPostManifestMailboxRouteProvisioningValidator`, and `MosaicMainnetAlphaExecutionGateValidator` are extended RSA-free structural checks; they do not require coordinator credentials, wallet secrets, live UTXOs, Tor, or funded test material, but they have no claim to the focused latency budget. A focused filter that reaches RSA generation, a live wallet or network, a SwiftPM lock retry, or its documented cap must stop for fixture diagnosis instead of widening the budget. `MosaicMainnetAlphaPostManifestContributorTransportBridgeConformanceValidator`, together with every suite named by the wrapper's `MOSAIC_RSA_SUITES` in the Python runner, is deterministic but intentionally slow and serialized. The slow filter includes the runtime, admission, conductor, contributor, reservation coordinator, local BCH-signature, anonymous publication bridge, anonymous batch publisher, contributor conformance, contract, and Opal v0 authorization suites so both purpose-separated Security.framework evaluator fixtures are shared in one process.
 
 `./scripts/run-validation-loop.sh mosaic` runs every `Mosaic*` suite followed by `FusionFacadeScaffoldValidator`. Passing it proves only the bounded deterministic conformance and public-scaffold checks described above.
 
@@ -209,9 +221,11 @@ Use capture only after a configured live smoke actually executes and passes the 
 | Change or operation | Required validation |
 | --- | --- |
 | Documentation and comments | Relevant documentation, relative-link, and structural checks; compile examples when executable usage changes |
-| Isolated implementation change | Fast lane plus affected suites |
-| Transport or lifecycle change | Fast lane plus affected integration, cancellation, and recovery suites |
-| Cryptography, authentication, protocol bytes, shared cryptographic fixtures, or dependency changes | Comprehensive `all` lane |
+| Isolated CashFusion implementation change | Fast lane plus affected CashFusion suites |
+| CashFusion transport or lifecycle change | Fast lane plus affected integration, cancellation, and recovery suites |
+| CashFusion cryptography, authentication, protocol bytes, fixtures, or dependency changes | Complete `cashfusion-all` lane |
+| Mosaic implementation, cryptography, authentication, protocol bytes, fixtures, or dependency changes | Explicit affected Mosaic checks; complete `mosaic-all` for protocol or cryptographic changes |
+| Shared core behavior or shared dependency changes | Complete checks for both engines |
 | Public candidate publication | Comprehensive `all` against the exact candidate |
 
 When several rows apply, use the broader requirement. Documentation-only changes do not require the comprehensive suite just because they mention an API or validation command. Runner-only changes require dispatch, discovery, failure, and cleanup checks plus execution of the affected lane. A prior comprehensive pass may be reused only when test sources, dependencies, toolchain, complete selection, and comprehensive execution remain equivalent; a changed comprehensive path requires a new full run. Fast-lane budget failures block that lane's acceptance and require diagnosis, not a larger budget or automatic removal of tests.

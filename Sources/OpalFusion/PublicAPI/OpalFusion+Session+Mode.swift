@@ -1,3 +1,7 @@
+import OpalFusionCore
+import CashFusionEngine
+import MosaicEngine
+
 // OpalFusion+Session+Mode.swift
 
 public extension OpalFusion.Session {

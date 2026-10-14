@@ -6,6 +6,10 @@ This guide is for app and OpalBase integrators wiring the current CashFusion pil
 
 The CashFusion engine owns CashFusion protocol/runtime behavior. The host owns coordinator selection, wallet policy, participant reservation, signing, persistence, broadcast, user-facing copy, and any retry cadence above the package-level reconnect policy.
 
+Existing integrations can keep the `OpalFusion` product and `import OpalFusion`, including `@_spi(MosaicPrivateAlpha) import OpalFusion` for an already scoped Mosaic adapter. The compatibility umbrella compiles both engines. A host that only needs CashFusion can use the `CashFusionEngine` product and `import CashFusionEngine`, preserving the `OpalFusion.Client`, `Host`, `Transport`, and `ProtocolModel` namespaces while excluding Mosaic compilation. Mosaic adapters can explicitly use the `MosaicEngine` product and matching SPI import. Neither engine depends on the other; both share `OpalFusionCore`. The common `Session.Mode` selection scaffold remains in the umbrella and still provides no runnable public session.
+
+Mosaic remains deferred. Its separate module does not enable a public runtime, satisfy any privacy or deployment gate, or change host reservation, signing, persistence, approval, and broadcast authority.
+
 The public session boundary is `OpalFusion.Client.Session`. The host supplies:
 
 - `OpalFusion.Client.Configuration` for primary coordinator connection settings and covert-channel request settings.

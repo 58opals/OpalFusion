@@ -57,6 +57,8 @@ dependencies: [
 
 Do not treat `develop` as a SemVer release. The current pilot is intentionally narrow; the [support statement](docs/cashfusion-native-support-statement.md) owns the remaining implementation and proof gates that must close before a complete support claim.
 
+The `OpalFusion` product preserves the existing umbrella import, including the Mosaic private-alpha SPI, and compiles both engines. A CashFusion-only consumer can select `.product(name: "CashFusionEngine", package: "OpalFusion")` and `import CashFusionEngine`; the same `OpalFusion.Client.Session` namespace is available without a Mosaic dependency. `MosaicEngine` is an independent, deferred product. The shared `OpalFusionCore` contains common host values and package-only BCH helpers. Source consumers must rebuild after this module split.
+
 ## 5-Minute CashFusion Pilot Integration
 
 OpalFusion exposes a conservative public `OpalFusion.Client.Session` wrapper over the internal runtime. The app or OpalBase layer supplies coordinator configuration, join pools, participant reservation material, transaction finalization, and observers.
@@ -156,11 +158,11 @@ Default local validation:
 ./scripts/run-validation-loop.sh
 ```
 
-No arguments and `fast` run the same representative regression selection with a 60-second post-build budget. The wrapper builds test targets first, then includes discovery, process startup, and cold fixture preparation in that budget. It requires Python 3 and reports build time separately. A pass covers only the selected suites; run affected focused suites as well when changing a narrow layer.
+No arguments, `fast`, and `cashfusion-all` run every deterministic CashFusion test. The separate harness excludes Mosaic compilation and registration. Its build deadline is 300 seconds; discovery, process startup, and cold fixture preparation then share a 60-second budget. It requires Python 3 and reports both stages. Protocol timing constants remain unchanged.
 
-Use `./scripts/run-validation-loop.sh all` explicitly for comprehensive deterministic validation. Its historical Debug runtime is approximately 97 minutes. It retains serialized cryptographic phases and a bounded concurrent pool; the fast-lane cutoff does not apply. Plain `swift test` is unchanged and can start the expensive suites together, so it is not the recommended comprehensive runner.
+Mosaic remains deferred: `mosaic-all` is explicit slow conformance/recovery validation, with a 7,200-second post-build deadline. `all` explicitly runs both harnesses. The historical combined Debug runtime was approximately 97 minutes. The Mosaic lane retains its serialized cryptographic phases and bounded concurrent pool.
 
-Documentation-only edits need relevant documentation checks. Cryptography, authentication, protocol bytes, shared cryptographic fixtures, dependency changes, and public candidate publication require comprehensive validation. See the [Validation Guide](docs/validation.md) for the complete change-to-lane matrix and exact fast selection.
+Documentation-only edits need relevant documentation checks. Protocol and cryptographic changes require complete validation for their owning engine; shared core behavior, shared dependencies, and public candidate publication require both engines. Timeouts fail the owning check without retries, omitted cases, or altered protocol timing. See the [Validation Guide](docs/validation.md) for the change-to-lane matrix and exact selections.
 
 Live Electron Cash coordinator proofing is separately opt-in, environment-gated, registration-guarded, and should be treated as a slow confidence gate:
 

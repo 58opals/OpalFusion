@@ -33,7 +33,7 @@ fi
     cd "$repo_root"
     LC_ALL=C rg -l \
         'CanonicalDecoder\.decode|JSONDecoder\(\)\.decode' \
-        Sources/OpalFusion/Mosaic | LC_ALL=C sort
+        Sources/MosaicEngine/Mosaic | LC_ALL=C sort
 ) > "$actual"
 
 if ! diff -u "$registry" "$actual"; then
@@ -92,9 +92,9 @@ echo "Mosaic G4 parser root registry passed (52 files: 52 covered, 0 partial var
     cd "$repo_root"
     LC_ALL=C rg -o \
         'public static func (openTransportBootstrap[A-Za-z0-9_]+|restoreTransportBootstrapPublication)' \
-        Sources/OpalFusion/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapConsensusEnvelope.swift \
-        Sources/OpalFusion/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapEnvelope.swift \
-        Sources/OpalFusion/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapPublicationRestoration.swift \
+        Sources/MosaicEngine/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapConsensusEnvelope.swift \
+        Sources/MosaicEngine/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapEnvelope.swift \
+        Sources/MosaicEngine/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapPublicationRestoration.swift \
         | sed 's/.*public static func //' | LC_ALL=C sort -u
 ) > "$composite_actual"
 
@@ -130,13 +130,26 @@ if [ "$composite_count" -ne 9 ]; then
     exit 1
 fi
 
-if ! git -C "$repo_root" diff --quiet \
-    117949b08f354f5a58b78075dbf14b2ec4e4f88f..79ba5f91449b2c0d5cd6ec73c38fafd58cae0b46 \
-    -- \
+# Historical proof revisions retain their original source layout. Require all
+# four files in both trees before comparing them, so an absent pathspec cannot
+# advertise an empty diff as retained integration evidence.
+proof_before=117949b08f354f5a58b78075dbf14b2ec4e4f88f
+proof_after=79ba5f91449b2c0d5cd6ec73c38fafd58cae0b46
+set -- \
     Sources/OpalFusion/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapConsensusEnvelope.swift \
     Sources/OpalFusion/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapEnvelope.swift \
     Sources/OpalFusion/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapPublicationRestoration.swift \
-    Tests/OpalFusionTests/MosaicPrivateAlphaTransportBootstrapValidator.swift; then
+    Tests/OpalFusionTests/MosaicPrivateAlphaTransportBootstrapValidator.swift
+for proof_revision in "$proof_before" "$proof_after"; do
+    for proof_path do
+        if ! git -C "$repo_root" cat-file -e "$proof_revision:$proof_path" 2>/dev/null; then
+            echo "historical parser proof file is missing: $proof_revision:$proof_path" >&2
+            exit 1
+        fi
+    done
+done
+
+if ! git -C "$repo_root" diff --quiet "$proof_before..$proof_after" -- "$@"; then
     echo "transport composite sources or their integration evidence changed after the passing G2 checkpoint" >&2
     exit 1
 fi
