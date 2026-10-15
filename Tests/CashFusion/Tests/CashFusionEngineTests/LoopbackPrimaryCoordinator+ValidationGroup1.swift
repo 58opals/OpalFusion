@@ -57,6 +57,8 @@ extension LoopbackPrimaryCoordinator {
 
     func stop() async {
         isStopping = true
+        await forwardingProxy?.stop()
+        forwardingProxy = nil
         connection?.stateUpdateHandler = nil
         connection?.cancel()
         connection = nil

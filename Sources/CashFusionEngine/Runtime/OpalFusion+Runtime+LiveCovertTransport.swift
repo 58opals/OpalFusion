@@ -29,12 +29,11 @@ extension OpalFusion.Runtime {
                   plan.endpoint.maxPayloadBytes > 0 else {
                 throw LiveTransportError.malformedCovertEndpoint
             }
-            if let torSocks5 {
-                guard OpalFusion.Runtime.isValidHostName(torSocks5.host),
-                      torSocks5.port > 0,
-                      torSocks5.resolvesCoordinatorHostNameRemotely else {
-                    throw LiveTransportError.invalidConfiguration("Invalid Tor SOCKS5 configuration")
-                }
+            guard let torSocks5,
+                  OpalFusion.Runtime.isValidHostName(torSocks5.host),
+                  torSocks5.port > 0,
+                  torSocks5.resolvesCoordinatorHostNameRemotely else {
+                throw LiveTransportError.invalidConfiguration("Valid Tor SOCKS5 configuration with remote DNS is required")
             }
 
             // Detach the old generation before suspension. Its completions and
@@ -50,6 +49,9 @@ extension OpalFusion.Runtime {
             try Task.checkCancellation()
             guard currentEndpoint == request.endpoint else {
                 throw LiveTransportError.covertEndpointNotPrepared
+            }
+            guard let torSocks5 else {
+                throw LiveTransportError.invalidConfiguration("Tor SOCKS5 configuration is required")
             }
             let baselineFrame = OpalFusion.Transport.BaselineConfiguration.electronCash443.framing
             let framing = OpalFusion.Transport.FrameConfiguration(
@@ -68,8 +70,8 @@ extension OpalFusion.Runtime {
             let connectionID = UUID()
             let requestGeneration = generation
             let connection = CovertSocketConnection(
-                host: torSocks5?.host ?? request.endpoint.host,
-                port: torSocks5?.port ?? UInt16(request.endpoint.port),
+                host: torSocks5.host,
+                port: torSocks5.port,
                 parameters: makeParameters(for: request.endpoint, isolationID: connectionID)
             )
             connections[connectionID] = connection
@@ -138,15 +140,12 @@ extension OpalFusion.Runtime {
                 tlsOptions = nil
             }
 
-            if torSocks5 != nil {
-                let parameters = NWParameters.tcp
-                parameters.preferNoProxies = true
-                parameters.defaultProtocolStack.applicationProtocols = [SOCKS5Framer.options(
-                    host: endpoint.host, port: UInt16(endpoint.port), isolationID: isolationID, tls: tlsOptions
-                )]
-                return parameters
-            }
-            return NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+            let parameters = NWParameters.tcp
+            parameters.preferNoProxies = true
+            parameters.defaultProtocolStack.applicationProtocols = [SOCKS5Framer.options(
+                host: endpoint.host, port: UInt16(endpoint.port), isolationID: isolationID, tls: tlsOptions
+            )]
+            return parameters
         }
     }
 }

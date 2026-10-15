@@ -38,21 +38,22 @@ extension OpalFusion.Runtime {
             return "Covert request timeout must fit the supported duration range"
         }
 
-        if let torSocks5 = configuration.torSocks5 {
-            if let summary = validateHostNameField(
-                torSocks5.host,
-                label: "Tor SOCKS5 host"
-            ) {
-                return summary
-            }
+        guard let torSocks5 = configuration.torSocks5 else {
+            return "Tor SOCKS5 configuration is required"
+        }
+        if let summary = validateHostNameField(
+            torSocks5.host,
+            label: "Tor SOCKS5 host"
+        ) {
+            return summary
+        }
 
-            if torSocks5.port == 0 {
-                return "Tor SOCKS5 port must be greater than zero"
-            }
+        if torSocks5.port == 0 {
+            return "Tor SOCKS5 port must be greater than zero"
+        }
 
-            if torSocks5.resolvesCoordinatorHostNameRemotely == false {
-                return "Tor SOCKS5 remote hostname resolution must be enabled"
-            }
+        if torSocks5.resolvesCoordinatorHostNameRemotely == false {
+            return "Tor SOCKS5 remote hostname resolution must be enabled"
         }
 
         return nil

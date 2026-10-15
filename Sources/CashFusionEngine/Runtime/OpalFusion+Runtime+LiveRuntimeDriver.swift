@@ -89,7 +89,8 @@ extension OpalFusion.Runtime {
                     OpalFusion.Runtime.LivePrimaryTransport(
                         host: configuration.coordinatorHost,
                         port: configuration.coordinatorPort,
-                        requiresTLS: configuration.coordinatorRequiresTLS
+                        requiresTLS: configuration.coordinatorRequiresTLS,
+                        torSocks5: configuration.torSocks5
                     )
                 }
             }

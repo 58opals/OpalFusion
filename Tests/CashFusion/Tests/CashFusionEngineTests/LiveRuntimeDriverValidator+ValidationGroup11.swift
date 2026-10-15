@@ -17,7 +17,8 @@ extension LiveRuntimeDriverValidator {
             configuration: .init(
                 coordinatorHost: "127.0.0.1",
                 coordinatorPort: await coordinator.port,
-                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel,
+                torSocks5: try await coordinator.makeProxyConfiguration()
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,

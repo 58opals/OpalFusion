@@ -139,7 +139,8 @@ extension LiveRuntimeDriverValidator {
             coordinatorHost: "::1",
             coordinatorPort: baseConfiguration.coordinatorPort,
             coordinatorRequiresTLS: baseConfiguration.coordinatorRequiresTLS,
-            covertChannel: baseConfiguration.covertChannel
+            covertChannel: baseConfiguration.covertChannel,
+            torSocks5: baseConfiguration.torSocks5
         )
         #expect(OpalFusion.Runtime.validateConfiguration(coordinatorConfiguration) == nil)
 

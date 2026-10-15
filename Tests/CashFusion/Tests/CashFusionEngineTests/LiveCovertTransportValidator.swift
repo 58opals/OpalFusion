@@ -66,7 +66,12 @@ extension LiveCovertTransportValidator {
         operation: @Sendable (OpalFusion.Runtime.LiveCovertTransport, CovertSocketTestServer, OpalFusion.Runtime.CovertEndpointContext) async throws -> Void
     ) async throws {
         let server = try await CovertSocketTestServer.start(reply: reply, requiresTLS: requiresTLS, proxyMode: proxyMode, proxyReply: proxyReply)
-        let proxy: OpalFusion.Transport.TorSocks5Configuration? = proxyMode == .disabled ? nil : .init(host: "127.0.0.1", port: await server.port)
+        // Plain/TLS framing peers stay independent destinations behind a real
+        // loopback SOCKS tunnel. No live transport gets a direct-mode exception.
+        let forwardingProxy = proxyMode == .disabled ? try await CovertSocketTestServer.start(proxyMode: .forward) : nil
+        let proxy = OpalFusion.Transport.TorSocks5Configuration(
+            host: "127.0.0.1", port: await (forwardingProxy ?? server).port
+        )
         let anchors = trustCertificate ? try await LoopbackPrimaryTLSTestFixture.loadTrustAnchorCertificateDERs() : []
         let transport = OpalFusion.Runtime.LiveCovertTransport(torSocks5: proxy, tlsTrustAnchorCertificateDERs: anchors)
         let serverPort = await server.port
@@ -76,10 +81,12 @@ extension LiveCovertTransportValidator {
             try await operation(transport, server, endpoint)
         } catch {
             await transport.reset()
+            await forwardingProxy?.stop()
             await server.stop()
             throw error
         }
         await transport.reset()
+        await forwardingProxy?.stop()
         await server.stop()
     }
 }

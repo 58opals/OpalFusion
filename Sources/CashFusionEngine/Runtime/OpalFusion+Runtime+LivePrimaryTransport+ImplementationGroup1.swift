@@ -20,8 +20,8 @@ extension OpalFusion.Runtime.LivePrimaryTransport {
         )
 
         let connection = try connectionFactory(
-            host,
-            port,
+            torSocks5?.host ?? host,
+            torSocks5?.port ?? port,
             makeParameters()
         )
         let connectionID = ObjectIdentifier(connection as AnyObject)
@@ -149,8 +149,21 @@ extension OpalFusion.Runtime.LivePrimaryTransport {
     }
 
     func makeParameters() -> NWParameters {
+        let tlsOptions = makeTLSOptions()
+        if torSocks5 != nil {
+            let parameters = NWParameters.tcp
+            parameters.preferNoProxies = true
+            parameters.defaultProtocolStack.applicationProtocols = [OpalFusion.Runtime.SOCKS5Framer.options(
+                host: host, port: port, isolationID: UUID(), tls: tlsOptions
+            )]
+            return parameters
+        }
+        return NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+    }
+
+    private func makeTLSOptions() -> NWProtocolTLS.Options? {
         guard requiresTLS else {
-            return .tcp
+            return nil
         }
 
         let tlsOptions = NWProtocolTLS.Options()
@@ -181,9 +194,6 @@ extension OpalFusion.Runtime.LivePrimaryTransport {
             )
         }
 
-        return NWParameters(
-            tls: tlsOptions,
-            tcp: NWProtocolTCP.Options()
-        )
+        return tlsOptions
     }
 }

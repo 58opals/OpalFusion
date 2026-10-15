@@ -32,6 +32,8 @@ The runner requires the same live coordinator configuration as the interop valid
 
 - `OPALFUSION_EC_COORDINATOR_HOST`
 - `OPALFUSION_EC_COORDINATOR_PORT`
+- `OPALFUSION_EC_TOR_SOCKS5_HOST`
+- `OPALFUSION_EC_TOR_SOCKS5_PORT`
 - `OPALFUSION_EC_GENESIS_HASH_HEX`
 - `OPALFUSION_EC_JOIN_TIER`
 - `OPALFUSION_EC_INPUT_TXID_HEX`
@@ -42,7 +44,7 @@ The runner requires the same live coordinator configuration as the interop valid
 - `OPALFUSION_EC_OUTPUT_LOCKING_SCRIPT_HEX`
 - `OPALFUSION_EC_OUTPUT_AMOUNT_SATOSHIS`
 
-The script prints missing variable names when configuration is incomplete, but it never prints environment values. Optional Tor settings remain environment-owned and must not be copied into summaries or committed docs.
+The script prints missing variable names when configuration is incomplete, but it never prints environment values. Live startup requires Tor SOCKS5 host and port and remote hostname resolution (enabled by default); missing or unsafe proxy settings fail closed before network activity. Tor settings remain environment-owned and must not be copied into summaries or committed docs.
 
 ## Redacted Summary
 

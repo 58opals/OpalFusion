@@ -12,6 +12,7 @@ extension ElectronCashInteropValidator {
     )
     func validateRealElectronCashCoordinatorInterop() async throws {
         let interopConfiguration = try ElectronCashInteropConfiguration.fromEnvironment()
+        try interopConfiguration.clientConfiguration.validate()
         let participantReservationSource = DelayedParticipantReservationSource(
             participantInputs: interopConfiguration.participantReservation.inputs,
             participantOutputs: interopConfiguration.participantReservation.outputs
@@ -26,7 +27,8 @@ extension ElectronCashInteropValidator {
             base: OpalFusion.Runtime.LivePrimaryTransport(
                 host: interopConfiguration.clientConfiguration.coordinatorHost,
                 port: interopConfiguration.clientConfiguration.coordinatorPort,
-                requiresTLS: interopConfiguration.clientConfiguration.coordinatorRequiresTLS
+                requiresTLS: interopConfiguration.clientConfiguration.coordinatorRequiresTLS,
+                torSocks5: interopConfiguration.clientConfiguration.torSocks5
             )
         )
         let covertTransport = RecordingCovertTransport(

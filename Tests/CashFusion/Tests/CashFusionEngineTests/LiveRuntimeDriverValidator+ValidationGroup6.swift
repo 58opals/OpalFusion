@@ -62,7 +62,8 @@ extension LiveRuntimeDriverValidator {
                 coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
                 coordinatorPort: await coordinator.port,
                 coordinatorRequiresTLS: true,
-                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel,
+                torSocks5: try await coordinator.makeProxyConfiguration()
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
@@ -85,6 +86,7 @@ extension LiveRuntimeDriverValidator {
                     host: configuration.coordinatorHost,
                     port: configuration.coordinatorPort,
                     requiresTLS: configuration.coordinatorRequiresTLS,
+                    torSocks5: configuration.torSocks5,
                     tlsTrustAnchorCertificateDERs: tlsTrustAnchorCertificateDERs
                 )
             },

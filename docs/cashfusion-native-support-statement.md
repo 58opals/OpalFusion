@@ -59,3 +59,7 @@ Complete support remains dependent on the implementation and proof gates below p
 - Maintainer architecture map: [`architecture.md`](architecture.md)
 - Shared facade and engine selection: [`opal-fusion-specification.md`](opal-fusion-specification.md)
 - Mosaic draft and security boundary: [`mosaic-protocol-specification.md`](mosaic-protocol-specification.md) and [`mosaic-security-model.md`](mosaic-security-model.md)
+
+## Privacy transport admission
+
+Live sessions require a configured Tor SOCKS5 endpoint with remote DNS before transport construction. The host can call `Client.Configuration.validate()` before reserving funds. Both primary and covert transports connect through SOCKS with fresh connection isolation credentials and no direct fallback. Loopback tests prove routing, remote destination forwarding, cancellation, TLS tunneling, and isolation credential separation; they do not prove that an arbitrary configured SOCKS service is Tor or that its deployment provides anonymity. Missing Tor remains source-compatible configuration data but is rejected at live startup.

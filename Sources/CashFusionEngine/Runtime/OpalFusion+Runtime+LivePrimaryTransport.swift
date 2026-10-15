@@ -19,6 +19,7 @@ extension OpalFusion.Runtime {
         let host: String
         let port: UInt16
         let requiresTLS: Bool
+        let torSocks5: OpalFusion.Transport.TorSocks5Configuration?
         let tlsTrustAnchorCertificateDERs: [Data]
         let tlsVerificationQueue: DispatchQueue
         let restartDelay: Duration
@@ -30,6 +31,7 @@ extension OpalFusion.Runtime {
             host: String,
             port: UInt16,
             requiresTLS: Bool = false,
+            torSocks5: OpalFusion.Transport.TorSocks5Configuration? = nil,
             tlsTrustAnchorCertificateDERs: [Data] = [],
             restartDelay: Duration = .milliseconds(100),
             connectionFactory: @escaping PrimaryConnectionBuilder = {
@@ -46,6 +48,7 @@ extension OpalFusion.Runtime {
             self.host = host
             self.port = port
             self.requiresTLS = requiresTLS
+            self.torSocks5 = torSocks5
             self.tlsTrustAnchorCertificateDERs = tlsTrustAnchorCertificateDERs
             self.tlsVerificationQueue = DispatchQueue(
                 label: "OpalFusion.Runtime.LivePrimaryTransport.TLSVerify"

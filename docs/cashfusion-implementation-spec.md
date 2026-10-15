@@ -18,7 +18,7 @@ OpalFusion is the collaborative-transaction protocol package for the Opal Bitcoi
 - `OpalCrypto` owns reusable Bitcoin Cash cryptographic primitives.
 - `OpalBase` owns app-facing orchestration, wallet policy, and product-facing integration.
 - `SwiftFulcrum` owns Fulcrum transport responsibilities.
-- The current package support contract is `macOS 27` only; the live covert transport and Tor SOCKS5 runtime path are macOS-only in this first slice.
+- The current package support contract is `macOS 27` only; the live primary/covert transports and Tor SOCKS5 runtime paths are macOS-only in this first slice.
 - Coordinator host, coordinator port, primary-channel TLS policy, Tor SOCKS5 settings, join tiers, pool tags, and product retry policy are app-owned inputs. OpalFusion validates and consumes them, but does not provide production coordinator defaults.
 
 ### Non-goals
@@ -205,7 +205,7 @@ Responsibilities:
 
 Current implementation alignment:
 
-- `Configuration` already models coordinator host, coordinator port, covert channel configuration, and optional Tor SOCKS5 configuration.
+- `Configuration` already models coordinator host, coordinator port, covert channel configuration, and source-compatible optional Tor SOCKS5 configuration. Live startup requires a present, valid proxy with remote DNS; `Configuration.validate()` exposes the same checks before host reservation.
 - `State` already models connection state plus an optional round snapshot.
 - `Error` remains intentionally coarse and still maps configuration, transport, host, protocol, and round-completion outcomes into a stable public surface.
 - `Session` is the conservative public activation wrapper over the internal live runtime.
@@ -244,14 +244,14 @@ OpalFusion-specific choice:
 Responsibilities:
 
 - Own primary-channel framing and configuration.
-- Own covert-channel configuration and optional Tor SOCKS5 proxy usage.
+- Own covert-channel configuration and mandatory Tor SOCKS5 proxy usage for live sessions.
 - Enforce timing-sensitive connection and submission behavior required for interoperability.
 
 Current implementation alignment:
 
 - `CovertChannelConfiguration` models entry path, payload sizing, and request timeout.
 - `TorSocks5Configuration` models proxy host, port, and remote hostname resolution behavior.
-- Tor SOCKS5 applies to the covert framed TCP/TLS transport path only. The primary coordinator connection stays direct unless a future product requirement explicitly asks for coordinator-over-Tor.
+- Tor SOCKS5 applies to both primary coordinator and covert framed TCP/TLS transports. Every connection receives a fresh isolation credential; the primary connection is separate from each covert submission. A proxy failure cannot select a direct fallback.
 
 ### `OpalFusion.Host`
 
@@ -347,9 +347,9 @@ The implementation phase should preserve at least these top-level outcome catego
 Wallet and OpalBase should consume OpalFusion through `OpalFusion.Client.Session` with app-owned configuration:
 
 - Supported platform: macOS 27 for the live runtime in this first slice.
-- Required configuration: non-empty coordinator host, nonzero coordinator port, explicit primary TLS flag, valid covert entry path, positive covert payload and timeout settings, optional valid Tor SOCKS5 host/port, optional 32-byte BCH genesis hash, and non-empty positive unique join-pool tiers.
+- Required configuration: non-empty coordinator host, nonzero coordinator port, explicit primary TLS flag, valid covert entry path, positive covert payload and timeout settings, required valid Tor SOCKS5 host/port with remote hostname resolution, optional 32-byte BCH genesis hash, and non-empty positive unique join-pool tiers.
 - Optional pool tags must have a non-empty identifier and positive limit.
-- Primary TLS follows `coordinatorRequiresTLS`; covert TLS follows `FusionBegin.covert_ssl`; Tor SOCKS5 is used only by covert sockets. Covert messages and responses use the same eight-byte magic and big-endian length framing as `connection.py`, with the upstream 200 KiB payload ceiling. Each submission opens a distinct socket with a unique SOCKS isolation credential, and successful sockets remain owned until the existing round close/reset effect. TLS validates the peer certificate and hostname; SOCKS resolves the destination remotely and cannot fall back directly. SOCKS mode connects TCP only to the configured proxy, requires per-connection username/password authentication, sends domain destinations for remote resolution, and consumes the complete CONNECT reply before enabling the data stream. When TLS is required, the SOCKS framer inserts system TLS above the tunnel with the target server name; certificate verification remains enabled. This explicit connection avoids Network.framework automatic proxy exemptions. The public `entryPath` setting is retained for configuration compatibility and is ignored by this transport. This bounded transport implementation does not implement the upstream randomized warm connection pool or spare-slot scheduling; those timing and anonymity properties are not established by loopback framing tests.
+- Primary TLS follows `coordinatorRequiresTLS`; covert TLS follows `FusionBegin.covert_ssl`; Tor SOCKS5 is used by both primary and covert sockets. Covert messages and responses use the same eight-byte magic and big-endian length framing as `connection.py`, with the upstream 200 KiB payload ceiling. Each submission opens a distinct socket with a unique SOCKS isolation credential, and successful sockets remain owned until the existing round close/reset effect. TLS validates the peer certificate and hostname; SOCKS resolves the destination remotely and cannot fall back directly. SOCKS mode connects TCP only to the configured proxy, requires per-connection username/password authentication, sends domain destinations for remote resolution, and consumes the complete CONNECT reply before enabling the data stream. When TLS is required, the SOCKS framer inserts system TLS above the tunnel with the target server name; certificate verification remains enabled. This explicit connection avoids Network.framework automatic proxy exemptions. The public `entryPath` setting is retained for configuration compatibility and is ignored by this transport. This bounded transport implementation does not implement the upstream randomized warm connection pool or spare-slot scheduling; those timing and anonymity properties are not established by loopback framing tests.
 - Primary transport may retry transient Network.framework waiting states before startup failure, but TLS failures are terminal. Product-level coordinator retry cadence remains app-owned.
 - Terminal round statuses are `success`, `coordinatorRejected`, `hostRejected`, `protocolIncompatible`, `transportFailed`, and `blameRequired`.
 - Public user-safe error categories are `invalidConfiguration`, `transportUnavailable`, `coordinatorRejected`, `hostRejected`, `protocolIncompatible`, `blameRequired`, and `notImplemented`.

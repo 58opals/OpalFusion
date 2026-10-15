@@ -43,7 +43,7 @@ The frozen [mainnet-alpha profile](docs/mosaic-mainnet-alpha-profile.md), [trans
 - Swift tools version: `6.4`
 - Platforms: `macOS 27`
 - Xcode's Metal Toolchain component, required by the current OpalCrypto build plugin.
-- Live CashFusion transport, including the Tor SOCKS5 covert path, is macOS-only. Mosaic transport remains injected and non-live; see [Architecture](docs/architecture.md) for the publisher, routing, lifecycle, and application-owned durability boundaries.
+- Live CashFusion transport, including Tor SOCKS5 for primary and covert paths, is macOS-only. Mosaic transport remains injected and non-live; see [Architecture](docs/architecture.md) for the publisher, routing, lifecycle, and application-owned durability boundaries.
 
 ## Installation
 
@@ -61,7 +61,7 @@ The `OpalFusion` product preserves the existing umbrella import, including the M
 
 ## 5-Minute CashFusion Pilot Integration
 
-OpalFusion exposes a conservative public `OpalFusion.Client.Session` wrapper over the internal runtime. The app or OpalBase layer supplies coordinator configuration, join pools, participant reservation material, transaction finalization, and observers.
+OpalFusion exposes a conservative public `OpalFusion.Client.Session` wrapper over the internal runtime. The app or OpalBase layer supplies coordinator configuration, join pools, participant reservation material, transaction finalization, and observers. A configured Tor SOCKS5 endpoint with remote hostname resolution is required before live startup. Both primary and covert connections use it with separate isolation credentials; neither falls back to direct networking. The loopback endpoint in the example is illustrative: the host must provision and qualify its Tor service. Configuration validation does not establish anonymity or verify the service identity.
 
 ```swift
 import OpalFusion
@@ -76,8 +76,10 @@ let configuration = OpalFusion.Client.Configuration(
     coordinatorHost: "coordinator.example.invalid",
     coordinatorPort: 8787,
     coordinatorRequiresTLS: true,
-    covertChannel: covertChannel
+    covertChannel: covertChannel,
+    torSocks5: .init(host: "127.0.0.1", port: 9050)
 )
+try configuration.validate() // Before reserving host funds.
 
 let joinPools = OpalFusion.ProtocolModel.JoinPools(
     tiers: [10_000],

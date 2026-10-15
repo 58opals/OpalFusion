@@ -27,6 +27,7 @@ actor LoopbackPrimaryCoordinator {
     var inboundError: Error?
     var startContinuation: CheckedContinuation<Void, Error>?
     var isStopping: Bool
+    var forwardingProxy: CovertSocketTestServer?
 
 
 
@@ -51,10 +52,18 @@ actor LoopbackPrimaryCoordinator {
         self.inboundError = nil
         self.startContinuation = nil
         self.isStopping = false
+        self.forwardingProxy = nil
     }
 
     var port: UInt16 {
         portValue
+    }
+
+    func makeProxyConfiguration() async throws -> OpalFusion.Transport.TorSocks5Configuration {
+        if forwardingProxy == nil {
+            forwardingProxy = try await CovertSocketTestServer.start(proxyMode: .forward, tunnelPort: port)
+        }
+        return .init(host: "127.0.0.1", port: await forwardingProxy!.port)
     }
 
 

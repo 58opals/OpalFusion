@@ -78,9 +78,9 @@ actor CovertSocketTestServer {
         connection.start(queue: queue)
         Task {
             do {
-                try await negotiateProxy(connection)
+                let requestedPort = try await negotiateProxy(connection)
                 if proxyMode == .forward {
-                    try await forwardTunnel(connection)
+                    try await forwardTunnel(connection, requestedPort: requestedPort)
                     return
                 }
                 let header = try await read(12, from: connection)
@@ -117,8 +117,8 @@ actor CovertSocketTestServer {
         }
     }
 
-    private func negotiateProxy(_ connection: NWConnection) async throws {
-        guard proxyMode != .disabled else { return }
+    private func negotiateProxy(_ connection: NWConnection) async throws -> UInt16? {
+        guard proxyMode != .disabled else { return nil }
         let greeting = try await read(2, from: connection)
         guard greeting[0] == 5 else { throw LiveRuntimeTestHarnessError.inboundStreamClosed }
         let methods = try await read(Int(greeting[1]), from: connection)
@@ -165,14 +165,15 @@ actor CovertSocketTestServer {
         }
         try await sendProxyReply(proxyReply ?? [5, proxyMode == .reject ? 5 : 0, 0, 1, 127, 0, 0, 1, 0, 0], to: connection)
         if proxyMode == .reject { throw LiveRuntimeTestHarnessError.inboundStreamClosed }
+        return UInt16(port[0]) << 8 | UInt16(port[1])
     }
 
     private func sendProxyReply(_ bytes: [UInt8], to connection: NWConnection) async throws {
         for byte in bytes { try await send([byte], to: connection) }
     }
 
-    private func forwardTunnel(_ connection: NWConnection) async throws {
-        guard let tunnelPort else { throw LiveRuntimeTestHarnessError.missingConnection }
+    private func forwardTunnel(_ connection: NWConnection, requestedPort: UInt16?) async throws {
+        guard let tunnelPort = tunnelPort ?? requestedPort else { throw LiveRuntimeTestHarnessError.missingConnection }
         let upstream = NWConnection(host: "127.0.0.1", port: .init(rawValue: tunnelPort)!, using: .tcp)
         tunnels.append(upstream)
         upstream.start(queue: queue)

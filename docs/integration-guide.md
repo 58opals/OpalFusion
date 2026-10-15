@@ -35,8 +35,9 @@ let configuration = OpalFusion.Client.Configuration(
     coordinatorPort: 8787,
     coordinatorRequiresTLS: true,
     covertChannel: covertChannel,
-    torSocks5: nil
+    torSocks5: .init(host: "127.0.0.1", port: 9050)
 )
+try configuration.validate() // The host must provision and qualify this Tor service.
 
 let joinPools = OpalFusion.ProtocolModel.JoinPools(
     tiers: [10_000],
@@ -44,7 +45,7 @@ let joinPools = OpalFusion.ProtocolModel.JoinPools(
 )
 ```
 
-Primary TLS follows `coordinatorRequiresTLS`. Covert framed TCP/TLS follows the coordinator's `FusionBegin.covert_ssl`. Tor SOCKS5, when configured, applies only to covert sockets, uses remote hostname resolution and per-socket isolation credentials, and forbids direct fallback. SOCKS mode opens TCP only to the configured proxy and negotiates the target explicitly before starting system TLS, so automatic proxy exemptions cannot create a direct coordinator connection. The retained `covertChannel.entryPath` property is legacy configuration compatibility and is ignored by the socket transport; no HTTP path is sent.
+Primary TLS follows `coordinatorRequiresTLS`. Covert framed TCP/TLS follows the coordinator's `FusionBegin.covert_ssl`. A valid Tor SOCKS5 configuration with remote hostname resolution is mandatory for live startup. It applies to both primary and covert sockets, uses fresh per-connection isolation credentials, and forbids direct fallback. Call `Client.Configuration.validate()` before reserving host funds; the same check runs before live transport construction. SOCKS mode opens TCP only to the configured proxy and negotiates the target explicitly before starting system TLS, so automatic proxy exemptions cannot create a direct coordinator connection. The retained `covertChannel.entryPath` property is legacy configuration compatibility and is ignored by the socket transport; no HTTP path is sent.
 
 `OpalFusion.CashFusion.Configuration` can aggregate these coordinator, genesis-hash, join-pool, and reconnect values for the future facade. The runnable pilot continues to pass them directly to `OpalFusion.Client.Session`.
 

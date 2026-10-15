@@ -35,7 +35,8 @@ extension PrimaryRuntimeTestFixtures {
             entryPath: "/fusion",
             maxPayloadBytes: 32_768,
             requestTimeoutMilliseconds: 15_000
-        )
+        ),
+        torSocks5: .init(host: "127.0.0.1", port: 9050)
     )
 
     static let joinPools = OpalFusion.ProtocolModel.JoinPools(

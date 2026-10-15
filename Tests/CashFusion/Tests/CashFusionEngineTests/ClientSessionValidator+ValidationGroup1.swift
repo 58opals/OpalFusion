@@ -158,7 +158,8 @@ extension ClientSessionValidator {
                 coordinatorHost: LoopbackPrimaryTLSTestFixture.host,
                 coordinatorPort: port,
                 coordinatorRequiresTLS: true,
-                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+                covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel,
+                torSocks5: PrimaryRuntimeTestFixtures.configuration.torSocks5
             ),
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,

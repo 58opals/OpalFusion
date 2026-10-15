@@ -28,7 +28,8 @@ extension LiveRuntimeDriverValidator {
         let configuration = OpalFusion.Client.Configuration(
             coordinatorHost: "127.0.0.1",
             coordinatorPort: await coordinator.port,
-            covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel
+            covertChannel: PrimaryRuntimeTestFixtures.configuration.covertChannel,
+            torSocks5: try await coordinator.makeProxyConfiguration()
         )
         let driver = OpalFusion.Runtime.LiveRuntimeDriver(
             configuration: configuration,

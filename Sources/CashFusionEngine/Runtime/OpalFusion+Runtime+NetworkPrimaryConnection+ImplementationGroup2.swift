@@ -134,7 +134,9 @@ extension OpalFusion.Runtime.NetworkPrimaryConnection {
         _ error: NWError
     ) -> Bool {
         switch error {
-        case .tls:
+        case .tls, .posix(.EPROTO):
+            // A rejected/malformed SOCKS handshake cannot recover by restarting
+            // the same connection. Network.framework may report it as waiting.
             false
         case .dns, .posix, .wifiAware:
             true
