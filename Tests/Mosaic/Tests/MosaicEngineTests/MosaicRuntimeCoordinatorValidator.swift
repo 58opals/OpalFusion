@@ -18,41 +18,48 @@ struct MosaicRuntimeCoordinatorValidator {
         await suspension.arm()
         let harness = try makeHarness(reserveSuspension: suspension)
 
-        await harness.coordinator.start()
-        await harness.source.waitUntilOpened()
-        await harness.source.send(
-            .authenticated(
-                try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
-                    fixture: harness.fixture
-                )
-            )
-        )
-        await suspension.waitUntilSuspended()
-
-        await harness.coordinator.stop()
-        await suspension.resume()
-        await harness.coordinator.waitForTermination()
-
-        #expect(
-            await harness.coordinator.state
-                == .terminal(
-                    .cancelled(
-                        .requested(during: .walletReservation),
-                        inputSource: nil
+        do {
+            await harness.coordinator.start()
+            try await harness.source.waitUntilOpened()
+            await harness.source.send(
+                .authenticated(
+                    try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
+                        fixture: harness.fixture
                     )
                 )
-        )
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(
-            await harness.signals.count(.reservationPublished) == 0
-        )
-        #expect(
-            await harness.coordinator.reservationLifecycle
-                == .released(harness.lease.reference)
-        )
+            )
+            await suspension.waitUntilSuspended()
+
+            await harness.coordinator.stop()
+            await suspension.resume()
+            await harness.coordinator.waitForTermination()
+
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(
+                        .cancelled(
+                            .requested(during: .walletReservation),
+                            inputSource: nil
+                        )
+                    )
+            )
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(
+                await harness.signals.count(.reservationPublished) == 0
+            )
+            #expect(
+                await harness.coordinator.reservationLifecycle
+                    == .released(harness.lease.reference)
+            )
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -64,38 +71,45 @@ struct MosaicRuntimeCoordinatorValidator {
         await suspension.arm()
         let harness = try makeHarness(reserveSuspension: suspension)
 
-        await harness.coordinator.start()
-        await harness.source.waitUntilOpened()
-        await harness.source.send(
-            .authenticated(
-                try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
-                    fixture: harness.fixture
-                )
-            )
-        )
-        await suspension.waitUntilSuspended()
-
-        await harness.source.finish()
-        await harness.source.waitUntilClosed()
-        await suspension.resume()
-        await harness.coordinator.waitForTermination()
-
-        #expect(
-            await harness.coordinator.state
-                == .terminal(
-                    .cancelled(
-                        .requested(during: .walletReservation),
-                        inputSource: .finished
+        do {
+            await harness.coordinator.start()
+            try await harness.source.waitUntilOpened()
+            await harness.source.send(
+                .authenticated(
+                    try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
+                        fixture: harness.fixture
                     )
                 )
-        )
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(
-            await harness.signals.count(.reservationPublished) == 0
-        )
+            )
+            await suspension.waitUntilSuspended()
+
+            await harness.source.finish()
+            try await harness.source.waitUntilClosed()
+            await suspension.resume()
+            await harness.coordinator.waitForTermination()
+
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(
+                        .cancelled(
+                            .requested(during: .walletReservation),
+                            inputSource: .finished
+                        )
+                    )
+            )
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(
+                await harness.signals.count(.reservationPublished) == 0
+            )
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -109,38 +123,45 @@ struct MosaicRuntimeCoordinatorValidator {
             reservationPublicationSuspension: suspension
         )
 
-        await harness.coordinator.start()
-        await harness.source.waitUntilOpened()
-        await harness.source.send(
-            .authenticated(
-                try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
-                    fixture: harness.fixture
-                )
-            )
-        )
-        await suspension.waitUntilSuspended()
-
-        await harness.source.finish()
-        await harness.source.waitUntilClosed()
-        await suspension.resume()
-        await harness.coordinator.waitForTermination()
-
-        #expect(
-            await harness.signals.count(.reservationPublished) == 1
-        )
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(
-            await harness.coordinator.state
-                == .terminal(
-                    .cancelled(
-                        .requested(during: .walletReservation),
-                        inputSource: .finished
+        do {
+            await harness.coordinator.start()
+            try await harness.source.waitUntilOpened()
+            await harness.source.send(
+                .authenticated(
+                    try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
+                        fixture: harness.fixture
                     )
                 )
-        )
+            )
+            await suspension.waitUntilSuspended()
+
+            await harness.source.finish()
+            try await harness.source.waitUntilClosed()
+            await suspension.resume()
+            await harness.coordinator.waitForTermination()
+
+            #expect(
+                await harness.signals.count(.reservationPublished) == 1
+            )
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(
+                        .cancelled(
+                            .requested(during: .walletReservation),
+                            inputSource: .finished
+                        )
+                    )
+            )
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -150,33 +171,39 @@ struct MosaicRuntimeCoordinatorValidator {
     func drainReleaseBeforeSourceCancellation() async throws {
         let harness = try makeHarness()
 
-        await harness.coordinator.start()
-        await harness.source.waitUntilOpened()
-        await harness.source.send(
-            .authenticated(
-                try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
-                    fixture: harness.fixture
-                )
-            )
-        )
-        await harness.signals.wait(for: .reservationPublished)
-        await harness.source.finish()
-        await harness.coordinator.waitForTermination()
-
-        #expect(
-            await harness.coordinator.state
-                == .terminal(
-                    .cancelled(
-                        .requested(during: .walletReservation),
-                        inputSource: .finished
+        do {
+            await harness.coordinator.start()
+            try await harness.source.waitUntilOpened()
+            await harness.source.send(
+                .authenticated(
+                    try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
+                        fixture: harness.fixture
                     )
                 )
-        )
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(await harness.source.closeCount == 1)
+            )
+            await harness.signals.wait(for: .reservationPublished)
+            await harness.source.finish()
+            await harness.coordinator.waitForTermination()
+
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(
+                        .cancelled(
+                            .requested(during: .walletReservation),
+                            inputSource: .finished
+                        )
+                    )
+            )
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(await harness.source.closeCount == 1)
+        } catch {
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -187,18 +214,24 @@ struct MosaicRuntimeCoordinatorValidator {
         let harness = try makeHarness()
         await harness.signals.fail(.preSignPublished)
 
-        try await sendThroughComponentSet(harness)
-        await harness.coordinator.waitForTermination()
+        do {
+            try await sendThroughComponentSet(harness)
+            await harness.coordinator.waitForTermination()
 
-        #expect(
-            await harness.coordinator.state
-                == .terminal(.failed(.preSignPublicationFailed))
-        )
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(await harness.host.signingRequests.isEmpty)
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(.failed(.preSignPublicationFailed))
+            )
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(await harness.host.signingRequests.isEmpty)
+        } catch {
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -210,25 +243,32 @@ struct MosaicRuntimeCoordinatorValidator {
         await suspension.arm()
         let harness = try makeHarness(signingSuspension: suspension)
 
-        try await sendThroughTranscriptAgreement(harness)
-        await suspension.waitUntilSuspended()
-        await harness.coordinator.stop()
-        await suspension.resume()
-        await harness.coordinator.waitForTermination()
+        do {
+            try await sendThroughTranscriptAgreement(harness)
+            await suspension.waitUntilSuspended()
+            await harness.coordinator.stop()
+            await suspension.resume()
+            await harness.coordinator.waitForTermination()
 
-        #expect(
-            await harness.coordinator.state
-                == .recoveryRequired(
-                    .init(
-                        reservationReference: harness.lease.reference,
-                        reason: .cancellationAfterSigningMayHaveStarted
+            #expect(
+                await harness.coordinator.state
+                    == .recoveryRequired(
+                        .init(
+                            reservationReference: harness.lease.reference,
+                            reason: .cancellationAfterSigningMayHaveStarted
+                        )
                     )
-                )
-        )
-        #expect(await harness.host.releasedReferences.isEmpty)
-        #expect(
-            await harness.signals.count(.localSignaturesPublished) == 0
-        )
+            )
+            #expect(await harness.host.releasedReferences.isEmpty)
+            #expect(
+                await harness.signals.count(.localSignaturesPublished) == 0
+            )
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -242,27 +282,34 @@ struct MosaicRuntimeCoordinatorValidator {
             signingRequestSuspension: suspension
         )
 
-        try await sendThroughTranscriptAgreement(harness)
-        await suspension.waitUntilSuspended()
-        await harness.source.finish()
-        await harness.source.waitUntilClosed()
-        await suspension.resume()
-        await harness.coordinator.waitForTermination()
+        do {
+            try await sendThroughTranscriptAgreement(harness)
+            await suspension.waitUntilSuspended()
+            await harness.source.finish()
+            try await harness.source.waitUntilClosed()
+            await suspension.resume()
+            await harness.coordinator.waitForTermination()
 
-        #expect(await harness.host.signingRequests.isEmpty)
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(
-            await harness.coordinator.state
-                == .terminal(
-                    .cancelled(
-                        .requested(during: .bchSigning),
-                        inputSource: .finished
+            #expect(await harness.host.signingRequests.isEmpty)
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(
+                        .cancelled(
+                            .requested(during: .bchSigning),
+                            inputSource: .finished
+                        )
                     )
-                )
-        )
+            )
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -272,23 +319,29 @@ struct MosaicRuntimeCoordinatorValidator {
     func closeSourceAfterTerminalLocalSubmission() async throws {
         let harness = try makeHarness(invalidInclusionMaterial: true)
 
-        try await sendThroughComponentSet(harness)
-        await harness.coordinator.waitForTermination()
+        do {
+            try await sendThroughComponentSet(harness)
+            await harness.coordinator.waitForTermination()
 
-        #expect(
-            await harness.coordinator.state
-                == .terminal(
-                    .failed(.runtime(.invalidTranscriptInclusionValidation))
-                )
-        )
-        #expect(await harness.source.closeCount == 1)
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(
-            await harness.signals.count(.preSignPublished) == 0
-        )
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(
+                        .failed(.runtime(.invalidTranscriptInclusionValidation))
+                    )
+            )
+            #expect(await harness.source.closeCount == 1)
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(
+                await harness.signals.count(.preSignPublished) == 0
+            )
+        } catch {
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -298,26 +351,32 @@ struct MosaicRuntimeCoordinatorValidator {
     func commitExactCompleteTransactionBeforeCompletion() async throws {
         let harness = try makeHarness()
 
-        try await sendThroughTranscriptAgreement(harness)
-        await harness.signals.wait(for: .localSignaturesPublished)
-        await harness.source.send(
-            .hostResult(
-                .signedTransactionValidated(
-                    attemptIdentifier: harness.fixture.attemptIdentifier,
-                    generationIdentifier: harness.fixture.generationIdentifier,
-                    contributorSigners: harness.fixture.roster.contributors
+        do {
+            try await sendThroughTranscriptAgreement(harness)
+            await harness.signals.wait(for: .localSignaturesPublished)
+            await harness.source.send(
+                .hostResult(
+                    .signedTransactionValidated(
+                        attemptIdentifier: harness.fixture.attemptIdentifier,
+                        generationIdentifier: harness.fixture.generationIdentifier,
+                        contributorSigners: harness.fixture.roster.contributors
+                    )
                 )
             )
-        )
-        await harness.coordinator.waitForTermination()
+            await harness.coordinator.waitForTermination()
 
-        #expect(await harness.coordinator.state == .terminal(.completed))
-        let commits = await harness.host.completeCommits
-        #expect(commits.count == 1)
-        #expect(commits.first?.0 == harness.lease.reference)
-        #expect(commits.first?.1 == harness.completeTransaction)
-        #expect(await harness.host.legacyCommitCount == 0)
-        #expect(await harness.host.releasedReferences.isEmpty)
+            #expect(await harness.coordinator.state == .terminal(.completed))
+            let commits = await harness.host.completeCommits
+            #expect(commits.count == 1)
+            #expect(commits.first?.0 == harness.lease.reference)
+            #expect(commits.first?.1 == harness.completeTransaction)
+            #expect(await harness.host.legacyCommitCount == 0)
+            #expect(await harness.host.releasedReferences.isEmpty)
+        } catch {
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -328,30 +387,36 @@ struct MosaicRuntimeCoordinatorValidator {
         let harness = try makeHarness()
         await harness.host.failCompleteCommit()
 
-        try await sendThroughTranscriptAgreement(harness)
-        await harness.signals.wait(for: .localSignaturesPublished)
-        await harness.source.send(
-            .hostResult(
-                .signedTransactionValidated(
-                    attemptIdentifier: harness.fixture.attemptIdentifier,
-                    generationIdentifier: harness.fixture.generationIdentifier,
-                    contributorSigners: harness.fixture.roster.contributors
-                )
-            )
-        )
-        await harness.coordinator.waitForTermination()
-
-        #expect(
-            await harness.coordinator.state
-                == .recoveryRequired(
-                    .init(
-                        reservationReference: harness.lease.reference,
-                        reason: .completeTransactionCommitFailed
+        do {
+            try await sendThroughTranscriptAgreement(harness)
+            await harness.signals.wait(for: .localSignaturesPublished)
+            await harness.source.send(
+                .hostResult(
+                    .signedTransactionValidated(
+                        attemptIdentifier: harness.fixture.attemptIdentifier,
+                        generationIdentifier: harness.fixture.generationIdentifier,
+                        contributorSigners: harness.fixture.roster.contributors
                     )
                 )
-        )
-        #expect(await harness.host.releasedReferences.isEmpty)
-        #expect(await harness.host.legacyCommitCount == 0)
+            )
+            await harness.coordinator.waitForTermination()
+
+            #expect(
+                await harness.coordinator.state
+                    == .recoveryRequired(
+                        .init(
+                            reservationReference: harness.lease.reference,
+                            reason: .completeTransactionCommitFailed
+                        )
+                    )
+            )
+            #expect(await harness.host.releasedReferences.isEmpty)
+            #expect(await harness.host.legacyCommitCount == 0)
+        } catch {
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test(
@@ -362,34 +427,40 @@ struct MosaicRuntimeCoordinatorValidator {
         let harness = try makeHarness()
         await harness.host.failRelease()
 
-        await harness.coordinator.start()
-        await harness.source.waitUntilOpened()
-        await harness.source.send(
-            .authenticated(
-                try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
-                    fixture: harness.fixture
-                )
-            )
-        )
-        await harness.signals.wait(for: .reservationPublished)
-        await harness.source.finish()
-        await harness.coordinator.waitForTermination()
-
-        #expect(
-            await harness.coordinator.state
-                == .recoveryRequired(
-                    .init(
-                        reservationReference: harness.lease.reference,
-                        reason: .reservationReleaseFailed
+        do {
+            await harness.coordinator.start()
+            try await harness.source.waitUntilOpened()
+            await harness.source.send(
+                .authenticated(
+                    try MosaicRuntimeSessionDriverFixture.makeManifestMessage(
+                        fixture: harness.fixture
                     )
                 )
-        )
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(await harness.host.signingRequests.isEmpty)
-        #expect(await harness.host.completeCommits.isEmpty)
+            )
+            await harness.signals.wait(for: .reservationPublished)
+            await harness.source.finish()
+            await harness.coordinator.waitForTermination()
+
+            #expect(
+                await harness.coordinator.state
+                    == .recoveryRequired(
+                        .init(
+                            reservationReference: harness.lease.reference,
+                            reason: .reservationReleaseFailed
+                        )
+                    )
+            )
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(await harness.host.signingRequests.isEmpty)
+            #expect(await harness.host.completeCommits.isEmpty)
+        } catch {
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
+        }
     }
 
     @Test("The coordinator rejects a conductor as a wallet contributor")
@@ -602,7 +673,7 @@ struct MosaicRuntimeCoordinatorValidator {
         _ harness: Harness
     ) async throws {
         await harness.coordinator.start()
-        await harness.source.waitUntilOpened()
+        try await harness.source.waitUntilOpened()
         await harness.source.send(
             .authenticated(
                 try MosaicRuntimeSessionDriverFixture.makeManifestMessage(

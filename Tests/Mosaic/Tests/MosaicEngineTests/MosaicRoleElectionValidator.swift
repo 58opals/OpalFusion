@@ -492,6 +492,9 @@ struct MosaicRoleElectionValidator {
         _ = timedOut.apply(
             input: .roleCommitmentsReceived(election.commitments)
         )
+        try #require(
+            timedOut.state == .roleSelection(.awaitingElectionValidation(election.commitmentSet))
+        )
         let timeoutFailure = Attempt.Failure.aborted(
             during: .roleSelection,
             reason: .timeout
@@ -504,6 +507,9 @@ struct MosaicRoleElectionValidator {
         var cancelled = attemptAwaitingCommitments(election: election)
         _ = cancelled.apply(
             input: .roleCommitmentsReceived(election.commitments)
+        )
+        try #require(
+            cancelled.state == .roleSelection(.awaitingElectionValidation(election.commitmentSet))
         )
         #expect(
             cancelled.apply(input: .cancel)

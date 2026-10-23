@@ -537,52 +537,59 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
             }
             await completion.markCompleted()
         }
-        for recipient in orderedRecipients.prefix(scenario.activeRecipientLimit) {
-            try await waitUntilSent(recipient, allocation: allocation)
-        }
-        #expect(persistence.appendCallCount == 2)
-
-        let durableBatch = try #require(persistence.preparedBatches.first)
-        #expect(persistence.preparedBatches.count == 1)
-        #expect(durableBatch.channelPurpose == .control)
-        #expect(durableBatch.publications.count == batch.recipients.count)
-        #expect(
-            Set(durableBatch.publications.map {
-                $0.binding.recipientEventIdentity
-            }) == Set(harness.recipients.map {
-                $0.eventVerificationKey.rawRepresentation
-            })
-        )
-
-        try await acknowledge(orderedRecipients[0], allocation: allocation)
-        await suspendedConnection.waitUntilCloseSuspends()
-        let firstContinuation = try #require(
-            publicationJournal.pendingBatchContinuation(for: .control)?.continuations.first {
-                $0.publication.eventIdentifier
-                    == orderedRecipients[0].giftWrap.event.identifier.rawRepresentation
+        do {
+            for recipient in orderedRecipients.prefix(scenario.activeRecipientLimit) {
+                try await waitUntilSent(recipient, allocation: allocation)
             }
-        )
-        #expect(firstContinuation.completion == .transportAccepted)
-        if scenario == .contributor {
-            for recipient in orderedRecipients.dropFirst() {
-                for connection in try #require(allocation.connections[recipient.controlIdentity]) {
-                    #expect(await connection.openCount == 0)
-                    #expect(await connection.sentTexts.isEmpty)
+            #expect(persistence.appendCallCount == 2)
+
+            let durableBatch = try #require(persistence.preparedBatches.first)
+            #expect(persistence.preparedBatches.count == 1)
+            #expect(durableBatch.channelPurpose == .control)
+            #expect(durableBatch.publications.count == batch.recipients.count)
+            #expect(
+                Set(durableBatch.publications.map {
+                    $0.binding.recipientEventIdentity
+                }) == Set(harness.recipients.map {
+                    $0.eventVerificationKey.rawRepresentation
+                })
+            )
+
+            try await acknowledge(orderedRecipients[0], allocation: allocation)
+            await suspendedConnection.waitUntilCloseSuspends()
+            let firstContinuation = try #require(
+                publicationJournal.pendingBatchContinuation(for: .control)?.continuations.first {
+                    $0.publication.eventIdentifier
+                        == orderedRecipients[0].giftWrap.event.identifier.rawRepresentation
                 }
+            )
+            #expect(firstContinuation.completion == .transportAccepted)
+            if scenario == .contributor {
+                for recipient in orderedRecipients.dropFirst() {
+                    for connection in try #require(allocation.connections[recipient.controlIdentity]) {
+                        #expect(await connection.openCount == 0)
+                        #expect(await connection.sentTexts.isEmpty)
+                    }
+                }
+                #expect(await completion.isCompleted == false)
+                await suspendedConnection.resumeClose()
             }
-            #expect(await completion.isCompleted == false)
+            // Conductor siblings can drain the roster while one slot waits for closure.
+            for recipient in orderedRecipients.dropFirst() {
+                try await waitUntilSent(recipient, allocation: allocation)
+                try await acknowledge(recipient, allocation: allocation)
+            }
+            if scenario != .contributor {
+                #expect(await completion.isCompleted == false)
+                await suspendedConnection.resumeClose()
+            }
+            try await publication.value
+        } catch {
+            publication.cancel()
             await suspendedConnection.resumeClose()
+            _ = await publication.result
+            throw error
         }
-        // Conductor siblings can drain the roster while one slot waits for closure.
-        for recipient in orderedRecipients.dropFirst() {
-            try await waitUntilSent(recipient, allocation: allocation)
-            try await acknowledge(recipient, allocation: allocation)
-        }
-        if scenario != .contributor {
-            #expect(await completion.isCompleted == false)
-            await suspendedConnection.resumeClose()
-        }
-        try await publication.value
         #expect(await concurrency.maximumActiveRecipientCount == scenario.activeRecipientLimit)
         #expect(await concurrency.maximumActiveRouteCount == scenario.activeRecipientLimit * Alpha.relayCount)
         #expect(await concurrency.activeRouteCount == 0)
@@ -1494,11 +1501,17 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
     func concurrentAcknowledgementObservers() async throws {
         let (journal, persistence, batch) = try await preparedAcknowledgementBatch()
         let observations = acknowledgementObservations(batch)
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingOldest(1))
         let task = Task {
+            entered.continuation.yield(())
+            for await _ in release.stream { break }
+            #expect(Task.isCancelled)
             try await withThrowingTaskGroup(of: Journal.Continuation.self) { group in
                 for observation in observations {
                     group.addTask {
-                        try await journal.recordObservedAcknowledgements(
+                        #expect(Task.isCancelled)
+                        return try await journal.recordObservedAcknowledgements(
                             observation.acknowledgements, eventIdentifier: observation.eventIdentifier)
                     }
                 }
@@ -1507,8 +1520,14 @@ struct MosaicMainnetAlphaPostManifestControlBatchPublisherValidator {
                 }
             }
         }
+        var iterator = entered.stream.makeAsyncIterator()
+        let didEnter = await iterator.next()
         task.cancel()
+        release.continuation.yield(())
+        release.continuation.finish()
+        entered.continuation.finish()
         try await task.value
+        try #require(didEnter != nil)
         let restarted = try Journal(context: journal.recoveryContext, persistence: persistence.persistence)
         for continuation in batch.continuations {
             #expect(try restarted.currentContinuation(matching: continuation).completion == .transportAccepted)

@@ -126,15 +126,6 @@ extension MosaicMainnetAlphaPrivateNostrMappingValidator {
         }
     }
 
-    func candidate(
-        for identity: Attempt.ControlIdentity
-    ) throws -> MosaicPrivateDeploymentFixtures.CandidateKeyMaterial {
-        let scalar = try #require(
-            MosaicMainnetAlphaFixtures.scalarByte(for: identity)
-        )
-        return try .init(scalar: scalar)
-    }
-
     func makeEvent(
         payload: Alpha.PreManifestNostrPayloadDocument,
         candidate: MosaicPrivateDeploymentFixtures.CandidateKeyMaterial,

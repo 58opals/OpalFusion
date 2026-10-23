@@ -24,10 +24,10 @@ struct MosaicUnsignedTransactionTranscriptValidator {
         )
         #expect(transaction.version == 2)
         #expect(transaction.lockTime == 0)
-        #expect(transaction.inputs.count == 1)
+        try #require(transaction.inputs.count == 1)
         #expect(transaction.inputs[0].unlockingScript.isEmpty)
         #expect(transaction.inputs[0].sequence == UInt32.max)
-        #expect(transaction.outputs.count == 1)
+        try #require(transaction.outputs.count == 1)
         #expect(transaction.outputs[0].lockingScript.first != 0x6A)
         #expect(prepared.transcript.estimatedFinalSignedByteCount == 185)
         #expect(prepared.transcript.feeSatoshis == 185)
@@ -72,6 +72,7 @@ struct MosaicUnsignedTransactionTranscriptValidator {
             } == [indexedDigest(4), indexedDigest(4), indexedDigest(5)]
         )
         #expect(first.transaction.outputs.map(\.amountSatoshis) == [2_500, 2_500])
+        try #require(first.transaction.outputs.count == 2)
         #expect(first.transaction.outputs[0].lockingScript == p2pkh(fill: 0x10))
         #expect(first.transaction.outputs[1].lockingScript == p2pkh(fill: 0x20))
     }
@@ -177,7 +178,7 @@ struct MosaicUnsignedTransactionTranscriptValidator {
         }
     }
 
-    @Test("Fail closed outside the Opal-v0 profile")
+    @Test("Reject the non-executable draft profile")
     func rejectUnsupportedProfile() throws {
         let roster = try makeRoster(candidateCount: 7)
         let commitmentSet = try MosaicUnsignedTransactionTranscriptFixtures

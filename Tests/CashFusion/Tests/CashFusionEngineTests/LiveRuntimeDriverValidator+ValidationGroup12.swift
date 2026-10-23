@@ -36,106 +36,125 @@ extension LiveRuntimeDriverValidator {
             covertTransport: covertTransport
         )
 
-        await driver.start()
-        try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while (await primaryTransport.recordedWrittenPayloads).isEmpty {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-
-        await nowProvider.update(unixSeconds: 996)
-        await primaryTransport.yieldInboundBytes(
-            try PrimaryRuntimeTestFixtures.encodeServerFrame(
-                .serverHello(PrimaryRuntimeTestFixtures.serverHello)
-            )
-        )
-        try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while (await primaryTransport.recordedWrittenPayloads).count < 2 {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-
-        await nowProvider.update(unixSeconds: 1_000)
-        await primaryTransport.yieldInboundBytes(
-            try PrimaryRuntimeTestFixtures.encodeServerFrame(
-                .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
-            )
-        )
-        try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while (await covertTransport.recordedPreparationPlans).isEmpty {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-
-        await nowProvider.update(unixSeconds: 1_030)
-        await primaryTransport.yieldInboundBytes(
-            try PrimaryRuntimeTestFixtures.encodeServerFrame(
-                .startRound(PrimaryRuntimeTestFixtures.startRound)
-            )
-        )
-        try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while (await primaryTransport.recordedWrittenPayloads).count < 3 {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-
-        await nowProvider.update(unixSeconds: 1_032)
-        await primaryTransport.yieldInboundBytes(
-            try PrimaryRuntimeTestFixtures.encodeServerFrame(
-                .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
-            )
-        )
-
-        await nowProvider.update(unixSeconds: 1_034)
-        await primaryTransport.yieldInboundBytes(
-            try PrimaryRuntimeTestFixtures.encodeServerFrame(
-                .allCommitments(PrimaryRuntimeTestFixtures.allCommitments)
-            )
-        )
-        await nowProvider.update(unixSeconds: 1_035)
-        try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while (await covertTransport.recordedRequests).count < 1 {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-
-        let snapshotBeforeStop = await driver.currentSnapshot
-        #expect(snapshotBeforeStop.clientState.round?.phase == .awaitingCommitments)
-        #expect(snapshotBeforeStop.lastError == nil)
-
-        await driver.stop()
-
-        let stoppedSnapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while true {
-                let snapshot = await driver.currentSnapshot
-                if snapshot.lastError == nil &&
-                    snapshot.lastErrorSummary == nil &&
-                    snapshot.clientState.isConnected == false {
-                    return snapshot
+        var retainedCovertRequestTask: Task<Void, Never>?
+        do {
+            await driver.start()
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while (await primaryTransport.recordedWrittenPayloads).isEmpty {
+                    try await Task.sleep(for: .milliseconds(10))
                 }
-                try await Task.sleep(for: .milliseconds(10))
             }
-        }
-        #expect(stoppedSnapshot.lastError == nil)
-        #expect(stoppedSnapshot.lastErrorSummary == nil)
-        #expect(stoppedSnapshot.clientState.isConnected == false)
-        #expect(stoppedSnapshot.clientState.round == nil)
-        #expect(await covertTransport.recordedResetCount > 0)
 
-        let eventsAfterStop = await eventSink.recordedSnapshots
-        #expect(eventsAfterStop.contains { $0.event.summary == "Primary channel disconnected" } == false)
-
-        await covertTransport.releasePerform(
-            response: try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
-                PrimaryRuntimeTestFixtures.acknowledgement
+            await nowProvider.update(unixSeconds: 996)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .serverHello(PrimaryRuntimeTestFixtures.serverHello)
+                )
             )
-        )
-        try await Task.sleep(for: .milliseconds(50))
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while (await primaryTransport.recordedWrittenPayloads).count < 2 {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
 
-        let finalSnapshot = await driver.currentSnapshot
-        #expect(finalSnapshot == stoppedSnapshot)
+            await nowProvider.update(unixSeconds: 1_000)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .fusionBegin(PrimaryRuntimeTestFixtures.fusionBegin)
+                )
+            )
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while (await covertTransport.recordedPreparationPlans).isEmpty {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
 
-        let eventsAfterRelease = await eventSink.recordedSnapshots
-        #expect(eventsAfterRelease == eventsAfterStop)
+            await nowProvider.update(unixSeconds: 1_030)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .startRound(PrimaryRuntimeTestFixtures.startRound)
+                )
+            )
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while (await primaryTransport.recordedWrittenPayloads).count < 3 {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
+
+            await nowProvider.update(unixSeconds: 1_032)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .blindSignatureResponses(PrimaryRuntimeTestFixtures.blindSignatureResponses)
+                )
+            )
+
+            await nowProvider.update(unixSeconds: 1_034)
+            await primaryTransport.yieldInboundBytes(
+                try PrimaryRuntimeTestFixtures.encodeServerFrame(
+                    .allCommitments(PrimaryRuntimeTestFixtures.allCommitments)
+                )
+            )
+            await nowProvider.update(unixSeconds: 1_035)
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while (await covertTransport.recordedRequests).count < 1 {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
+
+            let covertRequestTask = try #require(await driver.covertRequestTask)
+            retainedCovertRequestTask = covertRequestTask
+
+            let snapshotBeforeStop = await driver.currentSnapshot
+            #expect(snapshotBeforeStop.clientState.round?.phase == .awaitingCommitments)
+            #expect(snapshotBeforeStop.lastError == nil)
+
+            await driver.stop()
+
+            let stoppedSnapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while true {
+                    let snapshot = await driver.currentSnapshot
+                    if snapshot.lastError == nil &&
+                        snapshot.lastErrorSummary == nil &&
+                        snapshot.clientState.isConnected == false {
+                        return snapshot
+                    }
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
+            #expect(stoppedSnapshot.lastError == nil)
+            #expect(stoppedSnapshot.lastErrorSummary == nil)
+            #expect(stoppedSnapshot.clientState.isConnected == false)
+            #expect(stoppedSnapshot.clientState.round == nil)
+            #expect(await covertTransport.recordedResetCount > 0)
+
+            let eventsAfterStop = await eventSink.recordedSnapshots
+            #expect(eventsAfterStop.contains { $0.event.summary == "Primary channel disconnected" } == false)
+
+            await covertTransport.releasePerform(
+                response: try PrimaryRuntimeTestFixtures.encodeCovertResponsePayload(
+                    PrimaryRuntimeTestFixtures.acknowledgement
+                )
+            )
+            await covertRequestTask.value
+
+            let finalSnapshot = await driver.currentSnapshot
+            #expect(finalSnapshot == stoppedSnapshot)
+
+            let eventsAfterRelease = await eventSink.recordedSnapshots
+            #expect(eventsAfterRelease == eventsAfterStop)
+
+            await driver.stop()
+        } catch {
+            let heldTask: Task<Void, Never>?
+            if let retainedCovertRequestTask {
+                heldTask = retainedCovertRequestTask
+            } else {
+                heldTask = await driver.covertRequestTask
+            }
+            await driver.stop()
+            await covertTransport.failPerform(CancellationError())
+            await heldTask?.value
+            throw error
+        }
     }
 }

@@ -157,7 +157,7 @@ swift test --package-path Tests/Mosaic --filter MosaicNostrRelayMessageCodecVali
 swift test --package-path Tests/Mosaic --filter MosaicNostrNIP59EnvelopeCodecValidator
 swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestNIP59TransportValidator
 swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestTransportIngressValidator
-swift test --package-path Tests/CashFusion --filter PostManifestReplayJournal
+swift test --package-path Tests/Mosaic --filter PostManifestReplayJournal
 swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaControlPublicationBridgeValidator
 swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestAnonymousPublicationBridgeValidator
 swift test --package-path Tests/Mosaic --filter MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator

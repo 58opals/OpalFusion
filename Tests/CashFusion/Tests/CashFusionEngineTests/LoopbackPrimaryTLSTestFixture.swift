@@ -72,7 +72,9 @@ enum LoopbackPrimaryTLSTestFixture {
         let certificatePEM = try String(contentsOf: certificateURL, encoding: .utf8)
         let certificateDER = try decodePEM(certificatePEM)
         let importOptions = [
-            kSecImportExportPassphrase as String: pkcs12Passphrase
+            kSecImportExportPassphrase as String: pkcs12Passphrase,
+            // Keep the synthetic TLS identity out of the host's default Keychain.
+            kSecImportToMemoryOnly as String: true
         ] as CFDictionary
         var importedItems: CFArray?
         let importStatus = SecPKCS12Import(

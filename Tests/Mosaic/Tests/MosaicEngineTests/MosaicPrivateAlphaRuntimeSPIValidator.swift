@@ -1323,6 +1323,90 @@ struct MosaicPrivateAlphaRuntimeSPIValidator {
         }
     }
 
+    @Test("Close completed raw SPI routes when duplicate connection preflight rejects")
+    func closeRawRoutesRejectedByDuplicateConnectionPreflight() async throws {
+        let fixture = try MosaicPrivateDeploymentFixtures
+            .makePrivateAlphaRuntimeProof()
+        let contributor = try #require(
+            fixture.formation.roleElection.roster.contributors.first
+        )
+        let localIdentity = Data(contributor.validatedBytes)
+        let binding = try makeBinding(seed: 0xE9)
+        let admission = MosaicPrivateAlphaRuntimePersistenceStore()
+        let publication = MosaicPrivateAlphaRuntimePersistenceStore()
+        let terminal = MosaicPrivateAlphaRuntimePersistenceStore()
+        let routes = MosaicPrivateAlphaRuntimePersistenceStore()
+        let baseCapabilities = try MosaicPrivateDeploymentFixtures
+            .makeRuntimeCapabilities(
+                formation: fixture.formation,
+                localControlIdentity: localIdentity,
+                admissionStore: admission,
+                publicationStore: publication,
+                terminalStore: terminal,
+                routeStore: routes
+            )
+        let snapshot = try makeSealedSnapshot(
+            proof: fixture.proof,
+            binding: binding,
+            epoch: fixture.epoch
+        )
+        let owner = try await resumedOwner(snapshot: snapshot, binding: binding)
+        _ = try await persist(
+            owner.preparePostManifestRuntime(
+                localControlIdentity: localIdentity,
+                capabilities: baseCapabilities
+            ),
+            on: owner
+        )
+        let construction = try await owner.makePostManifestConstruction(
+            localControlIdentity: localIdentity
+        )
+        let connections = [
+            ScriptedMosaicPrivateAlphaTorConnection(),
+            ScriptedMosaicPrivateAlphaTorConnection(),
+        ]
+        do {
+            let relays = Runtime.PostManifestRelayCapabilities(
+                provisionRoutes: { requests in
+                    requests.map { request in
+                        Runtime.PostManifestProvisionedRouteGroup(
+                            recipientEventIdentity: request.recipientEventIdentity,
+                            routes: request.relayEndpointIdentifiers.enumerated()
+                                .map { index, endpoint in
+                                    Runtime.PostManifestProvisionedRoute(
+                                        relayEndpointIdentifier: endpoint,
+                                        connection: connections[index == 2 ? 1 : 0],
+                                        isolationIdentifier: UUID()
+                                    )
+                                }
+                        )
+                    }
+                },
+                makeSubscriptionIdentifier:
+                    baseCapabilities.relays.makeSubscriptionIdentifier,
+                maximumSubscriptionIdentifierByteCount: 64
+            )
+            let transportOwner = try construction.makeTransportOwner(
+                capabilities: replacingRelays(baseCapabilities, with: relays),
+                relaySelection: construction.makeRelaySelection(relays)
+            )
+            await #expect(throws: Alpha.PostManifestAttemptTransportOwner
+                .Failure.routeProvisioningFailed) {
+                _ = try await transportOwner.provisionInboundRuntime()
+            }
+            // Observe package-owned rejection cleanup before explicit fixture cleanup.
+            for connection in connections {
+                #expect(await connection.closeCount == 1)
+                #expect(await connection.openCount == 0)
+                #expect(await connection.sentTexts.isEmpty)
+            }
+        } catch {
+            for connection in connections { await connection.close() }
+            throw error
+        }
+        for connection in connections { await connection.close() }
+    }
+
     @Test("Bound subscription identifier bytes and JSON frame expansion")
     func boundSubscriptionIdentifierBytesAndJSONFrameExpansion() async throws {
         let fixture = try MosaicPrivateDeploymentFixtures

@@ -37,9 +37,10 @@ extension ProductionWorkflowValidator {
             }
         )
 
+        let encryptedProof = try #require(myProofsList.encryptedProofs.first)
         let decryptedProof = try OpalCrypto.Communication.decrypt(
             OpalCrypto.Communication.Ciphertext(
-                rawRepresentation: Data(myProofsList.encryptedProofs[0]),
+                rawRepresentation: Data(encryptedProof),
                 maximumCiphertextByteCount: OpalFusion.Execution.ProtocolPrimitives
                     .maximumEncryptedProofCiphertextByteCount
             ),
@@ -54,7 +55,9 @@ extension ProductionWorkflowValidator {
         )
         #expect(sharedRoundMaterial.myComponentIndices.contains(Int(parsedProof.componentIndex)))
 
-        let destinationComponent = playerCommitMaterial.componentsByCommitmentOrder[0]
+        let destinationComponent = try #require(
+            playerCommitMaterial.componentsByCommitmentOrder.first
+        )
         let invalidEncryptedProof = try Array(
             OpalCrypto.Communication.encrypt(
                 message: Data([0x00]),
@@ -95,7 +98,7 @@ extension ProductionWorkflowValidator {
         )
 
         let blames = try scenario.workflow.buildBlames(round: &scenario.round)
-        #expect(blames.blames.count == 2)
+        try #require(blames.blames.count == 2)
         #expect(blames.blames[0].requiresBlockchainLookup == false)
         #expect(blames.blames[0].reason == "proof decode failed")
         if case let .sessionKey(secretBytes: sessionKey) = blames.blames[0].decrypter {
@@ -120,6 +123,7 @@ extension ProductionWorkflowValidator {
             Issue.record("Expected decoded production blame submission")
             return
         }
+        try #require(decodedBlames.blames.count == 2)
         #expect(decodedBlames.blames[0].requiresBlockchainLookup == false)
         #expect(decodedBlames.blames[1].requiresBlockchainLookup == true)
     }

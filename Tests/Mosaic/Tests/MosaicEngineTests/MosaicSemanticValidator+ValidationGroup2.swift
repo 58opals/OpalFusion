@@ -149,6 +149,16 @@ extension MosaicSemanticValidator {
                     manifest: Self.manifestA
                 )
         )
+        try #require(
+            Self.findLocalAttempt(for: omittedContributor, in: simulator).state.phase
+                == .walletReservation
+        )
+        for recipient in advancedRecipients {
+            try #require(
+                Self.findLocalAttempt(for: recipient, in: simulator).state.phase
+                    == .anonymousComponentSubmission
+            )
+        }
         _ = simulator.broadcast(attemptInput: .abort(.timeout))
 
         for member in simulator.roster.members {

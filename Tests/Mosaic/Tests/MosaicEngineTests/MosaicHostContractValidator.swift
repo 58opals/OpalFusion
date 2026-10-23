@@ -389,7 +389,7 @@ struct MosaicHostContractValidator {
         }
     }
 
-    @Test("Complete transactions require broadcastable bytes distinct from local signing output")
+    @Test("Complete transaction values require nonempty bytes distinct from local signing output")
     func validateCompleteTransactionBoundary() throws {
         #expect(throws: OpalFusion.Host.MosaicHostContractError.emptyCompleteTransaction) {
             _ = try OpalFusion.Host.MosaicCompleteTransaction(transactionBytes: [])

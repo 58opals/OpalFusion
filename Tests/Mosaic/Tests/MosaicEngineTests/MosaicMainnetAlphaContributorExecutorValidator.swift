@@ -172,100 +172,107 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         let harness = try await makeHarness(
             completeCommitSuspension: commitSuspension
         )
-        await harness.coordinator.start()
-        let nextSequence = try await driveThroughLocalSigning(harness)
-        try await submitCompletionDocuments(
-            harness,
-            conductorSequence: nextSequence
-        )
-        await commitSuspension.waitUntilSuspended()
-        #expect(await harness.coordinator.inputSourceDidTerminate(.finished))
-        await harness.coordinator.stop()
-        await commitSuspension.resume()
-        await harness.coordinator.waitForTermination()
+        do {
+            await harness.coordinator.start()
+            let nextSequence = try await driveThroughLocalSigning(harness)
+            try await submitCompletionDocuments(
+                harness,
+                conductorSequence: nextSequence
+            )
+            await commitSuspension.waitUntilSuspended()
+            #expect(await harness.coordinator.inputSourceDidTerminate(.finished))
+            await harness.coordinator.stop()
+            await commitSuspension.resume()
+            await harness.coordinator.waitForTermination()
 
-        #expect(await harness.coordinator.state == .terminal(.completed))
-        #expect(
-            await harness.coordinator.reservationLifecycle
-                == .committed(harness.prepared.localMaterial.reservationLease.reference)
-        )
-        #expect(await harness.host.reservationRequests.count == 1)
-        #expect(
-            await harness.host.signingRequests == [harness.prepared.signingRequest]
-        )
-        #expect(await harness.host.releasedReferences.isEmpty)
-        #expect(await harness.host.legacyCommitCount == 0)
-        let commits = await harness.host.completeCommits
-        let commit = try #require(commits.first)
-        #expect(commits.count == 1)
-        #expect(commit.0 == harness.prepared.localMaterial.reservationLease.reference)
-        #expect(
-            commit.1.transactionBytes
-                == harness.prepared.completePayload.completeTransaction
-                    .transactionBytes
-        )
-        #expect(
-            await harness.probe.playerCommit
-                == harness.prepared.localMaterial.playerCommit
-        )
-        let expectedAnonymousContext = try Coordinator
-            .AnonymousPublicationContext(
-                validating: harness.prepared.localMaterial,
-                against: harness.prepared.session.context
-            )
-        let expectedMaterialBinding = Coordinator.AnonymousMaterialBinding(
-            material: harness.prepared.localMaterial
-        )
-        #expect(
-            await harness.probe.anonymousComponentContext
-                == expectedAnonymousContext
-        )
-        #expect(
-            await harness.probe.anonymousComponentMaterialBinding
-                == expectedMaterialBinding
-        )
-        let anonymousComponents = await harness.probe.anonymousComponents
-        #expect(anonymousComponents.count == Alpha.componentCountPerContributor)
-        for publication in anonymousComponents {
-            let slot = harness.prepared.localMaterial.slots[publication.slot]
-            #expect(publication.recipientEventIdentity == slot.recipientEventIdentity)
-            #expect(publication.payload.component == slot.component)
+            #expect(await harness.coordinator.state == .terminal(.completed))
             #expect(
-                publication.payload.authorizationToken
-                    == harness.prepared.localAuthorizationValidation
-                        .componentAuthorizationTokens[publication.slot]
+                await harness.coordinator.reservationLifecycle
+                    == .committed(harness.prepared.localMaterial.reservationLease.reference)
             )
+            #expect(await harness.host.reservationRequests.count == 1)
+            #expect(
+                await harness.host.signingRequests == [harness.prepared.signingRequest]
+            )
+            #expect(await harness.host.releasedReferences.isEmpty)
+            #expect(await harness.host.legacyCommitCount == 0)
+            let commits = await harness.host.completeCommits
+            let commit = try #require(commits.first)
+            #expect(commits.count == 1)
+            #expect(commit.0 == harness.prepared.localMaterial.reservationLease.reference)
+            #expect(
+                commit.1.transactionBytes
+                    == harness.prepared.completePayload.completeTransaction
+                        .transactionBytes
+            )
+            #expect(
+                await harness.probe.playerCommit
+                    == harness.prepared.localMaterial.playerCommit
+            )
+            let expectedAnonymousContext = try Coordinator
+                .AnonymousPublicationContext(
+                    validating: harness.prepared.localMaterial,
+                    against: harness.prepared.session.context
+                )
+            let expectedMaterialBinding = Coordinator.AnonymousMaterialBinding(
+                material: harness.prepared.localMaterial
+            )
+            #expect(
+                await harness.probe.anonymousComponentContext
+                    == expectedAnonymousContext
+            )
+            #expect(
+                await harness.probe.anonymousComponentMaterialBinding
+                    == expectedMaterialBinding
+            )
+            let anonymousComponents = await harness.probe.anonymousComponents
+            #expect(anonymousComponents.count == Alpha.componentCountPerContributor)
+            for publication in anonymousComponents {
+                let slot = harness.prepared.localMaterial.slots[publication.slot]
+                #expect(publication.recipientEventIdentity == slot.recipientEventIdentity)
+                #expect(publication.payload.component == slot.component)
+                #expect(
+                    publication.payload.authorizationToken
+                        == harness.prepared.localAuthorizationValidation
+                            .componentAuthorizationTokens[publication.slot]
+                )
+            }
+            let preSign = try #require(await harness.probe.preSignPublication)
+            #expect(
+                preSign.contributor
+                    == harness.prepared.admission.localControlIdentity
+            )
+            #expect(
+                preSign.roundIdentifier
+                    == harness.prepared.admission.manifest.core.roundIdentifier
+            )
+            #expect(
+                preSign.transcriptRoot
+                    == harness.prepared.materialized.prepared.transcript.transcriptRoot
+            )
+            let localSignatures = await harness.probe.localSignatures
+            #expect(localSignatures.count == 1)
+            #expect(
+                await harness.probe.localSignatureContext
+                    == expectedAnonymousContext
+            )
+            #expect(
+                await harness.probe.localSignatureMaterialBinding
+                    == expectedMaterialBinding
+            )
+            let localInputIndex = try #require(
+                harness.prepared.signingRequest.localInputIndices.first
+            )
+            #expect(
+                localSignatures.first?.submission.entry
+                    == harness.prepared.signatureSet.entries[localInputIndex]
+            )
+        } catch {
+            await commitSuspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
         }
-        let preSign = try #require(await harness.probe.preSignPublication)
-        #expect(
-            preSign.contributor
-                == harness.prepared.admission.localControlIdentity
-        )
-        #expect(
-            preSign.roundIdentifier
-                == harness.prepared.admission.manifest.core.roundIdentifier
-        )
-        #expect(
-            preSign.transcriptRoot
-                == harness.prepared.materialized.prepared.transcript.transcriptRoot
-        )
-        let localSignatures = await harness.probe.localSignatures
-        #expect(localSignatures.count == 1)
-        #expect(
-            await harness.probe.localSignatureContext
-                == expectedAnonymousContext
-        )
-        #expect(
-            await harness.probe.localSignatureMaterialBinding
-                == expectedMaterialBinding
-        )
-        let localInputIndex = try #require(
-            harness.prepared.signingRequest.localInputIndices.first
-        )
-        #expect(
-            localSignatures.first?.submission.entry
-                == harness.prepared.signatureSet.entries[localInputIndex]
-        )
     }
 
     @Test(
@@ -391,105 +398,130 @@ struct MosaicMainnetAlphaContributorExecutorValidator {
         let prepared = try await ExecutionFixture.prepare()
 
         let commitmentFailure = try makeHarness(prepared: prepared)
-        await commitmentFailure.coordinator.start()
-        let commitmentSequence = try await driveThroughAuthorizationResponses(
-            commitmentFailure
-        )
-        await commitmentFailure.groupedCommitmentProbe.wait()
-        let substitutedCommitmentSet = try makeCommitmentSetMissingLocalMember(
-            prepared
-        )
-        let substitutedCommitmentRun = try Fixture.aggregateRun(
-            canonicalBytes: substitutedCommitmentSet.canonicalBytes,
-            kind: .commitmentSet,
-            sender: prepared.admission.election.result.roster.conductor,
-            phase: .groupedCommitment,
-            sequence: commitmentSequence,
-            harness: prepared.admission
-        )
-        try await submit(
-            substitutedCommitmentRun,
-            to: commitmentFailure.coordinator
-        )
-        await commitmentFailure.coordinator.waitForTermination()
-        #expect(
-            await commitmentFailure.coordinator.state
-                == .terminal(.failed(.commitmentInclusionValidationFailed))
-        )
-        #expect(
-            await commitmentFailure.probe.count(
-                .anonymousComponentsPublished
-            ) == 0
-        )
-        #expect(
-            await commitmentFailure.host.releasedReferences
-                == [prepared.localMaterial.reservationLease.reference]
-        )
-        #expect(await commitmentFailure.host.signingRequests.isEmpty)
-        #expect(await commitmentFailure.host.completeCommits.isEmpty)
+        do {
+            await commitmentFailure.coordinator.start()
+            let commitmentSequence = try await driveThroughAuthorizationResponses(
+                commitmentFailure
+            )
+            await commitmentFailure.groupedCommitmentProbe.wait()
+            let substitutedCommitmentSet = try makeCommitmentSetMissingLocalMember(
+                prepared
+            )
+            let substitutedCommitmentRun = try Fixture.aggregateRun(
+                canonicalBytes: substitutedCommitmentSet.canonicalBytes,
+                kind: .commitmentSet,
+                sender: prepared.admission.election.result.roster.conductor,
+                phase: .groupedCommitment,
+                sequence: commitmentSequence,
+                harness: prepared.admission
+            )
+            try await submit(
+                substitutedCommitmentRun,
+                to: commitmentFailure.coordinator
+            )
+            await commitmentFailure.coordinator.waitForTermination()
+            #expect(
+                await commitmentFailure.coordinator.state
+                    == .terminal(.failed(.commitmentInclusionValidationFailed))
+            )
+            #expect(
+                await commitmentFailure.probe.count(
+                    .anonymousComponentsPublished
+                ) == 0
+            )
+            #expect(
+                await commitmentFailure.host.releasedReferences
+                    == [prepared.localMaterial.reservationLease.reference]
+            )
+            #expect(await commitmentFailure.host.signingRequests.isEmpty)
+            #expect(await commitmentFailure.host.completeCommits.isEmpty)
 
+        } catch {
+            await commitmentFailure.coordinator.stop()
+            await commitmentFailure.coordinator.waitForTermination()
+            throw error
+        }
         let resolutionFailure = try makeHarness(
             prepared: prepared,
             failPreviousOutputResolution: true
         )
-        await resolutionFailure.coordinator.start()
-        _ = try await driveToBCHSigning(resolutionFailure)
-        await resolutionFailure.coordinator.waitForTermination()
-        #expect(
-            await resolutionFailure.coordinator.state
-                == .terminal(.failed(.previousOutputResolutionFailed))
-        )
-        #expect(
-            await resolutionFailure.host.releasedReferences
-                == [prepared.localMaterial.reservationLease.reference]
-        )
-        #expect(await resolutionFailure.host.signingRequests.isEmpty)
-        #expect(await resolutionFailure.host.completeCommits.isEmpty)
+        do {
+            await resolutionFailure.coordinator.start()
+            _ = try await driveToBCHSigning(resolutionFailure)
+            await resolutionFailure.coordinator.waitForTermination()
+            #expect(
+                await resolutionFailure.coordinator.state
+                    == .terminal(.failed(.previousOutputResolutionFailed))
+            )
+            #expect(
+                await resolutionFailure.host.releasedReferences
+                    == [prepared.localMaterial.reservationLease.reference]
+            )
+            #expect(await resolutionFailure.host.signingRequests.isEmpty)
+            #expect(await resolutionFailure.host.completeCommits.isEmpty)
 
+        } catch {
+            await resolutionFailure.coordinator.stop()
+            await resolutionFailure.coordinator.waitForTermination()
+            throw error
+        }
         let publicationFailure = try makeHarness(
             prepared: prepared,
             failLocalSignaturePublication: true
         )
-        await publicationFailure.coordinator.start()
-        _ = try await driveToBCHSigning(publicationFailure)
-        await publicationFailure.coordinator.waitForTermination()
-        #expect(
-            await publicationFailure.coordinator.state
-                == .recoveryRequired(
-                    .init(
-                        reservationReference:
-                            prepared.localMaterial.reservationLease.reference,
-                        reason: .localBCHSignaturePublicationFailed
+        do {
+            await publicationFailure.coordinator.start()
+            _ = try await driveToBCHSigning(publicationFailure)
+            await publicationFailure.coordinator.waitForTermination()
+            #expect(
+                await publicationFailure.coordinator.state
+                    == .recoveryRequired(
+                        .init(
+                            reservationReference:
+                                prepared.localMaterial.reservationLease.reference,
+                            reason: .localBCHSignaturePublicationFailed
+                        )
                     )
-                )
-        )
-        #expect(await publicationFailure.host.releasedReferences.isEmpty)
-        #expect(await publicationFailure.host.signingRequests.count == 1)
-        #expect(await publicationFailure.host.completeCommits.isEmpty)
+            )
+            #expect(await publicationFailure.host.releasedReferences.isEmpty)
+            #expect(await publicationFailure.host.signingRequests.count == 1)
+            #expect(await publicationFailure.host.completeCommits.isEmpty)
 
+        } catch {
+            await publicationFailure.coordinator.stop()
+            await publicationFailure.coordinator.waitForTermination()
+            throw error
+        }
         let validationFailure = try makeHarness(prepared: prepared)
-        await validationFailure.coordinator.start()
-        let nextSequence = try await driveThroughLocalSigning(validationFailure)
-        let invalidCompletion = try makeInvalidSignatureCompletion(prepared)
-        try await submitCompletionDocuments(
-            validationFailure,
-            conductorSequence: nextSequence,
-            signatureSet: invalidCompletion.signatureSet,
-            completePayload: invalidCompletion.payload
-        )
-        await validationFailure.coordinator.waitForTermination()
-        #expect(
-            await validationFailure.coordinator.state
-                == .recoveryRequired(
-                    .init(
-                        reservationReference:
-                            prepared.localMaterial.reservationLease.reference,
-                        reason: .completeTransactionValidationFailed
+        do {
+            await validationFailure.coordinator.start()
+            let nextSequence = try await driveThroughLocalSigning(validationFailure)
+            let invalidCompletion = try makeInvalidSignatureCompletion(prepared)
+            try await submitCompletionDocuments(
+                validationFailure,
+                conductorSequence: nextSequence,
+                signatureSet: invalidCompletion.signatureSet,
+                completePayload: invalidCompletion.payload
+            )
+            await validationFailure.coordinator.waitForTermination()
+            #expect(
+                await validationFailure.coordinator.state
+                    == .recoveryRequired(
+                        .init(
+                            reservationReference:
+                                prepared.localMaterial.reservationLease.reference,
+                            reason: .completeTransactionValidationFailed
+                        )
                     )
-                )
-        )
-        #expect(await validationFailure.host.releasedReferences.isEmpty)
-        #expect(await validationFailure.host.completeCommits.isEmpty)
+            )
+            #expect(await validationFailure.host.releasedReferences.isEmpty)
+            #expect(await validationFailure.host.completeCommits.isEmpty)
+        } catch {
+            await validationFailure.coordinator.stop()
+            await validationFailure.coordinator.waitForTermination()
+            throw error
+        }
+
     }
 
     private func makeHarness(

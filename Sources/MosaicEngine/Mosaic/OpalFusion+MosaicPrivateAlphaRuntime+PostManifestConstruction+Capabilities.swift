@@ -130,36 +130,53 @@ extension OpalFusion.MosaicPrivateAlphaRuntime.PostManifestConstruction {
                     }
                     let groups = try await relayCapabilities
                         .provisionRoutes(publicRequests)
-                    let provisionedConnections = groups.flatMap(\.routes)
-                        .map { ObjectIdentifier($0.connection as AnyObject) }
-                    guard Set(provisionedConnections).count
-                            == provisionedConnections.count else {
-                        throw Runtime.Failure.invalidStateTransition
-                    }
-                    return try groups.map { group in
-                        .init(
-                            recipientEventIdentity:
-                                group.recipientEventIdentity,
-                            routes: try group.routes.map { route in
-                                .init(
-                                    endpoint: .init(
-                                        validatedIdentifier:
-                                            route.relayEndpointIdentifier
-                                    ),
-                                    connection: try Runtime
-                                        .TorWebSocketConnectionAdapter(
-                                            route.connection,
-                                            maximumPendingMessageCount:
-                                                relayCapabilities
-                                                    .maximumPendingEventCount
+                    do {
+                        let provisionedConnections = groups.flatMap(\.routes)
+                            .map { ObjectIdentifier($0.connection as AnyObject) }
+                        guard Set(provisionedConnections).count
+                                == provisionedConnections.count else {
+                            throw Runtime.Failure.invalidStateTransition
+                        }
+                        return try groups.map { group in
+                            .init(
+                                recipientEventIdentity:
+                                    group.recipientEventIdentity,
+                                routes: try group.routes.map { route in
+                                    .init(
+                                        endpoint: .init(
+                                            validatedIdentifier:
+                                                route.relayEndpointIdentifier
                                         ),
-                                    isolationLease: .init(
-                                        opaqueIdentifier:
-                                            route.isolationIdentifier
+                                        connection: try Runtime
+                                            .TorWebSocketConnectionAdapter(
+                                                route.connection,
+                                                maximumPendingMessageCount:
+                                                    relayCapabilities
+                                                        .maximumPendingEventCount
+                                            ),
+                                        isolationLease: .init(
+                                            opaqueIdentifier:
+                                                route.isolationIdentifier
+                                        )
                                     )
-                                )
+                                }
+                            )
+                        }
+                    } catch {
+                        await withTaskGroup(of: Void.self) { group in
+                            var connectionIdentities: Set<ObjectIdentifier> = []
+                            for route in groups.flatMap(\.routes) {
+                                guard connectionIdentities.insert(
+                                    ObjectIdentifier(route.connection as AnyObject)
+                                ).inserted else {
+                                    continue
+                                }
+                                group.addTask {
+                                    await route.connection.close()
+                                }
                             }
-                        )
+                        }
+                        throw error
                     }
                 },
                 makeSubscriptionIdentifier: { request, endpoint in

@@ -292,6 +292,72 @@ struct MosaicNIP01RelaySessionValidator {
         #expect(await connection.closeCount == 1)
     }
 
+    @Test("Stop joins an opening failure's close already in progress", .timeLimit(.minutes(1)))
+    func stopJoinsAnOpeningFailureCloseAlreadyInProgress() async throws {
+        let connection = ScriptedMosaicTorWebSocketConnection()
+        await connection.failNextOpen()
+        await connection.suspendNextClose()
+        let closeSuspensions = await connection.closeSuspensionEvents
+        let session = try makeSession(connection: connection)
+        let starting = Task { try await session.start() }
+        let (stopDrained, stopDrainedContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        var release: Task<Void, Never>?
+        do {
+            let didSuspend = await Self.waitForSignalOrDeadline(closeSuspensions)
+            try #require(didSuspend)
+            #expect(await connection.closeCount == 1)
+            #expect(await connection.closeCompletionCount == 0)
+
+            // Release on an early stop return, or at the deadline so a correct join can finish.
+            // The assertion below observes actual close completion, not elapsed time or silence.
+            release = Task {
+                _ = await Self.waitForSignalOrDeadline(stopDrained)
+                await connection.resumeClose()
+            }
+            await session.stop()
+            await session.waitForTermination()
+            let closeCompletionsAtStopReturn = await connection.closeCompletionCount
+            stopDrainedContinuation.yield(())
+            await release?.value
+
+            await #expect(throws: Session.Failure.transportFailure) {
+                _ = try await starting.value
+            }
+            #expect(closeCompletionsAtStopReturn == 1)
+            #expect(await connection.closeCount == 1)
+            #expect(await session.state == .terminal(.failed(.transportFailure)))
+        } catch {
+            stopDrainedContinuation.finish()
+            await connection.resumeClose()
+            await release?.value
+            _ = try? await starting.value
+            await session.stop()
+            await session.waitForTermination()
+            throw error
+        }
+        stopDrainedContinuation.finish()
+        await connection.resumeClose()
+        _ = try? await starting.value
+    }
+
+    private static func waitForSignalOrDeadline(_ signal: AsyncStream<Void>) async -> Bool {
+        await withTaskGroup(of: Bool.self) { tasks in
+            tasks.addTask {
+                for await _ in signal { return true }
+                return false
+            }
+            tasks.addTask {
+                try? await Task.sleep(for: .seconds(1))
+                return false
+            }
+            let observedSignal = await tasks.next() ?? false
+            tasks.cancelAll()
+            return observedSignal
+        }
+    }
+
     private var eventLimits: Nostr.EventCodingLimits {
         get throws {
             try .init(

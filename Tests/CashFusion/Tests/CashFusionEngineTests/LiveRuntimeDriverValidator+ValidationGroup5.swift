@@ -38,34 +38,48 @@ extension LiveRuntimeDriverValidator {
             await driver.start()
         }
 
-        try await Task.sleep(for: .milliseconds(400))
+        do {
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while await primaryTransport.hasPendingConnect == false {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
 
-        let pendingSnapshot = await driver.currentSnapshot
-        #expect(pendingSnapshot.clientState.isConnected == false)
-        #expect(pendingSnapshot.lastError == nil)
-        #expect(pendingSnapshot.lastErrorSummary == nil)
-        #expect(await primaryTransport.recordedCloseCallCount == 0)
-        #expect(await primaryTransport.hasPendingConnect)
+            try await Task.sleep(for: .milliseconds(400))
 
-        await primaryTransport.failConnect(connectError)
-        await startTask.value
+            let pendingSnapshot = await driver.currentSnapshot
+            #expect(pendingSnapshot.clientState.isConnected == false)
+            #expect(pendingSnapshot.lastError == nil)
+            #expect(pendingSnapshot.lastErrorSummary == nil)
+            #expect(await primaryTransport.recordedCloseCallCount == 0)
+            #expect(await primaryTransport.hasPendingConnect)
 
-        let failedSnapshot = await driver.currentSnapshot
-        #expect(failedSnapshot.clientState.isConnected == false)
-        #expect(failedSnapshot.lastError == .transportUnavailable)
-        #expect(failedSnapshot.lastErrorSummary == "Primary connection failed")
-        #expect(await primaryTransport.recordedCloseCallCount == 1)
-        #expect(await primaryTransport.hasPendingConnect == false)
+            await primaryTransport.failConnect(connectError)
+            await startTask.value
 
-        let events = await eventSink.recordedSnapshots
-        guard let event = events.last else {
-            Issue.record("Expected a delayed connect failure event")
-            return
+            let failedSnapshot = await driver.currentSnapshot
+            #expect(failedSnapshot.clientState.isConnected == false)
+            #expect(failedSnapshot.lastError == .transportUnavailable)
+            #expect(failedSnapshot.lastErrorSummary == "Primary connection failed")
+            #expect(await primaryTransport.recordedCloseCallCount == 1)
+            #expect(await primaryTransport.hasPendingConnect == false)
+
+            let events = await eventSink.recordedSnapshots
+            guard let event = events.last else {
+                Issue.record("Expected a delayed connect failure event")
+                return
+            }
+            #expect(event.roundIdentifier == nil)
+            #expect(event.event.kind == .failure)
+            #expect(event.event.phase == .connecting)
+            #expect(event.event.summary == "Primary connection failed")
+        } catch {
+            await primaryTransport.failConnect(CancellationError())
+            await driver.stop()
+            await startTask.value
+            await driver.stop()
+            throw error
         }
-        #expect(event.roundIdentifier == nil)
-        #expect(event.event.kind == .failure)
-        #expect(event.event.phase == .connecting)
-        #expect(event.event.summary == "Primary connection failed")
     }
 
     @Test("Live runtime driver stops a pending primary connect without surfacing cancellation as failure")
@@ -90,18 +104,32 @@ extension LiveRuntimeDriverValidator {
             await driver.start()
         }
 
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(await primaryTransport.hasPendingConnect)
+        do {
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while await primaryTransport.hasPendingConnect == false {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
 
-        await driver.stop()
-        await startTask.value
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(await primaryTransport.hasPendingConnect)
 
-        let snapshot = await driver.currentSnapshot
-        #expect(snapshot.clientState.isConnected == false)
-        #expect(snapshot.lastError == nil)
-        #expect(snapshot.lastErrorSummary == nil)
-        #expect(await primaryTransport.recordedCloseCallCount == 1)
-        #expect(await primaryTransport.hasPendingConnect == false)
+            await driver.stop()
+            await startTask.value
+
+            let snapshot = await driver.currentSnapshot
+            #expect(snapshot.clientState.isConnected == false)
+            #expect(snapshot.lastError == nil)
+            #expect(snapshot.lastErrorSummary == nil)
+            #expect(await primaryTransport.recordedCloseCallCount == 1)
+            #expect(await primaryTransport.hasPendingConnect == false)
+        } catch {
+            await primaryTransport.failConnect(CancellationError())
+            await driver.stop()
+            await startTask.value
+            await driver.stop()
+            throw error
+        }
     }
 
     @Test("Live runtime driver preserves startup waiting errors when cancellation follows restart")

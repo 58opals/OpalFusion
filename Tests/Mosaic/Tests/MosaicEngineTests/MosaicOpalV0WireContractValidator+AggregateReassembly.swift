@@ -25,6 +25,7 @@ extension MosaicOpalV0WireContractValidator {
             for: commitmentSet,
             roundIdentifier: Self.aggregateFragmentRoundIdentifier
         )
+        try #require(commitmentFragments.count == 6)
         var commitmentReassembler = try OpalV0.AggregateReassembler(
             roundIdentifier: Self.aggregateFragmentRoundIdentifier,
             aggregateKind: .commitmentSet
@@ -48,6 +49,7 @@ extension MosaicOpalV0WireContractValidator {
             for: componentSet,
             roundIdentifier: Self.aggregateFragmentRoundIdentifier
         )
+        try #require(componentFragments.count == 4)
         var componentReassembler = try OpalV0.AggregateReassembler(
             roundIdentifier: Self.aggregateFragmentRoundIdentifier,
             aggregateKind: .componentSet
@@ -74,6 +76,7 @@ extension MosaicOpalV0WireContractValidator {
             for: commitmentSet,
             roundIdentifier: Self.aggregateFragmentRoundIdentifier
         )
+        try #require(fragments.count == 5)
         var reassembler = try OpalV0.AggregateReassembler(
             roundIdentifier: Self.aggregateFragmentRoundIdentifier,
             aggregateKind: .commitmentSet
@@ -132,6 +135,7 @@ extension MosaicOpalV0WireContractValidator {
             for: Self.makeCommitmentSet(),
             roundIdentifier: Self.aggregateFragmentRoundIdentifier
         )
+        try #require(fragments.count == 5)
         var substitutedBody = fragments[0].body
         substitutedBody[0] ^= 0x01
         let substitution = try OpalV0.AggregateFragment(
@@ -194,6 +198,7 @@ extension MosaicOpalV0WireContractValidator {
             for: Self.makeCommitmentSet(),
             roundIdentifier: Self.aggregateFragmentRoundIdentifier
         )
+        try #require(fragments.count == 5)
 
         var conflictingDigest = fragments[1].descriptor.aggregateDigest
         conflictingDigest[0] ^= 0x01
@@ -251,6 +256,7 @@ extension MosaicOpalV0WireContractValidator {
             for: Self.makeCommitmentSet(),
             roundIdentifier: Self.aggregateFragmentRoundIdentifier
         )
+        try #require(fragments.count == 5)
         var mutatedBody = fragments[3].body
         mutatedBody[100] ^= 0x01
         fragments[3] = try .init(
@@ -325,17 +331,24 @@ extension MosaicOpalV0WireContractValidator {
 
     @Test("Reject every fragment after successful reassembly")
     func rejectFragmentsAfterSuccessfulReassembly() throws {
+        let componentSet = try Self.makeBlankComponentSet()
         let fragments = try OpalV0.AggregateFragmenter.fragments(
-            for: Self.makeBlankComponentSet(),
+            for: componentSet,
             roundIdentifier: Self.aggregateFragmentRoundIdentifier
         )
+        try #require(fragments.count == 2)
         var reassembler = try OpalV0.AggregateReassembler(
             roundIdentifier: Self.aggregateFragmentRoundIdentifier,
             aggregateKind: .componentSet
         )
 
-        _ = reassembler.receive(fragments[0])
-        _ = reassembler.receive(fragments[1])
+        try #require(
+            reassembler.receive(fragments[0])
+                == .accepted(receivedFragmentCount: 1, expectedFragmentCount: 2)
+        )
+        try #require(
+            reassembler.receive(fragments[1]) == .completedComponentSet(componentSet)
+        )
         #expect(
             reassembler.receive(fragments[0])
                 == .rejected(.inputAfterTermination)

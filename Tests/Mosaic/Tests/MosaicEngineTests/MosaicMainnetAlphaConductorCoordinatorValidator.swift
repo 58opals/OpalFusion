@@ -657,46 +657,53 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
             publications: publications,
             maximumPendingInputCount: limit
         )
-        await harness.coordinator.start()
-        let manifestSequence = try await driveToAuthorizationResponses(harness)
-        await suspension.waitUntilSuspended()
+        do {
+            await harness.coordinator.start()
+            let manifestSequence = try await driveToAuthorizationResponses(harness)
+            await suspension.waitUntilSuspended()
 
-        let material = try #require(
-            harness.admission.manifest.core.orderedContributors.first.flatMap {
-                harness.materialized.materials[$0]
+            let material = try #require(
+                harness.admission.manifest.core.orderedContributors.first.flatMap {
+                    harness.materialized.materials[$0]
+                }
+            )
+            let responseSet = try Fixture.makeAuthorizationResponseSet(
+                playerCommit: material.playerCommit
+            )
+            let responseRun = try aggregateRun(
+                documentBytes: responseSet.canonicalBytes,
+                kind: .authorizationResponseSet,
+                sender: harness.admission.election.result.roster.conductor,
+                phase: .walletReservation,
+                sequence: manifestSequence,
+                harness: harness.admission
+            )
+            for _ in 0 ..< limit {
+                guard await harness.coordinator.submitControl(
+                    responseRun.reservation
+                ) else {
+                    throw TestFailure.inputRejected
+                }
             }
-        )
-        let responseSet = try Fixture.makeAuthorizationResponseSet(
-            playerCommit: material.playerCommit
-        )
-        let responseRun = try aggregateRun(
-            documentBytes: responseSet.canonicalBytes,
-            kind: .authorizationResponseSet,
-            sender: harness.admission.election.result.roster.conductor,
-            phase: .walletReservation,
-            sequence: manifestSequence,
-            harness: harness.admission
-        )
-        for _ in 0 ..< limit {
-            guard await harness.coordinator.submitControl(
-                responseRun.reservation
-            ) else {
-                throw TestFailure.inputRejected
-            }
+            #expect(
+                !(await harness.coordinator.submitControl(responseRun.reservation))
+            )
+            await suspension.resume()
+            await harness.coordinator.waitForTermination()
+
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(.failed(.inputBufferOverflow))
+            )
+            #expect(await harness.coordinator.diagnosticCounts["failureInputBufferOverflow"] == 1)
+            #expect(await publications.count(.authorizationResponseSet) == 1)
+            #expect(await publications.count(.commitmentSet) == 0)
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
         }
-        #expect(
-            !(await harness.coordinator.submitControl(responseRun.reservation))
-        )
-        await suspension.resume()
-        await harness.coordinator.waitForTermination()
-
-        #expect(
-            await harness.coordinator.state
-                == .terminal(.failed(.inputBufferOverflow))
-        )
-        #expect(await harness.coordinator.diagnosticCounts["failureInputBufferOverflow"] == 1)
-        #expect(await publications.count(.authorizationResponseSet) == 1)
-        #expect(await publications.count(.commitmentSet) == 0)
     }
 
     @Test(
@@ -1027,130 +1034,282 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
         completePublicationSuspension:
             MosaicRuntimeCoordinatorSuspensionProbe? = nil
     ) async throws {
-        var conductorSequence: UInt64 = 0
-        var contributorSequences: [
-            OpalFusion.Mosaic.Attempt.ControlIdentity: UInt64
-        ] = [:]
+        do {
+            var conductorSequence: UInt64 = 0
+            var contributorSequences: [
+                OpalFusion.Mosaic.Attempt.ControlIdentity: UInt64
+            ] = [:]
 
-        let manifestRun = try aggregateRun(
-            documentBytes: harness.admission.manifest.canonicalBytes,
-            kind: .completeManifest,
-            sender: harness.admission.election.result.roster.conductor,
-            phase: .manifestAgreement,
-            sequence: conductorSequence,
-            harness: harness.admission
-        )
-        try await submit(manifestRun, to: harness.coordinator)
-        conductorSequence = manifestRun.nextSequence
-
-        let materials = try harness.admission.manifest.core
-            .orderedContributors.map {
-                try #require(harness.materialized.materials[$0])
-            }
-        for material in materials {
-            let run = try aggregateRun(
-                documentBytes: material.playerCommit.canonicalBytes,
-                kind: .playerCommit,
-                sender: material.contributor,
-                phase: .walletReservation,
-                sequence: 0,
-                harness: harness.admission
-            )
-            try await submit(run, to: harness.coordinator)
-            contributorSequences[material.contributor] = run.nextSequence
-        }
-
-        await harness.publications.wait(
-            for: .authorizationResponseSet,
-            count: materials.count
-        )
-        let responseSets = await harness.publications.values().compactMap {
-            publication -> Alpha.AuthorizationResponseSet? in
-            guard case let .authorizationResponseSet(value) = publication else {
-                return nil
-            }
-            return value
-        }
-        #expect(responseSets.map(\.contributor) == materials.map(\.contributor))
-        #expect(await harness.publications.count(.commitmentSet) == 0)
-
-        var validations: [
-            OpalFusion.Mosaic.Attempt.ControlIdentity:
-                Alpha.AuthorizationResponseSetMaterialValidation
-        ] = [:]
-        for (material, responseSet) in zip(materials, responseSets) {
-            validations[material.contributor] = try .init(
-                validating: responseSet,
-                material: material
-            )
-            let run = try aggregateRun(
-                documentBytes: responseSet.canonicalBytes,
-                kind: .authorizationResponseSet,
+            let manifestRun = try aggregateRun(
+                documentBytes: harness.admission.manifest.canonicalBytes,
+                kind: .completeManifest,
                 sender: harness.admission.election.result.roster.conductor,
-                phase: .walletReservation,
+                phase: .manifestAgreement,
                 sequence: conductorSequence,
                 harness: harness.admission
             )
-            try await submit(run, to: harness.coordinator)
-            conductorSequence = run.nextSequence
-        }
+            try await submit(manifestRun, to: harness.coordinator)
+            conductorSequence = manifestRun.nextSequence
 
-        await harness.publications.wait(for: .commitmentSet)
-        let commitmentSet = try #require(
-            await harness.publications.values().compactMap {
-                publication -> OpalFusion.Mosaic.OpalV0.CommitmentSet? in
-                guard case let .commitmentSet(value) = publication else {
+            let materials = try harness.admission.manifest.core
+                .orderedContributors.map {
+                    try #require(harness.materialized.materials[$0])
+                }
+            for material in materials {
+                let run = try aggregateRun(
+                    documentBytes: material.playerCommit.canonicalBytes,
+                    kind: .playerCommit,
+                    sender: material.contributor,
+                    phase: .walletReservation,
+                    sequence: 0,
+                    harness: harness.admission
+                )
+                try await submit(run, to: harness.coordinator)
+                contributorSequences[material.contributor] = run.nextSequence
+            }
+
+            await harness.publications.wait(
+                for: .authorizationResponseSet,
+                count: materials.count
+            )
+            let responseSets = await harness.publications.values().compactMap {
+                publication -> Alpha.AuthorizationResponseSet? in
+                guard case let .authorizationResponseSet(value) = publication else {
                     return nil
                 }
                 return value
-            }.first
-        )
-        let commitmentRun = try aggregateRun(
-            documentBytes: commitmentSet.canonicalBytes,
-            kind: .commitmentSet,
-            sender: harness.admission.election.result.roster.conductor,
-            phase: .groupedCommitment,
-            sequence: conductorSequence,
-            harness: harness.admission
-        )
-        try await submit(commitmentRun, to: harness.coordinator)
-        conductorSequence = commitmentRun.nextSequence
+            }
+            #expect(responseSets.map(\.contributor) == materials.map(\.contributor))
+            #expect(await harness.publications.count(.commitmentSet) == 0)
 
-        var messageIndex = 0
-        for material in materials {
-            let validation = try #require(validations[material.contributor])
-            for slot in material.slots {
-                let token = validation.componentAuthorizationTokens[slot.slot]
-                let payload = try Alpha.AnonymousComponentPayload(
-                    roundIdentifier:
-                        harness.admission.manifest.core.roundIdentifier,
-                    authorizationToken: token,
-                    component: slot.component
+            var validations: [
+                OpalFusion.Mosaic.Attempt.ControlIdentity:
+                    Alpha.AuthorizationResponseSetMaterialValidation
+            ] = [:]
+            for (material, responseSet) in zip(materials, responseSets) {
+                validations[material.contributor] = try .init(
+                    validating: responseSet,
+                    material: material
                 )
-                let communicationKey = [UInt8](
-                    try OpalCrypto.Secp256k1.SigningKey(
-                        rawRepresentation: Data(
-                            scalarBytes(60_000 + messageIndex)
+                let run = try aggregateRun(
+                    documentBytes: responseSet.canonicalBytes,
+                    kind: .authorizationResponseSet,
+                    sender: harness.admission.election.result.roster.conductor,
+                    phase: .walletReservation,
+                    sequence: conductorSequence,
+                    harness: harness.admission
+                )
+                try await submit(run, to: harness.coordinator)
+                conductorSequence = run.nextSequence
+            }
+
+            await harness.publications.wait(for: .commitmentSet)
+            let commitmentSet = try #require(
+                await harness.publications.values().compactMap {
+                    publication -> OpalFusion.Mosaic.OpalV0.CommitmentSet? in
+                    guard case let .commitmentSet(value) = publication else {
+                        return nil
+                    }
+                    return value
+                }.first
+            )
+            let commitmentRun = try aggregateRun(
+                documentBytes: commitmentSet.canonicalBytes,
+                kind: .commitmentSet,
+                sender: harness.admission.election.result.roster.conductor,
+                phase: .groupedCommitment,
+                sequence: conductorSequence,
+                harness: harness.admission
+            )
+            try await submit(commitmentRun, to: harness.coordinator)
+            conductorSequence = commitmentRun.nextSequence
+
+            var messageIndex = 0
+            for material in materials {
+                let validation = try #require(validations[material.contributor])
+                for slot in material.slots {
+                    let token = validation.componentAuthorizationTokens[slot.slot]
+                    let payload = try Alpha.AnonymousComponentPayload(
+                        roundIdentifier:
+                            harness.admission.manifest.core.roundIdentifier,
+                        authorizationToken: token,
+                        component: slot.component
+                    )
+                    let communicationKey = [UInt8](
+                        try OpalCrypto.Secp256k1.SigningKey(
+                            rawRepresentation: Data(
+                                scalarBytes(60_000 + messageIndex)
+                            )
+                        ).publicKey.compressedRepresentation
+                    )
+                    let envelope = try Alpha.AnonymousEnvelope(
+                        roundIdentifier:
+                            harness.admission.manifest.core.roundIdentifier,
+                        phase: .anonymousComponentSubmission,
+                        senderCommunicationPublicKey: communicationKey,
+                        recipientEventIdentity: slot.recipientEventIdentity,
+                        sequence: 0,
+                        payloadType: .anonymousComponent,
+                        expiryUnixSeconds: 1_800_000_060,
+                        payload: try Alpha.CanonicalWireCodec
+                            .encodeAnonymousComponent(payload)
+                    )
+                    let accepted = await harness.coordinator
+                        .submitAnonymous(
+                            .init(
+                                attemptIdentifier:
+                                    harness.admission.attemptIdentifier,
+                                generationIdentifier:
+                                    harness.admission.generationIdentifier,
+                                envelope: envelope,
+                                authenticatedOuterEventIdentity:
+                                    Array(communicationKey.dropFirst()),
+                                authenticatedRecipientEventIdentity:
+                                    slot.recipientEventIdentity,
+                                authenticatedMessageIdentifier: try .init(
+                                    bytes: MosaicUnsignedTransactionTranscriptFixtures
+                                        .indexedDigest(30_000 + messageIndex)
+                                ),
+                                currentUnixSeconds: 1_800_000_000
+                            )
                         )
-                    ).publicKey.compressedRepresentation
+                    #expect(accepted)
+                    messageIndex += 1
+                }
+            }
+
+            await harness.publications.wait(for: .componentSet)
+            let componentSet = try #require(
+                await harness.publications.values().compactMap {
+                    publication -> OpalFusion.Mosaic.OpalV0.ComponentSet? in
+                    guard case let .componentSet(value) = publication else {
+                        return nil
+                    }
+                    return value
+                }.first
+            )
+            let componentRun = try aggregateRun(
+                documentBytes: componentSet.canonicalBytes,
+                kind: .componentSet,
+                sender: harness.admission.election.result.roster.conductor,
+                phase: .anonymousComponentSubmission,
+                sequence: conductorSequence,
+                harness: harness.admission
+            )
+            try await submit(componentRun, to: harness.coordinator)
+            conductorSequence = componentRun.nextSequence
+
+            if stopAfterComponentSet {
+                return
+            }
+
+            let acknowledgements = MosaicManifestSignatureFixtures
+                .transcriptAcknowledgements(
+                    for: harness.admission.election.result.roster.contributors,
+                    binding: harness.admission.manifest.binding,
+                    transcriptRoot: harness.materialized.prepared.transcript
+                        .transcriptRoot,
+                    profile: .opalMainnetAlpha
                 )
+            for acknowledgement in acknowledgements {
+                let sequence = try #require(
+                    contributorSequences[acknowledgement.contributor]
+                )
+                let envelope = try Fixture.signedEnvelope(
+                    sender: acknowledgement.contributor,
+                    phase: .transcriptAgreement,
+                    payloadType: .preSignAcknowledgement,
+                    payload: try Alpha.CanonicalWireCodec
+                        .encodePreSignAcknowledgementSubmission(
+                            roundIdentifier: acknowledgement.roundIdentifier,
+                            transcriptRoot: acknowledgement.transcriptRoot,
+                            signature: acknowledgement.rawRepresentation
+                        ),
+                    sequence: sequence,
+                    roundIdentifier:
+                        harness.admission.manifest.core.roundIdentifier
+                )
+                #expect(
+                    await harness.coordinator.submitControl(
+                        Fixture.controlDelivery(
+                            envelope: envelope,
+                            harness: harness.admission
+                        )
+                    )
+                )
+            }
+
+            await harness.publications.wait(for: .preSignAcknowledgementSet)
+            let acknowledgementSet = try #require(
+                await harness.publications.values().compactMap {
+                    publication -> Alpha.PreSignAcknowledgementSet? in
+                    guard case let .preSignAcknowledgementSet(value) = publication
+                    else { return nil }
+                    return value
+                }.first
+            )
+            let acknowledgementRun = try aggregateRun(
+                documentBytes: acknowledgementSet.canonicalBytes,
+                kind: .preSignAcknowledgementSet,
+                sender: harness.admission.election.result.roster.conductor,
+                phase: .transcriptAgreement,
+                sequence: conductorSequence,
+                harness: harness.admission
+            )
+            try await submit(acknowledgementRun, to: harness.coordinator)
+            conductorSequence = acknowledgementRun.nextSequence
+
+            let inputComponents = harness.materialized.prepared.componentSet
+                .components.compactMap {
+                    component -> OpalFusion.Mosaic.OpalV0.Component? in
+                    if case .input = component.payload { return component }
+                    return nil
+                }.sorted { lhs, rhs in
+                    guard case let .input(left) = lhs.payload,
+                          case let .input(right) = rhs.payload else { return false }
+                    if left.previousTransactionHash != right.previousTransactionHash {
+                        return left.previousTransactionHash.lexicographicallyPrecedes(
+                            right.previousTransactionHash
+                        )
+                    }
+                    return left.outputIndex < right.outputIndex
+                }
+            for (inputIndex, component) in inputComponents.enumerated() {
+                let material = try #require(
+                    materials.first { material in
+                        material.slots.contains { $0.component == component }
+                    }
+                )
+                let slot = try #require(
+                    material.slots.first { $0.component == component }
+                )
+                let validation = try #require(validations[material.contributor])
+                let submission = try Alpha.BCHSignatureSubmission(
+                    transcriptRoot: harness.materialized.prepared.transcript
+                        .transcriptRoot.validatedBytes,
+                    authorizationToken:
+                        validation.bchSignatureAuthorizationTokens[slot.slot],
+                    entry: harness.completion.signatureSet.entries[inputIndex]
+                )
+                let communicationKey = try OpalCrypto.Secp256k1.SigningKey(
+                    rawRepresentation: scalarBytes(80_000 + inputIndex)
+                ).publicKey.compressedRepresentation
                 let envelope = try Alpha.AnonymousEnvelope(
                     roundIdentifier:
                         harness.admission.manifest.core.roundIdentifier,
-                    phase: .anonymousComponentSubmission,
-                    senderCommunicationPublicKey: communicationKey,
+                    phase: .bchSigning,
+                    senderCommunicationPublicKey: [UInt8](communicationKey),
                     recipientEventIdentity: slot.recipientEventIdentity,
-                    sequence: 0,
-                    payloadType: .anonymousComponent,
+                    sequence: 1,
+                    payloadType: .bchSignatureSubmission,
                     expiryUnixSeconds: 1_800_000_060,
-                    payload: try Alpha.CanonicalWireCodec
-                        .encodeAnonymousComponent(payload)
+                    payload: Alpha.CanonicalWireCodec
+                        .encodeBCHSignatureSubmission(submission)
                 )
-                let accepted = await harness.coordinator
-                    .submitAnonymous(
+                #expect(
+                    await harness.coordinator.submitAnonymous(
                         .init(
-                            attemptIdentifier:
-                                harness.admission.attemptIdentifier,
+                            attemptIdentifier: harness.admission.attemptIdentifier,
                             generationIdentifier:
                                 harness.admission.generationIdentifier,
                             envelope: envelope,
@@ -1160,212 +1319,67 @@ struct MosaicMainnetAlphaConductorCoordinatorValidator {
                                 slot.recipientEventIdentity,
                             authenticatedMessageIdentifier: try .init(
                                 bytes: MosaicUnsignedTransactionTranscriptFixtures
-                                    .indexedDigest(30_000 + messageIndex)
+                                    .indexedDigest(31_000 + inputIndex)
                             ),
                             currentUnixSeconds: 1_800_000_000
                         )
                     )
-                #expect(accepted)
-                messageIndex += 1
-            }
-        }
-
-        await harness.publications.wait(for: .componentSet)
-        let componentSet = try #require(
-            await harness.publications.values().compactMap {
-                publication -> OpalFusion.Mosaic.OpalV0.ComponentSet? in
-                guard case let .componentSet(value) = publication else {
-                    return nil
-                }
-                return value
-            }.first
-        )
-        let componentRun = try aggregateRun(
-            documentBytes: componentSet.canonicalBytes,
-            kind: .componentSet,
-            sender: harness.admission.election.result.roster.conductor,
-            phase: .anonymousComponentSubmission,
-            sequence: conductorSequence,
-            harness: harness.admission
-        )
-        try await submit(componentRun, to: harness.coordinator)
-        conductorSequence = componentRun.nextSequence
-
-        if stopAfterComponentSet {
-            return
-        }
-
-        let acknowledgements = MosaicManifestSignatureFixtures
-            .transcriptAcknowledgements(
-                for: harness.admission.election.result.roster.contributors,
-                binding: harness.admission.manifest.binding,
-                transcriptRoot: harness.materialized.prepared.transcript
-                    .transcriptRoot,
-                profile: .opalMainnetAlpha
-            )
-        for acknowledgement in acknowledgements {
-            let sequence = try #require(
-                contributorSequences[acknowledgement.contributor]
-            )
-            let envelope = try Fixture.signedEnvelope(
-                sender: acknowledgement.contributor,
-                phase: .transcriptAgreement,
-                payloadType: .preSignAcknowledgement,
-                payload: try Alpha.CanonicalWireCodec
-                    .encodePreSignAcknowledgementSubmission(
-                        roundIdentifier: acknowledgement.roundIdentifier,
-                        transcriptRoot: acknowledgement.transcriptRoot,
-                        signature: acknowledgement.rawRepresentation
-                    ),
-                sequence: sequence,
-                roundIdentifier:
-                    harness.admission.manifest.core.roundIdentifier
-            )
-            #expect(
-                await harness.coordinator.submitControl(
-                    Fixture.controlDelivery(
-                        envelope: envelope,
-                        harness: harness.admission
-                    )
                 )
-            )
-        }
-
-        await harness.publications.wait(for: .preSignAcknowledgementSet)
-        let acknowledgementSet = try #require(
-            await harness.publications.values().compactMap {
-                publication -> Alpha.PreSignAcknowledgementSet? in
-                guard case let .preSignAcknowledgementSet(value) = publication
-                else { return nil }
-                return value
-            }.first
-        )
-        let acknowledgementRun = try aggregateRun(
-            documentBytes: acknowledgementSet.canonicalBytes,
-            kind: .preSignAcknowledgementSet,
-            sender: harness.admission.election.result.roster.conductor,
-            phase: .transcriptAgreement,
-            sequence: conductorSequence,
-            harness: harness.admission
-        )
-        try await submit(acknowledgementRun, to: harness.coordinator)
-        conductorSequence = acknowledgementRun.nextSequence
-
-        let inputComponents = harness.materialized.prepared.componentSet
-            .components.compactMap {
-                component -> OpalFusion.Mosaic.OpalV0.Component? in
-                if case .input = component.payload { return component }
-                return nil
-            }.sorted { lhs, rhs in
-                guard case let .input(left) = lhs.payload,
-                      case let .input(right) = rhs.payload else { return false }
-                if left.previousTransactionHash != right.previousTransactionHash {
-                    return left.previousTransactionHash.lexicographicallyPrecedes(
-                        right.previousTransactionHash
-                    )
-                }
-                return left.outputIndex < right.outputIndex
             }
-        for (inputIndex, component) in inputComponents.enumerated() {
-            let material = try #require(
-                materials.first { material in
-                    material.slots.contains { $0.component == component }
-                }
-            )
-            let slot = try #require(
-                material.slots.first { $0.component == component }
-            )
-            let validation = try #require(validations[material.contributor])
-            let submission = try Alpha.BCHSignatureSubmission(
-                transcriptRoot: harness.materialized.prepared.transcript
-                    .transcriptRoot.validatedBytes,
-                authorizationToken:
-                    validation.bchSignatureAuthorizationTokens[slot.slot],
-                entry: harness.completion.signatureSet.entries[inputIndex]
-            )
-            let communicationKey = try OpalCrypto.Secp256k1.SigningKey(
-                rawRepresentation: scalarBytes(80_000 + inputIndex)
-            ).publicKey.compressedRepresentation
-            let envelope = try Alpha.AnonymousEnvelope(
-                roundIdentifier:
-                    harness.admission.manifest.core.roundIdentifier,
-                phase: .bchSigning,
-                senderCommunicationPublicKey: [UInt8](communicationKey),
-                recipientEventIdentity: slot.recipientEventIdentity,
-                sequence: 1,
-                payloadType: .bchSignatureSubmission,
-                expiryUnixSeconds: 1_800_000_060,
-                payload: Alpha.CanonicalWireCodec
-                    .encodeBCHSignatureSubmission(submission)
-            )
-            #expect(
-                await harness.coordinator.submitAnonymous(
-                    .init(
-                        attemptIdentifier: harness.admission.attemptIdentifier,
-                        generationIdentifier:
-                            harness.admission.generationIdentifier,
-                        envelope: envelope,
-                        authenticatedOuterEventIdentity:
-                            Array(communicationKey.dropFirst()),
-                        authenticatedRecipientEventIdentity:
-                            slot.recipientEventIdentity,
-                        authenticatedMessageIdentifier: try .init(
-                            bytes: MosaicUnsignedTransactionTranscriptFixtures
-                                .indexedDigest(31_000 + inputIndex)
-                        ),
-                        currentUnixSeconds: 1_800_000_000
-                    )
-                )
-            )
-        }
 
-        await harness.publications.wait(for: .bchSignatureSet)
-        let signatureSet = try #require(
-            await harness.publications.values().compactMap {
-                publication -> Alpha.BCHSignatureSet? in
-                guard case let .bchSignatureSet(value) = publication else {
-                    return nil
-                }
-                return value
-            }.first
-        )
-        let signatureRun = try aggregateRun(
-            documentBytes: signatureSet.canonicalBytes,
-            kind: .bchSignatureSet,
-            sender: harness.admission.election.result.roster.conductor,
-            phase: .bchSigning,
-            sequence: conductorSequence,
-            harness: harness.admission
-        )
-        try await submit(signatureRun, to: harness.coordinator)
-        conductorSequence = signatureRun.nextSequence
-
-        let completePayload: Alpha.CompleteTransactionPayload
-        if let completePublicationSuspension {
-            await completePublicationSuspension.waitUntilSuspended()
-            completePayload = harness.completion.completePayload
-        } else {
-            await harness.publications.wait(for: .completeTransaction)
-            completePayload = try #require(
+            await harness.publications.wait(for: .bchSignatureSet)
+            let signatureSet = try #require(
                 await harness.publications.values().compactMap {
-                    publication -> Alpha.CompleteTransactionPayload? in
-                    guard case let .completeTransaction(value) = publication
-                    else { return nil }
+                    publication -> Alpha.BCHSignatureSet? in
+                    guard case let .bchSignatureSet(value) = publication else {
+                        return nil
+                    }
                     return value
                 }.first
             )
+            let signatureRun = try aggregateRun(
+                documentBytes: signatureSet.canonicalBytes,
+                kind: .bchSignatureSet,
+                sender: harness.admission.election.result.roster.conductor,
+                phase: .bchSigning,
+                sequence: conductorSequence,
+                harness: harness.admission
+            )
+            try await submit(signatureRun, to: harness.coordinator)
+            conductorSequence = signatureRun.nextSequence
+
+            let completePayload: Alpha.CompleteTransactionPayload
+            if let completePublicationSuspension {
+                await completePublicationSuspension.waitUntilSuspended()
+                completePayload = harness.completion.completePayload
+            } else {
+                await harness.publications.wait(for: .completeTransaction)
+                completePayload = try #require(
+                    await harness.publications.values().compactMap {
+                        publication -> Alpha.CompleteTransactionPayload? in
+                        guard case let .completeTransaction(value) = publication
+                        else { return nil }
+                        return value
+                    }.first
+                )
+            }
+            let completeRun = try aggregateRun(
+                documentBytes: completePayload.canonicalBytes,
+                kind: .completeTransaction,
+                sender: harness.admission.election.result.roster.conductor,
+                phase: .bchSigning,
+                sequence: conductorSequence,
+                harness: harness.admission
+            )
+            try await submit(completeRun, to: harness.coordinator)
+            await harness.coordinator.inputSourceDidTerminate(.finished)
+            await completePublicationSuspension?.resume()
+        } catch {
+            await completePublicationSuspension?.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
         }
-        let completeRun = try aggregateRun(
-            documentBytes: completePayload.canonicalBytes,
-            kind: .completeTransaction,
-            sender: harness.admission.election.result.roster.conductor,
-            phase: .bchSigning,
-            sequence: conductorSequence,
-            harness: harness.admission
-        )
-        try await submit(completeRun, to: harness.coordinator)
-        await harness.coordinator.inputSourceDidTerminate(.finished)
-        await completePublicationSuspension?.resume()
     }
 
     private func aggregateRun(

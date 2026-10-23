@@ -239,17 +239,6 @@ struct MosaicWalletG3FixtureGenerator {
         encoder.outputFormatting = [.sortedKeys]
         let json = try encoder.encode(result)
         let compressed = try compress(json)
-        let rawURL = URL(
-            fileURLWithPath: "/private/tmp/mosaic-wallet-g3-fixture.json"
-        )
-        let base64URL = URL(
-            fileURLWithPath:
-                "/private/tmp/mosaic-wallet-g3-fixture.base64.txt"
-        )
-        try json.write(to: rawURL, options: .atomic)
-        try compressed.base64EncodedData(
-            options: [.lineLength76Characters, .endLineWithLineFeed]
-        ).write(to: base64URL, options: .atomic)
         let digest = OpalCrypto.Hashing.sha256(json).map {
             String(format: "%02x", $0)
         }.joined()

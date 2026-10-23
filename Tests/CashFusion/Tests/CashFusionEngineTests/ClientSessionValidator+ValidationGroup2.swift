@@ -147,4 +147,71 @@ extension ClientSessionValidator {
 
         await session.stop()
     }
+
+    @Test("An older public session stop preserves a newer start while transport close drains")
+    func validateStartDuringStopRetainsNewDriver() async throws {
+        let transportFactories = SessionTransportFactoryRecorder(blocksFirstPrimaryClose: true)
+        let session = OpalFusion.Client.Session(
+            configuration: PrimaryRuntimeTestFixtures.configuration,
+            genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
+            joinPools: PrimaryRuntimeTestFixtures.joinPools,
+            hostParticipantReservationSource: HostParticipantReservationSourceAdapter(
+                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+            ),
+            hostTransactionAssembler: HostTransactionAssemblerAdapter(
+                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+            ),
+            primaryTransportFactory: { await transportFactories.makePrimary() },
+            covertTransportFactory: { await transportFactories.makeCovert() }
+        )
+
+        await session.start()
+        let firstTransport = try #require(await transportFactories.primaryTransport(at: 0))
+        let firstStop = Task { await session.stop() }
+        // Retain these only to drain a driver whose session loses ownership in a red run.
+        var restartedDriver: OpalFusion.Runtime.LiveRuntimeDriver?
+        var restartedTransport: ScriptedPrimaryTransport?
+        var restartedReadTask: Task<Void, Never>?
+        do {
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                try await firstTransport.waitForCloseEntered()
+            }
+
+            await session.start()
+            restartedDriver = await session.runtimeDriver
+            let secondTransport = try #require(await transportFactories.primaryTransport(at: 1))
+            restartedTransport = secondTransport
+            let secondDriver = try #require(restartedDriver)
+            restartedReadTask = await secondDriver.primaryReadTask
+            let secondReadTask = try #require(restartedReadTask)
+            #expect(await secondTransport.recordedConnectCallCount == 1)
+            #expect(await secondTransport.recordedWrittenPayloads.count == 1)
+            #expect(await secondTransport.recordedCloseCallCount == 0)
+            #expect(await firstTransport.recordedCloseCallCount == 1)
+
+            await firstTransport.releaseClose()
+            await firstStop.value
+
+            let snapshot = await session.currentSnapshot
+            #expect(snapshot.state.isConnected)
+            #expect(snapshot.lastError == nil)
+            await session.stop()
+            #expect(await secondTransport.recordedCloseCallCount == 1)
+            #expect(await transportFactories.primaryTransportCount == 2)
+
+            // Release the orphan's input explicitly, then join its real read-loop teardown.
+            await secondTransport.finishInbound()
+            await secondReadTask.value
+            #expect(await secondTransport.recordedCloseCallCount == 1)
+        } catch {
+            await firstTransport.releaseClose()
+            await firstStop.value
+            await restartedTransport?.finishInbound()
+            await restartedReadTask?.value
+            await restartedDriver?.stop()
+            await session.stop()
+            throw error
+        }
+        await restartedDriver?.stop()
+    }
 }

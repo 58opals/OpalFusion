@@ -9,7 +9,7 @@ extension OpalFusion.Execution.RoundEngine {
     mutating func failForServerFailure(
         _ failure: OpalFusion.ProtocolModel.ServerFailure
     ) -> [OpalFusion.Execution.RoundEngine.Effect] {
-        let summary = serverFailureSummary(failure)
+        let summary = "Coordinator rejected the current flow"
         let diagnosticFields = [
             OpalDiagnostics.Field.protocolErrorIdentifier(
                 failure.sanitizedProtocolErrorIdentifier
@@ -32,17 +32,6 @@ extension OpalFusion.Execution.RoundEngine {
             diagnosticMessageKind: "ServerFailure",
             diagnosticFields: diagnosticFields
         )
-    }
-
-    func serverFailureSummary(
-        _ failure: OpalFusion.ProtocolModel.ServerFailure
-    ) -> String {
-        guard let message = failure.message,
-              message.contains(where: { $0.isWhitespace == false }) else {
-            return "Coordinator rejected the current flow"
-        }
-
-        return message
     }
 
     mutating func failForWorkflowFailure(

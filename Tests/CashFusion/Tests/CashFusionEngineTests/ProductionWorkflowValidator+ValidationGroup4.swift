@@ -30,7 +30,7 @@ extension ProductionWorkflowValidator {
 
         #expect(unsignedTransaction.version == 1)
         #expect(unsignedTransaction.inputs.count == 1)
-        #expect(unsignedTransaction.outputs.count == 2)
+        try #require(unsignedTransaction.outputs.count == 2)
         #expect(unsignedTransaction.lockTime == 0)
         #expect(
             unsignedTransaction.outputs[0].lockingScript
@@ -54,7 +54,7 @@ extension ProductionWorkflowValidator {
         let signatureMessages = try scenario.workflow.buildCovertSignatureMessages(
             round: &scenario.round
         )
-        #expect(signatureMessages.count == 1)
+        try #require(signatureMessages.count == 1)
 
         guard case let .transactionSignature(signatureMessage) = signatureMessages[0] else {
             Issue.record("Expected a covert transaction signature message")
@@ -142,7 +142,7 @@ extension ProductionWorkflowValidator {
             proposal.unsignedFusionTransactionBytes
         )
 
-        #expect(unsignedTransaction.inputs.count == 2)
+        try #require(unsignedTransaction.inputs.count == 2)
         #expect(
             unsignedTransaction.inputs[0].previousTransactionHashLittleEndian ==
                 Array(scenario.reservation.inputs[1].outpointTransactionHashBytes.reversed())

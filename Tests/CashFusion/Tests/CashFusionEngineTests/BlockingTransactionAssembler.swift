@@ -6,6 +6,7 @@ actor BlockingTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     private let finalizedTransaction: OpalFusion.Host.FinalizedTransaction
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
     private var proposals: [OpalFusion.Host.TransactionFinalizationProposal] = []
+    private var releasedResult: Result<OpalFusion.Host.FinalizedTransaction, Error>?
     private var transactionContinuation: CheckedContinuation<Result<OpalFusion.Host.FinalizedTransaction, Error>, Never>?
 
     init(
@@ -20,8 +21,13 @@ actor BlockingTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     ) async throws -> OpalFusion.Host.FinalizedTransaction {
         requestedRoundIdentifiers.append(roundIdentifier)
         proposals.append(proposal)
-        let result = await withCheckedContinuation { continuation in
-            transactionContinuation = continuation
+        let result: Result<OpalFusion.Host.FinalizedTransaction, Error>
+        if let releasedResult {
+            result = releasedResult
+        } else {
+            result = await withCheckedContinuation { continuation in
+                transactionContinuation = continuation
+            }
         }
 
         switch result {
@@ -43,15 +49,18 @@ actor BlockingTransactionAssembler: OpalFusion.Host.TransactionAssembler {
     func releaseTransaction(
         _ finalizedTransaction: OpalFusion.Host.FinalizedTransaction? = nil
     ) {
-        transactionContinuation?.resume(
-            returning: .success(finalizedTransaction ?? self.finalizedTransaction)
+        let result: Result<OpalFusion.Host.FinalizedTransaction, Error> = .success(
+            finalizedTransaction ?? self.finalizedTransaction
         )
+        releasedResult = result
+        transactionContinuation?.resume(returning: result)
         transactionContinuation = nil
     }
 
     func failTransaction(
         _ error: Error
     ) {
+        releasedResult = .failure(error)
         transactionContinuation?.resume(returning: .failure(error))
         transactionContinuation = nil
     }

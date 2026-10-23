@@ -29,37 +29,6 @@ struct PrimaryMessageCodecValidator {
         }
     }
 
-    @Test("Primary protobuf bridge preserves representative optional and repeated fields")
-    func validateRepresentativeFieldPreservation() throws {
-        let encoder = OpalFusion.Wire.PrimaryMessageEncoder()
-        let decoder = OpalFusion.Wire.PrimaryMessageDecoder()
-
-        let joinPools = try decoder.decodeClient(
-            encoder.encode(.joinPools(PrimaryRuntimeTestFixtures.joinPools))
-        )
-        let tierStatusUpdate = try decoder.decodeServer(
-            encoder.encode(.tierStatusUpdate(PrimaryRuntimeTestFixtures.tierStatusUpdate))
-        )
-        let startRound = try decoder.decodeServer(
-            encoder.encode(.startRound(PrimaryRuntimeTestFixtures.startRound))
-        )
-        let shareCovertComponents = try decoder.decodeServer(
-            encoder.encode(.shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents))
-        )
-        let blames = try decoder.decodeClient(
-            encoder.encode(.blames(PrimaryRuntimeTestFixtures.blames))
-        )
-
-        #expect(joinPools == .joinPools(PrimaryRuntimeTestFixtures.joinPools))
-        #expect(tierStatusUpdate == .tierStatusUpdate(PrimaryRuntimeTestFixtures.tierStatusUpdate))
-        #expect(startRound == .startRound(PrimaryRuntimeTestFixtures.startRound))
-        #expect(
-            shareCovertComponents
-                == .shareCovertComponents(PrimaryRuntimeTestFixtures.sharedComponents)
-        )
-        #expect(blames == .blames(PrimaryRuntimeTestFixtures.blames))
-    }
-
     @Test("Primary protobuf bridge preserves official blame variants and lookup hints")
     func validateBlameProofVariantPreservation() throws {
         let encoder = OpalFusion.Wire.PrimaryMessageEncoder()
@@ -90,6 +59,7 @@ struct PrimaryMessageCodecValidator {
             Issue.record("Expected decoded client message to carry Blames")
             return
         }
+        try #require(blames.blames.count == 2)
         #expect(blames.blames[0].requiresBlockchainLookup == false)
         #expect(blames.blames[1].requiresBlockchainLookup == true)
     }

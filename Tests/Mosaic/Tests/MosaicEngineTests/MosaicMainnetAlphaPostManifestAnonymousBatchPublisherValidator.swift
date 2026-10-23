@@ -334,33 +334,40 @@ struct MosaicMainnetAlphaPostManifestAnonymousBatchPublisherValidator {
             try await publisher.publish(batch)
             await completion.markCompleted()
         }
-        await waitForEverySend(batch: batch, allocation: allocation)
-        #expect(persistence.appendCallCount == 3)
-        let durableBatch = try #require(persistence.preparedBatches.first)
-        #expect(persistence.preparedBatches.count == 1)
-        #expect(durableBatch.channelPurpose == .anonymousComponents)
-        #expect(durableBatch.publications.count == batch.recipients.count)
-        #expect(
-            Set(durableBatch.publications.map {
-                $0.binding.recipientEventIdentity
-            }) == Set(batch.recipients.map(\.recipientEventIdentity))
-        )
-        for recipient in batch.recipients {
-            let connections = try #require(
-                allocation.connections[recipient.recipientEventIdentity]
+        do {
+            await waitForEverySend(batch: batch, allocation: allocation)
+            #expect(persistence.appendCallCount == 3)
+            let durableBatch = try #require(persistence.preparedBatches.first)
+            #expect(persistence.preparedBatches.count == 1)
+            #expect(durableBatch.channelPurpose == .anonymousComponents)
+            #expect(durableBatch.publications.count == batch.recipients.count)
+            #expect(
+                Set(durableBatch.publications.map {
+                    $0.binding.recipientEventIdentity
+                }) == Set(batch.recipients.map(\.recipientEventIdentity))
             )
-            await connections[0].receive(
-                acknowledgement(for: recipient.giftWrap, accepted: true)
-            )
-            await connections[1].receive(
-                acknowledgement(for: recipient.giftWrap, accepted: true)
-            )
-        }
+            for recipient in batch.recipients {
+                let connections = try #require(
+                    allocation.connections[recipient.recipientEventIdentity]
+                )
+                await connections[0].receive(
+                    acknowledgement(for: recipient.giftWrap, accepted: true)
+                )
+                await connections[1].receive(
+                    acknowledgement(for: recipient.giftWrap, accepted: true)
+                )
+            }
 
-        await finalConnection.waitUntilCloseSuspends()
-        #expect(await completion.isCompleted == false)
-        await finalConnection.resumeClose()
-        try await publication.value
+            await finalConnection.waitUntilCloseSuspends()
+            #expect(await completion.isCompleted == false)
+            await finalConnection.resumeClose()
+            try await publication.value
+        } catch {
+            publication.cancel()
+            await finalConnection.resumeClose()
+            _ = await publication.result
+            throw error
+        }
         let completedAppendCount = persistence.appendCallCount
         #expect((4 ... 3 + batch.recipients.count).contains(completedAppendCount))
         let completedRecords = try #require(persistence.snapshot).records.filter {

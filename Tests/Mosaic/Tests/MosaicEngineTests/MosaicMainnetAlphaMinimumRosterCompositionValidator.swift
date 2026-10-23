@@ -268,14 +268,30 @@ struct MosaicMainnetAlphaMinimumRosterCompositionValidator {
         #expect(peers.filter { $0.role == .contributor }.count == 6)
         #expect(Set(peers.map(\.localControlIdentity)) == Set(roster.controlIdentities))
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for peer in peers {
-                let fanIn = peer.fanIn
-                group.addTask {
-                    try await fanIn.start()
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for peer in peers {
+                    let fanIn = peer.fanIn
+                    group.addTask {
+                        try await fanIn.start()
+                    }
+                }
+                try await group.waitForAll()
+            }
+        } catch {
+            await withTaskGroup(of: Void.self) { group in
+                for peer in peers {
+                    group.addTask {
+                        await peer.fanIn.stop()
+                        _ = await peer.fanIn.waitForTermination()
+                        if let bridge = peer.contributorBridge {
+                            await bridge.requestStop()
+                            _ = await bridge.waitForTermination()
+                        }
+                    }
                 }
             }
-            try await group.waitForAll()
+            throw error
         }
         for peer in peers {
             #expect(await peer.fanIn.state == .running)

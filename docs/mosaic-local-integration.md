@@ -42,8 +42,8 @@ if now > expiry {
 With Swift 6.4, macOS 27 and the matching Metal toolchain installed:
 
 ```sh
-swift test --no-parallel --filter drainExpiredExecutionWithoutTerminalAuthority
-swift test --no-parallel --filter requireRecoveryAfterSigningCancellation
+swift test --package-path Tests/Mosaic --no-parallel --filter drainExpiredExecutionWithoutTerminalAuthority
+swift test --package-path Tests/Mosaic --no-parallel --filter requireRecoveryAfterSigningCancellation
 ./scripts/run-validation-loop.sh mosaic-private-alpha-consumer-surface
 ./scripts/run-validation-loop.sh mosaic-rehearsal
 ```

@@ -75,28 +75,42 @@ extension LiveRuntimeDriverValidator {
             await driver.start()
         }
 
-        try await Task.sleep(for: .milliseconds(400))
+        do {
+            try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while await primaryTransport.hasPendingConnect == false {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
 
-        let pendingSnapshot = await driver.currentSnapshot
-        #expect(pendingSnapshot.clientState.isConnected == false)
-        #expect(pendingSnapshot.lastError == nil)
-        #expect(pendingSnapshot.lastErrorSummary == nil)
-        #expect(await primaryTransport.recordedConnectCallCount == 1)
-        #expect(await primaryTransport.recordedCloseCallCount == 0)
-        #expect(await primaryTransport.hasPendingConnect)
+            try await Task.sleep(for: .milliseconds(400))
 
-        await primaryTransport.releaseConnect()
-        await startTask.value
+            let pendingSnapshot = await driver.currentSnapshot
+            #expect(pendingSnapshot.clientState.isConnected == false)
+            #expect(pendingSnapshot.lastError == nil)
+            #expect(pendingSnapshot.lastErrorSummary == nil)
+            #expect(await primaryTransport.recordedConnectCallCount == 1)
+            #expect(await primaryTransport.recordedCloseCallCount == 0)
+            #expect(await primaryTransport.hasPendingConnect)
 
-        let connectedSnapshot = await driver.currentSnapshot
-        #expect(connectedSnapshot.clientState.isConnected)
-        #expect(connectedSnapshot.lastError == nil)
-        #expect(connectedSnapshot.lastErrorSummary == nil)
-        #expect((await primaryTransport.recordedWrittenPayloads).isEmpty == false)
-        #expect(await primaryTransport.recordedCloseCallCount == 0)
-        #expect(await primaryTransport.hasPendingConnect == false)
+            await primaryTransport.releaseConnect()
+            await startTask.value
 
-        await driver.stop()
+            let connectedSnapshot = await driver.currentSnapshot
+            #expect(connectedSnapshot.clientState.isConnected)
+            #expect(connectedSnapshot.lastError == nil)
+            #expect(connectedSnapshot.lastErrorSummary == nil)
+            #expect((await primaryTransport.recordedWrittenPayloads).isEmpty == false)
+            #expect(await primaryTransport.recordedCloseCallCount == 0)
+            #expect(await primaryTransport.hasPendingConnect == false)
+
+            await driver.stop()
+        } catch {
+            await primaryTransport.failConnect(CancellationError())
+            await driver.stop()
+            await startTask.value
+            await driver.stop()
+            throw error
+        }
     }
 
     @Test("Live runtime driver treats explicit stop as a non-error terminal state")

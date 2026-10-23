@@ -149,7 +149,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
     }
 
-    @Test("Enforce strict replay, conflict, gap, and a fresh-round zero epoch")
+    @Test("Enforce strict replay, conflict, gap, and a fresh-ledger zero epoch")
     func enforceControlReplay() throws {
         var duplicateHarness = try Fixture.makeHarness(localRole: .contributor)
         let duplicateRun = try manifestRun(harness: duplicateHarness)
@@ -230,12 +230,18 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                 ]
         )
 
-        var freshRoundHarness = try Fixture.makeHarness(localRole: .contributor)
-        let freshRoundRun = try manifestRun(harness: freshRoundHarness)
+        var freshLedgerHarness = try Fixture.makeHarness(localRole: .contributor)
+        let freshLedgerRun = try manifestRun(harness: freshLedgerHarness)
         #expect(
-            freshRoundHarness.ledger.apply(
-                input: .control(freshRoundRun.reservation)
-            ).count == 1
+            freshLedgerHarness.ledger.apply(
+                input: .control(freshLedgerRun.reservation)
+            ) == [
+                .aggregateReservationAccepted(
+                    sender: freshLedgerHarness.election.result.roster.conductor,
+                    kind: .completeManifest,
+                    fragmentCount: freshLedgerRun.fragments.count
+                )
+            ]
         )
     }
 
@@ -1341,7 +1347,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
         )
         _ = oppositeParityCommunicationKeyReuseLedger
             .receiveAnonymousComponent(delivery)
-        #expect(accepted.count == 1)
+        try #require(accepted.count == 1)
         guard case .anonymousComponentAdmitted = accepted[0] else {
             Issue.record("Expected one admitted anonymous component")
             return
@@ -1662,7 +1668,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                     currentUnixSeconds: 1_800_000_000
                 )
             )
-            #expect(effects.count == 1)
+            try #require(effects.count == 1)
             guard case let .anonymousComponentAdmitted(validation) = effects[0]
             else {
                 Issue.record("Expected an authorized anonymous component")
@@ -2500,7 +2506,7 @@ struct MosaicMainnetAlphaAdmissionLedgerValidator {
                     )
                 )
             } else {
-                #expect(effects.count == 1)
+                try #require(effects.count == 1)
                 guard case .anonymousBCHSignatureAdmitted = effects[0] else {
                     Issue.record("Expected a partial signature admission")
                     return

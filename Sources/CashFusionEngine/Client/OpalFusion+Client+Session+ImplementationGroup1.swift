@@ -34,7 +34,11 @@ extension OpalFusion.Client.Session {
             return
         }
 
+        let stoppingGeneration = runtimeDriverGeneration
         await runtimeDriver.stop()
+        guard isCurrentRuntimeDriver(runtimeDriver, generation: stoppingGeneration) else {
+            return
+        }
         self.runtimeDriver = nil
         runtimeDriverGeneration += 1
         await updateSnapshotIfNeeded(stoppedSnapshot())

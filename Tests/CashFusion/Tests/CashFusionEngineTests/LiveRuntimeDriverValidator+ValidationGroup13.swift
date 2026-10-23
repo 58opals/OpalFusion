@@ -40,40 +40,50 @@ extension LiveRuntimeDriverValidator {
             covertTransport: covertTransport
         )
 
-        await driver.start()
-        try await driveToPendingParticipantReservation(
-            primaryTransport: primaryTransport,
-            covertTransport: covertTransport,
-            participantReservationSource: participantReservationSource,
-            nowProvider: nowProvider
-        )
-
-        let summary = "No eligible inputs available for this CashFusion tier"
-        await participantReservationSource.failReservation(
-            OpalFusion.Host.ParticipantReservationFailure.hostPolicyRejected(
-                reason: .noEligibleInputs,
-                summary: summary
+        do {
+            await driver.start()
+            try await driveToPendingParticipantReservation(
+                primaryTransport: primaryTransport,
+                covertTransport: covertTransport,
+                participantReservationSource: participantReservationSource,
+                nowProvider: nowProvider
             )
-        )
 
-        let snapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while true {
-                let snapshot = await driver.currentSnapshot
-                if snapshot.lastError == .hostRejected,
-                   snapshot.lastErrorSummary == summary {
-                    return snapshot
+            let summary = "No eligible inputs available for this CashFusion tier"
+            await participantReservationSource.failReservation(
+                OpalFusion.Host.ParticipantReservationFailure.hostPolicyRejected(
+                    reason: .noEligibleInputs,
+                    summary: summary
+                )
+            )
+
+            let snapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while true {
+                    let snapshot = await driver.currentSnapshot
+                    if snapshot.lastError == .hostRejected,
+                       snapshot.lastErrorSummary == summary {
+                        return snapshot
+                    }
+                    try await Task.sleep(for: .milliseconds(10))
                 }
-                try await Task.sleep(for: .milliseconds(10))
             }
+
+            #expect(snapshot.clientState.round?.completionStatus == .hostRejected)
+            #expect(snapshot.clientState.isConnected == false)
+
+            let events = await eventSink.recordedSnapshots
+            let lastEvent = try #require(events.last)
+            #expect(lastEvent.event.summary == summary)
+            #expect(lastEvent.event.isTerminal == true)
+
+            await driver.stop()
+        } catch {
+            let heldTask = await driver.participantReservationTask
+            await driver.stop()
+            await participantReservationSource.releaseReservation()
+            await heldTask?.value
+            throw error
         }
-
-        #expect(snapshot.clientState.round?.completionStatus == .hostRejected)
-        #expect(snapshot.clientState.isConnected == false)
-
-        let events = await eventSink.recordedSnapshots
-        let lastEvent = try #require(events.last)
-        #expect(lastEvent.event.summary == summary)
-        #expect(lastEvent.event.isTerminal == true)
     }
 
     @Test("Live runtime driver ignores stale participant reservations after stop")
@@ -109,33 +119,45 @@ extension LiveRuntimeDriverValidator {
             covertTransport: covertTransport
         )
 
-        await driver.start()
-        try await driveToPendingParticipantReservation(
-            primaryTransport: primaryTransport,
-            covertTransport: covertTransport,
-            participantReservationSource: participantReservationSource,
-            nowProvider: nowProvider
-        )
+        do {
+            await driver.start()
+            try await driveToPendingParticipantReservation(
+                primaryTransport: primaryTransport,
+                covertTransport: covertTransport,
+                participantReservationSource: participantReservationSource,
+                nowProvider: nowProvider
+            )
 
-        #expect((await primaryTransport.recordedWrittenPayloads).count == 2)
+            let reservationTask = try #require(await driver.participantReservationTask)
 
-        await driver.stop()
-        let stoppedSnapshot = await driver.currentSnapshot
-        #expect(stoppedSnapshot.lastError == nil)
-        #expect(stoppedSnapshot.lastErrorSummary == nil)
-        #expect(stoppedSnapshot.clientState.isConnected == false)
-        #expect(stoppedSnapshot.clientState.round == nil)
+            #expect((await primaryTransport.recordedWrittenPayloads).count == 2)
 
-        await participantReservationSource.releaseReservation()
-        try await Task.sleep(for: .milliseconds(100))
+            await driver.stop()
+            let stoppedSnapshot = await driver.currentSnapshot
+            #expect(stoppedSnapshot.lastError == nil)
+            #expect(stoppedSnapshot.lastErrorSummary == nil)
+            #expect(stoppedSnapshot.clientState.isConnected == false)
+            #expect(stoppedSnapshot.clientState.round == nil)
 
-        let finalSnapshot = await driver.currentSnapshot
-        #expect(finalSnapshot == stoppedSnapshot)
-        #expect((await primaryTransport.recordedWrittenPayloads).count == 2)
+            await participantReservationSource.releaseReservation()
+            await reservationTask.value
 
-        let events = await eventSink.recordedSnapshots
-        #expect(events.contains { $0.event.summary == "Primary channel disconnected" } == false)
-        #expect(events.contains { $0.event.summary == "Submitting player commitments and blind requests" } == false)
+            let finalSnapshot = await driver.currentSnapshot
+            #expect(finalSnapshot == stoppedSnapshot)
+            #expect((await primaryTransport.recordedWrittenPayloads).count == 2)
+
+            let events = await eventSink.recordedSnapshots
+            #expect(events.contains { $0.event.summary == "Primary channel disconnected" } == false)
+            #expect(events.contains { $0.event.summary == "Submitting player commitments and blind requests" } == false)
+
+            await driver.stop()
+        } catch {
+            let heldTask = await driver.participantReservationTask
+            await driver.stop()
+            await participantReservationSource.releaseReservation()
+            await heldTask?.value
+            throw error
+        }
     }
 
     func driveToPendingParticipantReservation(

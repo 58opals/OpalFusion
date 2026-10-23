@@ -120,6 +120,10 @@ extension MosaicAttemptCoreValidator {
         var cancelledAttempt = Attempt(configuration: Self.configuration)
         _ = cancelledAttempt.apply(input: .cancel)
 
+        try #require(completedScenario.attempt.state == .terminal(.completed))
+        try #require(failedAttempt.state == .terminal(.failed(.invalidCandidateCount(actual: 6))))
+        try #require(cancelledAttempt.state == .terminal(.cancelled(.requested(during: .discovery))))
+
         for terminalAttempt in [
             completedScenario.attempt,
             failedAttempt,

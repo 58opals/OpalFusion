@@ -21,7 +21,7 @@ extension MosaicOpalV0WireContractValidator {
             Codec.encodeAggregateFragment
         )
 
-        #expect(commitmentFragments.count == 5)
+        try #require(commitmentFragments.count == 5)
         #expect(commitmentFragments.map(\.body.count) == [4_017, 4_017, 4_017, 4_017, 1_876])
         #expect(commitmentEncoded.map(\.count) == [4_092, 4_092, 4_092, 4_092, 1_951])
         #expect(commitmentFragments.flatMap(\.body) == commitmentSet.canonicalBytes)
@@ -54,7 +54,7 @@ extension MosaicOpalV0WireContractValidator {
             Codec.encodeAggregateFragment
         )
 
-        #expect(componentFragments.count == 2)
+        try #require(componentFragments.count == 2)
         #expect(componentFragments.map(\.body.count) == [4_017, 541])
         #expect(componentEncoded.map(\.count) == [4_092, 616])
         #expect(componentFragments.flatMap(\.body) == componentSet.canonicalBytes)

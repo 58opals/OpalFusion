@@ -391,13 +391,14 @@ struct MosaicMainnetAlphaPostManifestRelayPublisherValidator {
 
         await connections[2].waitUntilCloseSuspends()
         #expect(await completion.isCompleted == false)
-        let snapshot = try #require(persistence.snapshot)
+        let capturedSnapshot = persistence.snapshot
+        await connections[2].resumeClose()
+        try await publication.value
+        let snapshot = try #require(capturedSnapshot)
         #expect(snapshot.records.contains { record in
             guard case let .completed(identifier, .transportAccepted) = record else { return false }
             return identifier == giftWrap.event.identifier.rawRepresentation
         })
-        await connections[2].resumeClose()
-        try await publication.value
         for connection in connections {
             #expect(await connection.closeCount == 1)
         }

@@ -126,7 +126,7 @@ extension OpalDiagnosticsFusionValidator {
             _ = session.apply(input: .connected, now: PrimaryRuntimeTestFixtures.instant(995))
 
             OpalDiagnostics.clearRecentRecords()
-            _ = session.apply(
+            let effects = session.apply(
                 input: .receivedPrimaryBytes(
                     try PrimaryRuntimeTestFixtures.encodeServerFrame(
                         .serverFailure(.init(message: "Coordinator rejected JoinPools for wallet address secret"))
@@ -134,6 +134,17 @@ extension OpalDiagnosticsFusionValidator {
                 ),
                 now: PrimaryRuntimeTestFixtures.instant(996)
             )
+
+            #expect(session.lastError == .coordinatorRejected)
+            #expect(session.clientState.isConnected == false)
+            #expect(session.lastErrorSummary == "Coordinator rejected the current flow")
+            #expect(effects == [
+                .emitHostEvent(roundIdentifier: nil, event: .init(
+                    kind: .failure,
+                    phase: .connecting,
+                    summary: "Coordinator rejected the current flow"
+                ))
+            ])
 
             let receivedRecord = try #require(findDiagnosticRecord(named: OpalDiagnostics.Event.primaryMessageReceived))
             #expect(findField("message_kind", in: receivedRecord)?.value == "ServerFailure")

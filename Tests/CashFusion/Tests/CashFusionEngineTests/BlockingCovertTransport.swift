@@ -9,6 +9,7 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
     private let blocksPrepare: Bool
     private let blocksPerform: Bool
     private var prepareContinuation: CheckedContinuation<Result<Void, Error>, Never>?
+    private var releasedPerformResult: Result<[UInt8], Error>?
     private var performContinuation: CheckedContinuation<Result<[UInt8], Error>, Never>?
 
     init(
@@ -41,8 +42,13 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
         performedRequests.append(request)
 
         if blocksPerform {
-            let result = await withCheckedContinuation { continuation in
-                performContinuation = continuation
+            let result: Result<[UInt8], Error>
+            if let releasedPerformResult {
+                result = releasedPerformResult
+            } else {
+                result = await withCheckedContinuation { continuation in
+                    performContinuation = continuation
+                }
             }
             switch result {
             case let .success(responseBytes):
@@ -70,11 +76,13 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
     }
 
     func releasePerform(response responseBytes: [UInt8]) {
+        releasedPerformResult = .success(responseBytes)
         performContinuation?.resume(returning: .success(responseBytes))
         performContinuation = nil
     }
 
     func failPerform(_ error: Error) {
+        releasedPerformResult = .failure(error)
         performContinuation?.resume(returning: .failure(error))
         performContinuation = nil
     }

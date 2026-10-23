@@ -228,8 +228,11 @@ struct MosaicPreviousOutputContractValidator {
 
         #expect(validation.transcriptRoot == transcript.transcriptRoot)
         #expect(validation.spentInputs.count == 1)
-        #expect(await source.receivedRequests.count == 1)
-        let received = await source.receivedRequests[0]
+        let batches = await source.receivedRequests
+        try #require(batches.count == 1)
+        let received = batches[0]
+        try #require(received.count == 1)
+        try #require(transcript.transaction.inputs.count == 1)
         #expect(
             received[0].transactionHashBytes
                 == transcript.transaction.inputs[0]

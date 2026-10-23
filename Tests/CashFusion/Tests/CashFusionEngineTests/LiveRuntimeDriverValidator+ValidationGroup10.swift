@@ -53,9 +53,11 @@ extension LiveRuntimeDriverValidator {
             finalizedTransaction.signedFusionTransactionBytes
         )
 
+        try #require(parsedTransaction.inputs.count == 2)
         #expect(parsedTransaction.inputs[0].unlockingScript.isEmpty)
         #expect(parsedTransaction.inputs[1].unlockingScript.isEmpty == false)
-        #expect(parsedTransaction.inputs[1].unlockingScript[0] == 0x41)
+        let signatureLength = try #require(parsedTransaction.inputs[1].unlockingScript.first)
+        #expect(signatureLength == 0x41)
     }
 
     @Test("Live runtime driver surfaces typed host policy finalization failures")
@@ -75,39 +77,49 @@ extension LiveRuntimeDriverValidator {
             nowProvider: nowProvider
         )
 
-        await driver.start()
-        try await driveScriptedRuntimeToPendingTransactionFinalization(
-            primaryTransport: primaryTransport,
-            covertTransport: covertTransport,
-            nowProvider: nowProvider,
-            transactionAssembler: transactionAssembler
-        )
-
-        let summary = "Host policy rejected coordinator input order"
-        await transactionAssembler.failTransaction(
-            OpalFusion.Host.TransactionFinalizationFailure.hostPolicyRejected(
-                summary: summary
+        do {
+            await driver.start()
+            try await driveScriptedRuntimeToPendingTransactionFinalization(
+                primaryTransport: primaryTransport,
+                covertTransport: covertTransport,
+                nowProvider: nowProvider,
+                transactionAssembler: transactionAssembler
             )
-        )
 
-        let snapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while true {
-                let snapshot = await driver.currentSnapshot
-                if snapshot.lastError == .hostRejected,
-                   snapshot.lastErrorSummary == summary {
-                    return snapshot
+            let summary = "Host policy rejected coordinator input order"
+            await transactionAssembler.failTransaction(
+                OpalFusion.Host.TransactionFinalizationFailure.hostPolicyRejected(
+                    summary: summary
+                )
+            )
+
+            let snapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while true {
+                    let snapshot = await driver.currentSnapshot
+                    if snapshot.lastError == .hostRejected,
+                       snapshot.lastErrorSummary == summary {
+                        return snapshot
+                    }
+                    try await Task.sleep(for: .milliseconds(10))
                 }
-                try await Task.sleep(for: .milliseconds(10))
             }
+
+            #expect(snapshot.clientState.round?.completionStatus == .hostRejected)
+            #expect(snapshot.clientState.isConnected == false)
+
+            let events = await eventSink.recordedSnapshots
+            let lastEvent = try #require(events.last)
+            #expect(lastEvent.event.summary == summary)
+            #expect(lastEvent.event.isTerminal == true)
+
+            await driver.stop()
+        } catch {
+            let heldTask = await driver.transactionFinalizationTask
+            await driver.stop()
+            await transactionAssembler.releaseTransaction()
+            await heldTask?.value
+            throw error
         }
-
-        #expect(snapshot.clientState.round?.completionStatus == .hostRejected)
-        #expect(snapshot.clientState.isConnected == false)
-
-        let events = await eventSink.recordedSnapshots
-        let lastEvent = try #require(events.last)
-        #expect(lastEvent.event.summary == summary)
-        #expect(lastEvent.event.isTerminal == true)
     }
 
     @Test("Live runtime driver sanitizes unknown transaction assembler failures")
@@ -127,36 +139,46 @@ extension LiveRuntimeDriverValidator {
             nowProvider: nowProvider
         )
 
-        await driver.start()
-        try await driveScriptedRuntimeToPendingTransactionFinalization(
-            primaryTransport: primaryTransport,
-            covertTransport: covertTransport,
-            nowProvider: nowProvider,
-            transactionAssembler: transactionAssembler
-        )
+        do {
+            await driver.start()
+            try await driveScriptedRuntimeToPendingTransactionFinalization(
+                primaryTransport: primaryTransport,
+                covertTransport: covertTransport,
+                nowProvider: nowProvider,
+                transactionAssembler: transactionAssembler
+            )
 
-        await transactionAssembler.failTransaction(
-            LiveRuntimeTestHarnessError.signingInputNotFound
-        )
+            await transactionAssembler.failTransaction(
+                LiveRuntimeTestHarnessError.signingInputNotFound
+            )
 
-        let expectedSummary = "Host transaction finalization failed"
-        let snapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
-            while true {
-                let snapshot = await driver.currentSnapshot
-                if snapshot.lastError == .notImplemented,
-                   snapshot.lastErrorSummary == expectedSummary {
-                    return snapshot
+            let expectedSummary = "Host transaction finalization failed"
+            let snapshot = try await LiveRuntimeTestHarness.withTimeout(.seconds(1)) {
+                while true {
+                    let snapshot = await driver.currentSnapshot
+                    if snapshot.lastError == .notImplemented,
+                       snapshot.lastErrorSummary == expectedSummary {
+                        return snapshot
+                    }
+                    try await Task.sleep(for: .milliseconds(10))
                 }
-                try await Task.sleep(for: .milliseconds(10))
             }
+
+            #expect(snapshot.clientState.round?.completionStatus == .hostRejected)
+            #expect(snapshot.clientState.isConnected == false)
+
+            let events = await eventSink.recordedSnapshots
+            let lastEvent = try #require(events.last)
+            #expect(lastEvent.event.summary == expectedSummary)
+            #expect(lastEvent.event.isTerminal == true)
+
+            await driver.stop()
+        } catch {
+            let heldTask = await driver.transactionFinalizationTask
+            await driver.stop()
+            await transactionAssembler.releaseTransaction()
+            await heldTask?.value
+            throw error
         }
-
-        #expect(snapshot.clientState.round?.completionStatus == .hostRejected)
-        #expect(snapshot.clientState.isConnected == false)
-
-        let events = await eventSink.recordedSnapshots
-        let lastEvent = try #require(events.last)
-        #expect(lastEvent.event.summary == expectedSummary)
-        #expect(lastEvent.event.isTerminal == true)
     }
 }

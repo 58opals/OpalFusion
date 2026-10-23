@@ -115,11 +115,11 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                 )
             } catch {
                 let failure: TransportBootstrapFailure
-                if Task.isCancelled {
-                    failure = .cancelled
-                } else {
+                if case .running = state, !Task.isCancelled {
                     failure = error as? TransportBootstrapFailure
                         ?? .invalidRelayAllocation
+                } else {
+                    failure = .cancelled
                 }
                 await terminate(
                     throwing: failure
@@ -129,9 +129,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
 
             do {
                 return try await withTaskCancellationHandler {
-                    guard !Task.isCancelled else {
-                        throw TransportBootstrapFailure.cancelled
-                    }
+                    try requireRunning()
                     let codingLimits = try Self.codingLimits()
                     let recipientKey = try OpalCrypto.Signature.BIP340
                         .VerificationKey(
@@ -153,6 +151,7 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                         output: OpalFusion.Mosaic.NIP01RelaySession.OutputStream
                     )] = []
                     for route in routes {
+                        try requireRunning()
                         let session = try OpalFusion.Mosaic.NIP01RelaySession(
                             connection: try TorWebSocketConnectionAdapter(
                                 route.connection,
@@ -163,7 +162,9 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                             maximumPendingOutputCount:
                                 capabilities.maximumPendingRelayOutputCount
                         )
+                        sessions[route.relayEndpointIdentifier] = session
                         let output = try await session.start()
+                        try requireRunning()
                         let identifier = try OpalFusion.Mosaic.NostrNamespace
                             .SubscriptionIdentifier(
                                 capabilities.makeSubscriptionIdentifier(
@@ -174,16 +175,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                         try await session.subscribe(
                             try .init(identifier: identifier, filters: [filter])
                         )
-                        sessions[route.relayEndpointIdentifier] = session
+                        try requireRunning()
                         prepared.append((
                             route.relayEndpointIdentifier,
                             session,
                             output
                         ))
                     }
-                    guard !Task.isCancelled else {
-                        throw TransportBootstrapFailure.cancelled
-                    }
+                    try requireRunning()
                     for source in prepared {
                         tasks.append(Task { [weak self] in
                             await self?.consume(
@@ -201,14 +200,14 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                     }
                 }
             } catch {
-                for route in routes { await route.connection.close() }
                 let failure: TransportBootstrapFailure
-                if Task.isCancelled {
-                    failure = .cancelled
-                } else {
+                if case .running = state, !Task.isCancelled {
                     failure = error as? TransportBootstrapFailure
                         ?? .invalidRelayAllocation
+                } else {
+                    failure = .cancelled
                 }
+                for route in routes { await route.connection.close() }
                 await terminate(
                     throwing: failure
                 )
@@ -336,6 +335,12 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
             await terminate(throwing: .sourceLost)
         }
 
+        private func requireRunning() throws {
+            guard case .running = state, !Task.isCancelled else {
+                throw TransportBootstrapFailure.cancelled
+            }
+        }
+
         private func terminate(
             throwing failure: TransportBootstrapFailure?
         ) async {
@@ -347,7 +352,10 @@ extension OpalFusion.MosaicPrivateAlphaRuntime {
                 for task in tasks { task.cancel() }
                 let sessions = Array(sessions.values)
                 self.sessions.removeAll()
-                for session in sessions { await session.stop() }
+                for session in sessions {
+                    await session.stop()
+                    await session.waitForTermination()
+                }
                 if let failure {
                     continuation.finish(throwing: failure)
                 } else {

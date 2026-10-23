@@ -261,31 +261,37 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
     }
 
     @Test(
-        "A recovery barrier completes false when an earlier effect terminates",
+        "A recovery replay request returns false when an earlier effect terminates",
         .timeLimit(.minutes(1))
     )
-    func completeRecoveryBarrierAfterEarlierEffectFailure() async throws {
+    func recoveryReplayReturnsFalseAfterEarlierEffectFailure() async throws {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
         let harness = try await makeHarness(reserveSuspension: suspension)
-        await harness.coordinator.start()
-        try await submitManifest(harness)
-        await suspension.waitUntilSuspended()
-        await harness.host.failReservation()
+        do {
+            await harness.coordinator.start()
+            try await submitManifest(harness)
+            await suspension.waitUntilSuspended()
+            await harness.host.failReservation()
 
-        let replay = Task {
-            await harness.coordinator.awaitRuntimeRecoveryReplay()
+            let replay = Task {
+                await harness.coordinator.awaitRuntimeRecoveryReplay()
+            }
+            // The request may race terminalization; no pending-barrier admission is claimed.
+            await suspension.resume()
+
+            #expect(await replay.value == false)
+            await harness.coordinator.waitForTermination()
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(.failed(.reservationFailed))
+            )
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
         }
-        await Task.yield()
-        _ = await harness.coordinator.state
-        await suspension.resume()
-
-        #expect(await replay.value == false)
-        await harness.coordinator.waitForTermination()
-        #expect(
-            await harness.coordinator.state
-                == .terminal(.failed(.reservationFailed))
-        )
     }
 
     @Test(
@@ -330,42 +336,49 @@ struct MosaicMainnetAlphaReservationCoordinatorValidator {
         let suspension = MosaicRuntimeCoordinatorSuspensionProbe()
         await suspension.arm()
         let harness = try await makeHarness(publicationSuspension: suspension)
-        await harness.coordinator.start()
-        try await submitManifest(harness)
-        await suspension.waitUntilSuspended()
+        do {
+            await harness.coordinator.start()
+            try await submitManifest(harness)
+            await suspension.waitUntilSuspended()
 
-        let playerCommitRun = try Fixture.aggregateRun(
-            canonicalBytes: harness.playerCommit.canonicalBytes,
-            kind: .playerCommit,
-            sender: harness.admission.localControlIdentity,
-            phase: .walletReservation,
-            sequence: 0,
-            harness: harness.admission
-        )
-        #expect(await harness.coordinator.submitControl(playerCommitRun.reservation))
-        for fragment in playerCommitRun.fragments {
-            #expect(await harness.coordinator.submitControl(fragment))
+            let playerCommitRun = try Fixture.aggregateRun(
+                canonicalBytes: harness.playerCommit.canonicalBytes,
+                kind: .playerCommit,
+                sender: harness.admission.localControlIdentity,
+                phase: .walletReservation,
+                sequence: 0,
+                harness: harness.admission
+            )
+            #expect(await harness.coordinator.submitControl(playerCommitRun.reservation))
+            for fragment in playerCommitRun.fragments {
+                #expect(await harness.coordinator.submitControl(fragment))
+            }
+            #expect(await harness.coordinator.inputSourceDidTerminate(.failed))
+            await harness.coordinator.stop()
+            #expect(await harness.host.releasedReferences.isEmpty)
+            await suspension.resume()
+            await harness.coordinator.waitForTermination()
+
+            #expect(harness.signals.count(.publicationStarted) == 1)
+            #expect(harness.signals.count(.validationAccepted) == 1)
+            #expect(harness.signals.count(.queuedPlayerCommitAdmitted) == 1)
+            #expect(
+                await harness.host.releasedReferences
+                    == [harness.lease.reference]
+            )
+            #expect(
+                await harness.coordinator.state
+                    == .terminal(.failed(.inputSourceTerminated(.failed)))
+            )
+            let diagnostics = await harness.coordinator.diagnosticCounts
+            #expect(diagnostics["failureInputSourceTerminated"] == 1)
+            #expect(diagnostics["failurePublication"] == nil)
+        } catch {
+            await suspension.resume()
+            await harness.coordinator.stop()
+            await harness.coordinator.waitForTermination()
+            throw error
         }
-        #expect(await harness.coordinator.inputSourceDidTerminate(.failed))
-        await harness.coordinator.stop()
-        #expect(await harness.host.releasedReferences.isEmpty)
-        await suspension.resume()
-        await harness.coordinator.waitForTermination()
-
-        #expect(harness.signals.count(.publicationStarted) == 1)
-        #expect(harness.signals.count(.validationAccepted) == 1)
-        #expect(harness.signals.count(.queuedPlayerCommitAdmitted) == 1)
-        #expect(
-            await harness.host.releasedReferences
-                == [harness.lease.reference]
-        )
-        #expect(
-            await harness.coordinator.state
-                == .terminal(.failed(.inputSourceTerminated(.failed)))
-        )
-        let diagnostics = await harness.coordinator.diagnosticCounts
-        #expect(diagnostics["failureInputSourceTerminated"] == 1)
-        #expect(diagnostics["failurePublication"] == nil)
     }
 
     @Test(

@@ -22,6 +22,7 @@ extension OpalFusion.Mosaic {
         private let outputStream: OutputStream
         private var outputContinuation: OutputStream.Continuation
         private var inputTask: Task<Void, Never>?
+        private var closeTask: Task<Void, Never>?
         private var activeSubscriptions: Set<Nostr.SubscriptionIdentifier> = []
         private var publicationIdentifiers: [OpalCrypto.Signature.Digest] = []
         private var pendingPublications: [OpalCrypto.Signature.Digest] = []
@@ -124,11 +125,13 @@ extension OpalFusion.Mosaic {
                 await finish(.stopped)
                 return
             }
+            await closeTask?.value
         }
 
         func waitForTermination() async {
             let inputTask = inputTask
             await inputTask?.value
+            await closeTask?.value
         }
 
         private func consumeInput(
@@ -235,15 +238,22 @@ extension OpalFusion.Mosaic {
                 activeSubscriptions.removeAll()
                 publicationIdentifiers.removeAll()
                 pendingPublications.removeAll()
-                await connection.close()
-                switch termination {
-                case let .failed(failure):
-                    outputContinuation.finish(throwing: failure)
-                case .stopped, .inputEnded:
-                    outputContinuation.finish()
+                let connection = connection
+                let outputContinuation = outputContinuation
+                let closeTask = Task {
+                    await connection.close()
+                    switch termination {
+                    case let .failed(failure):
+                        outputContinuation.finish(throwing: failure)
+                    case .stopped, .inputEnded:
+                        outputContinuation.finish()
+                    }
                 }
+                self.closeTask = closeTask
+                await closeTask.value
                 return
             }
+            await closeTask?.value
         }
     }
 }

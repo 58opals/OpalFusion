@@ -924,21 +924,29 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
                 recordAcceptedRelayEndpointIdentifier: { await quorumPersistence.record($0, $1) }
             ))
         }
-        var quorumRoutesSent = false
-        for _ in 0 ..< 1_000 {
-            var counts: [Int] = []
-            for connection in quorumConnections { counts.append(await connection.sentTexts.count) }
-            if counts == [1, 1, 1] { quorumRoutesSent = true; break }
-            try await Task.sleep(for: .milliseconds(1))
-        }
-        #expect(quorumRoutesSent)
-        for connection in quorumConnections.prefix(2) {
-            let text = try #require(await connection.sentTexts.first)
-            let frame = try #require(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any])
-            let event = try #require(frame[1] as? [String: Any])
-            let identifier = try #require(event["id"] as? String)
-            await connection.receive(.text(try JSONSerialization.data(
-                withJSONObject: ["OK", identifier, true, ""])))
+        do {
+            var quorumRoutesSent = false
+            for _ in 0 ..< 1_000 {
+                var counts: [Int] = []
+                for connection in quorumConnections { counts.append(await connection.sentTexts.count) }
+                if counts == [1, 1, 1] { quorumRoutesSent = true; break }
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            #expect(quorumRoutesSent)
+            for connection in quorumConnections.prefix(2) {
+                let text = try #require(await connection.sentTexts.first)
+                let frame = try #require(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any])
+                let event = try #require(frame[1] as? [String: Any])
+                let identifier = try #require(event["id"] as? String)
+                await connection.receive(.text(try JSONSerialization.data(
+                    withJSONObject: ["OK", identifier, true, ""])))
+            }
+            _ = try await quorumTask.value
+        } catch {
+            quorumTask.cancel()
+            for connection in quorumConnections { await connection.close() }
+            _ = await quorumTask.result
+            throw error
         }
         let quorumReceipt = try await quorumTask.value
         #expect(quorumReceipt.acceptedRelayEndpointIdentifiers == Array(endpoints.prefix(2)).sorted())
@@ -994,24 +1002,31 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
                 )
             )
         }
-        var sentOnEveryRoute = false
-        for _ in 0 ..< 1_000 {
-            var currentRouteSetIsComplete = true
-            for connection in cancelledConnections {
-                if await connection.sentTexts.count != 1 {
-                    currentRouteSetIsComplete = false
+        do {
+            var sentOnEveryRoute = false
+            for _ in 0 ..< 1_000 {
+                var currentRouteSetIsComplete = true
+                for connection in cancelledConnections {
+                    if await connection.sentTexts.count != 1 {
+                        currentRouteSetIsComplete = false
+                    }
                 }
+                if currentRouteSetIsComplete {
+                    sentOnEveryRoute = true
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(1))
             }
-            if currentRouteSetIsComplete {
-                sentOnEveryRoute = true
-                break
+            #expect(sentOnEveryRoute)
+            pendingPublication.cancel()
+            await #expect(throws: Runtime.TransportBootstrapFailure.cancelled) {
+                try await pendingPublication.value
             }
-            try await Task.sleep(for: .milliseconds(1))
-        }
-        #expect(sentOnEveryRoute)
-        pendingPublication.cancel()
-        await #expect(throws: Runtime.TransportBootstrapFailure.cancelled) {
-            try await pendingPublication.value
+        } catch {
+            pendingPublication.cancel()
+            for connection in cancelledConnections { await connection.close() }
+            _ = await pendingPublication.result
+            throw error
         }
         #expect(
             await cancelledPersistence.load(
@@ -1079,6 +1094,97 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
             #expect(await connection.closeCount == 1)
             #expect(await connection.sentTexts.isEmpty)
         }
+    }
+
+    @Test("An independently stopped bootstrap inbox cannot open delayed routes")
+    func stopDuringProvisioningCannotOpenBootstrapRoutes() async throws {
+        let fixture = try Self.makeFixture()
+        let recipient = try #require(fixture.proof.controlIdentities.first)
+        let provisioning = MosaicRuntimeCoordinatorSuspensionProbe()
+        let opening = MosaicRuntimeCoordinatorSuspensionProbe(
+            waitsForExplicitResumeAfterCancellation: true
+        )
+        await provisioning.arm()
+        await opening.arm()
+        let (observations, observationContinuation) = AsyncStream<
+            BootstrapStoppedStartObservation
+        >.makeStream(bufferingPolicy: .bufferingOldest(3))
+        let first = BootstrapHeldOpenConnection(
+            opening: opening,
+            observations: observationContinuation
+        )
+        let second = ScriptedMosaicPrivateAlphaTorConnection()
+        let third = ScriptedMosaicPrivateAlphaTorConnection()
+        let connections: [any Runtime.TorWebSocketConnection] = [
+            first, second, third,
+        ]
+        let routes = zip(fixture.proof.relayEndpointIdentifiers, connections)
+            .map { endpoint, connection in
+                Runtime.PostManifestProvisionedRoute(
+                    relayEndpointIdentifier: endpoint,
+                    connection: connection,
+                    isolationIdentifier: UUID()
+                )
+            }
+        let inbox = try Runtime.TransportBootstrapInbox(
+            proof: fixture.proof,
+            binding: fixture.binding,
+            recipientEventIdentity: recipient,
+            capabilities: .init(
+                provisionRoutes: { _ in
+                    await provisioning.suspendIfArmed()
+                    return routes
+                },
+                makeSubscriptionIdentifier: { _, _ in "stopped-start" }
+            )
+        )
+        let startTask = Task {
+            do {
+                _ = try await inbox.start()
+                observationContinuation.yield(.startCompleted)
+            } catch {
+                observationContinuation.yield(.startCompleted)
+                throw error
+            }
+        }
+        await provisioning.waitUntilSuspended()
+        await inbox.stop()
+        await provisioning.resume()
+
+        // The deadline only guarantees cleanup after an unexpected missing witness.
+        // Neither stop nor the test cancels the independently running start task.
+        let deadlineTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(1))
+                observationContinuation.yield(.deadline)
+            } catch {}
+        }
+        var iterator = observations.makeAsyncIterator()
+        let firstObservation = await iterator.next()
+        deadlineTask.cancel()
+        await deadlineTask.value
+        #expect(firstObservation == .startCompleted)
+        #expect(await first.openCount == 0)
+        #expect(await second.openCount == 0)
+        #expect(await third.openCount == 0)
+        #expect(await first.closeCount == 1)
+        #expect(await second.closeCount == 1)
+        #expect(await third.closeCount == 1)
+        #expect(await first.sentTexts.isEmpty)
+        #expect(await second.sentTexts.isEmpty)
+        #expect(await third.sentTexts.isEmpty)
+
+        // The prefix can reach only a held open that throws after release. No
+        // MessageStream, session input task or inbox consumer can escape cleanup.
+        await provisioning.resume()
+        await opening.resume()
+        for connection in connections { await connection.close() }
+        await #expect(throws: Runtime.TransportBootstrapFailure.cancelled) {
+            try await startTask.value
+        }
+        await inbox.stop()
+        await inbox.waitForTermination()
+        observationContinuation.finish()
     }
 
     @Test("Fan in relay copies once and fail closed on source loss")
@@ -1660,6 +1766,53 @@ struct MosaicPrivateAlphaTransportBootstrapValidator {
         return try Nostr.EventCodec.encode(event, limits: limits.event)
     }
 
+}
+
+private enum BootstrapStoppedStartObservation: Equatable, Sendable {
+    case firstOpenEntered
+    case startCompleted
+    case deadline
+}
+
+private actor BootstrapHeldOpenConnection:
+    OpalFusion.MosaicPrivateAlphaRuntime.TorWebSocketConnection
+{
+    private enum InjectedFailure: Error { case releasedOpen }
+
+    private let opening: MosaicRuntimeCoordinatorSuspensionProbe
+    private let observations:
+        AsyncStream<BootstrapStoppedStartObservation>.Continuation
+    private(set) var openCount = 0
+    private(set) var closeCount = 0
+    private(set) var sentTexts: [String] = []
+
+    init(
+        opening: MosaicRuntimeCoordinatorSuspensionProbe,
+        observations:
+            AsyncStream<BootstrapStoppedStartObservation>.Continuation
+    ) {
+        self.opening = opening
+        self.observations = observations
+    }
+
+    func open(maximumIncomingMessageByteCount _: Int) async throws
+        -> MessageStream {
+        openCount += 1
+        observations.yield(.firstOpenEntered)
+        await opening.suspendIfArmed()
+        throw InjectedFailure.releasedOpen
+    }
+
+    func send(text: String) async throws {
+        sentTexts.append(text)
+        throw InjectedFailure.releasedOpen
+    }
+
+    func close() async {
+        guard closeCount == 0 else { return }
+        closeCount += 1
+        await opening.resume()
+    }
 }
 
 private actor TransportBootstrapAcceptanceStore {

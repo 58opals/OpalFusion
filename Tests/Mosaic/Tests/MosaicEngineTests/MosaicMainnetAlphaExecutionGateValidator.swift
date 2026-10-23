@@ -310,40 +310,46 @@ struct MosaicMainnetAlphaExecutionGateValidator {
             #expect(await connection.sentTexts.isEmpty)
         }
 
-        try await fanIn.start()
-        #expect(await fanIn.state == .running)
-        #expect(await authority.invocationCount == 1)
-        for connection in connections {
-            #expect(await connection.openCount == 1)
-            #expect(await connection.sentTexts.count == 1)
-        }
+        do {
+            try await fanIn.start()
+            #expect(await fanIn.state == .running)
+            #expect(await authority.invocationCount == 1)
+            for connection in connections {
+                #expect(await connection.openCount == 1)
+                #expect(await connection.sentTexts.count == 1)
+            }
 
-        let run = try manifestRun(harness)
-        let localRecipientIndex = try #require(
-            harness.manifest.core.roster.controlIdentities.firstIndex(
-                of: harness.localControlIdentity
+            let run = try manifestRun(harness)
+            let localRecipientIndex = try #require(
+                harness.manifest.core.roster.controlIdentities.firstIndex(
+                    of: harness.localControlIdentity
+                )
             )
-        )
-        let localRecipient = try signingKey(100 + localRecipientIndex)
-        let giftWrap = try controlGiftWrap(
-            run.reservation.envelope,
-            harness: harness,
-            recipient: localRecipient
-        )
-        await connections[0].receive(
-            try relayEventFrame(
-                subscription: try #require(subscriptions[endpoints[0]]),
-                event: giftWrap
+            let localRecipient = try signingKey(100 + localRecipientIndex)
+            let giftWrap = try controlGiftWrap(
+                run.reservation.envelope,
+                harness: harness,
+                recipient: localRecipient
             )
-        )
-        #expect(await submissionProbe.first() == .accepted)
-        #expect(await fanIn.state == .running)
-        #expect(await authority.invocationCount == 1)
+            await connections[0].receive(
+                try relayEventFrame(
+                    subscription: try #require(subscriptions[endpoints[0]]),
+                    event: giftWrap
+                )
+            )
+            #expect(await submissionProbe.first() == .accepted)
+            #expect(await fanIn.state == .running)
+            #expect(await authority.invocationCount == 1)
 
-        await fanIn.stop()
-        #expect(await fanIn.waitForTermination() == .stopped)
-        for connection in connections {
-            #expect(await connection.closeCount == 1)
+            await fanIn.stop()
+            #expect(await fanIn.waitForTermination() == .stopped)
+            for connection in connections {
+                #expect(await connection.closeCount == 1)
+            }
+        } catch {
+            await fanIn.stop()
+            _ = await fanIn.waitForTermination()
+            throw error
         }
     }
 

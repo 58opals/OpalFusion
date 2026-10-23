@@ -7,49 +7,52 @@ import Testing
 extension RoundEngineScriptedValidator {
     @Test("Round engine preserves a pre-round server rejection over later transport failure noise")
     func validateServerFailurePrecedenceOverTransportFailure() {
-        var engine = Self.makeEngine()
-        _ = engine.apply(
-            input: .primaryConnected,
-            now: Self.instant(995)
-        )
-        _ = engine.apply(
-            input: .primaryMessage(.serverHello(Self.serverHello)),
-            now: Self.instant(996)
-        )
-
-        let rejectionSummary = "Coordinator rejected JoinPools"
-        let rejectionEffects = engine.apply(
-            input: .primaryMessage(
-                .serverFailure(.init(message: rejectionSummary))
-            ),
-            now: Self.instant(997)
-        )
-        #expect(
-            rejectionEffects == [
-                .emitHostEvent(
-                    roundIdentifier: nil,
-                    event: .init(
-                        kind: .failure,
-                        phase: .connecting,
-                        summary: rejectionSummary
-                    )
+        for location in 0 ..< 3 {
+            var engine = Self.makeEngine()
+            if location == 0 {
+                _ = engine.apply(input: .primaryConnected, now: Self.instant(995))
+                _ = engine.apply(
+                    input: .primaryMessage(.serverHello(Self.serverHello)),
+                    now: Self.instant(996)
                 )
-            ]
-        )
-        #expect(engine.session.lastError == .coordinatorRejected)
-        #expect(engine.session.lastErrorSummary == rejectionSummary)
-        #expect(engine.clientState.isConnected == false)
-
-        let transportEffects = engine.apply(
-            input: .primaryTransportFailed(
-                summary: "Primary read failed"
-            ),
-            now: Self.instant(998)
-        )
-        #expect(transportEffects.isEmpty)
-        #expect(engine.session.lastError == .coordinatorRejected)
-        #expect(engine.session.lastErrorSummary == rejectionSummary)
-        #expect(engine.clientState.isConnected == false)
+            } else {
+                Self.driveThroughStartRound(engine: &engine)
+            }
+            let rejection = OpalFusion.ProtocolModel.ServerFailure(
+                message: "Coordinator rejected JoinPools; public-fixture-canary"
+            )
+            let input: OpalFusion.Execution.RoundEngine.Input = location == 2
+                ? .covertResponse(.serverFailure(rejection))
+                : .primaryMessage(.serverFailure(rejection))
+            let rejectionEffects = engine.apply(input: input, now: Self.instant(1_031))
+            #expect(engine.session.lastError == .coordinatorRejected)
+            #expect(engine.clientState.isConnected == false)
+            #expect(engine.session.lastErrorSummary == "Coordinator rejected the current flow")
+            #expect(
+                rejectionEffects == [
+                    .emitHostEvent(
+                        roundIdentifier: location == 0 ? nil : Self.roundIdentifier,
+                        event: .init(
+                            kind: .failure,
+                            phase: location == 0 ? .connecting : .completed,
+                            summary: "Coordinator rejected the current flow",
+                            isTerminal: location != 0
+                        )
+                    )
+                ]
+            )
+            if location != 0 {
+                #expect(engine.clientState.round?.completionStatus == .coordinatorRejected)
+            }
+            let transportEffects = engine.apply(
+                input: .primaryTransportFailed(summary: "Primary read failed"),
+                now: Self.instant(1_032)
+            )
+            #expect(transportEffects.isEmpty)
+            #expect(engine.session.lastError == .coordinatorRejected)
+            #expect(engine.session.lastErrorSummary == "Coordinator rejected the current flow")
+            #expect(engine.clientState.isConnected == false)
+        }
     }
 
     @Test("Round engine rejects impossible ServerHello excess fee ranges")

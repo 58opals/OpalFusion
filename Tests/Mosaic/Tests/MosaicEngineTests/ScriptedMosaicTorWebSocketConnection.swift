@@ -12,6 +12,8 @@ actor ScriptedMosaicTorWebSocketConnection:
 
     private let stream: MessageStream
     private let continuation: MessageStream.Continuation
+    let closeSuspensionEvents: AsyncStream<Void>
+    private let closeSuspensionContinuation: AsyncStream<Void>.Continuation
     private var openWaiter: CheckedContinuation<Void, Never>?
     private var openSuspensionWaiter: CheckedContinuation<Void, Never>?
     private var closeWaiter: CheckedContinuation<Void, Never>?
@@ -33,10 +35,12 @@ actor ScriptedMosaicTorWebSocketConnection:
     private var shouldFailNextSend = false
     private var hasSuspendedOpen = false
     private var hasSuspendedClose = false
+    private var closeWasReleased = false
     private var hasSuspendedSend = false
 
     private(set) var openCount = 0
     private(set) var closeCount = 0
+    private(set) var closeCompletionCount = 0
     private(set) var sentTexts: [String] = []
     private(set) var openedMaximumIncomingMessageByteCount: Int?
     private(set) var deliveredMessageCount = 0
@@ -46,6 +50,11 @@ actor ScriptedMosaicTorWebSocketConnection:
         let (stream, continuation) = MessageStream.makeStream()
         self.stream = stream
         self.continuation = continuation
+        let (closeEvents, closeContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        closeSuspensionEvents = closeEvents
+        closeSuspensionContinuation = closeContinuation
     }
 
     func open(
@@ -99,6 +108,10 @@ actor ScriptedMosaicTorWebSocketConnection:
         guard !isClosed else { return }
         isClosed = true
         closeCount += 1
+        defer {
+            closeCompletionCount += 1
+            closeSuspensionContinuation.finish()
+        }
         openResume?.resume(throwing: CancellationError())
         openResume = nil
         sendResume?.resume(throwing: CancellationError())
@@ -106,8 +119,9 @@ actor ScriptedMosaicTorWebSocketConnection:
         continuation.finish()
         closeWaiter?.resume()
         closeWaiter = nil
-        guard shouldSuspendNextClose, !hasSuspendedClose else { return }
+        guard shouldSuspendNextClose, !hasSuspendedClose, !closeWasReleased else { return }
         hasSuspendedClose = true
+        closeSuspensionContinuation.yield(())
         closeSuspensionWaiter?.resume()
         closeSuspensionWaiter = nil
         await withCheckedContinuation { continuation in
@@ -181,6 +195,7 @@ actor ScriptedMosaicTorWebSocketConnection:
     }
 
     func resumeClose() {
+        closeWasReleased = true
         closeResume?.resume()
         closeResume = nil
     }

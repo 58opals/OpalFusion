@@ -5,6 +5,7 @@
 actor BlockingParticipantReservationSource: OpalFusion.Host.ParticipantReservationSource {
     private let reservation: OpalFusion.Host.ParticipantReservation
     private var requestedRoundIdentifiers: [OpalFusion.Round.Identifier] = []
+    private var releasedResult: Result<OpalFusion.Host.ParticipantReservation, Error>?
     private var reservationContinuation: CheckedContinuation<Result<OpalFusion.Host.ParticipantReservation, Error>, Never>?
 
     init(
@@ -17,8 +18,13 @@ actor BlockingParticipantReservationSource: OpalFusion.Host.ParticipantReservati
         for roundIdentifier: OpalFusion.Round.Identifier
     ) async throws -> OpalFusion.Host.ParticipantReservation {
         requestedRoundIdentifiers.append(roundIdentifier)
-        let result = await withCheckedContinuation { continuation in
-            reservationContinuation = continuation
+        let result: Result<OpalFusion.Host.ParticipantReservation, Error>
+        if let releasedResult {
+            result = releasedResult
+        } else {
+            result = await withCheckedContinuation { continuation in
+                reservationContinuation = continuation
+            }
         }
 
         switch result {
@@ -36,13 +42,18 @@ actor BlockingParticipantReservationSource: OpalFusion.Host.ParticipantReservati
     func releaseReservation(
         _ reservation: OpalFusion.Host.ParticipantReservation? = nil
     ) {
-        reservationContinuation?.resume(returning: .success(reservation ?? self.reservation))
+        let result: Result<OpalFusion.Host.ParticipantReservation, Error> = .success(
+            reservation ?? self.reservation
+        )
+        releasedResult = result
+        reservationContinuation?.resume(returning: result)
         reservationContinuation = nil
     }
 
     func failReservation(
         _ error: Error
     ) {
+        releasedResult = .failure(error)
         reservationContinuation?.resume(returning: .failure(error))
         reservationContinuation = nil
     }

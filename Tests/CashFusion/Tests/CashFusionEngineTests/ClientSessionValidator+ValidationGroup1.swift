@@ -94,21 +94,24 @@ extension ClientSessionValidator {
         await session.stop()
     }
 
-    @Test("Public client session preserves pre-round coordinator rejection messages")
+    @Test("Public client session projects coordinator rejection with a safe public summary")
     func validatePreRoundServerFailureMessageProjection() async throws {
-        let rejectionMessage = "This server is on a different chain, please switch servers"
+        let rejectionMessage = "This server is on a different chain, please switch servers; public-fixture-canary"
+        let safeSummary = "Coordinator rejected the current flow"
         let stateObserver = RecordedClientStateObserver()
         let transportFactories = SessionTransportFactoryRecorder()
+        let reservationSource = DelayedParticipantReservationSource(
+            participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
+        )
+        let assembler = DelayedTransactionAssembler(
+            finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
+        )
         let session = OpalFusion.Client.Session(
             configuration: PrimaryRuntimeTestFixtures.configuration,
             genesisHash: PrimaryRuntimeTestFixtures.clientHello.genesisHash,
             joinPools: PrimaryRuntimeTestFixtures.joinPools,
-            hostParticipantReservationSource: HostParticipantReservationSourceAdapter(
-                participantInputs: [PrimaryRuntimeTestFixtures.participantInput]
-            ),
-            hostTransactionAssembler: HostTransactionAssemblerAdapter(
-                finalizedTransaction: PrimaryRuntimeTestFixtures.finalizedTransaction
-            ),
+            hostParticipantReservationSource: reservationSource,
+            hostTransactionAssembler: assembler,
             stateObserver: stateObserver,
             primaryTransportFactory: { await transportFactories.makePrimary() },
             covertTransportFactory: { await transportFactories.makeCovert() }
@@ -128,18 +131,23 @@ extension ClientSessionValidator {
         )
 
         let snapshot = try await Self.waitForSessionSnapshot(session) {
-            $0.lastError == .coordinatorRejected &&
-                $0.lastErrorSummary == rejectionMessage &&
-                $0.state.isConnected == false
+            $0.lastError == .coordinatorRejected && $0.state.isConnected == false
         }
         #expect(snapshot.state.round == nil)
+        #expect(snapshot.lastErrorSummary == safeSummary)
+        #expect(snapshot.lastErrorSummary?.contains("public-fixture-canary") == false)
+        #expect(await reservationSource.requestedRounds.isEmpty)
+        #expect(await assembler.requestedRounds.isEmpty)
 
         let observedSnapshots = await stateObserver.recordedSnapshots
         #expect(observedSnapshots.contains {
             $0.lastError == .coordinatorRejected &&
-                $0.lastErrorSummary == rejectionMessage
+                $0.lastErrorSummary == safeSummary
         })
 
+        #expect(observedSnapshots.allSatisfy {
+            $0.lastErrorSummary?.contains("public-fixture-canary") != true
+        })
         await session.stop()
     }
 

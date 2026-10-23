@@ -64,6 +64,7 @@ struct MosaicOpalV0AuthorizationValidator {
         let roster = try makeRoster()
         var ledger = Ledger(roster: roster)
         let evaluations = try submitRemainingRequests(to: &ledger, roster: roster)
+        try #require(evaluations.count == 6 * 23)
         let firstEvaluation = try evaluation(from: evaluations[0])
         let firstResponse = Ledger.Response(
             key: firstEvaluation.key,

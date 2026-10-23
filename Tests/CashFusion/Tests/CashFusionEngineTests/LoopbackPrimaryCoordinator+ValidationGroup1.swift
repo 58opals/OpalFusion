@@ -24,11 +24,14 @@ extension LoopbackPrimaryCoordinator {
                   let endpointPort = NWEndpoint.Port(rawValue: port) else {
                 throw LiveRuntimeTestHarnessError.invalidLoopbackPort(port)
             }
-            listener = try NWListener(
-                using: parameters,
-                on: endpointPort
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: "127.0.0.1", port: endpointPort
             )
+            listener = try NWListener(using: parameters)
         } else {
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: "127.0.0.1", port: .any
+            )
             listener = try NWListener(using: parameters, on: .any)
         }
 

@@ -4,17 +4,20 @@
 @testable import OpalFusionCore
 actor SessionTransportFactoryRecorder {
     private let defaultPrimaryConnectError: Error?
+    private let blocksFirstPrimaryClose: Bool
     private var primaryTransports: [ScriptedPrimaryTransport] = []
     private var covertTransports: [ScriptedCovertTransport] = []
     private var pendingPrimaryConnectErrors: [Error?]
 
-    init(primaryConnectError: Error? = nil) {
+    init(primaryConnectError: Error? = nil, blocksFirstPrimaryClose: Bool = false) {
         self.defaultPrimaryConnectError = primaryConnectError
+        self.blocksFirstPrimaryClose = blocksFirstPrimaryClose
         self.pendingPrimaryConnectErrors = []
     }
 
     init(primaryConnectErrors: [Error?]) {
         self.defaultPrimaryConnectError = primaryConnectErrors.last ?? nil
+        self.blocksFirstPrimaryClose = false
         self.pendingPrimaryConnectErrors = primaryConnectErrors
     }
 
@@ -25,7 +28,10 @@ actor SessionTransportFactoryRecorder {
         } else {
             connectError = defaultPrimaryConnectError
         }
-        let transport = ScriptedPrimaryTransport(connectError: connectError)
+        let transport = ScriptedPrimaryTransport(
+            connectError: connectError,
+            blocksClose: blocksFirstPrimaryClose && primaryTransports.isEmpty
+        )
         primaryTransports.append(transport)
         return transport
     }

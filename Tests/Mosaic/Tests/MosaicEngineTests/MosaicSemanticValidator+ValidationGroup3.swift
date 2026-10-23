@@ -36,6 +36,13 @@ extension MosaicSemanticValidator {
             to: firstPartition
         )
 
+        for recipient in simulator.roster.controlIdentities {
+            let expectedPhase: Attempt.Phase = firstPartition.contains(recipient)
+                ? .anonymousComponentSubmission : .walletReservation
+            try #require(
+                Self.findLocalAttempt(for: recipient, in: simulator).state.phase == expectedPhase
+            )
+        }
         _ = simulator.broadcast(attemptInput: .abort(.equivocation))
 
         for member in simulator.roster.members {
