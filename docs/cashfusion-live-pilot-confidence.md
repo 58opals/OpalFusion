@@ -2,7 +2,7 @@
 
 This guide describes the opt-in Electron Cash live smoke proof gate for the current OpalFusion pilot path. Normal local and CI validation do not run this smoke because it requires a real Electron Cash `4.4.3`-compatible coordinator and wallet material supplied through the environment.
 
-The real coordinator session proof is registered as an opt-in Swift Testing test and remains disabled during normal local validation. The runner enables the interop gate for its test process and verifies that the live proof test identifier is registered before it starts a smoke run.
+Live coordinator and reviewed transcript proof are deferred during routine maintenance and dependency cleanup. The runner retains its environment and registration guards and fails closed if the configured proof is unavailable. Deterministic local passes do not establish live compatibility. Only separately authorized coordinator-backed qualification may enable the interop gate and verify the live proof test identifier before a smoke run.
 
 ## Command
 

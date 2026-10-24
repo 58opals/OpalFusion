@@ -37,6 +37,8 @@ Complete support remains dependent on the implementation and proof gates below p
 
 ## Remaining Proof Gates
 
+Live coordinator and reviewed transcript proof are deferred during routine maintenance and dependency cleanup. Their existing environment and registration guards remain fail closed; deterministic local passes do not close these gates or establish production readiness.
+
 - Reviewed pinned Electron Cash transcript replay: a sanitized capture from `scripts/run-electron-cash-transcript-capture.sh` must be committed as test-only fixture data and replayed through native codecs/runtime tests.
 - Repeated live coordinator smoke: `scripts/run-electron-cash-interop-smoke.sh 3` must pass on the supported pilot profile with a real Electron Cash `4.4.3`-compatible coordinator before the package should claim complete live compatibility.
 - `STANDARD_TIMEOUT` gathered-response owner: the current matrix keeps this row `Partial` until pinned transcript replay or live evidence identifies the exact non-critical/gathered-response runtime state that should own the remaining official `3s` timeout.

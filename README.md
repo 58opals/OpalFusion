@@ -45,6 +45,8 @@ The frozen [mainnet-alpha profile](docs/mosaic-mainnet-alpha-profile.md), [trans
 - Xcode's Metal Toolchain component, required by the current OpalCrypto build plugin.
 - Live CashFusion transport, including Tor SOCKS5 for primary and covert paths, is macOS-only. Mosaic transport remains injected and non-live; see [Architecture](docs/architecture.md) for the publisher, routing, lifecycle, and application-owned durability boundaries.
 
+Use the Xcode 27 family with a compiler supporting Swift tools 6.4 and Swift 6 language mode. macOS 27 means a 27.0 deployment minimum; a newer selected 27.x SDK does not raise it. Before validation, record the active developer-directory selection and overrides, Xcode build, effective Swift compiler and selected SDK version/path. Record the Metal compiler version and tool paths separately. After any of these inputs changes, use fresh external scratch lanes for the root and independent CashFusion/Mosaic harnesses and rerun the affected validation wrappers with their existing locks. Preserve earlier receipts and normal signing/security/plugin settings. New toolchain results do not qualify live coordinator, Tor or Mosaic deployment behavior.
+
 ## Installation
 
 For public review of the current pilot surface, use the public `develop` branch or a specific public revision:
@@ -166,7 +168,7 @@ Mosaic remains deferred: `mosaic-all` is explicit slow conformance/recovery vali
 
 Documentation-only edits need relevant documentation checks. Protocol and cryptographic changes require complete validation for their owning engine; shared core behavior, shared dependencies, and public candidate publication require both engines. Timeouts fail the owning check without retries, omitted cases, or altered protocol timing. See the [Validation Guide](docs/validation.md) for the change-to-lane matrix and exact selections.
 
-Live Electron Cash coordinator proofing is separately opt-in, environment-gated, registration-guarded, and should be treated as a slow confidence gate:
+Live Electron Cash coordinator and reviewed transcript proof remain deferred during routine maintenance and dependency cleanup. Their environment and test-registration guards remain fail closed; a local pass does not satisfy either proof gate. A separately authorized coordinator-backed qualification may use the existing opt-in command:
 
 ```bash
 ./scripts/run-electron-cash-interop-smoke.sh 3
@@ -181,3 +183,5 @@ Package changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 ## License
 
 Opal Fusion is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+
+[Third-party notices](THIRD_PARTY_NOTICES.md) identify the public test-key fixture and upstream CashFusion protocol references.

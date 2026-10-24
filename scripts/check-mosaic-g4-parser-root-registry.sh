@@ -12,10 +12,6 @@ composite_actual=$(mktemp)
 composite_mapped=$(mktemp)
 trap 'rm -f "$actual" "$mapped" "$composite_actual" "$composite_mapped"' EXIT HUP INT TERM
 
-if ! command -v rg >/dev/null 2>&1; then
-    echo "required command is unavailable: rg" >&2
-    exit 1
-fi
 if [ ! -f "$registry" ]; then
     echo "parser implementation registry is missing" >&2
     exit 1
@@ -31,7 +27,7 @@ fi
 
 (
     cd "$repo_root"
-    LC_ALL=C rg -l \
+    LC_ALL=C grep -Erl \
         'CanonicalDecoder\.decode|JSONDecoder\(\)\.decode' \
         Sources/MosaicEngine/Mosaic | LC_ALL=C sort
 ) > "$actual"
@@ -90,7 +86,7 @@ echo "Mosaic G4 parser root registry passed (52 files: 52 covered, 0 partial var
 
 (
     cd "$repo_root"
-    LC_ALL=C rg -o \
+    LC_ALL=C grep -Eoh \
         'public static func (openTransportBootstrap[A-Za-z0-9_]+|restoreTransportBootstrapPublication)' \
         Sources/MosaicEngine/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapConsensusEnvelope.swift \
         Sources/MosaicEngine/Mosaic/OpalFusion+MosaicPrivateAlphaRuntime+TransportBootstrapEnvelope.swift \

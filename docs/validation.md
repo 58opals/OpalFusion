@@ -52,6 +52,8 @@ The wrapper keeps the live Electron Cash coordinator proof disabled for determin
 
 SwiftPM package sandboxing remains enabled, including when custom cache paths are supplied. A surrounding execution environment must permit SwiftPM to start its sandbox; a sandbox launch failure is infrastructure failure, not permission to disable package isolation.
 
+The 15-second `mosaic-fast` lane reuses the freshly built bundle through SwiftPM's [documented Darwin Swift Testing helper](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md). Bundle, helper and matching selected Xcode test-library paths are resolved within the build deadline. Complete discovery, readiness checks, process startup and all selected tests still share the unchanged post-build deadline. This avoids repeating package planning during discovery and execution; missing helper or bundle inputs fail the lane. Other lanes retain their SwiftPM commands.
+
 Complete CashFusion validation covers native protobuf primitives, official/manual bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, diagnostics, and real CashFusion cryptography. Mosaic's independent harness retains all its cryptographic conformance, exact authenticated recovery, and mixed facade cases. No existing test cases are removed by the split.
 
 ### Routine CashFusion Coverage
@@ -202,7 +204,7 @@ The live smoke runner is an opt-in proof gate for a configured Electron Cash `4.
 ./scripts/run-electron-cash-interop-smoke.sh 3
 ```
 
-The real coordinator session proof is registered as an opt-in Swift Testing test and remains disabled for normal local validation. The runner enables the interop gate for the test process, verifies the live proof test identifier is registered, and then executes the filtered interop suite. A successful script run is still only live-smoke evidence for the configured environment; complete compatibility remains blocked until repeated smoke and reviewed transcript replay evidence exist.
+Live coordinator and reviewed transcript proof are deferred during routine maintenance and dependency cleanup. Existing deterministic parser, runtime, and loopback transport checks remain required. The live runner retains its environment and test-registration checks and fails closed when configured proof is unavailable; a routine pass supplies no live or production compatibility claim. Only separately authorized coordinator-backed qualification may enable the interop gate, verify the registered proof identifier, and execute the filtered interop suite. Complete compatibility remains blocked until repeated smoke and reviewed transcript replay evidence exist.
 
 The runner requires `OPALFUSION_EC_*` environment variables and intentionally omits their values from output. Keep coordinator hostnames, ports, wallet material, private keys, scripts, addresses, Tor settings, and raw environment dictionaries out of repo docs and committed artifacts.
 

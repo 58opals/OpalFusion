@@ -2,6 +2,8 @@
 
 This guide describes how to produce a reviewed Swift fixture candidate for pinned Electron Cash transcript replay. The capture path is intentionally env-gated, writes outside the repository, and does not commit coordinator bytes by itself.
 
+Live coordinator and reviewed transcript proof are deferred during routine maintenance and dependency cleanup. The existing environment and test-registration guards remain fail closed. Use this capture procedure only within separately authorized coordinator-backed qualification; ordinary offline results do not supply a captured transcript or live compatibility claim.
+
 ## Capture Command
 
 Run the capture only from a configured local environment that can already pass the live Electron Cash interop smoke:

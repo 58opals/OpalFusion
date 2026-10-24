@@ -28,7 +28,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/58opals/OpalCrypto.git",
-            revision: "51fc53c50a66779ca23d564168351da8ecd00faf"
+            revision: "3d81bb4d5931eff1bebc09014d4be0a8612eaf28"
         ),
         .package(
             url: "https://github.com/58opals/OpalDiagnostics.git",

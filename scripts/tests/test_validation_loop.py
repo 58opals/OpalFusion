@@ -46,6 +46,17 @@ class ValidationLoopContract(unittest.TestCase):
         binary.mkdir()
         shutil.copyfile(SCRIPTS / "tests/swift_stub.py", binary / "swift")
         (binary / "swift").chmod(0o755)
+        shutil.copyfile(SCRIPTS / "tests/swift_stub.py", binary / "xcrun")
+        (binary / "xcrun").chmod(0o755)
+        helper = self.root / "toolchain/usr/libexec/swift/pm/swiftpm-testing-helper"
+        helper.parent.mkdir(parents=True)
+        shutil.copyfile(SCRIPTS / "tests/swift_stub.py", helper)
+        helper.chmod(0o755)
+        bundle = self.root / "products/MosaicEngineTests.xctest/Contents/MacOS/MosaicEngineTests"
+        bundle.parent.mkdir(parents=True)
+        bundle.write_text("Built test bundle fixture\n")
+        for name in ("Library/Frameworks", "usr/lib"):
+            (self.root / "Platform/Developer" / name).mkdir(parents=True)
         self.calls = self.root / "calls.jsonl"
         self.discovery = self.root / "discovery.json"
         listing = {
@@ -55,7 +66,9 @@ class ValidationLoopContract(unittest.TestCase):
         listing["MosaicEngineTests"].remove("MosaicEngineTests.MosaicRehearsalValidator/validate()")
         listing["MosaicEngineTests"] += ["MosaicEngineTests.MosaicRehearsalValidator/executeSixContributorConductor()", "MosaicEngineTests.MosaicRehearsalValidator/executeThroughExactCommit()"]
         self.discovery.write_text(json.dumps(listing))
-        self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
+        # Only system commands and our Swift double are available. The source
+        # guards must not depend on a separately installed search executable.
+        self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.defpath,
                         RUNNER_CALLS=str(self.calls), RUNNER_DISCOVERY=str(self.discovery),
                         OPALFUSION_EC_INTEROP="1", PYTHONDONTWRITEBYTECODE="1")
         for key in tuple(self.env):
@@ -160,6 +173,49 @@ class ValidationLoopContract(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fast.suite_filter(suites)
 
+    def test_missing_or_unreadable_guard_input_fails_before_build(self):
+        path = self.mosaic_sources / (MOSAIC_SUITES[0] + ".swift")
+        for content in (None, b"\xff"):
+            with self.subTest(content=content):
+                path.unlink(missing_ok=True)
+                if content is not None:
+                    path.write_bytes(content)
+                result, calls = self.invoke("mosaic-fast")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(calls, [])
+        path.write_text("// Guard fixture\n")
+
+    def test_mosaic_fast_reuses_the_exact_built_bundle_with_matching_runtime(self):
+        result, calls = self.invoke("mosaic-fast")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual([call["phase"] for call in calls],
+                         ["build", "products", "toolchain", "platform", "discovery", "bounded"])
+        for call in calls[-2:]:
+            self.assertEqual(call["arguments"][call["arguments"].index("--test-bundle-path") + 1],
+                             str(self.root / "products/MosaicEngineTests.xctest/Contents/MacOS/MosaicEngineTests"))
+        # Darwin may strip DYLD variables from the Python command double.
+        # Inspect the owner-provided environment before exec instead.
+        outputs = iter(str(self.root / name) for name in
+                       ("products", "toolchain/usr/bin/swift", "Platform"))
+        class MetadataProcess:
+            def run(self, command, *, deadline, capture):
+                self.last_deadline = deadline
+                return next(outputs)
+        environment = {"DYLD_FRAMEWORK_PATH": "/existing/frameworks"}
+        metadata = MetadataProcess()
+        fast.built_swift_testing_command(metadata, [], "MosaicEngineTests", environment, 300)
+        self.assertEqual(metadata.last_deadline, 300)
+        self.assertEqual(environment["DYLD_FRAMEWORK_PATH"],
+                         str(self.root / "Platform/Developer/Library/Frameworks") + os.pathsep + "/existing/frameworks")
+        self.assertEqual(environment["DYLD_LIBRARY_PATH"], str(self.root / "Platform/Developer/usr/lib"))
+        self.assertIn("--experimental-maximum-parallelization-width", calls[-1]["arguments"])
+        self.assertIn("budget: 15s", result.stdout)
+        bundle = self.root / "products/MosaicEngineTests.xctest/Contents/MacOS/MosaicEngineTests"
+        bundle.unlink()
+        result, calls = self.invoke("mosaic-fast")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(any(call["phase"] in ("discovery", "bounded") for call in calls))
+
     def test_build_timeout_precedes_discovery_and_has_its_own_deadline(self):
         result, calls, output = self.direct(scenario="slow-build", build_budget=0.2, post_budget=0.1)
         self.assertEqual(result, 124, output)
@@ -239,7 +295,7 @@ class ValidationLoopContract(unittest.TestCase):
             "runtime": ("CashFusion", 3), "workflow": ("CashFusion", 3),
             "client": ("CashFusion", 3), "interop-parser": ("CashFusion", 3),
             "mosaic": ("Mosaic", 5), "mosaic-all": ("Mosaic", 5),
-            "mosaic-fast": ("Mosaic", 3),
+            "mosaic-fast": ("Mosaic", 6),
             "mosaic-private-alpha-consumer-surface": ("Mosaic", 3),
             "mosaic-private-alpha-spi": ("Mosaic", 4),
             "mosaic-private-alpha-transport": ("Mosaic", 3),
@@ -252,7 +308,11 @@ class ValidationLoopContract(unittest.TestCase):
                 self.assertEqual(len(calls), count)
                 for call in calls:
                     args = call["arguments"]
-                    self.assertEqual(Path(args[args.index("--package-path") + 1]).name, package)
+                    if "--package-path" in args:
+                        self.assertEqual(Path(args[args.index("--package-path") + 1]).name, package)
+                    elif call["phase"] in ("discovery", "bounded"):
+                        self.assertIn("--test-bundle-path", args)
+                        self.assertEqual(args[args.index("--testing-library") + 1], "swift-testing")
                     self.assertEqual(call["interop"], "")
                     if args[0] == "test":
                         self.assertIn("--skip-build", args)

@@ -92,6 +92,44 @@ def validate_discovery(output, module, suites=(), selection=None):
     return identifiers, matches
 
 
+def validate_source_guards(repo_root, mode):
+    """Reject fixture/import drift before starting any package command."""
+    all_guards = mode in {"all", "mosaic", "mosaic-all"}
+    tests = repo_root / "Tests/Mosaic/Tests/MosaicEngineTests"
+    material = (r"requireAuthorizationEvaluators\(|authorizationEvaluator\("
+                r"|bchSignatureAuthorizationEvaluator\(|AuthorizationEvaluator\.generate\("
+                r"|ExecutionFixtures?\.prepare\(")
+    guards = []
+    if all_guards or mode == "mosaic-fast":
+        guards.append((
+            ("MosaicMainnetAlphaPostManifestRelayFanInRouteValidationValidator",
+             "MosaicMainnetAlphaPostManifestContributorTransportBridgeValidator"),
+            material, "The Mosaic fast lane reached an RSA evaluator or real-material fixture."))
+    if all_guards:
+        guards.append((
+            ("MosaicMainnetAlphaReservationCoordinatorDependencyValidator",),
+            material + r"|LocalContributionMaterial\.build\(|makeLocalContributionMaterial\(|makeMaterializedPreparation\(",
+            "The Mosaic reservation dependency lane reached evaluator or material construction."))
+    if all_guards or mode == "mosaic-private-alpha-consumer-surface":
+        guards.append((
+            ("MosaicPrivateAlphaRuntimeRecoveryValidator",),
+            r"@testable[\t\n\v\f\r ]+import[\t\n\v\f\r ]+(OpalFusion|OpalFusionCore|MosaicEngine)",
+            "The private-alpha consumer-surface lane must not use @testable import."))
+    if all_guards or mode in {"mosaic-private-alpha-spi", "mosaic-private-alpha-transport"}:
+        guards.append((
+            ("MosaicPrivateAlphaTransportBootstrapValidator", "RFC9500RSATestKeyFixture"),
+            r"RSABSSA\.SigningKey[\t\n\v\f\r ]*\.generate\(",
+            "The private-alpha transport lane must use its standard public test key fixture."))
+    for names, pattern, message in guards:
+        for name in names:
+            path = tests / (name + ".swift")
+            content = path.read_text(encoding="utf8")
+            match = re.search(pattern, content)
+            if match:
+                line = content.count("\n", 0, match.start()) + 1
+                raise ValueError(f"{path.relative_to(repo_root)}:{line}: {message}")
+
+
 def swiftpm_flags(repo_root, engine):
     # Resolve overrides at the repository root before SwiftPM changes to a
     # nested package. This also keeps the two default build graphs independent.
@@ -190,6 +228,29 @@ def validate_partitions(identifiers, selected, phases):
             raise ValueError(f"Process partitions do not assign each selected test exactly once: {item}")
 
 
+def built_swift_testing_command(process, flags, module, environment, deadline):
+    """Reuse SwiftPM's built Darwin bundle without repeating package planning."""
+    products = Path(process.run(["swift", "build", *flags, "--show-bin-path"],
+                                deadline=deadline, capture=True).strip())
+    compiler = Path(process.run(["xcrun", "--find", "swift"],
+                                deadline=deadline, capture=True).strip())
+    platform = Path(process.run(["xcrun", "--sdk", "macosx", "--show-sdk-platform-path"],
+                                deadline=deadline, capture=True).strip())
+    if not all(path.is_absolute() for path in (products, compiler, platform)):
+        raise ValueError("SwiftPM products and selected Xcode paths must be absolute")
+    helper = compiler.parent.parent / "libexec/swift/pm/swiftpm-testing-helper"
+    bundle = products / (module + ".xctest") / "Contents/MacOS" / module
+    if not helper.is_file() or not os.access(helper, os.X_OK) or not bundle.is_file():
+        raise ValueError("The selected Swift Testing helper or built test bundle is missing")
+    # The same selected SDK paths used by SwiftPM's Darwin test launcher.
+    for key, path in (("DYLD_FRAMEWORK_PATH", platform / "Developer/Library/Frameworks"),
+                      ("DYLD_LIBRARY_PATH", platform / "Developer/usr/lib")):
+        if not path.is_dir():
+            raise ValueError("The selected Xcode test-library directory is missing")
+        environment[key] = str(path) + (os.pathsep + environment[key] if environment.get(key) else "")
+    return [str(helper), "--test-bundle-path", str(bundle), "--testing-library", "swift-testing"]
+
+
 def run_lane(options):
     mode = options.mode
     module, budget, suites, selection, phases = selection_plan(mode, options.focus)
@@ -207,9 +268,14 @@ def run_lane(options):
         print("Explicit deferred Mosaic lane; historical combined Debug runtime: approximately 97 minutes.", flush=True)
     try:
         with ValidationProcess(environment) as process:
+            direct_command = None
             try:
                 process.run(["swift", "build", *flags, "--build-tests"],
                             deadline=build_started + BUILD_BUDGET_SECONDS)
+                if mode == "mosaic-fast":
+                    direct_command = built_swift_testing_command(
+                        process, flags, module, environment,
+                        build_started + BUILD_BUDGET_SECONDS)
             finally:
                 print(f"Build elapsed: {time.monotonic() - build_started:.3f}s", flush=True)
             if mode == "build":
@@ -218,7 +284,9 @@ def run_lane(options):
             post_started = time.monotonic()
             deadline = post_started + budget
             stage = "discovery"
-            listing = process.run(["swift", "test", *flags, "list", "--skip-build"],
+            listing_command = (direct_command + ["--list-tests"] if direct_command else
+                               ["swift", "test", *flags, "list", "--skip-build"])
+            listing = process.run(listing_command,
                                   deadline=deadline, capture=True)
             identifiers, selected = validate_discovery(listing, module, suites, selection)
             validate_partitions(identifiers, selected, phases)
@@ -230,7 +298,9 @@ def run_lane(options):
                            (exclude is None or not re.search(exclude, item)) for item in selected):
                     continue
                 print(f"Running {stage} (build skipped).", flush=True)
-                process.run(["swift", "test", *flags, "--skip-build", *arguments], deadline=deadline)
+                command = (direct_command + arguments if direct_command else
+                           ["swift", "test", *flags, "--skip-build", *arguments])
+                process.run(command, deadline=deadline)
             result = "PASS (complete harness)" if mode in ("fast", "cashfusion-all", "mosaic", "mosaic-all") else "PASS (selected scope only)"
             return 0
     except ValidationTimeout as error:
@@ -256,6 +326,7 @@ def main():
     try:
         if options.focus is not None and options.mode != "cashfusion-focused":
             raise ValueError("A test filter is accepted only by cashfusion-focused")
+        validate_source_guards(Path(options.repo_root).resolve(), options.mode)
         modes = ("cashfusion-all", "mosaic-all") if options.mode == "all" else (options.mode,)
         for mode in modes:
             options.mode = mode
@@ -263,7 +334,7 @@ def main():
             if result:
                 return result
         return 0
-    except (ValueError, re.error) as error:
+    except (ValueError, OSError, UnicodeError, re.error) as error:
         print(f"Invalid validation selection: {error}", file=sys.stderr)
         return 1
 

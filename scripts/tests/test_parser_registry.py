@@ -78,7 +78,7 @@ sys.exit(2)
 """)
         git.chmod(0o755)
         self.calls = self.root / "calls.jsonl"
-        self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
+        self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.defpath,
                         PROOF_CALLS=str(self.calls))
 
     def invoke(self, **overrides):
@@ -113,6 +113,29 @@ sys.exit(2)
         self.assertEqual(proofs, [revision + ":" + path for revision in PROOF_REVISIONS for path in HISTORICAL_PATHS])
         self.assertEqual(len(calls), 9)
         self.assertIn("passing G2 parity retained", result.stdout)
+
+    def test_jsondecoder_scan_preserves_registered_file_membership(self):
+        registry = self.root / "docs/mosaic-g4-parser-implementation-files-2026-08-23.txt"
+        path = self.root / registry.read_text().splitlines()[0]
+        path.write_text(path.read_text().replace("CanonicalDecoder.decode", "JSONDecoder().decode"))
+        result, _ = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_decoder_and_composite_drift_fail_before_historical_checks(self):
+        source = self.root / "Sources/MosaicEngine/Mosaic/Unexpected.swift"
+        for content in ("CanonicalDecoder.decode\n", "JSONDecoder().decode\n"):
+            with self.subTest(content=content):
+                source.write_text(content)
+                result, calls = self.invoke()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(calls, [])
+        source.unlink()
+        composite = self.root / HISTORICAL_PATHS[0].replace("Sources/OpalFusion/", "Sources/MosaicEngine/")
+        with composite.open("a") as stream:
+            stream.write("public static func openTransportBootstrapUnexpected() {}\n")
+        result, calls = self.invoke()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

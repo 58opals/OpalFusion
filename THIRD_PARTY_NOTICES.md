@@ -1,0 +1,10 @@
+# Third-party notices
+
+OpalFusion's source package resolves only the first-party OpalCrypto and OpalDiagnostics packages. The external references and test fixture below remain attributable even though they are not SwiftPM dependencies.
+
+| Material | Source and terms | Use in OpalFusion |
+| --- | --- | --- |
+| Public RSA-2048 test key | [IETF RFC 9500, section 2.1](https://www.rfc-editor.org/rfc/rfc9500.html#section-2.1), published in 2023; [IETF Trust legal provisions](https://trustee.ietf.org/license-info). The fixture retains its IETF copyright and Revised BSD notice. | [RFC9500RSATestKeyFixture.swift](Tests/Mosaic/Tests/MosaicEngineTests/RFC9500RSATestKeyFixture.swift) imports the publicly known `testRSA2048` key into Security for deterministic Mosaic tests. It has no security properties and is never production key material. |
+| CashFusion protocol schema, framing and constants | Electron Cash `4.4.3`: [schema](https://github.com/Electron-Cash/Electron-Cash/blob/4.4.3/electroncash_plugins/fusion/protobuf/fusion.proto), [framing](https://github.com/Electron-Cash/Electron-Cash/blob/4.4.3/electroncash_plugins/fusion/connection.py), [protocol](https://github.com/Electron-Cash/Electron-Cash/blob/4.4.3/electroncash_plugins/fusion/protocol.py); [upstream MIT license](https://github.com/Electron-Cash/Electron-Cash/blob/4.4.3/LICENCE). The schema identifies Mark B. Lundeberg's 2020 copyright. | Normative interoperability references for the native Swift implementation and independently written test peers. [CashFusionOfficialProtobufFixtures.swift](Tests/CashFusion/Tests/CashFusionEngineTests/CashFusionOfficialProtobufFixtures.swift) contains manually derived wire vectors. These are protocol fixtures, not reviewed captures from a live coordinator. |
+
+Keep the fixture's existing attribution when moving or reusing it. These references do not add Electron Cash, an external protobuf runtime or a cryptographic backend to the production build. They do not qualify live coordinator interoperability or production readiness.

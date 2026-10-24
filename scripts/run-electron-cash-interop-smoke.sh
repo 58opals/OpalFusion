@@ -155,7 +155,6 @@ SPM_CONFIG_PATH="${SPM_CONFIG_PATH:A}"
 SPM_SECURITY_PATH="${SPM_SECURITY_PATH:A}"
 SPM_LANE_FLAGS=(
   --package-path "$repo_root/Tests/CashFusion"
-  --disable-sandbox
   --scratch-path "$SPM_SCRATCH_PATH"
   --cache-path "$SPM_CACHE_PATH"
   --config-path "$SPM_CONFIG_PATH"

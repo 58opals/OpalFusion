@@ -8,13 +8,23 @@ import sys
 import time
 
 arguments = sys.argv[1:]
-phase = ("build" if arguments[0] == "build" else "discovery" if "list" in arguments
-         else "client" if "--no-parallel" in arguments else "bounded")
+tool = Path(sys.argv[0]).name
+phase = ("toolchain" if tool == "xcrun" and arguments == ["--find", "swift"] else
+         "platform" if tool == "xcrun" else
+         "products" if "--show-bin-path" in arguments else
+         "build" if arguments[0] == "build" else
+         "discovery" if "list" in arguments or "--list-tests" in arguments else
+         "client" if "--no-parallel" in arguments else "bounded")
 with Path(os.environ["RUNNER_CALLS"]).open("a") as output:
     output.write(json.dumps({"arguments": arguments, "phase": phase,
                              "interop": os.environ.get("OPALFUSION_EC_INTEROP"),
                              "module_cache": os.environ.get("CLANG_MODULE_CACHE_PATH")}) + "\n")
 scenario = os.environ.get("RUNNER_SCENARIO", "")
+fixture_root = Path(os.environ["RUNNER_DISCOVERY"]).parent
+if phase in ("products", "toolchain", "platform"):
+    print(fixture_root / {"products": "products", "toolchain": "toolchain/usr/bin/swift",
+                          "platform": "Platform"}[phase])
+    sys.exit(0)
 if scenario == "fail-" + phase:
     sys.exit({"build": 17, "discovery": 18, "client": 19, "bounded": 20}[phase])
 if scenario == "slow-" + phase:
@@ -23,6 +33,9 @@ if scenario == "slow-each" and phase != "build":
     time.sleep(0.3)
 if phase == "discovery":
     listing = json.loads(Path(os.environ["RUNNER_DISCOVERY"]).read_text())
-    package = arguments[arguments.index("--package-path") + 1]
-    module = "CashFusionEngineTests" if Path(package).name == "CashFusion" else "MosaicEngineTests"
+    if "--package-path" in arguments:
+        package = arguments[arguments.index("--package-path") + 1]
+        module = "CashFusionEngineTests" if Path(package).name == "CashFusion" else "MosaicEngineTests"
+    else:
+        module = Path(arguments[arguments.index("--test-bundle-path") + 1]).name
     print("\n".join(listing[module]))
