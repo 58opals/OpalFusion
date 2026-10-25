@@ -85,7 +85,7 @@ final class RunnerFixture {
             try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
         }
     }
-    func invoke(_ mode: String = "fast", focus: String? = nil, scenario: String = "", overrides: [String: String] = [:]) throws -> (code: Int32, calls: [[String: Any]], output: String) {
+    func invoke(_ mode: String = "develop", focus: String? = nil, scenario: String = "", overrides: [String: String] = [:]) throws -> (code: Int32, calls: [[String: Any]], output: String) {
         try write("", to: calls)
         var args = ["--repo-root", root.path, "--mode", mode]
         if let focus { args += ["--focus", focus] }

@@ -31,8 +31,8 @@ let mosaicRSASuites = [
     "MosaicOpalV0AuthorizationValidator"
 ]
 let mosaicMaterialSuite = "MosaicMainnetAlpha4MaterialValidator"
-let cashFusionModes: Set<String> = ["fast", "build", "cashfusion-all", "cashfusion-focused", "codec", "round", "runtime", "workflow", "client", "interop-parser"]
-let mosaicModes: Set<String> = ["mosaic", "mosaic-all", "mosaic-fast", "mosaic-private-alpha-consumer-surface", "mosaic-private-alpha-spi", "mosaic-private-alpha-transport", "mosaic-rehearsal"]
+let cashFusionModes: Set<String> = ["develop", "fast", "build", "cashfusion-all", "cashfusion-focused", "codec", "round", "runtime", "workflow", "client", "interop-parser"]
+let mosaicModes: Set<String> = ["mosaic", "mosaic-all", "mosaic-fast", "mosaic-focused", "mosaic-private-alpha-consumer-surface", "mosaic-private-alpha-spi", "mosaic-private-alpha-transport", "mosaic-rehearsal"]
 
 func regularExpression(_ pattern: String) throws -> NSRegularExpression {
     do { return try NSRegularExpression(pattern: pattern) }
@@ -80,6 +80,12 @@ func selectionPlan(_ mode: String, focus: String? = nil) throws -> SelectionPlan
     var phases: [Phase] = []
     switch mode {
     case "build": return SelectionPlan(module: module, budget: nil, suites: [], selection: nil, phases: [])
+    case "develop":
+        suites = [clientSuite] + boundedSuites
+        selection = try suiteFilter(suites, module: module)
+        let client = try suiteFilter([clientSuite], module: module)
+        phases = [Phase(name: "serialized client tests", arguments: ["--no-parallel", "--filter", client]),
+                  Phase(name: "bounded development tests", arguments: width + ["--filter", try suiteFilter(boundedSuites, module: module)])]
     case "fast", "cashfusion-all":
         suites = [clientSuite] + boundedSuites
         let filter = try suiteFilter([clientSuite], module: module)
@@ -96,11 +102,11 @@ func selectionPlan(_ mode: String, focus: String? = nil) throws -> SelectionPlan
         suites = ["MosaicPrivateAlphaRuntimeSPIValidator", "MosaicPrivateAlphaTransportBootstrapValidator"]
         selection = try suiteFilter(suites, module: module)
         phases = try suites.map { Phase(name: $0, arguments: ["--no-parallel", "--filter", try suiteFilter([$0], module: module)]) }
-    case "cashfusion-focused":
-        guard let focus, !focus.isEmpty else { throw ValidationFailure("cashfusion-focused requires one nonempty test filter") }
+    case "cashfusion-focused", "mosaic-focused":
+        guard let focus, !focus.isEmpty else { throw ValidationFailure("\(mode) requires one nonempty test filter") }
         _ = try regularExpression(focus)
         selection = focus
-        phases = [Phase(name: "selected CashFusion tests", arguments: ["--no-parallel", "--filter", focus])]
+        phases = [Phase(name: cash ? "selected CashFusion tests" : "selected Mosaic tests", arguments: ["--no-parallel", "--filter", focus])]
     case "mosaic-rehearsal":
         selection = "executeSixContributorConductor|executeThroughExactCommit"
         phases = [Phase(name: "serialized Mosaic rehearsal", arguments: ["--no-parallel", "--filter", selection!])]
@@ -162,7 +168,7 @@ func validatePartitions(identifiers: [String], selected: [String], phases: [Phas
 }
 
 func validateSourceGuards(repoRoot: URL, mode: String) throws {
-    let all = ["all", "mosaic", "mosaic-all"].contains(mode)
+    let all = ["all", "assurance", "mosaic", "mosaic-all"].contains(mode)
     let tests = repoRoot.appendingPathComponent("Tests/Mosaic/Tests/MosaicEngineTests")
     let material = #"requireAuthorizationEvaluators\(|authorizationEvaluator\(|bchSignatureAuthorizationEvaluator\(|AuthorizationEvaluator\.generate\(|ExecutionFixtures?\.prepare\("#
     var guards: [([String], String, String)] = []

@@ -4,40 +4,49 @@ struct Options {
     let repoRoot: URL
     var mode: String
     let focus: String?
+    let log: String?
 
     init(arguments: [String]) throws {
         var repo: String?
-        var mode = "fast"
+        var mode = "develop"
         var focus: String?
+        var log: String?
         var index = 0
         while index < arguments.count {
             let flag = arguments[index]
-            guard ["--repo-root", "--mode", "--focus"].contains(flag), index + 1 < arguments.count else {
-                throw ValidationFailure("Expected --repo-root PATH [--mode MODE] [--focus FILTER]")
+            guard ["--repo-root", "--mode", "--focus", "--log"].contains(flag), index + 1 < arguments.count else {
+                throw ValidationFailure("Expected --repo-root PATH [--mode MODE] [--focus FILTER] [--log PATH]")
             }
             index += 1
             switch flag {
             case "--repo-root": repo = arguments[index]
             case "--mode": mode = arguments[index]
-            default: focus = arguments[index]
+            case "--focus": focus = arguments[index]
+            default: log = arguments[index]
             }
             index += 1
         }
         guard let repo, !repo.isEmpty else { throw ValidationFailure("--repo-root is required") }
-        guard cashFusionModes.union(mosaicModes).union(["all"]).contains(mode) else { throw ValidationFailure("Unknown validation mode: \(mode)") }
-        if focus != nil && mode != "cashfusion-focused" { throw ValidationFailure("A test filter is accepted only by cashfusion-focused") }
-        if mode == "cashfusion-focused" {
-            guard let focus, !focus.isEmpty else { throw ValidationFailure("cashfusion-focused requires one nonempty test filter") }
+        guard cashFusionModes.union(mosaicModes).union(["all", "assurance", "profile-log"]).contains(mode) else { throw ValidationFailure("Unknown validation mode: \(mode)") }
+        let focused = ["cashfusion-focused", "mosaic-focused"].contains(mode)
+        if focus != nil && !focused { throw ValidationFailure("A test filter is accepted only by a focused mode") }
+        if focused {
+            guard let focus, !focus.isEmpty else { throw ValidationFailure("\(mode) requires one nonempty test filter") }
             _ = try regularExpression(focus)
         }
+        if mode == "profile-log" {
+            guard let log, !log.isEmpty else { throw ValidationFailure("profile-log requires one log path") }
+        } else if log != nil { throw ValidationFailure("A log path is accepted only by profile-log") }
         self.repoRoot = URL(fileURLWithPath: repo).standardizedFileURL.resolvingSymlinksInPath()
         self.mode = mode
         self.focus = focus
+        self.log = log
     }
     init(repoRoot: URL, mode: String, focus: String? = nil) {
         self.repoRoot = repoRoot
         self.mode = mode
         self.focus = focus
+        self.log = nil
     }
 }
 
@@ -83,6 +92,24 @@ func builtSwiftTestingCommand(process: ValidationExecuting, flags: [String], mod
         process.environment[key] = path.path + (prior.map { ":" + $0 } ?? "")
     }
     return [helper.path, "--test-bundle-path", bundle.path, "--testing-library", "swift-testing"]
+}
+
+func validateFocusedExecution(at report: URL) throws {
+    // SwiftPM gives Swift Testing its own output suffix when the package may
+    // also contain XCTest. Require its actual result, not discovery alone:
+    // SwiftPM can return zero when a discovery-matching regex executes nothing.
+    let suffixed = report.deletingLastPathComponent()
+        .appendingPathComponent(report.deletingPathExtension().lastPathComponent + "-swift-testing.xml")
+    let path = FileManager.default.fileExists(atPath: suffixed.path) ? suffixed : report
+    guard FileManager.default.fileExists(atPath: path.path) else {
+        throw ValidationFailure("Focused execution produced no test result; discovery alone is not passing coverage")
+    }
+    let document = try XMLDocument(contentsOf: path, options: [.nodeLoadExternalEntitiesNever])
+    guard let root = document.rootElement(), ["testsuites", "testsuite"].contains(root.name ?? ""),
+          !(try document.nodes(forXPath: "//testcase[not(skipped)]")).isEmpty,
+          (try document.nodes(forXPath: "//failure | //error")).isEmpty else {
+        throw ValidationFailure("Focused execution has no executed cases or contains failures")
+    }
 }
 
 func runLane(_ options: Options, environment: [String: String],
@@ -134,8 +161,21 @@ func runLane(_ options: Options, environment: [String: String],
             guard try discovered.selected.contains(where: { try phase.owns($0) }) else { continue }
             stage = phase.name
             emit("Running \(stage) (build skipped).", false)
-            let command = direct.map { $0 + phase.arguments } ?? (["swift", "test"] + flags + ["--skip-build"] + phase.arguments)
-            _ = try process.run(command, deadline: deadline, capture: false)
+            var command = direct.map { $0 + phase.arguments } ?? (["swift", "test"] + flags + ["--skip-build"] + phase.arguments)
+            var executionReport: URL?
+            if ["cashfusion-focused", "mosaic-focused"].contains(options.mode) {
+                let directory = options.repoRoot.appendingPathComponent(".build/validation/\(engine)/focused-results")
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let path = directory.appendingPathComponent(UUID().uuidString + ".xml")
+                executionReport = path
+                command += ["--xunit-output", path.path]
+            }
+            let phaseStarted = clock()
+            do {
+                defer { emit(String(format: "Phase elapsed: %.3fs; %@", clock() - phaseStarted, stage), false) }
+                _ = try process.run(command, deadline: deadline, capture: false)
+                if let executionReport { try validateFocusedExecution(at: executionReport) }
+            }
         }
         result = ["fast", "cashfusion-all", "mosaic", "mosaic-all"].contains(options.mode) ? "PASS (complete harness)" : "PASS (selected scope only)"
         return 0
@@ -159,10 +199,14 @@ public enum ValidationCommand {
                            emit: (String, Bool) -> Void = writeLine) -> Int32 {
         do {
             var options = try Options(arguments: arguments)
+            if options.mode == "profile-log" {
+                try reportTimings(at: URL(fileURLWithPath: options.log!), emit: { emit($0, false) })
+                return 0
+            }
             try validateSourceGuards(repoRoot: options.repoRoot, mode: options.mode)
             let signals = SignalScope()
             defer { withExtendedLifetime(signals) {} }
-            let modes = options.mode == "all" ? ["cashfusion-all", "mosaic-all"] : [options.mode]
+            let modes = ["all", "assurance"].contains(options.mode) ? ["cashfusion-all", "mosaic-all"] : [options.mode]
             for mode in modes {
                 options.mode = mode
                 let result = runLane(options, environment: environment, emit: emit)

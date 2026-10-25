@@ -5,18 +5,20 @@ import Testing
 
 @Suite(.serialized)
 struct ValidationLoopContract {
-    @Test func defaultFastAndCompleteAliasHaveIdenticalDispatch() throws {
+    @Test func defaultDevelopmentIsFocusedAndCompleteAliasesKeepTheirDispatch() throws {
         let fixture = try RunnerFixture()
         let first = try fixture.invoke()
         let second = try fixture.invoke("fast")
         let third = try fixture.invoke("cashfusion-all")
+        #expect(try Options(arguments: ["--repo-root", fixture.root.path]).mode == "develop")
         for result in [first, second, third] {
             #expect(result.code == 0)
             #expect(result.output.contains("budget: 60s"))
-            #expect(result.output.contains("PASS (complete harness)"))
         }
-        #expect(NSDictionary(dictionary: ["calls": first.calls]).isEqual(to: ["calls": second.calls]))
-        #expect(NSDictionary(dictionary: ["calls": first.calls]).isEqual(to: ["calls": third.calls]))
+        #expect(first.output.contains("PASS (selected scope only)"))
+        #expect(second.output.contains("PASS (complete harness)"))
+        #expect(third.output.contains("PASS (complete harness)"))
+        #expect(NSDictionary(dictionary: ["calls": second.calls]).isEqual(to: ["calls": third.calls]))
         #expect(phaseNames(first.calls) == ["build", "discovery", "client", "bounded"])
         #expect(arguments(first.calls[0]).contains("--build-tests"))
         for call in first.calls {
@@ -26,8 +28,14 @@ struct ValidationLoopContract {
             #expect(args[index + 1] == fixture.root.appendingPathComponent("Tests/CashFusion").path)
         }
         for call in first.calls.dropFirst() { #expect(arguments(call).contains("--skip-build")) }
-        #expect(!arguments(first.calls.last!).contains("--filter"))
-        #expect(arguments(first.calls.last!).last == (try suiteFilter([clientSuite])))
+        #expect(arguments(first.calls.last!).last == (try suiteFilter(boundedSuites)))
+        #expect(!arguments(second.calls.last!).contains("--filter"))
+        #expect(arguments(second.calls.last!).last == (try suiteFilter([clientSuite])))
+        let plan = try selectionPlan("develop")
+        let discovery = try validateDiscovery(fixture.listing[plan.module]!.joined(separator: "\n"), module: plan.module, suites: plan.suites, selection: plan.selection) { _ in }
+        #expect(discovery.selected.count < discovery.identifiers.count)
+        #expect(!discovery.selected.contains { $0.contains("CashFusionAdditionalValidator") })
+        try validatePartitions(identifiers: discovery.identifiers, selected: discovery.selected, phases: plan.phases)
     }
 
     @Test func cashFusionDoesNotReadOrBuildMosaic() throws {
@@ -42,7 +50,9 @@ struct ValidationLoopContract {
     @Test func invalidArgumentsDoNotInvokeSwift() throws {
         let fixture = try RunnerFixture()
         for args in [["--mode", "unknown"], ["--mode", "fast", "extra"], ["--mode", "cashfusion-focused"],
-                     ["--mode", "cashfusion-focused", "--focus", ""], ["--mode", "cashfusion-focused", "--focus", "["]] {
+                     ["--mode", "cashfusion-focused", "--focus", ""], ["--mode", "cashfusion-focused", "--focus", "["],
+                     ["--mode", "mosaic-focused"], ["--mode", "mosaic-focused", "--focus", "["],
+                     ["--mode", "profile-log"], ["--mode", "develop", "--log", "file"]] {
             try write("", to: fixture.calls)
             let code = ValidationCommand.run(arguments: ["--repo-root", fixture.root.path] + args, environment: fixture.environment) { _, _ in }
             #expect(code != 0)
@@ -245,6 +255,9 @@ struct ValidationLoopContract {
         let fixture = try RunnerFixture()
         let result = try fixture.invoke("all")
         #expect(result.code == 0)
+        let assurance = try fixture.invoke("assurance")
+        #expect(assurance.code == 0)
+        #expect(NSDictionary(dictionary: ["calls": result.calls]).isEqual(to: ["calls": assurance.calls]))
         #expect(result.calls.count == 9)
         #expect(try result.calls.map { call -> String in
             let args = arguments(call)
@@ -262,13 +275,37 @@ struct ValidationLoopContract {
 
     @Test func focusedFilterRequiresMatchesAndPreservesSerialExecution() throws {
         let fixture = try RunnerFixture()
-        let result = try fixture.invoke("cashfusion-focused", focus: "RoundEngineScriptedValidator")
-        #expect(result.code == 0)
-        #expect(result.calls.count == 3)
-        #expect(arguments(result.calls.last!).contains("--no-parallel"))
-        #expect(result.output.contains("budget: 60s"))
-        let missing = try fixture.invoke("cashfusion-focused", focus: "DoesNotExist")
-        #expect(missing.code != 0)
-        #expect(missing.calls.count == 2)
+        for (mode, filter, budget) in [("cashfusion-focused", "RoundEngineScriptedValidator", "60s"),
+                                       ("mosaic-focused", "MosaicPrivateAlphaRuntimeSPIValidator", "7200s")] {
+            let result = try fixture.invoke(mode, focus: filter)
+            #expect(result.code == 0)
+            #expect(result.calls.count == 3)
+            #expect(arguments(result.calls.last!).contains("--no-parallel"))
+            #expect(result.output.contains("budget: " + budget))
+            #expect(result.output.contains("PASS (selected scope only)"))
+            let missing = try fixture.invoke(mode, focus: "DoesNotExist")
+            #expect(missing.code != 0)
+            #expect(missing.calls.count == 2)
+            for scenario in ["empty-execution", "missing-execution-proof"] {
+                let empty = try fixture.invoke(mode, focus: filter, scenario: scenario)
+                #expect(empty.code != 0)
+                #expect(empty.calls.count == 3)
+                #expect(!empty.output.contains("result: PASS"))
+            }
+        }
+    }
+
+    @Test func focusedExecutionRequiresRealUnskippedSuccessfulResult() throws {
+        let fixture = try RunnerFixture()
+        let report = fixture.root.appendingPathComponent("result.xml")
+        for contents in ["<testsuites/>", "<testsuites><testsuite><testcase><skipped/></testcase></testsuite></testsuites>",
+                         "<testsuites><testsuite><testcase><failure/></testcase></testsuite></testsuites>", "not XML"] {
+            try write(contents, to: report)
+            #expect(throws: (any Error).self) { try validateFocusedExecution(at: report) }
+        }
+        try FileManager.default.removeItem(at: report)
+        let suffixed = fixture.root.appendingPathComponent("result-swift-testing.xml")
+        try write("<testsuites><testsuite><testcase name=\"actual\"/></testsuite></testsuites>", to: suffixed)
+        try validateFocusedExecution(at: report)
     }
 }

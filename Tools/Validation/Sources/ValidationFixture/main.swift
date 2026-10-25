@@ -98,3 +98,7 @@ if phase == "discovery" {
     }
     write(listing[module]!.joined(separator: "\n"))
 }
+if let index = arguments.firstIndex(of: "--xunit-output"), scenario != "missing-execution-proof" {
+    let body = scenario == "empty-execution" ? "" : "<testcase name=\"validate\" classname=\"Fixture\"/>"
+    try store("<testsuites><testsuite>\(body)</testsuite></testsuites>", arguments[index + 1])
+}

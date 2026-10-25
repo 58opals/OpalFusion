@@ -1,20 +1,20 @@
 # OpalFusion Validation Guide
 
-This guide separates complete routine CashFusion validation, deferred Mosaic conformance and recovery, and live CashFusion proofing. Expensive Mosaic cryptography does not require a network connection. Mosaic and live proofing are explicit choices, never part of the default CashFusion lane.
+This guide separates focused development feedback, complete offline assurance, and live CashFusion proofing. Expensive Mosaic cryptography does not require a network connection. Full Mosaic and live proofing are explicit choices, never part of the default CashFusion lane.
 
 ## Default Local Loop
 
-Run complete CashFusion validation for normal implementation work through the repository wrapper:
+Run the bounded development selection for normal implementation work through the repository wrapper:
 
 ```bash
 ./scripts/run-validation-loop.sh
 # Equivalent explicit mode:
-./scripts/run-validation-loop.sh fast
+./scripts/run-validation-loop.sh develop
 ```
 
 The wrapper first builds the dependency-free native Swift runner in `Tools/Validation` with the selected toolchain. The runner then builds only the CashFusion harness at `Tests/CashFusion`, whose dependencies exclude Mosaic and the compatibility umbrella. The engine build has a separate 300-second deadline, after runner bootstrap. Discovery, process startup, and cold fixture preparation then share one 60-second post-build budget. Timeout fails the run, terminates only the owned process group, and allows up to five additional seconds for cleanup; it does not retry, extend the budget, or reduce the selection. Interruption also cleans up the owned processes. Test deadlines are runner limits; CashFusion protocol timing constants and runtime validation remain unchanged.
 
-Use the named bounded modes for focused work. Raw `swift test --package-path Tests/CashFusion --filter <suite>` selects a CashFusion suite, and `swift test --package-path Tests/Mosaic --filter <suite>` explicitly selects a deferred Mosaic suite. Raw commands do not provide the wrapper's deadlines. Filters in the root package cannot isolate compilation: SwiftPM builds unrelated root products even when a test filter excludes them. Root tests have moved into the two harness packages.
+The default selects the nine critical suites listed below, not every discovered CashFusion suite. It prints `PASS (selected scope only)`; this is development feedback, not complete assurance. Use the narrowest relevant named mode or an explicit `cashfusion-focused FILTER` / `mosaic-focused FILTER` while editing. Both focused modes reject an empty discovery match before executing tests, retain serial execution, and require an actual successful, non-skipped testcase in SwiftPM's xUnit output. Discovery alone cannot establish execution: a regex anchored to a listed method's trailing `()` can match discovery while SwiftPM executes no cases and returns zero. Prefer a suite selector such as `MosaicPrivateAlphaRuntimeSPIValidator/` or a method-name prefix without trailing parentheses. Raw `swift test --package-path Tests/CashFusion --filter <suite>` selects a CashFusion suite, and `swift test --package-path Tests/Mosaic --filter <suite>` explicitly selects a deferred Mosaic suite. Raw commands do not provide the wrapper's deadlines. Filters in the root package cannot isolate compilation: SwiftPM builds unrelated root products even when a test filter excludes them. Root tests have moved into the two harness packages.
 
 Run a build-only check when you only need package compilation:
 
@@ -32,6 +32,7 @@ Use the validation wrapper when you want stable named loops:
 ./scripts/run-validation-loop.sh cashfusion-all
 ./scripts/run-validation-loop.sh mosaic-all
 ./scripts/run-validation-loop.sh all
+./scripts/run-validation-loop.sh assurance
 ./scripts/run-validation-loop.sh codec
 ./scripts/run-validation-loop.sh round
 ./scripts/run-validation-loop.sh runtime
@@ -56,9 +57,9 @@ The 15-second `mosaic-fast` lane reuses the freshly built bundle through SwiftPM
 
 Complete CashFusion validation covers native protobuf primitives, official/manual bytes, primary/covert codecs, pinned Electron Cash constants, round-engine scripts, production workflow materialization, loopback runtime behavior, host boundaries, diagnostics, and real CashFusion cryptography. Mosaic's independent harness retains all its cryptographic conformance, exact authenticated recovery, and mixed facade cases. No existing test cases are removed by the split.
 
-### Routine CashFusion Coverage
+### Development CashFusion Coverage
 
-The fast lane runs every discovered deterministic CashFusion test. `ClientSessionValidator` runs in its existing serialized process; its complete complement shares a pool bounded to four concurrent tests. Existing suite-level serialization remains effective. The following critical suites must be present in discovery; the selection also includes every other CashFusion suite.
+The default `develop` lane selects these critical suites. `ClientSessionValidator` runs in its existing serialized process; the other eight selected suites share a pool bounded to four concurrent tests. Existing suite-level serialization remains effective. The explicit `fast` and `cashfusion-all` aliases retain their previous complete selection, with the client in its serialized process and its complete complement in the width-four pool.
 
 | Contract | Complete suites |
 | --- | --- |
@@ -67,26 +68,42 @@ The fast lane runs every discovered deterministic CashFusion test. `ClientSessio
 | Client lifecycle and runtime state | `ClientSessionValidator`, `PrimaryRuntimeSessionValidator`, `CovertRuntimeSessionValidator` |
 | CashFusion diagnostics | `OpalDiagnosticsFusionValidator` |
 
-Before execution, discovery must find at least one test in every required critical suite and reject empty, duplicate, or foreign-module identifiers. The runner prints the discovered scope and runs each test exactly once. `cashfusion-all` is an explicit alias for the same complete selection and the same 60-second deadline. Facade, Mosaic host, reservation, and transport tests remain in the explicit Mosaic harness. A routine CashFusion pass does not establish live coordinator interoperability, resolve the documented support gaps, or prove Mosaic conformance or package publication readiness.
+Before execution, discovery must find at least one test in every required critical suite and reject empty, duplicate, or foreign-module identifiers. The runner prints selected and total discovered counts and assigns every selected test exactly once. Unselected tests remain registered and available in complete assurance; no test source, workload, assertion, or eligibility is changed by selecting a development lane. Facade, Mosaic host, reservation, and transport tests remain in the explicit Mosaic harness. A development pass does not establish live coordinator interoperability, resolve the documented support gaps, or prove Mosaic conformance or package publication readiness.
 
 ### Comprehensive Local Validation
 
-Routine validation runs every discovered CashFusion test exactly once within 60 seconds after build. Discovery, startup, and fixture preparation count toward that deadline. It does not weaken codec, malformed-message, cryptographic, timing, cancellation, or host validation to meet the limit. There is no larger alternate CashFusion budget.
+Explicit `cashfusion-all` / `fast` validation runs every discovered CashFusion test exactly once within 60 seconds after build. Discovery, startup, and fixture preparation count toward that deadline. It does not weaken codec, malformed-message, cryptographic, timing, cancellation, or host validation to meet the limit. There is no larger alternate CashFusion budget.
 
-`mosaic-all` explicitly runs every deferred Mosaic and facade test. It retains the Security.framework-backed authorization suites and the 23-slot material suite in isolated serialized processes, followed by their exact complement at width four. The historical combined Debug run took approximately 97 minutes; that is guidance for the expensive Mosaic work, not a current timing promise. The explicit slow lane has a 7,200-second post-build deadline. `all` explicitly runs both complete harnesses with their separate budgets. None of these modes enables a live coordinator.
+`mosaic-all` explicitly runs every deferred Mosaic and facade test. It retains the Security.framework-backed authorization suites and the 23-slot material suite in isolated serialized processes, followed by their exact complement at width four. A complete offline run measured 6,099.400 post-build seconds (101.7 minutes) on October 25, 2026; that is an observation, not a current timing promise. The explicit slow lane has a 7,200-second post-build deadline. `assurance` / `all` explicitly run both complete harnesses with their separate budgets. None of these modes enables a live coordinator. Do not run `develop` and then complete CashFusion solely for duplicate acceptance: the complete lane already includes the development selection. Rerun affected checks after a correction; do not repeat unchanged assurance merely for a fresh timestamp.
 
 | Lane | Build deadline | Post-build deadline | Scope |
 | --- | --- | --- | --- |
-| Default / `fast` / `cashfusion-all` | 300 seconds | 60 seconds | Every deterministic CashFusion test |
+| Default / `develop` | 300 seconds | 60 seconds | Nine critical CashFusion suites, selected-scope evidence |
+| `fast` / `cashfusion-all` | 300 seconds | 60 seconds | Every deterministic CashFusion test |
 | `codec`, `round`, `runtime`, `workflow`, `client`, `interop-parser` | 300 seconds | 60 seconds | Named CashFusion suites |
 | `mosaic-fast` | 300 seconds | 15 seconds | Existing material-free Mosaic feedback selection |
 | Other explicit Mosaic modes | 300 seconds | 7,200 seconds | Named Mosaic selection or complete Mosaic harness |
+| `assurance` / `all` | Per engine above | Per engine above | Both complete harnesses, once each |
 
 The harness lockfiles retain the same external dependency revisions as the root package. Changing dependency versions requires deliberate lockfile updates and the owning engine's complete validation. A deadline failure is a failed check requiring fixture or runner diagnosis, not permission to skip cases, reduce protocol delays, or expand the deadline automatically.
 
 The validation entry point builds the dependency-free Swift runner in `Tools/Validation` before entering an engine lane. Its tool bootstrap is separate from the unchanged 300-second engine-build and post-build deadlines. Runner contracts can be checked without cryptographic execution using `swift test --package-path Tools/Validation --scratch-path .build/validation-tools --jobs 2`. These Swift Testing checks exercise command dispatch, discovery failures, failure propagation, timeouts, interruption cleanup, parser proof history, and live-coordinator exclusion through a native command double; they are runner evidence, not engine package-test evidence. The runner and its tests require the selected Swift toolchain and Apple system libraries, with no Python runtime or external package dependencies.
 
 The `Dependency graph` workflow runs on pushes and pull requests. It resolves the root, CashFusion and Mosaic package graphs against their published dependencies and requires all three tracked lockfiles to remain unchanged. This metadata check runs without an engine build or live proof and does not replace the engine validation required above.
+
+### Offline Timing Profiles
+
+Every executed phase reports its elapsed time, including failed phases. Rank completed test and suite timings from a retained log without running the suite again:
+
+```bash
+./scripts/run-validation-loop.sh profile-log /path/to/validation.log
+```
+
+This bounded parser accepts a regular UTF-8 log up to 64 MiB and prints the ten slowest completed records per kind plus harness summaries. Reported case and suite wall times overlap under concurrent execution; do not sum them. A log may be truncated, may include failures, and belongs to its original sources/toolchain. This command explicitly supplies historical analysis, not current validation acceptance or CPU attribution.
+
+For a fresh CPU investigation, select one exact offline case with `mosaic-focused FILTER`, retain its normal assertions and inputs, and sample only its owned test helper using macOS `sample`. Stop sampling at a predetermined diagnostic window; if the test itself is interrupted or exceeds its deadline, record incomplete profiling and failure rather than claiming a passing test. Keep the full run separate. The October 25 complete run spent 2,580.215 seconds in authorization, 245.440 seconds in material, and 3,268.829 seconds in remaining protocol/composition tests; these sequential harness durations can be compared. A bounded sample observed BIP340 verification-key reconstruction and elliptic-curve precomputation. It does not attribute the entire run to those functions or justify removing recovery cuts, caching mutable sessions, reducing roster sizes, or weakening cryptographic checks.
+
+A fresh one-second sample of the isolated signed-admission-prefix recovery case on the same date found cold immutable formation preparation constructing signed admissions through BIP340 signing and hardened scalar arithmetic. The diagnostic execution was stopped after approximately 138 seconds and is incomplete, with no passing-test or complete-recovery claim. This confirms that a narrow selector can still pay substantial cold fixture cost; it does not prove that this initialization accounts for the entire full-suite runtime.
 
 ## Coverage Boundary
 
@@ -225,12 +242,12 @@ Use capture only after a configured live smoke actually executes and passes the 
 | Change or operation | Required validation |
 | --- | --- |
 | Documentation and comments | Relevant documentation, relative-link, and structural checks; compile examples when executable usage changes |
-| Isolated CashFusion implementation change | Fast lane plus affected CashFusion suites |
-| CashFusion transport or lifecycle change | Fast lane plus affected integration, cancellation, and recovery suites |
+| Isolated CashFusion implementation change | `develop` plus affected CashFusion suites, without repeating suites already selected |
+| CashFusion transport or lifecycle change | `develop` plus affected integration, cancellation, and recovery suites, without duplicate selection |
 | CashFusion cryptography, authentication, protocol bytes, fixtures, or dependency changes | Complete `cashfusion-all` lane |
 | Mosaic implementation, cryptography, authentication, protocol bytes, fixtures, or dependency changes | Explicit affected Mosaic checks; complete `mosaic-all` for protocol or cryptographic changes |
 | Shared core behavior or shared dependency changes | Complete checks for both engines |
-| Public candidate publication | Comprehensive `all` against the exact candidate |
+| Public candidate publication | Comprehensive `assurance` / `all` against the exact candidate |
 
 When several rows apply, use the broader requirement. Documentation-only changes do not require the comprehensive suite just because they mention an API or validation command. Runner-only changes require dispatch, discovery, failure, and cleanup checks plus execution of the affected lane. A prior comprehensive pass may be reused only when test sources, dependencies, toolchain, complete selection, and comprehensive execution remain equivalent; a changed comprehensive path requires a new full run. Fast-lane budget failures block that lane's acceptance and require diagnosis, not a larger budget or automatic removal of tests.
 
