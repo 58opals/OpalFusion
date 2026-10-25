@@ -5,7 +5,7 @@
 enum MosaicRoleElectionFixtures {
     typealias Attempt = OpalFusion.Mosaic.Attempt
 
-    struct Election {
+    struct Election: Sendable {
         let controlRoster: Attempt.ControlRosterBinding
         let commitments: [Attempt.RoleCommitment]
         let commitmentSet: Attempt.RoleCommitmentSet

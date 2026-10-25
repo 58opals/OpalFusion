@@ -2,10 +2,22 @@
 
 import Foundation
 import OpalCrypto
+import Synchronization
 @_spi(MosaicPrivateAlpha) @testable import MosaicEngine
 @testable import OpalFusionCore
 extension MosaicPrivateDeploymentFixtures {
     typealias Runtime = OpalFusion.MosaicPrivateAlphaRuntime
+
+    private static let controlMailboxKeyCache =
+        MosaicRuntimeCapabilityFixtureKeyCache<[CandidateKeyMaterial]>()
+    private static let conductorMailboxKeyCache =
+        MosaicRuntimeCapabilityFixtureKeyCache<[
+            OpalCrypto.Secp256k1.SigningKey
+        ]>()
+    private static let contributorMailboxKeyCache =
+        MosaicRuntimeCapabilityFixtureKeyCache<[
+            OpalCrypto.Signature.BIP340.VerificationKey
+        ]>()
 
     static func makeLocalBeaconInput(
         formation: Formation
@@ -186,8 +198,12 @@ extension MosaicPrivateDeploymentFixtures {
         routeStore: MosaicPrivateAlphaRuntimePersistenceStore
     ) throws -> Runtime.PostManifestRuntimeCapabilities {
         let roster = formation.roleElection.roster
-        let mailboxKeys = try roster.controlIdentities.indices.map { index in
-            try CandidateKeyMaterial(scalar: UInt8(100 + index)).signingKey
+        let mailboxKeys = try controlMailboxKeyCache.value(
+            for: roster.controlIdentities.count
+        ) {
+            try roster.controlIdentities.indices.map { index in
+                try CandidateKeyMaterial(scalar: UInt8(100 + index))
+            }
         }
         guard let localIndex = roster.controlIdentities.firstIndex(where: {
             Data($0.validatedBytes) == localControlIdentity
@@ -200,21 +216,25 @@ extension MosaicPrivateDeploymentFixtures {
         ).map { identity, key in
             Runtime.PostManifestControlMailbox(
                 controlIdentity: Data(identity.validatedBytes),
-                eventVerificationKey: key.bip340VerificationKey
+                eventVerificationKey: key.identity
             )
         }
         let anonymous: Runtime.PostManifestAnonymousMailboxes
         if Data(roster.conductor.validatedBytes) == localControlIdentity {
-            anonymous = .conductor(try (0 ..< roster.contributors.count
-                * Alpha.componentCountPerContributor).map { index in
+            let count = roster.contributors.count * Alpha.componentCountPerContributor
+            anonymous = .conductor(try conductorMailboxKeyCache.value(for: count) {
+                try (0 ..< count).map { index in
                     try makeSigningKey(seed: 150 + index)
-                })
+                }
+            })
         } else {
-            anonymous = .contributor(try (0 ..< Alpha
-                .componentCountPerContributor).map { index in
+            let count = Alpha.componentCountPerContributor
+            anonymous = .contributor(try contributorMailboxKeyCache.value(for: count) {
+                try (0 ..< count).map { index in
                     try makeSigningKey(seed: 400 + index)
                         .bip340VerificationKey
-                })
+                }
+            })
         }
         let admissionPersistence = Runtime.PostManifestAdmissionPersistence(
             load: admissionStore.load,
@@ -236,7 +256,7 @@ extension MosaicPrivateDeploymentFixtures {
         return .init(
             mailboxes: .init(
                 controlMailboxes: controlMailboxes,
-                localControlRecipientSigningKey: mailboxKeys[localIndex],
+                localControlRecipientSigningKey: mailboxKeys[localIndex].signingKey,
                 anonymous: anonymous
             ),
             relays: .init(
@@ -285,6 +305,7 @@ extension MosaicPrivateDeploymentFixtures {
         let senderControlKey = formation.controlCandidate(for: sender)
             .signingKey
         let senderEventKey = try makeSigningKey(seed: 125 + senderIndex)
+        let senderEventIdentity = senderEventKey.bip340VerificationKey.rawRepresentation
         let payload: [UInt8] = [0x01]
         let expiry = bootstrap.proposalValidation.core.deadlines
             .walletReservation
@@ -293,9 +314,7 @@ extension MosaicPrivateDeploymentFixtures {
                 bootstrap.proposalValidation.core.roundIdentifier,
             phase: .walletReservation,
             senderControlIdentity: sender,
-            senderEventIdentity: Array(
-                senderEventKey.bip340VerificationKey.rawRepresentation
-            ),
+            senderEventIdentity: Array(senderEventIdentity),
             sequence: 0,
             payloadType: .aggregateReservation,
             expiryUnixSeconds: expiry,
@@ -312,9 +331,7 @@ extension MosaicPrivateDeploymentFixtures {
                 bootstrap.proposalValidation.core.roundIdentifier,
             phase: .walletReservation,
             senderControlIdentity: sender,
-            senderEventIdentity: Array(
-                senderEventKey.bip340VerificationKey.rawRepresentation
-            ),
+            senderEventIdentity: Array(senderEventIdentity),
             sequence: 0,
             payloadType: .aggregateReservation,
             expiryUnixSeconds: expiry,
@@ -375,5 +392,20 @@ extension MosaicPrivateDeploymentFixtures {
             rawRepresentation: Data(repeating: 0, count: 30)
                 + Data([UInt8(scalar >> 8), UInt8(truncatingIfNeeded: scalar)])
         )
+    }
+}
+
+/// Keeps only deterministic immutable key values; callers still assemble fresh
+/// roster mappings, runtime capabilities, persistence and route closures.
+final class MosaicRuntimeCapabilityFixtureKeyCache<Material: Sendable>: Sendable {
+    private let values = Mutex<[Int: Material]>([:])
+
+    func value(for count: Int, make: () throws -> Material) throws -> Material {
+        try values.withLock { values in
+            if let material = values[count] { return material }
+            let material = try make()
+            values[count] = material
+            return material
+        }
     }
 }

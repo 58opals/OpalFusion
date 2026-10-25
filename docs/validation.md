@@ -105,6 +105,33 @@ For a fresh CPU investigation, select one exact offline case with `mosaic-focuse
 
 A fresh one-second sample of the isolated signed-admission-prefix recovery case on the same date found cold immutable formation preparation constructing signed admissions through BIP340 signing and hardened scalar arithmetic. The diagnostic execution was stopped after approximately 138 seconds and is incomplete, with no passing-test or complete-recovery claim. This confirms that a narrow selector can still pay substantial cold fixture cost; it does not prove that this initialization accounts for the entire full-suite runtime.
 
+### Cryptographic Fixture Inputs
+
+Private-alpha runtime fixtures reuse immutable mailbox key material in three independently lazy pools: control key pairs, conductor anonymous signing keys, and contributor anonymous verification keys. Each pool is keyed by its actual requested count and retains the original scalar seeds and ordering. The control pool retains each already-derived BIP340 identity instead of deriving it a second time. No signatures, verification outcomes or recovered runtime states enter these pools.
+
+Every call still builds the current roster mapping, selects the current local key, and creates fresh capabilities bound to the supplied admission, publication, terminal and route stores. Owners, ledgers, sessions, continuations and one-use signing capabilities remain fresh. The default formation's existing authenticated proof cache is unchanged; the first real construction still signs its distinct messages.
+
+Run the focused fixture contracts with:
+
+```bash
+./scripts/run-validation-loop.sh mosaic-focused 'MosaicPrivateAlphaRuntimeSPIValidator/(isolateRuntimeCapabilityKeyMaterial|preserveRuntimeCapabilityKeyCacheBoundaries)'
+```
+
+The paired-role regression independently derives reference key bytes and checks all original seeds, counts and ordering, together with independent persistence and route effects. The cheap cache test checks count changes and separate scalar domains. A controlled October 25, 2026 before/after execution of the unchanged semantic regression measured 26.550 to 16.144 test seconds. Its four measured capability constructions took 14.314 to 4.077 seconds in total; repeated conductor/contributor setup fell from 2.494/4.690 seconds to 0.054/0.068 milliseconds. The capability-construction intervals exclude formation preparation and reference-oracle construction; the complete semantic-test durations include both. These are individual observations, not a new comprehensive-suite timing claim.
+
+Default execution preparation also retains its immutable election and proposal validation in the existing material-preparation cache. The manifest and binding identifiers come from that same immutable local material. Each call constructs a fresh admission ledger, validated attempt and runtime session. General admission-harness construction remains uncached, including its custom rosters and verification keys; the first material preparation still performs real signing and validation.
+
+The existing execution-fixture isolation test compares both prepared values with a fresh signed admission harness using the current process's authorization keys. It retains cancellation and independent-state assertions. On October 25, 2026, repeated preparation measured 1.791 seconds before reuse and 0.151 milliseconds afterward; the independent fresh reference still took 1.787/1.820 seconds. These are individual warm-setup observations. The isolated baseline paid cold material preparation, while the optimized cumulative run paid that work in its exact-commit case before the isolation test; their complete test durations are not a paired speed comparison.
+
+Run the cumulative execution-fixture, exact-commit, signature-authority, substitution and cancellation/recovery checks once with:
+
+```bash
+./scripts/run-validation-loop.sh mosaic-focused \
+  '^MosaicEngineTests\.(MosaicMainnetAlphaContributorExecutorValidator/(isolateMutableExecutionState|executeThroughExactCommit|cancelDuringMaterialConstruction|requireRecoveryAfterSigningCancellation)|MosaicMainnetAlphaLocalBCHSignatureBuilderValidator/(bindLocalSignatures|rejectFinalizedSubstitution))'
+```
+
+Keep actual signed recovery and admission authentication in the affected validation selection. Reusing keys is not permission to bypass malformed-signature rejection, binding checks, CAS ordering, journal replay or route provisioning guards. Full offline assurance stays explicit and live proof remains separately gated.
+
 ## Coverage Boundary
 
 Tests own protocol bytes, authentication, replay protection, participant lifecycle, host integration, and recovery. Keep canonical vectors, real cryptographic checks, and exact roster or capacity tests when those properties define the contract. Consolidate repeated fixture or value-construction assertions at one owner; retain consumer-facing privacy, authority, and cancellation checks. Source inspection should protect boundaries that executed tests cannot express, rather than freeze incidental declaration spellings.

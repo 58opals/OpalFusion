@@ -12,15 +12,23 @@ extension MosaicMainnetAlphaExecutionFixtures {
         let data = try await preparationRepository.load {
             try await makePreparationData()
         }
-        let admission = try Fixture.makeHarness(
-            localRole: .contributor,
-            verificationKey: require(
-                MosaicMainnetAlphaFixtures.authorizationEvaluator()
-                    .verificationKey
-            ),
-            bchSignatureVerificationKey: require(
-                MosaicMainnetAlphaFixtures.bchSignatureAuthorizationEvaluator()
-                    .verificationKey
+        let localMaterial = data.localMaterial
+        // Reuse only the fixed default fixture's signed context. Every caller
+        // starts a new admission ledger and validated attempt below.
+        let admission = Fixture.Harness(
+            election: data.election,
+            manifest: localMaterial.manifest,
+            proposalValidation: data.proposalValidation,
+            attemptIdentifier: localMaterial.attemptIdentifier,
+            generationIdentifier: localMaterial.generationIdentifier,
+            materialIdentifier: localMaterial.materialIdentifier,
+            localControlIdentity: localMaterial.contributor,
+            ledger: try Fixture.Ledger(
+                attemptIdentifier: localMaterial.attemptIdentifier,
+                generationIdentifier: localMaterial.generationIdentifier,
+                materialIdentifier: localMaterial.materialIdentifier,
+                localControlIdentity: localMaterial.contributor,
+                proposalValidation: data.proposalValidation
             )
         )
         let session = try Session(
@@ -144,6 +152,8 @@ extension MosaicMainnetAlphaExecutionFixtures {
             signedFusionTransactionBytes: try locallySignedTransaction.serialize()
         )
         return .init(
+            election: admission.election,
+            proposalValidation: admission.proposalValidation,
             materialized: materialized,
             localMaterial: localMaterial,
             localAuthorizationResponseSet: localResponseSet,

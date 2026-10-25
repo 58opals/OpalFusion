@@ -6,6 +6,8 @@ struct MosaicMainnetAlphaExecutionPreparationData: Sendable {
     typealias Alpha = OpalFusion.Mosaic.OpalMainnetAlpha
     typealias Host = OpalFusion.Host
 
+    let election: MosaicRoleElectionFixtures.Election
+    let proposalValidation: Alpha.ManifestProposalValidation
     let materialized: MosaicMainnetAlphaFixtures.MaterializedPreparation
     let localMaterial: Alpha.LocalContributionMaterial
     let localAuthorizationResponseSet: Alpha.AuthorizationResponseSet
