@@ -162,7 +162,7 @@ Default local validation:
 ./scripts/run-validation-loop.sh
 ```
 
-No arguments, `fast`, and `cashfusion-all` run every deterministic CashFusion test. The separate harness excludes Mosaic compilation and registration. Its build deadline is 300 seconds; discovery, process startup, and cold fixture preparation then share a 60-second budget. It requires Python 3 and reports both stages. Protocol timing constants remain unchanged.
+No arguments, `fast`, and `cashfusion-all` run every deterministic CashFusion test. The separate harness excludes Mosaic compilation and registration. Its build deadline is 300 seconds; discovery, process startup, and cold fixture preparation then share a 60-second budget. The wrapper builds the dependency-free native Swift runner in `Tools/Validation` and reports both engine stages; runner bootstrap has its own preceding build step. Protocol timing constants remain unchanged.
 
 Mosaic remains deferred: `mosaic-all` is explicit slow conformance/recovery validation, with a 7,200-second post-build deadline. `all` explicitly runs both harnesses. The historical combined Debug runtime was approximately 97 minutes. The Mosaic lane retains its serialized cryptographic phases and bounded concurrent pool.
 

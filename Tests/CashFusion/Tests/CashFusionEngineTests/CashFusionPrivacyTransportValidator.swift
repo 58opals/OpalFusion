@@ -25,7 +25,8 @@ struct CashFusionPrivacyTransportValidator {
             let requests = await proxy.proxyRequests
             #expect(requests.map(\.host) == ["primary-test.invalid", "covert-test.invalid"])
             #expect(requests.map(\.port) == [8789, UInt16(endpoint.port)])
-            #expect(Set(requests.map(\.username)).count == 2)
+            #expect(requests.allSatisfy { $0.username == "<torS0X>0" })
+            #expect(Set(requests.map(\.password)).count == 2)
             #expect(await proxy.payloads.count == 2)
         } catch {
             await primary.close()

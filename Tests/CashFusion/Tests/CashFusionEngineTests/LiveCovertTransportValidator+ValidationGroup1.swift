@@ -49,7 +49,8 @@ extension LiveCovertTransportValidator {
             let requests = await peer.proxyRequests
             #expect(requests.map(\.host) == [endpoint.host, endpoint.host])
             #expect(requests.map(\.port) == [UInt16(endpoint.port), UInt16(endpoint.port)])
-            #expect(Set(requests.map(\.username)).count == 2)
+            #expect(requests.allSatisfy { $0.username == "<torS0X>0" })
+            #expect(Set(requests.map(\.password)).count == 2)
         }
     }
 

@@ -175,8 +175,16 @@ extension MosaicPrivateDeploymentFixtures {
         )
     }
 
+    private static let formationFixture = Result {
+        try makeFormationFixture()
+    }
+
     static func makeFormation() throws -> Formation {
-        let discovery = try makeDiscovery(candidateCount: 10)
+        try formationFixture.get()
+    }
+
+    private static func makeFormationFixture() throws -> Formation {
+        let discovery = try discovery
         let selection = try Alpha.CandidateSelectionValidation(
             beacons: discovery.beacons,
             discoveryEpochStartUnixSeconds: discovery.epochStart,

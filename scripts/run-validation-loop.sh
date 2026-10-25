@@ -8,7 +8,7 @@ usage: ./scripts/run-validation-loop.sh [mode]
        ./scripts/run-validation-loop.sh cashfusion-focused FILTER
 
 Runs local validation with live coordinator proof disabled.
-Every build has a separate 300-second deadline.
+Every engine test-harness build has a separate 300-second deadline.
 
 Modes:
   fast / cashfusion-all Run every CashFusion test within 60 seconds after build.
@@ -62,10 +62,15 @@ case "$mode" in
     fail "Unknown validation mode: $mode"
     ;;
 esac
-command -v python3 >/dev/null 2>&1 \
-  || fail "The validation lanes require Python 3."
+swift_tool="$(/usr/bin/xcrun --find swift)" \
+  || fail "The validation lanes require the selected Swift toolchain."
+tool_scratch="$repo_root/.build/validation-tools"
+"$swift_tool" build --package-path "$repo_root/Tools/Validation" \
+  --scratch-path "$tool_scratch" --jobs 2 --product fusion-validation >&2
+tool_products="$("$swift_tool" build --package-path "$repo_root/Tools/Validation" \
+  --scratch-path "$tool_scratch" --show-bin-path)"
 arguments=(--repo-root "$repo_root" --mode "$mode")
 if [[ "$mode" == "cashfusion-focused" ]]; then
   arguments+=(--focus "$focus")
 fi
-exec python3 -B "$script_dir/run-fast-validation.py" "${arguments[@]}"
+exec "$tool_products/fusion-validation" "${arguments[@]}"

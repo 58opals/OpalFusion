@@ -65,11 +65,6 @@ actor BlockingCovertTransport: OpalFusion.Runtime.CovertTransporting {
         resetCount += 1
     }
 
-    func releasePrepare() {
-        prepareContinuation?.resume(returning: .success(()))
-        prepareContinuation = nil
-    }
-
     func failPreparation(_ error: Error) {
         prepareContinuation?.resume(returning: .failure(error))
         prepareContinuation = nil

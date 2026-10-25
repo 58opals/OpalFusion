@@ -12,6 +12,7 @@ actor CovertSocketTestServer {
         let host: String
         let port: UInt16
         let username: String
+        let password: String
     }
     let listener: NWListener
     let reply: Reply
@@ -137,7 +138,7 @@ actor CovertSocketTestServer {
         let username = try await read(Int(authentication[1]), from: connection)
         let passwordCount = try await read(1, from: connection)
         let password = try await read(Int(passwordCount[0]), from: connection)
-        guard !username.isEmpty, password == username else { throw LiveRuntimeTestHarnessError.inboundStreamClosed }
+        guard username == Array("<torS0X>0".utf8), !password.isEmpty else { throw LiveRuntimeTestHarnessError.inboundStreamClosed }
         if proxyMode == .rejectAuthentication {
             try await sendProxyReply([1, 1], to: connection)
             throw LiveRuntimeTestHarnessError.inboundStreamClosed
@@ -158,7 +159,7 @@ actor CovertSocketTestServer {
         default: throw LiveRuntimeTestHarnessError.inboundStreamClosed
         }
         let port = try await read(2, from: connection)
-        proxyRequests.append(.init(host: host, port: UInt16(port[0]) << 8 | UInt16(port[1]), username: String(decoding: username, as: UTF8.self)))
+        proxyRequests.append(.init(host: host, port: UInt16(port[0]) << 8 | UInt16(port[1]), username: String(decoding: username, as: UTF8.self), password: String(decoding: password, as: UTF8.self)))
         if proxyMode == .truncatedReply {
             try await sendProxyReply([5, 0, 0, 1, 127], to: connection)
             throw LiveRuntimeTestHarnessError.inboundStreamClosed

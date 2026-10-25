@@ -26,8 +26,10 @@ extension OpalFusion.Runtime {
 
         static func options(host: String, port: UInt16, isolationID: UUID, tls: NWProtocolTLS.Options?) -> NWProtocolFramer.Options {
             let options = NWProtocolFramer.Options(definition: definition)
-            let credential = Array("CF\(isolationID.uuidString)".utf8)
-            options["authentication"] = Data([1, UInt8(credential.count)] + credential + [UInt8(credential.count)] + credential)
+            // Tor SOCKS format 0; distinct passwords retain per-socket isolation.
+            let username = Array("<torS0X>0".utf8)
+            let isolation = Array(isolationID.uuidString.utf8)
+            options["authentication"] = Data([1, UInt8(username.count)] + username + [UInt8(isolation.count)] + isolation)
             var command: [UInt8] = [5, 1, 0]
             switch NWEndpoint.Host(host) {
             case let .ipv4(address): command += [1] + Array(address.rawValue)

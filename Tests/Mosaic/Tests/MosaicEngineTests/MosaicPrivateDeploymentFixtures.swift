@@ -66,8 +66,12 @@ enum MosaicPrivateDeploymentFixtures {
         }
     }
 
+    private static let discoveryFixture = Result {
+        try makeDiscovery(candidateCount: 10)
+    }
+
     static var discovery: Discovery {
-        get throws { try makeDiscovery(candidateCount: 10) }
+        get throws { try discoveryFixture.get() }
     }
 
     static func sign(
