@@ -95,9 +95,14 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     actual: bchSignatureAuthorizationNonce.count
                 )
             }
+            guard recipientEventIdentity.count == 32 else {
+                throw ValidationError.invalidRecipientEventIdentity
+            }
             do {
-                _ = try OpalCrypto.Signature.BIP340.VerificationKey(
-                    rawRepresentation: Data(recipientEventIdentity)
+                // The even-Y SEC1 lift validates the same x-only point without
+                // preparing unused signature-verification tables.
+                _ = try OpalCrypto.Secp256k1.PublicKey(
+                    rawRepresentation: Data([0x02]) + Data(recipientEventIdentity)
                 )
             } catch {
                 throw ValidationError.invalidRecipientEventIdentity

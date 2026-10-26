@@ -120,9 +120,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                     )
                 }
             }
-            try validateUniqueSlotSecrets(slotSecrets)
+            let slotIdentities = try validateUniqueSlotSecrets(slotSecrets)
             try validateAnonymousIdentities(
                 slotSecrets,
+                identities: slotIdentities,
                 against: manifest.core.roster
             )
 
@@ -216,8 +217,8 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                         amount: contribution,
                         nonce: secrets.pedersenNonce
                     )
-                    let communicationPublicKey = secrets.communicationPrivateKey
-                        .makeSigningKey().publicKey
+                    let communicationPublicKey = slotIdentities[slot]
+                        .communicationPublicKey
                     let commitment = try OpalFusion.Mosaic.OpalV0
                         .ComponentCommitment(
                             saltedComponentDigest: try ComponentHashing
@@ -377,6 +378,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
             )
         }
 
+        private struct ValidatedSlotIdentities {
+            let communicationPublicKey: OpalCrypto.Secp256k1.PublicKey
+            let communicationIdentity: Data
+            let componentEnvelopeIdentity: Data
+            let bchSignatureEnvelopeIdentity: Data
+        }
+
         private struct Outpoint: Hashable {
             let hash: [UInt8]
             let index: UInt32
@@ -389,8 +397,10 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
 
         private static func validateUniqueSlotSecrets(
             _ secrets: [ComponentSlotSecrets]
-        ) throws(BuildError) {
+        ) throws(BuildError) -> [ValidatedSlotIdentities] {
             var oneTimeMaterial: Set<Data> = []
+            var identities: [ValidatedSlotIdentities] = []
+            identities.reserveCapacity(secrets.count)
             for (slot, value) in secrets.enumerated() {
                 guard oneTimeMaterial.insert(Data(value.salt)).inserted else {
                     throw .duplicateSalt(slot: slot)
@@ -405,10 +415,13 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 ).inserted else {
                     throw .duplicateCommunicationKey(slot: slot)
                 }
-                let communicationIdentity = value.communicationPrivateKey
-                    .makeSigningKey().publicKey.compressedRepresentation.dropFirst()
+                let communicationPublicKey = value.communicationPrivateKey
+                    .makeSigningKey().publicKey
+                let communicationIdentity = Data(
+                    communicationPublicKey.compressedRepresentation.dropFirst()
+                )
                 guard oneTimeMaterial.insert(
-                    Data(communicationIdentity)
+                    communicationIdentity
                 ).inserted else {
                     throw .duplicateCommunicationKey(slot: slot)
                 }
@@ -417,11 +430,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 ).inserted else {
                     throw .duplicateComponentEnvelopeKey(slot: slot)
                 }
-                let componentEnvelopeIdentity = value
-                    .componentEnvelopePrivateKey.makeSigningKey().publicKey
-                    .compressedRepresentation.dropFirst()
+                let componentEnvelopeIdentity = Data(
+                    value.componentEnvelopePrivateKey.makeSigningKey().publicKey
+                        .compressedRepresentation.dropFirst()
+                )
                 guard oneTimeMaterial.insert(
-                    Data(componentEnvelopeIdentity)
+                    componentEnvelopeIdentity
                 ).inserted else {
                     throw .duplicateComponentEnvelopeKey(slot: slot)
                 }
@@ -430,11 +444,12 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 ).inserted else {
                     throw .duplicateBCHSignatureEnvelopeKey(slot: slot)
                 }
-                let bchSignatureEnvelopeIdentity = value
-                    .bchSignatureEnvelopePrivateKey.makeSigningKey().publicKey
-                    .compressedRepresentation.dropFirst()
+                let bchSignatureEnvelopeIdentity = Data(
+                    value.bchSignatureEnvelopePrivateKey.makeSigningKey().publicKey
+                        .compressedRepresentation.dropFirst()
+                )
                 guard oneTimeMaterial.insert(
-                    Data(bchSignatureEnvelopeIdentity)
+                    bchSignatureEnvelopeIdentity
                 ).inserted else {
                     throw .duplicateBCHSignatureEnvelopeKey(slot: slot)
                 }
@@ -453,33 +468,34 @@ extension OpalFusion.Mosaic.OpalMainnetAlpha {
                 ).inserted else {
                     throw .duplicateRecipientEventIdentity(slot: slot)
                 }
+                identities.append(
+                    .init(
+                        communicationPublicKey: communicationPublicKey,
+                        communicationIdentity: communicationIdentity,
+                        componentEnvelopeIdentity: componentEnvelopeIdentity,
+                        bchSignatureEnvelopeIdentity: bchSignatureEnvelopeIdentity
+                    )
+                )
             }
+            return identities
         }
 
         private static func validateAnonymousIdentities(
             _ secrets: [ComponentSlotSecrets],
+            identities: [ValidatedSlotIdentities],
             against roster: OpalFusion.Mosaic.Attempt.Roster
         ) throws(BuildError) {
             let controlIdentities = Set(
                 roster.controlIdentities.map { Data($0.validatedBytes) }
             )
             for (slot, value) in secrets.enumerated() {
-                let identities = [
-                    Data(
-                        value.communicationPrivateKey.makeSigningKey()
-                            .publicKey.compressedRepresentation.dropFirst()
-                    ),
-                    Data(
-                        value.componentEnvelopePrivateKey.makeSigningKey()
-                            .publicKey.compressedRepresentation.dropFirst()
-                    ),
-                    Data(
-                        value.bchSignatureEnvelopePrivateKey.makeSigningKey()
-                            .publicKey.compressedRepresentation.dropFirst()
-                    ),
+                let anonymousIdentities = [
+                    identities[slot].communicationIdentity,
+                    identities[slot].componentEnvelopeIdentity,
+                    identities[slot].bchSignatureEnvelopeIdentity,
                     Data(value.recipientEventIdentity),
                 ]
-                guard identities.allSatisfy({
+                guard anonymousIdentities.allSatisfy({
                     !controlIdentities.contains($0)
                 }) else {
                     throw .anonymousIdentityReusesControlIdentity(slot: slot)

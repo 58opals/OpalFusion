@@ -38,6 +38,11 @@ struct MosaicMainnetAlpha4MaterialValidator {
         for slot in material.slots {
             let componentInput = slot.componentAuthorizationRequest.input
             let signatureInput = slot.bchSignatureAuthorizationRequest.input
+            #expect(
+                Data(slot.commitment.communicationPublicKey)
+                    == slot.communicationPrivateKey.makeSigningKey().publicKey
+                        .compressedRepresentation
+            )
             #expect(componentInput.purpose == .component)
             #expect(signatureInput.purpose == .bchSignature)
             #expect(
@@ -448,6 +453,16 @@ struct MosaicMainnetAlpha4MaterialValidator {
         )
         #expect(throws: Alpha.LocalContributionMaterial.BuildError
             .anonymousIdentityReusesControlIdentity(slot: 0)) {
+            _ = try rebuild(prepared, secrets: rosterIdentityCollision)
+        }
+
+        // The complete uniqueness pass still precedes roster-identity checks.
+        rosterIdentityCollision[1] = try replacing(
+            rosterIdentityCollision[1],
+            salt: rosterIdentityCollision[0].salt
+        )
+        #expect(throws: Alpha.LocalContributionMaterial.BuildError
+            .duplicateSalt(slot: 1)) {
             _ = try rebuild(prepared, secrets: rosterIdentityCollision)
         }
     }
