@@ -6,8 +6,8 @@ let package = Package(
     platforms: [.macOS(.v27)],
     dependencies: [
         .package(name: "OpalFusion", path: "../.."),
-        .package(url: "https://github.com/58opals/OpalCrypto.git", revision: "0adfc220b30dfc9512bb8a45c1e4e6033e8bd95a"),
-        .package(url: "https://github.com/58opals/OpalDiagnostics.git", revision: "4147c6191a4d25624c4f4f7e4e97eaeb8010a8fd")
+        .package(url: "https://github.com/58opals/OpalCrypto.git", revision: "cdd407d32d762ee77477914a142fa9700789e839"),
+        .package(url: "https://github.com/58opals/OpalDiagnostics.git", revision: "393325d11591bf87c65288f7755337491b4b41b1")
     ],
     targets: [
         .testTarget(
